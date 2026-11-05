@@ -1,0 +1,11 @@
+# cargo-nextest: test runner used locally and in CI (`cargo nextest run`).
+# https://nexte.st/docs/configuration/
+
+[profile.default]
+# Render tests can be slow: report a test after 60 s, kill it after 5 min.
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# CI: run every test even after a failure and repeat failures at the end.
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
