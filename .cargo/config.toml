@@ -1,0 +1,11 @@
+# Local build settings.
+#
+# target-cpu=native lets LLVM use every SIMD extension of the build machine
+# (AVX2/AVX-512 on x86-64, the full NEON/SVE set on Apple silicon), which
+# matters for a renderer. Binaries built this way may not run on older CPUs:
+# for a distributable build, override it, e.g.
+#   RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release
+# The RUSTFLAGS environment variable replaces this list, so CI (which sets
+# RUSTFLAGS=-D warnings) builds portable code.
+[build]
+rustflags = ["-C", "target-cpu=native"]

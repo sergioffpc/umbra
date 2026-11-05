@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# Blocks a commit unless formatting and lints pass.
+# Enable once per clone with: git config core.hooksPath .githooks
+# Bypass in an emergency with: git commit --no-verify
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: checking whitespace in staged changes"
+git diff --cached --check
+
+echo "pre-commit: cargo fmt"
+if ! cargo fmt --all -- --check; then
+    echo "pre-commit: run 'cargo fmt --all' and stage the result" >&2
+    exit 1
+fi
+
+echo "pre-commit: cargo clippy"
+cargo clippy --all-targets --all-features --locked -- -D warnings

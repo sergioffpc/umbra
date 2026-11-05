@@ -1,0 +1,10 @@
+# Clippy configuration. Lint levels live in `[lints]` in Cargo.toml.
+
+# Apply API-shape lints to public items too; there are no external users yet.
+avoid-breaking-exported-api = false
+
+# Tests may unwrap, expect and print freely.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true
