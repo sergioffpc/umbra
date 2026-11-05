@@ -2,5 +2,13 @@
 name = "umbra"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A physically based ray tracer inspired by pbrt-v4, written in Rust"
+authors = ["Sérgio Carvalho"]
+license = "MIT"
+repository = "https://github.com/sergioffpc/umbra"
+readme = "README.md"
+keywords = ["ray-tracing", "pbr", "rendering", "pbrt", "graphics"]
+categories = ["rendering", "graphics", "multimedia::images"]
 
 [dependencies]
