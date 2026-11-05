@@ -47,14 +47,31 @@ feat(integrator): add path tracing integrator
 fix(bvh): handle degenerate bounding boxes
 ```
 
+## Lint and formatting rules
+
+- Formatting: [`rustfmt.toml`](rustfmt.toml) and [`.editorconfig`](.editorconfig).
+- Lints: the `[lints]` table in [`Cargo.toml`](Cargo.toml) (rustc lints, clippy
+  `all`, `pedantic`, `cargo` and selected `restriction` lints) plus
+  [`clippy.toml`](clippy.toml). Every warning is an error in the hook and in CI.
+- To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
+  narrowest item possible. `#[allow]` and reasonless attributes are rejected.
+
+Enable the pre-commit hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It checks staged whitespace, `cargo fmt` and `cargo clippy` before every commit.
+
 ## Before opening a pull request
 
 Run the same checks CI runs:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-features --locked
 ```
 
 Then:

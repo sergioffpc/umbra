@@ -11,3 +11,48 @@ keywords = ["ray-tracing", "pbr", "rendering", "pbrt", "graphics"]
 categories = ["rendering", "graphics", "multimedia::images"]
 
 [dependencies]
+
+# Lints are set to `warn` so local builds keep compiling while iterating; the
+# pre-commit hook and CI run with `-D warnings`, so every warning blocks a merge.
+[lints.rust]
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unreachable_pub = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unused_crate_dependencies = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Geometry code is full of x, y, z, u, v, t; this lint fights that.
+many_single_char_names = "allow"
+# Transitive duplicates are outside our control.
+multiple_crate_versions = "allow"
+# Selected restriction lints.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_structs_with_brackets = "warn"
+float_cmp_const = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+lossy_float_literal = "warn"
+mem_forget = "warn"
+missing_assert_message = "warn"
+mod_module_files = "warn"
+multiple_unsafe_ops_per_block = "warn"
+rc_buffer = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+str_to_string = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
