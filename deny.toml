@@ -1,0 +1,46 @@
+# cargo-deny: dependency policy checked in CI (`cargo deny check`).
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+# Security advisories from the RustSec database. Unmaintained and yanked
+# crates fail too; justify every entry in `ignore` with a reason.
+[advisories]
+unmaintained = "all"
+yanked = "deny"
+ignore = []
+
+# Only licenses compatible with distributing umbra under MIT.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+# The list is a policy, not an inventory: don't warn for unused entries.
+unused-allowed-license = "allow"
+exceptions = []
+
+[bans]
+# Duplicate versions are common transitively; clippy's
+# `multiple_crate_versions` is off for the same reason.
+multiple-versions = "warn"
+# `*` version requirements make builds unreproducible.
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = []
+skip = []
+
+# Dependencies come from crates.io only; add git sources here explicitly.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

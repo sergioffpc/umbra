@@ -47,6 +47,22 @@ feat(integrator): add path tracing integrator
 fix(bvh): handle degenerate bounding boxes
 ```
 
+## Toolchain
+
+[`rust-toolchain.toml`](rust-toolchain.toml) pins the Rust version, and
+`rustup` installs it automatically the first time you run `cargo` in the repo.
+`rust-version` in [`Cargo.toml`](Cargo.toml) matches it. To upgrade, bump both
+in one `build:` commit and fix any new lints.
+
+Optional tools used by the hook and CI:
+
+- [`typos`](https://github.com/crate-ci/typos) (`brew install typos-cli` or
+  `cargo install typos-cli`): spell checker. Accept false positives in
+  [`_typos.toml`](_typos.toml).
+- [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny)
+  (`cargo install cargo-deny`): checks dependencies for security advisories,
+  licenses, banned crates and sources against [`deny.toml`](deny.toml).
+
 ## Lint and formatting rules
 
 - Formatting: [`rustfmt.toml`](rustfmt.toml) and [`.editorconfig`](.editorconfig).
@@ -64,7 +80,8 @@ prune on fetch, `rerere`, `zdiff3` conflicts, histogram diffs):
 scripts/setup-git.sh
 ```
 
-- `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`.
+- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy` and
+  `typos` (skipped with a warning if `typos` is not installed).
 - `commit-msg` rejects messages that are not Conventional Commits (see
   [Commit messages](#commit-messages)): valid type, lowercase scope and
   description, no trailing period, header of at most 72 characters, a blank
@@ -96,7 +113,11 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
 cargo test --all-features --locked
+cargo deny check
+typos
 ```
+
+CI runs the build, lint and test checks on Linux and macOS.
 
 Then:
 

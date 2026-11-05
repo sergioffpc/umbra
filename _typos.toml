@@ -1,0 +1,9 @@
+# typos: source-code spell checker, run by the pre-commit hook and CI.
+# https://github.com/crate-ci/typos/blob/master/docs/reference.md
+
+[default.extend-words]
+# Accept a word flagged as a typo, e.g. domain terms or identifiers:
+# word = "word"
+
+[files]
+extend-exclude = []

@@ -19,18 +19,24 @@ env:
 
 jobs:
   check:
-    name: fmt, clippy, test
-    runs-on: ubuntu-latest
+    name: fmt, clippy, doc, test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux x86-64 and macOS on Apple silicon: catches floating-point and
+        # SIMD differences between AVX and NEON code paths.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@v2
       - name: Whitespace
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && runner.os == 'Linux'
         run: git diff --check origin/${{ github.base_ref }}...HEAD
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
@@ -38,3 +44,26 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       - run: cargo test --all-features --locked
+
+  deny:
+    name: cargo deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    # A new advisory can appear at any time without a code change; report it
+    # without blocking unrelated pull requests.
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
+
+  typos:
+    name: typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.52.0
