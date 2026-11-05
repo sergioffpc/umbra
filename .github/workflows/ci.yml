@@ -37,6 +37,9 @@ jobs:
       - name: Toolchain
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-nextest
       - name: Whitespace
         if: github.event_name == 'pull_request' && runner.os == 'Linux'
         run: git diff --check origin/${{ github.base_ref }}...HEAD
@@ -45,7 +48,9 @@ jobs:
       - run: cargo doc --no-deps --document-private-items --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: cargo test --all-features --locked
+      # nextest does not run doctests; add `cargo test --doc` once there is a
+      # library target. `--no-tests=warn` until the first test lands.
+      - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
 
   deny:
     name: cargo deny (${{ matrix.checks }})
@@ -54,9 +59,8 @@ jobs:
       fail-fast: false
       matrix:
         checks: [advisories, bans licenses sources]
-    # A new advisory can appear at any time without a code change; report it
-    # without blocking unrelated pull requests.
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    # Advisories are split out so a new RustSec advisory shows as its own
+    # failing check, apart from the license and source policy.
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -69,3 +73,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
+
+  shear:
+    name: unused dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-shear
+      - run: cargo shear
