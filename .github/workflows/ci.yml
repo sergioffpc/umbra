@@ -17,6 +17,10 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# Job names (including matrix values) are required status checks in the
+# "Require CI checks" repository ruleset: when renaming or adding a job,
+# update the ruleset too, or merges into develop and main stay blocked.
+#
 # Third-party actions are pinned to a commit SHA (tags can be moved);
 # Dependabot updates the SHA and the version comment together.
 jobs:

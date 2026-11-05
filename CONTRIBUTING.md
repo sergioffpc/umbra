@@ -22,8 +22,9 @@ Umbra uses [git flow](https://nvie.com/posts/a-successful-git-branching-model/):
 | `hotfix/X.Y.Z`    | `main`        | `main` and `develop` | Urgent fixes to a release       |
 
 Open pull requests against `develop` unless you are working on a release or
-hotfix. A repository ruleset blocks merges into `develop` and `main` while
-CodeQL code scanning reports any open alert on the pull request.
+hotfix. Repository rulesets block merges into `develop` and `main` unless
+every CI job in [`ci.yml`](.github/workflows/ci.yml) passes and CodeQL code
+scanning reports no open alert on the pull request.
 
 ## Commit messages
 
