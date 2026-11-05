@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Git LFS: post-checkout hook.
+command -v git-lfs >/dev/null 2>&1 || {
+    echo "post-checkout: git-lfs is not installed; see CONTRIBUTING.md" >&2
+    exit 2
+}
+git lfs post-checkout "$@"
