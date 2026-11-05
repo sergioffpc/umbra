@@ -98,9 +98,14 @@ Optional tools used by the hook and CI:
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
-Run the setup script once per clone. It enables the hooks and the commit
-message template and applies recommended local git settings (rebase on pull,
-prune on fetch, `rerere`, `zdiff3` conflicts, histogram diffs):
+Install [Git LFS](https://git-lfs.com) first (`brew install git-lfs` on
+macOS). Images (`.exr`, `.hdr`, `.pfm`, `.png`, `.jpg`, `.tga`) and meshes
+(`.ply`, `.obj`) are stored in LFS; see [`.gitattributes`](.gitattributes).
+
+Then run the setup script once per clone. It enables the hooks, the commit
+message template and the LFS filters, downloads LFS content, and applies
+recommended local git settings (rebase on pull, prune on fetch, `rerere`,
+`zdiff3` conflicts, histogram diffs):
 
 ```sh
 scripts/setup-git.sh
@@ -115,7 +120,9 @@ scripts/setup-git.sh
   Git-generated merge, revert, `fixup!` and `squash!` messages are allowed.
 - `pre-push` rejects branches and tags outside the git flow names above
   (`main`, `develop`, `feature/<name>`, `release/X.Y.Z`, `hotfix/X.Y.Z`,
-  tags `vX.Y.Z`).
+  tags `vX.Y.Z`), then uploads LFS objects.
+- `post-checkout`, `post-commit` and `post-merge` run the matching Git LFS
+  hooks. Every hook that uses LFS stops with an error if `git-lfs` is missing.
 
 ## Build profiles
 
