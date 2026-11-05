@@ -56,13 +56,18 @@ fix(bvh): handle degenerate bounding boxes
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
-Enable the pre-commit hook once per clone:
+Enable the git hooks once per clone:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-It checks staged whitespace, `cargo fmt` and `cargo clippy` before every commit.
+- `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`.
+- `commit-msg` rejects messages that are not Conventional Commits (see
+  [Commit messages](#commit-messages)): valid type, lowercase scope and
+  description, no trailing period, header of at most 72 characters, a blank
+  line before the body, and a `BREAKING CHANGE:` footer whenever `!` is used.
+  Git-generated merge, revert, `fixup!` and `squash!` messages are allowed.
 
 ## Before opening a pull request
 
@@ -71,6 +76,7 @@ Run the same checks CI runs:
 ```sh
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
 cargo test --all-features --locked
 ```
 

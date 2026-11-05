@@ -16,15 +16,17 @@ categories = ["rendering", "graphics", "multimedia::images"]
 # pre-commit hook and CI run with `-D warnings`, so every warning blocks a merge.
 [lints.rust]
 missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
 unreachable_pub = "warn"
+unit_bindings = "warn"
 unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "warn"
-unused_crate_dependencies = "warn"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
+unused_macro_rules = "warn"
 unused_qualifications = "warn"
 
 [lints.clippy]
@@ -43,6 +45,10 @@ dbg_macro = "warn"
 empty_structs_with_brackets = "warn"
 float_cmp_const = "warn"
 get_unwrap = "warn"
+# Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy. The sibling
+# `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow libm
+# call on targets built without FMA.
+imprecise_flops = "warn"
 if_then_some_else_none = "warn"
 lossy_float_literal = "warn"
 mem_forget = "warn"
