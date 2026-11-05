@@ -1,0 +1,8 @@
+# Pinned toolchain. clippy `pedantic`/`cargo` gain new lints with every Rust
+# release, so a floating `stable` would break CI without any code change.
+# Upgrade deliberately: bump `channel` here and `rust-version` in Cargo.toml in
+# the same commit, then fix any new lints. Dependabot does not update this file.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

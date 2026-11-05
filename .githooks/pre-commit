@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Blocks a commit unless formatting and lints pass.
+# Blocks a commit unless formatting, lints and spelling pass.
 # Enable once per clone with: git config core.hooksPath .githooks
 # Bypass in an emergency with: git commit --no-verify
 set -eu
@@ -17,3 +17,11 @@ fi
 
 echo "pre-commit: cargo clippy"
 cargo clippy --all-targets --all-features --locked -- -D warnings
+
+echo "pre-commit: typos"
+if command -v typos >/dev/null 2>&1; then
+    typos
+else
+    echo "pre-commit: typos not installed, skipping (CI still checks)." >&2
+    echo "  install with: brew install typos-cli  or  cargo install typos-cli" >&2
+fi
