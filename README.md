@@ -11,7 +11,7 @@ Umbra is a physically based ray tracer written in Rust, inspired by
 
 ## Building
 
-Requires Rust 1.85 or newer (edition 2024).
+Requires Rust 1.99 or newer.
 
 ```sh
 git clone https://github.com/sergioffpc/umbra.git
