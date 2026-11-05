@@ -1,1 +1,21 @@
+# Build output
 /target
+
+# Profiling and debugging output
+*.profraw
+*.profdata
+perf.data*
+flamegraph.svg
+*.trace/
+*.dSYM/
+
+# Rendered images written at the repository root during local runs
+/*.exr
+/*.png
+/*.pfm
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

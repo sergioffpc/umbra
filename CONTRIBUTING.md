@@ -56,10 +56,12 @@ fix(bvh): handle degenerate bounding boxes
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
-Enable the git hooks once per clone:
+Run the setup script once per clone. It enables the hooks and the commit
+message template and applies recommended local git settings (rebase on pull,
+prune on fetch, `rerere`, `zdiff3` conflicts, histogram diffs):
 
 ```sh
-git config core.hooksPath .githooks
+scripts/setup-git.sh
 ```
 
 - `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`.
@@ -68,6 +70,22 @@ git config core.hooksPath .githooks
   description, no trailing period, header of at most 72 characters, a blank
   line before the body, and a `BREAKING CHANGE:` footer whenever `!` is used.
   Git-generated merge, revert, `fixup!` and `squash!` messages are allowed.
+- `pre-push` rejects branches and tags outside the git flow names above
+  (`main`, `develop`, `feature/<name>`, `release/X.Y.Z`, `hotfix/X.Y.Z`,
+  tags `vX.Y.Z`).
+
+## Build profiles
+
+| Profile     | Command                             | Use                                                   |
+| ----------- | ----------------------------------- | ----------------------------------------------------- |
+| `dev`       | `cargo build`                       | Day-to-day work: `opt-level = 1`, dependencies at 3, full debug info, all checks |
+| `release`   | `cargo build --release`             | Fastest binary: fat LTO, one codegen unit, `panic = "abort"`, line tables for backtraces |
+| `profiling` | `cargo build --profile profiling`   | Release speed with full debug info for profilers      |
+| `checked`   | `cargo build --profile checked`     | Release speed with debug assertions and overflow checks, for long renders |
+
+[`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
+(`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
+other machines.
 
 ## Before opening a pull request
 

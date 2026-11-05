@@ -12,6 +12,43 @@ categories = ["rendering", "graphics", "multimedia::images"]
 
 [dependencies]
 
+# Development builds: optimised enough that test renders finish, with full
+# debug info and every runtime check (debug assertions, overflow checks) on.
+[profile.dev]
+opt-level = 1
+debug = "full"
+debug-assertions = true
+overflow-checks = true
+
+# Dependencies are compiled once, so optimise them fully even in dev.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Release: maximum runtime performance at the cost of build time.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+incremental = false
+debug = "line-tables-only"
+strip = "none"
+
+# Release performance with full debug info, for profilers (samply,
+# Instruments, perf) that need inlined frames and source lines.
+# Use: cargo build --profile profiling
+[profile.profiling]
+inherits = "release"
+debug = "full"
+
+# Release performance with debug assertions and overflow checks back on, to
+# validate long renders that are too slow in dev. Use: --profile checked
+[profile.checked]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+panic = "unwind"
+
 # Lints are set to `warn` so local builds keep compiling while iterating; the
 # pre-commit hook and CI run with `-D warnings`, so every warning blocks a merge.
 [lints.rust]

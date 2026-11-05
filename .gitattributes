@@ -1,0 +1,24 @@
+# Normalise text to LF in the repository and the working tree.
+* text=auto eol=lf
+
+# Language-aware hunk headers in diffs.
+*.rs diff=rust
+*.md diff=markdown
+
+# Collapse the lockfile in GitHub PR diffs and keep it out of language stats.
+Cargo.lock linguist-generated=true
+
+# Scene and asset formats. Text formats diff as text; images and meshes are
+# binary so git never tries to normalise or merge them.
+*.pbrt text
+*.obj text
+*.mtl text
+*.exr binary
+*.hdr binary
+*.pfm binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tga binary
+*.ply binary
+*.spd text
