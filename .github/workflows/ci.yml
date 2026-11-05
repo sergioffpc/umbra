@@ -17,6 +17,8 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# Third-party actions are pinned to a commit SHA (tags can be moved);
+# Dependabot updates the SHA and the version comment together.
 jobs:
   check:
     name: fmt, clippy, doc, test (${{ matrix.os }})
@@ -34,7 +36,7 @@ jobs:
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Toolchain
         run: rustup toolchain install && rustc --version
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Whitespace
         if: github.event_name == 'pull_request' && runner.os == 'Linux'
         run: git diff --check origin/${{ github.base_ref }}...HEAD
@@ -57,7 +59,7 @@ jobs:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check ${{ matrix.checks }}
 
@@ -66,4 +68,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.52.0
+      - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
