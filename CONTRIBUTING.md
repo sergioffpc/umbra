@@ -1,0 +1,70 @@
+# Contributing to Umbra
+
+Thanks for your interest in contributing! This guide explains how work flows
+through the repository.
+
+## Reporting bugs and requesting features
+
+Open an issue using one of the [issue templates](https://github.com/sergioffpc/umbra/issues/new/choose).
+Search existing issues first to avoid duplicates. For security issues, follow
+[SECURITY.md](SECURITY.md) instead of opening a public issue.
+
+## Branching model
+
+Umbra uses [git flow](https://nvie.com/posts/a-successful-git-branching-model/):
+
+| Branch            | Branches from | Merges into         | Purpose                         |
+| ----------------- | ------------- | ------------------- | ------------------------------- |
+| `main`            |               |                     | Released code, tagged `vX.Y.Z`  |
+| `develop`         | `main`        |                     | Integration of upcoming changes |
+| `feature/<name>`  | `develop`     | `develop`           | New features and fixes          |
+| `release/X.Y.Z`   | `develop`     | `main` and `develop` | Release preparation             |
+| `hotfix/X.Y.Z`    | `main`        | `main` and `develop` | Urgent fixes to a release       |
+
+Open pull requests against `develop` unless you are working on a release or
+hotfix.
+
+## Commit messages
+
+Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+
+```
+<type>(<optional scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+`build`, `ci`, `chore`, `revert`. Mark breaking changes with `!` after the type
+and a `BREAKING CHANGE:` footer. Pull request titles use the same format.
+
+Examples:
+
+```
+feat(integrator): add path tracing integrator
+fix(bvh): handle degenerate bounding boxes
+```
+
+## Before opening a pull request
+
+Run the same checks CI runs:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+```
+
+Then:
+
+- Add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for
+  user-visible changes.
+- Add or update tests for the behaviour you changed.
+- Keep each pull request focused on one change.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the
+[MIT License](LICENSE).
