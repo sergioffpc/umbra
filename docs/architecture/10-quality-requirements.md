@@ -1,6 +1,6 @@
 # 10. Quality Requirements
 
-Measurable targets for the quality goals of section 1.2, decided in [Quality goals and measurable targets](https://github.com/sergioffpc/umbra/issues/28). How performance is measured is section 8.4. How correctness is validated (test cases, coverage, CI) is still open on the implementation-plan map.
+Measurable targets for the quality goals of section 1.2, decided in [Quality goals and measurable targets](https://github.com/sergioffpc/umbra/issues/28). How performance is measured is section 8.4. How correctness is validated is section 8.11. Which milestone each target first applies to is section 4.1.
 
 ## 10.1 Quality tree
 

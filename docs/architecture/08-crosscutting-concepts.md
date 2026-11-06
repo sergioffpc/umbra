@@ -274,6 +274,7 @@ How Umbra proves it renders what pbrt-v4 renders ([ADR 0013](../adr/0013-statist
 | --- | --- |
 | Pinned reference | `mmp/pbrt-v4` at `b0bdf461ba5dd6504b70ebf0932acc0fe7aa744f`, `mmp/pbrt-v4-scenes` at `30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572`. One file holds both commits once validation code exists. Moving them is an explicit decision that publishes a new reference. |
 | Reference statistics | A repository script builds the pinned pbrt-v4 and renders every Reference Scene 16 times (seeds 0–15) at its validation settings. Per-pixel mean and variance EXRs, and the Reference Image of QS-1 (§10), are published as assets of the GitHub release `pbrt-v4-reference-<commit>`, downloaded and hash-checked by `umbra validate`. |
+| Reference Scene Variants | A feature that no Reference Scene uses is validated on a Reference Scene Variant: a Reference Scene with one declared, minimal edit to its Scene File, for example a different `Integrator` or `PixelFilter` line. The reference script applies the same edit before pbrt-v4 renders it, and the variant gets its own settings and published statistics ([ADR 0019](../adr/0019-milestones-defined-by-the-reference-scenes-they-unlock.md)). |
 | Image test | Umbra renders the same 16 seeds. Per pixel and RGB channel, a Welch t-test. Benjamini–Hochberg at q = 0.01 over all tests: one rejection fails the Reference Scene. Zero variance on both sides passes only with equal means. Any Anomalous Pixel Sample fails it too. |
 | Report | Per Reference Scene: verdict, p-value map, rejected pixels, Anomalous Pixel Samples as `umbra trace` commands (§8.9), and relMSE and FLIP as diagnostics. |
 | Noise target | The Welch test detects bias. Whether Umbra is noisier than pbrt-v4 is QS-1 (§10): relMSE against the Reference Image, checked by the milestone's benchmark measurement issue. Both block the milestone. |
@@ -337,7 +338,7 @@ flowchart LR
 
 ## 8.13 Wire protocol
 
-The messages between the Coordinator and its Workers and how they travel over QUIC ([ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0015](../adr/0015-one-render-job-per-quic-connection.md), [Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)).
+The messages between the Coordinator and its Workers and how they travel over QUIC ([ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md), [Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)).
 
 | Concern | Rule |
 | --- | --- |
