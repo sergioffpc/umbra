@@ -4,5 +4,5 @@
 # the same commit, then fix any new lints. Dependabot does not update this file.
 [toolchain]
 channel = "1.99.1"
-components = ["rustfmt", "clippy"]
+components = ["rustfmt", "clippy", "llvm-tools"]
 profile = "minimal"
