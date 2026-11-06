@@ -1,17 +1,41 @@
-[package]
-name = "umbra"
+# The workspace of arc42 §5.1 (ADR 0015): seven `#![no_std]` core crates
+# without `alloc` and five `std` crates around them, all in `crates/<name>/`.
+# Every crate inherits the package metadata, lints and dependencies below
+# (arc42 §5.4).
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+# One version for the whole workspace; the Build Identity is the commit
+# (ADR 0012). Nothing is published to crates.io.
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
-description = "A physically based ray tracer inspired by pbrt-v4, written in Rust"
 authors = ["Sérgio Carvalho"]
 license = "MIT"
 repository = "https://github.com/sergioffpc/umbra"
 readme = "README.md"
 keywords = ["ray-tracing", "pbr", "rendering", "pbrt", "graphics"]
 categories = ["rendering", "graphics", "multimedia::images"]
+publish = false
 
-[dependencies]
+# Every dependency is declared once here and taken with `workspace = true`.
+# Core crates use `default-features = false` for every external dependency:
+# it must build without `std` (ADR 0014).
+[workspace.dependencies]
+serde = { version = "1.0.228", default-features = false }
+umbra-camera = { path = "crates/umbra-camera" }
+umbra-cluster = { path = "crates/umbra-cluster" }
+umbra-geometry = { path = "crates/umbra-geometry" }
+umbra-integrators = { path = "crates/umbra-integrators" }
+umbra-math = { path = "crates/umbra-math" }
+umbra-parser = { path = "crates/umbra-parser" }
+umbra-render = { path = "crates/umbra-render" }
+umbra-sampling = { path = "crates/umbra-sampling" }
+umbra-scene = { path = "crates/umbra-scene" }
+umbra-shading = { path = "crates/umbra-shading" }
+umbra-spectrum = { path = "crates/umbra-spectrum" }
 
 # Development builds: optimised enough that test renders finish, with full
 # debug info and every runtime check (debug assertions, overflow checks) on.
@@ -52,7 +76,7 @@ panic = "unwind"
 
 # Lints are set to `warn` so local builds keep compiling while iterating; the
 # pre-commit hook and CI run with `-D warnings`, so every warning blocks a merge.
-[lints.rust]
+[workspace.lints.rust]
 # Least privilege: every item is private unless it must be public. `pub` that is
 # not reachable from outside the crate must be `pub(crate)` (`unreachable_pub`),
 # and anything that is public must carry docs (`missing_docs`).
@@ -74,7 +98,7 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }

@@ -128,7 +128,7 @@ recommended local git settings (rebase on pull, prune on fetch, `rerere`,
 scripts/setup-git.sh
 ```
 
-- `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`,
+- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy`,
   then runs the linters that replace editor extensions: `typos`,
   `editorconfig-checker` on the staged files, `prettier`, `taplo`,
   `yamllint` and `markdownlint-cli2` on the staged JSON, TOML, YAML and
@@ -232,6 +232,28 @@ container.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
+## Workspace layout
+
+The twelve crates of
+[arc42 §5.1](docs/architecture/05-building-block-view.md#51-level-1-the-workspace)
+live in `crates/<name>/`. The root [`Cargo.toml`](Cargo.toml) holds the
+package metadata, lints and dependencies they inherit, and the build profiles.
+Every crate sets `lints.workspace = true` and takes its dependencies with
+`workspace = true`: declare a new dependency in `[workspace.dependencies]`
+first.
+
+- The seven core crates (`umbra-math` to `umbra-integrators`) are
+  `#![no_std]` and never `extern crate alloc`
+  ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
+  [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
+  Their dependencies use `default-features = false` and must build without
+  `std`. Check with
+  `RUSTFLAGS="-D warnings" cargo build --target aarch64-unknown-none -p umbra-math`
+  (and the other six). Setting `RUSTFLAGS` drops `target-cpu=native`, which
+  does not apply to that target.
+- Each core crate has a `serde` feature, off by default, that enables its
+  dependencies' `serde` features. `umbra-scene` turns it on.
+
 ## Build profiles
 
 | Profile     | Command                           | Use                                                                                      |
@@ -254,6 +276,10 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
 cargo nextest run --all-features --locked
+cargo test --doc --all-features --locked
+RUSTFLAGS="-D warnings" cargo build --locked --target aarch64-unknown-none \
+  -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry \
+  -p umbra-shading -p umbra-camera -p umbra-integrators
 cargo deny check
 cargo shear
 typos

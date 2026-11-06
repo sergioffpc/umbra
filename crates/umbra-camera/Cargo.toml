@@ -1,0 +1,26 @@
+[package]
+name = "umbra-camera"
+description = "Cameras and CameraKind, Filters, sensor RGB, camera sample generation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[features]
+# Derives `Serialize`/`Deserialize` for the Scene arena types, for Scene
+# replication (ADR 0015). Off by default; `umbra-scene` turns it on.
+serde = ["dep:serde", "umbra-geometry/serde", "umbra-spectrum/serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+umbra-geometry = { workspace = true }
+umbra-spectrum = { workspace = true }
+
+[lints]
+workspace = true
