@@ -1,5 +1,7 @@
 # Per-CPU binaries, locked to one commit per Render Job
 
+Amended by [ADR 0018](0018-sessions-launched-from-the-operators-machine.md): the Coordinator always runs on the operator's machine.
+
 Each target machine runs a binary compiled for its own CPU, and the Coordinator accepts only Workers built from its own commit. Decided in [Per-machine build and deployment](https://github.com/sergioffpc/umbra/issues/27). This amends [ADR 0005](0005-chiseled-release-container-image.md), which published a single `x86-64-v3` image.
 
 - **One target CPU per machine.** The P620 runs `target-cpu=znver2`, the R630 runs `broadwell` and the MacBook runs `apple-m2` (inventory in [arc42 §7.1](../architecture/07-deployment-view.md)). There is no runtime multiversioning and no generic `x86-64-v3` binary. Adding a machine with a new CPU means adding one target.

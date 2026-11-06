@@ -48,21 +48,24 @@ Each machine runs a binary compiled for its own CPU ([ADR 0012](../adr/0012-per-
 
 ```mermaid
 flowchart LR
-    op["Operator machine<br/>scripts/workers up"]
+    subgraph op["Operator machine (P620 for large Scenes)"]
+        script["scripts/workers up"]
+        coord["Coordinator<br/>+ local Worker"]
+    end
     subgraph lan["LAN, 1 GbE"]
-        p620["Lenovo P620<br/>Coordinator (default)<br/>+ local Worker"]
         r630["Dell R630<br/>2 Workers (one per socket)"]
         mac["MacBook Pro M2<br/>Worker (optional, Wi-Fi)"]
     end
-    op -- "SSH: build or pull,<br/>start in the foreground" --> p620
-    op -- SSH --> r630
-    op -- SSH --> mac
-    r630 -- "QUIC (UDP)" --> p620
-    mac -- "QUIC (UDP)" --> p620
-    p620 -- "final image" --> op
+    script -- "local process" --> coord
+    script -- "SSH: build or pull,<br/>start, restart" --> r630
+    script -- SSH --> mac
+    r630 -- "QUIC (UDP)" --> coord
+    mac -- "QUIC (UDP)" --> coord
 ```
 
-- **The Coordinator can run on any machine.** Nothing in the binary depends on where it runs. The launch script takes `--coordinator <host>`, and the default is the P620 with an in-process local Worker ([ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md)), because it is the strongest machine and is wired. The MacBook joins as an optional Worker over Wi-Fi.
-- **Workers are started per session from the operator's machine.** `scripts/workers up --ref <git-ref>` builds that ref on each host with `cargo`. `scripts/workers up --version X.Y.Z` pulls the host's CPU variant and runs it with `docker run --network host`. In both cases the script starts the Coordinator and the Workers in the foreground over SSH, streams their logs, and copies the final image back to the operator's machine. The script starts one Worker per NUMA node, each under `numactl --cpunodebind=N --membind=N` ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)), so the R630 runs two. The host list, which records each host's SSH name, target CPU and NUMA node count, belongs to the operator. A Worker exits when it loses the Coordinator, and nothing keeps running between sessions.
+- **The Coordinator runs on the operator's machine** ([ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md)). The operator's machine is wherever `scripts/workers up` runs; the Coordinator and its optional in-process local Worker ([ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md)) run there as local processes. The Scene File is read and the image and Render Job Report are written on that machine, so nothing is copied to or from it. For large Scenes the operator logs into the P620 and runs the script there, because it is the strongest machine and is wired; from the MacBook every Scene transfer crosses Wi-Fi.
+- **Workers are started per session from the operator's machine.** `scripts/workers up --ref <git-ref>` builds that ref on every host, the local one included, with `cargo`. `scripts/workers up --version X.Y.Z` pulls the host's CPU variant and runs it with `docker run --network host`. The script starts one Worker per NUMA node, each under `numactl --cpunodebind=N --membind=N` ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)), so the R630 runs two. The host list, which records each host's SSH name, target CPU and NUMA node count, belongs to the operator. A Worker exits when it loses the Coordinator, and nothing keeps running between sessions.
+- **Start-up order.** Build or pull on every host in parallel, aborting on any failure. Start the Coordinator, which parses the Scene File and builds the Scene before it opens its UDP port, and exits on Diagnostics before any Worker exists. Wait for its readiness line on stderr. Start the Workers over SSH, in the foreground, with `--coordinator <operator address as seen by the host, from $SSH_CLIENT>:<port> --session <id>`, and stream their logs. A Worker does not retry its initial connection.
+- **Automatic restart.** The script restarts a Worker Slot whose Worker or SSH session ends abnormally (`Fatal`, crash, OOM kill, lost Coordinator, lost SSH session), but not after `FINISHED`, `JOB_CANCELLED`, `REJECTED` or `PROTOCOL_ERROR`, told apart by the Worker's exit code. At most three consecutive restarts per slot, after 2 s, 10 s and 30 s, reset by the restarted Worker's first Work Result. Restarts reuse the built binary. Hosts outside the starting host list cannot join a running Session.
 - **Version lockstep.** On connection, the Coordinator rejects any Worker whose Build Identity names a different commit. Dirty builds are rejected unless the Render Job runs with `--allow-dirty`, which the Render Job report records. Workers must also present the Session identifier the launch script generates. The handshake is in [§8.13](08-crosscutting-concepts.md#813-wire-protocol).
-- **One-time host setup.** Each Linux host needs Docker and rustup; the MacBook needs rustup. The Coordinator's QUIC UDP port is opened once in the R630's nftables (and in any other host firewall).
+- **One-time host setup.** Each Linux host needs Docker and rustup; the MacBook needs rustup. The Coordinator's QUIC UDP port is opened once in the firewall of every machine an operator runs Sessions from (the macOS Application Firewall on the MacBook, nftables on the R630).
