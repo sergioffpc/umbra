@@ -1,0 +1,21 @@
+[package]
+name = "umbra"
+description = "A physically based ray tracer inspired by pbrt-v4, written in Rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[dependencies]
+umbra-cluster = { workspace = true }
+umbra-parser = { workspace = true }
+umbra-render = { workspace = true }
+
+[lints]
+workspace = true

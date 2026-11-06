@@ -9,4 +9,4 @@
 !Cargo.toml
 !Cargo.lock
 !rust-toolchain.toml
-!src/
+!crates/
