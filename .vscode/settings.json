@@ -3,6 +3,8 @@
   // Formatting rules live in rustfmt.toml and .editorconfig; these settings
   // only make the editor apply them.
   "editor.formatOnSave": false,
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
   "files.encoding": "utf8",
   "files.eol": "\n",
   "files.insertFinalNewline": true,
