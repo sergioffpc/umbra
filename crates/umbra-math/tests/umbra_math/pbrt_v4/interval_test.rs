@@ -1,9 +1,26 @@
 //! pbrt-v4 `src/pbrt/util/math_test.cpp`, the `FloatInterval` tests.
 
 use crate::rng::Rng;
-use umbra_math::{Interval, Products, difference_of_products, lerp, sum_of_products};
+use umbra_math::{Interval, difference_of_products, lerp, sum_of_products};
 
 const FLOAT_INTERVAL_ITERS: u64 = 1_000_000;
+
+/// pbrt-v4 `DifferenceOfProducts` for `double`, the precise value the tests
+/// compare against.
+fn difference_of_products_f64(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    let cd = c * d;
+    let difference = libm::fma(a, b, -cd);
+    let error = libm::fma(-c, d, cd);
+    difference + error
+}
+
+/// pbrt-v4 `SumOfProducts` for `double`.
+fn sum_of_products_f64(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    let cd = c * d;
+    let sum = libm::fma(a, b, cd);
+    let error = libm::fma(c, d, -cd);
+    sum + error
+}
 
 /// pbrt-v4 `getFloat`: an exponentially distributed value with a random error
 /// bound.
@@ -218,7 +235,7 @@ fn float_interval_difference_of_products() {
         let mut rng = Rng::new(trial);
         let ([a, b, c, d], [pa, pb, pc, pd]) = product_terms(&mut rng, Last::Positive);
         let r = difference_of_products(a, b, c, d);
-        assert_contains(r, f64::difference_of_products(pa, pb, pc, pd), trial);
+        assert_contains(r, difference_of_products_f64(pa, pb, pc, pd), trial);
     }
 }
 
@@ -229,6 +246,6 @@ fn float_interval_sum_of_products() {
         let mut rng = Rng::new(trial);
         let ([a, b, c, d], [pa, pb, pc, pd]) = product_terms(&mut rng, Last::Negated);
         let r = sum_of_products(a, b, c, d);
-        assert_contains(r, f64::sum_of_products(pa, pb, pc, pd), trial);
+        assert_contains(r, sum_of_products_f64(pa, pb, pc, pd), trial);
     }
 }

@@ -8,6 +8,33 @@
 
 #![no_std]
 
+// The x86-64 CPU baseline (ADR 0002): every target machine has FMA, and the
+// kernels use it, SSE4.1 and AVX2 unconditionally. Without them the build
+// stops here rather than run a slower, differently compiled path. Rustdoc
+// generates no code and does not see RUSTFLAGS, so `cargo doc` is exempt.
+#[cfg(all(
+    target_arch = "x86_64",
+    not(doc),
+    not(all(
+        target_feature = "fma",
+        target_feature = "sse4.1",
+        target_feature = "avx2"
+    ))
+))]
+compile_error!(concat!(
+    "umbra-math needs x86-64-v3 (FMA, SSE4.1, AVX2) on x86-64 (ADR 0002): ",
+    "build with `-C target-cpu=x86-64-v3`, or `target-cpu=native` on a CPU that has it"
+));
+
+// The supported architectures (ADR 0002, ADR 0014): the target machines are
+// x86-64 and arm64 with NEON, and the SIMD facade and the scalar primitives
+// have a backend for those two only. A GPU or other port adds its own.
+#[cfg(not(any(
+    target_arch = "x86_64",
+    all(target_arch = "aarch64", target_feature = "neon")
+)))]
+compile_error!("umbra-math supports x86-64 (x86-64-v3) and arm64 with NEON only (ADR 0014)");
+
 mod float;
 mod interval;
 mod math;
@@ -17,10 +44,10 @@ mod transform;
 mod vecmath;
 
 pub use float::{
-    MACHINE_EPSILON, ONE_MINUS_EPSILON, add_round_down, add_round_up, div_round_down, div_round_up,
-    exponent, fma, fma_round_down, fma_round_up, gamma, mul_round_down, mul_round_up,
-    next_float_down, next_float_up, sign_bit, significand, sqrt_round_down, sqrt_round_up,
-    sub_round_down, sub_round_up,
+    MACHINE_EPSILON, ONE_MINUS_EPSILON, add_round_down, add_round_up, ceil, div_round_down,
+    div_round_up, exponent, floor, fma, fma_round_down, fma_round_up, gamma, mul_round_down,
+    mul_round_up, next_float_down, next_float_up, sign_bit, significand, sqrt, sqrt_round_down,
+    sqrt_round_up, sub_round_down, sub_round_up,
 };
 pub use interval::Interval;
 pub use math::{

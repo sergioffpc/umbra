@@ -265,7 +265,10 @@ first.
 
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
 (`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
-other machines.
+other machines. On x86-64, an override must keep at least
+`-C target-cpu=x86-64-v3`: `umbra-math` requires FMA, SSE4.1 and AVX2 and
+stops the build without them
+([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)).
 
 ## Before opening a pull request
 

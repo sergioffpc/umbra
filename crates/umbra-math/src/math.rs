@@ -23,7 +23,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
 
 use core::ops::{Add, AddAssign, Mul, Sub};
 
-use crate::float::{exponent, fma, significand};
+use crate::float::{exponent, floor, fma, significand, sqrt};
 
 /// π, from `core`.
 ///
@@ -130,7 +130,7 @@ pub fn smooth_step(x: f32, a: f32, b: f32) -> f32 {
 #[must_use]
 pub fn safe_sqrt(x: f32) -> f32 {
     debug_assert!(x >= -1e-3, "safe_sqrt: {x} is too negative");
-    libm::sqrtf(max(0.0, x))
+    sqrt(max(0.0, x))
 }
 
 /// `asin` with the argument clamped to `[−1, 1]`.
@@ -190,7 +190,7 @@ pub fn evaluate_polynomial<const N: usize>(t: f32, c: [f32; N]) -> f32 {
 #[must_use]
 pub fn fast_exp(x: f32) -> f32 {
     let xp = x * core::f32::consts::LOG2_E;
-    let fxp = libm::floorf(xp);
+    let fxp = floor(xp);
     let f = xp - fxp;
     #[expect(
         clippy::cast_possible_truncation,
@@ -216,7 +216,7 @@ pub fn fast_exp(x: f32) -> f32 {
 /// PBR 4e §B.2.2, pbrt-v4 `Gaussian`.
 #[must_use]
 pub fn gaussian(x: f32, mu: f32, sigma: f32) -> f32 {
-    1.0 / libm::sqrtf(2.0 * PI * sigma * sigma) * fast_exp(-sqr(x - mu) / (2.0 * sigma * sigma))
+    1.0 / sqrt(2.0 * PI * sigma * sigma) * fast_exp(-sqr(x - mu) / (2.0 * sigma * sigma))
 }
 
 /// The integral of [`gaussian`] over `[x0, x1]`.
@@ -303,7 +303,7 @@ pub trait PowerOf2: Copy {
     fn round_up_pow2(self) -> Self;
 }
 
-macro_rules! impl_power_of_2 {
+macro_rules! impl_power_of_2_unsigned {
     ($($t:ty),*) => {$(
         impl PowerOf2 for $t {
             #[inline]
@@ -311,20 +311,39 @@ macro_rules! impl_power_of_2 {
                 self != 0 && (self & (self.wrapping_sub(1))) == 0
             }
 
+            /// pbrt-v4 smears the top bit of `v − 1` down with five shift-or
+            /// steps; one count of leading zeros gives the same smeared value
+            /// (the reference in `tests/umbra_math/reference/math.rs` keeps the
+            /// loop).
             #[inline]
             fn round_up_pow2(self) -> Self {
-                let mut v = self.wrapping_sub(1);
-                let mut shift = 1;
-                while shift < <$t>::BITS {
-                    v |= v >> shift;
-                    shift <<= 1;
-                }
-                v.wrapping_add(1)
+                let below = self.wrapping_sub(1);
+                let smeared = <$t>::MAX.checked_shr(below.leading_zeros()).unwrap_or(0);
+                smeared.wrapping_add(1)
             }
         }
     )*};
 }
-impl_power_of_2!(i32, i64, u32, u64);
+impl_power_of_2_unsigned!(u32, u64);
+
+/// The signed types, on their bits as pbrt-v4's two's-complement arithmetic
+/// works on them.
+macro_rules! impl_power_of_2_signed {
+    ($($t:ty),*) => {$(
+        impl PowerOf2 for $t {
+            #[inline]
+            fn is_power_of_2(self) -> bool {
+                self.cast_unsigned().is_power_of_2()
+            }
+
+            #[inline]
+            fn round_up_pow2(self) -> Self {
+                self.cast_unsigned().round_up_pow2().cast_signed()
+            }
+        }
+    )*};
+}
+impl_power_of_2_signed!(i32, i64);
 
 /// Whether `v` is a power of two.
 ///
@@ -430,12 +449,6 @@ impl From<CompensatedFloat> for f32 {
     }
 }
 
-impl From<CompensatedFloat> for f64 {
-    fn from(c: CompensatedFloat) -> Self {
-        Self::from(c.v) + Self::from(c.err)
-    }
-}
-
 /// `a · b` with its exact rounding error, by FMA.
 ///
 /// PBR 4e §B.2.9, pbrt-v4 `TwoProd`.
@@ -519,25 +532,6 @@ impl Products for f32 {
     }
 }
 
-/// The `f64` overloads, for reference values in tests and for the Film.
-impl Products for f64 {
-    #[inline]
-    fn difference_of_products(a: Self, b: Self, c: Self, d: Self) -> Self {
-        let cd = c * d;
-        let difference = libm::fma(a, b, -cd);
-        let error = libm::fma(-c, d, cd);
-        difference + error
-    }
-
-    #[inline]
-    fn sum_of_products(a: Self, b: Self, c: Self, d: Self) -> Self {
-        let cd = c * d;
-        let sum = libm::fma(a, b, cd);
-        let error = libm::fma(c, d, -cd);
-        sum + error
-    }
-}
-
 /// `a·b − c·d` without catastrophic cancellation.
 ///
 /// PBR 4e §B.2.9, pbrt-v4 `DifferenceOfProducts`.
@@ -573,7 +567,7 @@ pub fn quadratic(a: f32, b: f32, c: f32) -> Option<(f32, f32)> {
     if discrim < 0.0 {
         return None;
     }
-    let root_discrim = libm::sqrtf(discrim);
+    let root_discrim = sqrt(discrim);
     let q = -0.5 * (b + root_discrim.copysign(b));
     let (t0, t1) = (q / a, c / q);
     Some(if t0 > t1 { (t1, t0) } else { (t0, t1) })
@@ -651,7 +645,7 @@ impl Real for f32 {
 
     #[inline]
     fn sqrt(self) -> Self {
-        libm::sqrtf(self)
+        sqrt(self)
     }
 
     #[inline]

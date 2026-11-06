@@ -3,9 +3,9 @@
 
 use crate::rng::Rng;
 use umbra_math::{
-    CompensatedSum, difference_of_products, erf_inv, evaluate_polynomial, fast_exp, find_interval,
-    fma, gaussian, gaussian_integral, inner_product, is_power_of_2, lerp, log2_int, next_float_up,
-    round_up_pow2, sum_of_products, two_prod, two_sum,
+    CompensatedFloat, CompensatedSum, difference_of_products, erf_inv, evaluate_polynomial,
+    fast_exp, find_interval, fma, gaussian, gaussian_integral, inner_product, is_power_of_2, lerp,
+    log2_int, next_float_up, round_up_pow2, sum_of_products, two_prod, two_sum,
 };
 
 /// `TEST(Pow2, Basics)`.
@@ -254,6 +254,12 @@ fn random_signed(rng: &mut Rng) -> f32 {
     val * sign
 }
 
+/// The value of `c` in `f64`, `v + err` without rounding to `f32` (pbrt-v4's
+/// `explicit operator double`).
+fn to_f64(c: CompensatedFloat) -> f64 {
+    f64::from(c.v) + f64::from(c.err)
+}
+
 /// `TEST(Math, TwoProd)`.
 #[test]
 fn math_two_prod() {
@@ -262,7 +268,7 @@ fn math_two_prod() {
         let (a, b) = (random_signed(&mut rng), random_signed(&mut rng));
         let tp = two_prod(a, b);
         assert_eq!(f32::from(tp), a * b);
-        assert_eq!(f64::from(tp), f64::from(a) * f64::from(b));
+        assert_eq!(to_f64(tp), f64::from(a) * f64::from(b));
     }
 }
 
@@ -274,7 +280,7 @@ fn math_two_sum() {
         let (a, b) = (random_signed(&mut rng), random_signed(&mut rng));
         let ts = two_sum(a, b);
         assert_eq!(f32::from(ts), a + b);
-        assert_eq!(f64::from(ts), f64::from(a) + f64::from(b));
+        assert_eq!(to_f64(ts), f64::from(a) + f64::from(b));
     }
 }
 

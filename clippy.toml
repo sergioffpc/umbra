@@ -102,10 +102,6 @@ disallowed-methods = [
   { path = "core::arch::aarch64::vrsqrte_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
   { path = "core::arch::aarch64::vrsqrteq_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
   { path = "core::arch::aarch64::vrsqrtes_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
-  { path = "wide::f32x4::recip", reason = "approximate on x86 (`rcpps`, ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
-  { path = "wide::f32x4::recip_sqrt", reason = "approximate on x86 (`rsqrtps`, ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
-  { path = "wide::f32x8::recip", reason = "approximate on x86 (`rcpps`, ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
-  { path = "wide::f32x8::recip_sqrt", reason = "approximate on x86 (`rsqrtps`, ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
   # Floating-point control register: no flush-to-zero, no denormals-are-zero.
   { path = "core::arch::x86_64::_mm_setcsr", reason = "changes FP control state (ADR 0002): keep IEEE defaults", allow-invalid = true },
   { path = "core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE", reason = "flush-to-zero (ADR 0002): keep IEEE defaults", allow-invalid = true },
