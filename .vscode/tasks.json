@@ -1,0 +1,219 @@
+{
+  // Cargo tasks. The "ci:" tasks run the same commands as the pre-commit
+  // hook and .github/workflows/ci.yml; "ci: all checks" runs them in order,
+  // like "Before opening a pull request" in CONTRIBUTING.md.
+  //
+  // Ctrl/Cmd+Shift+B runs the default build task, and "Tasks: Run Test
+  // Task" the default test task.
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true,
+    "showReuseMessage": false
+  },
+  "tasks": [
+    // ------------------------------------------------------------- Build
+    {
+      "label": "build: dev",
+      "detail": "cargo build (opt-level 1, full debug info, all checks)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--all-targets", "--all-features"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build: release",
+      "detail": "cargo build --release (fat LTO, panic = abort)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--release", "--all-features"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build: profiling",
+      "detail": "cargo build --profile profiling (release speed, full debug info)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--profile", "profiling", "--all-features"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build: checked",
+      "detail": "cargo build --profile checked (release speed, debug assertions)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--profile", "checked", "--all-features"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build: portable release (x86-64-v3)",
+      "detail": "Release binary for the x86-64 Workers instead of target-cpu=native",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "--release", "--all-features"],
+      "options": {
+        "env": { "RUSTFLAGS": "-C target-cpu=x86-64-v3" }
+      },
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "run: release",
+      "detail": "cargo run --release",
+      "type": "process",
+      "command": "cargo",
+      "args": ["run", "--release"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "clean",
+      "detail": "cargo clean",
+      "type": "process",
+      "command": "cargo",
+      "args": ["clean"],
+      "problemMatcher": []
+    },
+
+    // ------------------------------------------------------------- Test
+    {
+      "label": "test",
+      "detail": "cargo nextest run",
+      "type": "process",
+      "command": "cargo",
+      "args": ["nextest", "run", "--all-features", "--locked", "--no-tests=warn"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+    {
+      "label": "coverage",
+      "detail": "cargo llvm-cov under nextest; writes target/lcov.info for Coverage Gutters",
+      "type": "process",
+      "command": "cargo",
+      "args": [
+        "llvm-cov",
+        "nextest",
+        "--all-features",
+        "--locked",
+        "--no-tests=warn",
+        "--lcov",
+        "--output-path",
+        "target/lcov.info"
+      ],
+      "group": "test",
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+    {
+      "label": "coverage: html report",
+      "detail": "cargo cov --open (HTML report in the browser)",
+      "type": "process",
+      "command": "cargo",
+      "args": ["cov", "--open"],
+      "group": "test",
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+
+    // ------------------------------------------------------------- Format
+    {
+      "label": "fmt",
+      "detail": "cargo fmt --all",
+      "type": "process",
+      "command": "cargo",
+      "args": ["fmt", "--all"],
+      "problemMatcher": []
+    },
+
+    // ------------------------------------------------------------- CI checks
+    {
+      "label": "ci: fmt",
+      "type": "process",
+      "command": "cargo",
+      "args": ["fmt", "--all", "--", "--check"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ci: clippy",
+      "type": "process",
+      "command": "cargo",
+      "args": ["clippy", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "ci: doc",
+      "type": "process",
+      "command": "cargo",
+      "args": ["doc", "--no-deps", "--document-private-items", "--all-features", "--locked"],
+      "options": {
+        "env": { "RUSTDOCFLAGS": "-D warnings" }
+      },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "ci: test",
+      "type": "process",
+      "command": "cargo",
+      "args": ["nextest", "run", "--all-features", "--locked", "--profile", "ci", "--no-tests=warn"],
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+    {
+      "label": "ci: deny",
+      "type": "process",
+      "command": "cargo",
+      "args": ["deny", "check"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ci: shear",
+      "type": "process",
+      "command": "cargo",
+      "args": ["shear"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ci: typos",
+      "type": "process",
+      "command": "typos",
+      "problemMatcher": []
+    },
+    {
+      "label": "ci: all checks",
+      "detail": "fmt, clippy, doc, test, deny, shear, typos (stops at the first failure)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "ci: fmt",
+        "ci: clippy",
+        "ci: doc",
+        "ci: test",
+        "ci: deny",
+        "ci: shear",
+        "ci: typos"
+      ],
+      "problemMatcher": []
+    },
+
+    // ------------------------------------------------------------- Docs
+    {
+      "label": "doc: open",
+      "detail": "cargo doc --open",
+      "type": "process",
+      "command": "cargo",
+      "args": ["doc", "--no-deps", "--document-private-items", "--all-features", "--open"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "changelog: preview",
+      "detail": "git cliff --unreleased",
+      "type": "process",
+      "command": "git",
+      "args": ["cliff", "--unreleased"],
+      "problemMatcher": []
+    }
+  ]
+}

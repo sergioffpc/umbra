@@ -1,0 +1,4 @@
+# Build context for .devcontainer/Dockerfile is the repository root; send only
+# what the Dockerfile copies, not target/ or the LFS content.
+*
+!rust-toolchain.toml

@@ -1,0 +1,102 @@
+{
+  // ---------------------------------------------------------------- Editor
+  // Formatting rules live in rustfmt.toml and .editorconfig; these settings
+  // only make the editor apply them.
+  "editor.formatOnSave": false,
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.trimTrailingWhitespace": true,
+
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true,
+    "editor.rulers": [100]
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml"
+  },
+  "[markdown]": {
+    // Two trailing spaces are a line break in Markdown (see .editorconfig).
+    "files.trimTrailingWhitespace": false,
+    "editor.tabSize": 2
+  },
+  "[yaml][github-actions-workflow]": {
+    "editor.tabSize": 2
+  },
+  "[git-commit]": {
+    // commit-msg hook: header of at most 72 characters.
+    "editor.rulers": [50, 72],
+    "editor.wordWrap": "off"
+  },
+
+  // ------------------------------------------------------------ Files/search
+  "files.associations": {
+    "*.pbrt": "plaintext",
+    ".gitmessage": "git-commit",
+    ".githooks/*": "shellscript"
+  },
+  "files.watcherExclude": {
+    "**/target/**": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "Cargo.lock": true
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.patterns": {
+    "Cargo.toml": "Cargo.lock, rust-toolchain.toml, rustfmt.toml, clippy.toml, deny.toml, _typos.toml, cliff.toml",
+    "README.md": "CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, CHANGELOG.md, LICENSE, GLOSSARY.md, CLAUDE.md"
+  },
+
+  // ---------------------------------------------------------- rust-analyzer
+  // Run clippy on save with the same flags as the pre-commit hook and CI, so
+  // the editor shows exactly the warnings that would block a merge.
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.features": "all",
+  "rust-analyzer.cargo.features": "all",
+  // Build into target/rust-analyzer so editor checks never hold the cargo
+  // lock or invalidate the artefacts of `cargo build` in a terminal.
+  "rust-analyzer.cargo.targetDir": true,
+  "rust-analyzer.cargo.buildScripts.enable": true,
+  "rust-analyzer.procMacro.enable": true,
+  // Imports: one `use` per module, paths from `crate::`.
+  "rust-analyzer.imports.granularity.group": "module",
+  "rust-analyzer.imports.granularity.enforce": true,
+  "rust-analyzer.imports.prefix": "crate",
+  "rust-analyzer.completion.autoimport.enable": true,
+  "rust-analyzer.testExplorer": true,
+  "rust-analyzer.lens.enable": true,
+  "rust-analyzer.lens.run.enable": true,
+  "rust-analyzer.lens.debug.enable": true,
+
+  // ---------------------------------------------------------- Debugging
+  "lldb.launch.sourceLanguages": ["rust"],
+  "debug.allowBreakpointsEverywhere": false,
+
+  // ---------------------------------------------------------- Coverage
+  // target/lcov.info, written by the "coverage" task (cargo llvm-cov).
+  "coverage-gutters.coverageBaseDir": "target",
+  "coverage-gutters.coverageFileNames": ["lcov.info"],
+
+  // ---------------------------------------------------------- Dependencies
+  "dependi.rust.lockFileEnabled": true,
+
+  // ---------------------------------------------------------- Git
+  // Matches the commit-msg hook (Conventional Commits, header <= 72 chars).
+  "git.inputValidation": true,
+  "git.inputValidationSubjectLength": 72,
+  "git.inputValidationLength": 72,
+  "git.useCommitInputAsStashMessage": true,
+  "git.branchPrefix": "feature/",
+  "git.branchValidationRegex": "^(feature/[a-z0-9][a-z0-9._-]*|(release|hotfix)/[0-9]+\\.[0-9]+\\.[0-9]+)$",
+  "conventionalCommits.gitmoji": false,
+  "conventionalCommits.promptBody": true,
+  "conventionalCommits.promptFooter": true,
+
+  // ---------------------------------------------------------- Shell scripts
+  "shellcheck.enable": true,
+  "shellcheck.run": "onType"
+}
