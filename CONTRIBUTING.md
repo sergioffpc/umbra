@@ -58,6 +58,30 @@ branch, regenerate the file with:
 git cliff --tag vX.Y.Z -o CHANGELOG.md
 ```
 
+### Container image
+
+Pushing the `vX.Y.Z` tag on `main` runs
+[`release-image.yml`](.github/workflows/release-image.yml), which builds the
+[`Dockerfile`](Dockerfile) and publishes `ghcr.io/sergioffpc/umbra` with the
+tags `X.Y.Z`, `X.Y` and `latest`. The job fails if the tag is not on `main` or
+does not match `version` in `Cargo.toml`, so bump the crate version on the
+`release/X.Y.Z` branch. Push `main` before the tag (or both with
+`git push --follow-tags`). Design notes:
+[ADR 0005](docs/adr/0005-chiseled-release-container-image.md).
+
+To build and run the image locally (Docker or Podman):
+
+```sh
+docker build -t umbra .
+docker run --rm umbra
+```
+
+On Apple silicon this builds a native `linux/arm64` image for testing; the
+published image is `linux/amd64` only. The build context is limited by
+[`.dockerignore`](.dockerignore): add new crate sources (`build.rs`, workspace
+members) there. A dependency on a system library needs its Chisel slice added
+in the `Dockerfile`.
+
 Examples:
 
 ```

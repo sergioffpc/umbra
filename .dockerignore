@@ -1,0 +1,12 @@
+# Build context for the release image (Dockerfile at the repository root).
+# Allowlist: everything is excluded except what `cargo build --release` needs,
+# so target/, .git/ and Git LFS content (images, meshes, scenes) never reach
+# the builder. Add new crate sources here (build.rs, workspace members, ...).
+#
+# .cargo/ stays out on purpose: its config.toml sets target-cpu=native, which
+# would tie the image to the CI runner's CPU. The Dockerfile sets RUSTFLAGS.
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!src/
