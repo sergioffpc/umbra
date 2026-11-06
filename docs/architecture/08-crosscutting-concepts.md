@@ -234,6 +234,7 @@ flowchart LR
     T -->|"hash and version match"| E["re-run with TraceRecorder"]
     E --> X["text trace on stdout"]
     E --> B["trace.glb → Blender"]
+```
 
 ## 8.10 Progress and telemetry
 
