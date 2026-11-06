@@ -146,3 +146,30 @@ What the compiler and clippy enforce beyond style ([Unsafe policy and lint confi
 | Bit-identical numerics | `disallowed-methods` bans `std`'s transcendental `f32`/`f64` methods (platform libm), approximate reciprocal intrinsics (`rcp`, `rsqrt`, `vrecpe`, `vrsqrte`, `wide`'s `recip`) and FP control-register writes (flush-to-zero, denormals-are-zero). Tests are not exempt ([ADR 0002](../adr/0002-bit-identical-results-across-architectures.md)). |
 | Output | No `print!`/`eprint!` outside tests: output goes through `tracing` and the JSON report (§8.4). |
 | Silencing | `#[expect(lint, reason = "...")]` on the narrowest item. `#[allow]` and reasonless attributes are rejected. |
+
+## 8.7 Memory and allocation
+
+How the Scene is stored and where rendering may allocate ([ADR 0008](../adr/0008-index-handle-arenas-and-allocation-free-rendering.md)). Objects live in per-type arenas and refer to one another by typed `u32` handles. Nothing on the per-Pixel-Sample path allocates.
+
+| Concern | Rule |
+| --- | --- |
+| Scene storage | One `Vec<T>` arena per concrete type. References are typed `u32` handles (`MeshId`, `MaterialId`, `Handle<T>`), never `&T`, `Box`, `Arc` or raw `usize`. Validation rejects more than `u32::MAX` objects of one type. |
+| `*Kind` size | Scene-resident `*Kind` enums are tag plus handle(s), with `size_of <= 16` asserted at compile time. `ShapeKind::Triangle { mesh, index }` is inline. `BxDFKind` is by value (≤ 256 B, §8.5). `SamplerKind`, `CameraKind` and `FilterKind` are by value. Inline payloads are an aggressive optimisation. |
+| Scene lifetime | `SceneBuilder` mints handles and freezes into an immutable `Scene` (BVH built). Threads share `&Scene`, with no `Arc`, locks or global mutable state. Dropped at the end of the Render Job. |
+| Per-thread memory | A per-thread context of typed buffers (BDPT/MLT vertices, …) sized at Render Job start and cleared between Pixel Samples. No `ScratchBuffer`. |
+| Allocation boundary | Allowed per Render Job, per Work Unit (Work Result buffer) and outside rendering. Never per Pixel Sample, except while recording a Pixel Trace. A counting-allocator test (N vs 2N Pixel Samples) enforces it for every integrator. |
+| Per-sample contract | `&Scene` (`get(handle)`, slices), `&mut` thread context and `Copy` values. No `alloc` dependency. Bounds-checked indexing, `get_unchecked` only under §8.6. |
+| Alignment | `CachePadded` (128 B) for per-thread mutable data adjacent to other threads'. Natural alignment elsewhere. A cache-line BVH node layout is an aggressive optimisation. |
+| NUMA | No NUMA-local allocation yet. The Scene is pointer-free and `Clone`, so a replica per NUMA node (R630) can be added with a benchmark. |
+| Global allocator | System allocator. Replacing it is an aggressive optimisation measured on the scene-build phase. |
+
+Who allocates what, and when:
+
+```mermaid
+flowchart TD
+    J["Render Job start"] -->|"allocates"| S["SceneBuilder → immutable Scene<br/>(per-type arenas, BVH)"]
+    J -->|"allocates"| C["Per-thread contexts<br/>(typed buffers, CachePadded)"]
+    W["Work Unit"] -->|"allocates or reuses"| R["Work Result buffer"]
+    P["Pixel Sample"] -->|"reads &Scene, clears and fills"| C
+    P -.->|"never allocates"| X["heap"]
+```
