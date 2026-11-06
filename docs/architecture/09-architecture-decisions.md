@@ -23,6 +23,7 @@ Hard-to-reverse decisions are recorded as ADRs in [`docs/adr/`](../adr/), one fi
 | [0017](../adr/0017-one-worker-per-numa-node.md) | One Worker per NUMA node | Accepted | §7.3, §8.14 |
 | [0018](../adr/0018-sessions-launched-from-the-operators-machine.md) | Sessions launched from the operator's machine | Accepted | §7.3 |
 | [0019](../adr/0019-milestones-defined-by-the-reference-scenes-they-unlock.md) | Milestones defined by the Reference Scenes they unlock | Accepted | §4.1 |
+| [0020](../adr/0020-bit-identical-exr-final-image.md) | A bit-identical EXR final image carrying its Reproduction Record | Accepted | §8.15 |
 
 How the ADRs build on one another:
 
@@ -31,6 +32,8 @@ flowchart LR
     A1["0001 Numeric model"] --> A2["0002 Bit-identical results"] --> A4["0004 Deterministic Film"]
     A4 --> A9["0009 Scheduling"]
     A4 --> A11["0011 Pixel Traces"]
+    A4 --> A20["0020 EXR final image"]
+    A11 --> A20
     A9 --> A10["0010 QUIC"] --> A16["0016 Wire protocol"]
     A6["0006 Enum dispatch"] --> A14["0014 no_std core"]
     A8["0008 Arenas"] --> A14
