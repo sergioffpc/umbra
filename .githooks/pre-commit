@@ -40,6 +40,13 @@ fi
 echo "pre-commit: cargo clippy"
 cargo clippy --all-targets --all-features --locked -- -D warnings
 
+# Book citations of the rendering core and docs/book-map.md (QS-4).
+echo "pre-commit: book citations"
+if ! cargo xtask book-map --check; then
+    echo "pre-commit: cite the items above, or run 'cargo xtask book-map' and stage docs/book-map.md" >&2
+    exit 1
+fi
+
 echo "pre-commit: typos"
 if have typos; then
     typos

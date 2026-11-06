@@ -8,6 +8,15 @@ updates:
     commit-message:
       prefix: build
       include: scope
+  # Repository tooling (xtask/), a workspace of its own.
+  - package-ecosystem: cargo
+    directory: /xtask
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop

@@ -52,9 +52,63 @@ jobs:
       - run: cargo doc --no-deps --document-private-items --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
-      # nextest does not run doctests; add `cargo test --doc` once there is a
-      # library target. `--no-tests=warn` until the first test lands.
+      # `--no-tests=warn` until the first test lands. nextest does not run
+      # doctests, so they run separately.
       - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
+      - run: cargo test --doc --all-features --locked
+
+  # The seven core crates on a target with no `std` (ADR 0014, ADR 0015): a
+  # dependency on `std` breaks the build. The target's sysroot ships `alloc`,
+  # so a separate step rejects `extern crate alloc`. Built with the `serde`
+  # feature off (as the Scene arenas are used on a Worker) and on (as
+  # `umbra-scene` turns it on).
+  core:
+    name: core (aarch64-unknown-none)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs the toolchain and the aarch64-unknown-none target pinned in
+      # rust-toolchain.toml.
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build without serde
+        run: >-
+          cargo build --locked --target aarch64-unknown-none
+          -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry
+          -p umbra-shading -p umbra-camera -p umbra-integrators
+      - name: Build with serde
+        run: >-
+          cargo build --locked --target aarch64-unknown-none --all-features
+          -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry
+          -p umbra-shading -p umbra-camera -p umbra-integrators
+      - name: No alloc
+        run: |
+          if git grep -nE 'extern[[:space:]]+crate[[:space:]]+alloc' -- \
+            'crates/umbra-math' 'crates/umbra-sampling' 'crates/umbra-spectrum' \
+            'crates/umbra-geometry' 'crates/umbra-shading' 'crates/umbra-camera' \
+            'crates/umbra-integrators'; then
+            echo "::error::a core crate links alloc (ADR 0014)"
+            exit 1
+          fi
+
+  # QS-4: every rendering-core item cites its book section and pbrt-v4 symbol,
+  # and docs/book-map.md is up to date. The checker (xtask/) is its own
+  # workspace, so it is linted and tested here too.
+  book:
+    name: book citations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: xtask
+      - run: cargo fmt --manifest-path xtask/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path xtask/Cargo.toml --all-targets --locked -- -D warnings
+      - run: cargo test --manifest-path xtask/Cargo.toml --locked
+      - run: cargo xtask book-map --check
 
   deny:
     name: cargo deny (${{ matrix.checks }})
@@ -69,6 +123,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
+          command: check ${{ matrix.checks }}
+      # The repository tooling, a workspace of its own, under the same policy.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: xtask/Cargo.toml
           command: check ${{ matrix.checks }}
 
   typos:
