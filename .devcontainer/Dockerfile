@@ -5,12 +5,12 @@
 # the files copied below.
 FROM mcr.microsoft.com/devcontainers/rust:1-trixie
 
-# Native packages: Git LFS (images and meshes, required by the git hooks) and
-# shellcheck (shell scripts, run by the pre-commit hook). The base image already has build-essential,
-# git, curl and lldb.
+# Native packages: Git LFS (images and meshes, required by the git hooks),
+# shellcheck (shell scripts) and yamllint (YAML), both run by the pre-commit
+# hook. The base image already has build-essential, git, curl and lldb.
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -y --no-install-recommends git-lfs shellcheck \
+    && apt-get install -y --no-install-recommends git-lfs shellcheck yamllint \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,7 +53,12 @@ RUN curl -fsSL --proto '=https' --tlsv1.2 \
 # Keep the versions in sync with the `lint` job in .github/workflows/ci.yml.
 ARG ACTIONLINT_VERSION=1.7.12
 ARG EDITORCONFIG_CHECKER_VERSION=4.0.2
+ARG TAPLO_VERSION=0.10.0
 RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-$(uname -m).gz" \
+        | gunzip > "${CARGO_HOME}/bin/taplo" \
+    && chmod +x "${CARGO_HOME}/bin/taplo" \
     && curl -fsSL --proto '=https' --tlsv1.2 \
         "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz" \
         | tar -xz -C "${CARGO_HOME}/bin" actionlint \

@@ -23,6 +23,11 @@ staged() {
     [ -n "$(git diff --cached --name-only --diff-filter=ACMR -- "$@")" ]
 }
 
+# Staged paths matching the given git pathspecs, NUL-separated for xargs -0.
+staged_files() {
+    git diff --cached --name-only --diff-filter=ACMR -z -- "$@"
+}
+
 echo "pre-commit: checking whitespace in staged changes"
 git diff --cached --check
 
@@ -43,8 +48,40 @@ fi
 # EditorConfig (charset, final newline, indentation) on the staged files.
 echo "pre-commit: editorconfig-checker"
 if have editorconfig-checker && staged .; then
-    git diff --cached --name-only --diff-filter=ACMR -z \
-        | xargs -0 editorconfig-checker
+    staged_files . | xargs -0 editorconfig-checker
+fi
+
+# Formatting of JSON, YAML and Markdown (.prettierrc.yaml, .prettierignore).
+echo "pre-commit: prettier"
+if have prettier && staged '*.json' '*.yml' '*.yaml' '*.md'; then
+    if ! staged_files '*.json' '*.yml' '*.yaml' '*.md' \
+        | xargs -0 prettier --check --log-level warn; then
+        echo "pre-commit: run 'prettier --write' on those files and stage the result" >&2
+        exit 1
+    fi
+fi
+
+# TOML: formatting and syntax (.taplo.toml).
+echo "pre-commit: taplo"
+if have taplo && staged '*.toml'; then
+    if ! staged_files '*.toml' | RUST_LOG=warn xargs -0 taplo fmt --check; then
+        echo "pre-commit: run 'taplo fmt' and stage the result" >&2
+        exit 1
+    fi
+    staged_files '*.toml' | RUST_LOG=warn xargs -0 taplo lint
+fi
+
+# YAML conventions (.yamllint.yaml).
+echo "pre-commit: yamllint"
+if have yamllint && staged '*.yml' '*.yaml'; then
+    staged_files '*.yml' '*.yaml' | xargs -0 yamllint --strict
+fi
+
+# Markdown conventions (.markdownlint-cli2.yaml). Issues go to stderr; the
+# progress banner on stdout is dropped.
+echo "pre-commit: markdownlint-cli2"
+if have markdownlint-cli2 && staged '*.md'; then
+    staged_files '*.md' | xargs -0 markdownlint-cli2 >/dev/null
 fi
 
 # Shell scripts: the hooks, scripts/ and the dev container scripts.

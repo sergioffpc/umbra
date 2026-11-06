@@ -1,0 +1,4 @@
+# Prettier formats JSON (with comments), YAML and Markdown. The width matches
+# rustfmt.toml; Markdown prose keeps its own line breaks (proseWrap: preserve).
+printWidth: 100
+proseWrap: preserve

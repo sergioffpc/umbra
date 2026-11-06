@@ -29,20 +29,20 @@ graph LR
 
 Arrows point from a dependency to the crate that uses it. Only the dependencies between Umbra crates are drawn: each crate may also use any crate below it.
 
-| Crate | Responsibility | External dependencies |
-| --- | --- | --- |
-| `umbra-math` | Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers | `libm`, `wide` |
-| `umbra-sampling` | Sampling functions (warps), hashing and RNG, low-discrepancy sequences, `Sampler` and `SamplerKind` | — |
-| `umbra-spectrum` | `Spectrum` and `SpectrumKind`, `SampledSpectrum`, `SampledWavelengths`, RGB and color spaces | — |
-| `umbra-geometry` | `Ray`, `Bounds`, interactions (carrying `MaterialId`, `LightId`, `MediumId`), Shapes and `ShapeKind`, BVH node layout and traversal | — |
-| `umbra-shading` | Textures, Materials, BxDFs, Lights and light samplers, Media, each with its `*Kind` | — |
-| `umbra-camera` | Cameras and `CameraKind`, Filters, sensor RGB, camera sample generation | — |
-| `umbra-integrators` | `SceneView`, the per-Pixel-Sample body of each integrator, the `Recorder` trait | — |
-| `umbra-scene` | Owning `Scene` (arenas), `SceneBuilder`, deterministic BVH construction, `RenderJobOptions` | `serde` |
-| `umbra-parser` | The `.pbrt` adapter: tokenising, includes, assets, strict validation, content hash | `nom` |
-| `umbra-render` | Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; writing and reading the EXR final image | `rayon`, `exr` |
-| `umbra-cluster` | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, local Worker, Build Identity admission, status line, Render Job Report | `tokio`, `quinn`, `postcard` |
-| `umbra` | The binary: `clap` subcommands `render`, `worker`, `trace`, `bench`, `validate`; `tracing` setup; the statistics of `bench` and `validate` | `clap`, `tracing` |
+| Crate               | Responsibility                                                                                                                                                  | External dependencies        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `umbra-math`        | Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers                                                       | `libm`, `wide`               |
+| `umbra-sampling`    | Sampling functions (warps), hashing and RNG, low-discrepancy sequences, `Sampler` and `SamplerKind`                                                             | —                            |
+| `umbra-spectrum`    | `Spectrum` and `SpectrumKind`, `SampledSpectrum`, `SampledWavelengths`, RGB and color spaces                                                                    | —                            |
+| `umbra-geometry`    | `Ray`, `Bounds`, interactions (carrying `MaterialId`, `LightId`, `MediumId`), Shapes and `ShapeKind`, BVH node layout and traversal                             | —                            |
+| `umbra-shading`     | Textures, Materials, BxDFs, Lights and light samplers, Media, each with its `*Kind`                                                                             | —                            |
+| `umbra-camera`      | Cameras and `CameraKind`, Filters, sensor RGB, camera sample generation                                                                                         | —                            |
+| `umbra-integrators` | `SceneView`, the per-Pixel-Sample body of each integrator, the `Recorder` trait                                                                                 | —                            |
+| `umbra-scene`       | Owning `Scene` (arenas), `SceneBuilder`, deterministic BVH construction, `RenderJobOptions`                                                                     | `serde`                      |
+| `umbra-parser`      | The `.pbrt` adapter: tokenising, includes, assets, strict validation, content hash                                                                              | `nom`                        |
+| `umbra-render`      | Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; writing and reading the EXR final image            | `rayon`, `exr`               |
+| `umbra-cluster`     | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, local Worker, Build Identity admission, status line, Render Job Report | `tokio`, `quinn`, `postcard` |
+| `umbra`             | The binary: `clap` subcommands `render`, `worker`, `trace`, `bench`, `validate`; `tracing` setup; the statistics of `bench` and `validate`                      | `clap`, `tracing`            |
 
 The final image is an EXR written by `umbra-render` with the `exr` crate, carrying the Reproduction Record in its header (§8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
 
@@ -52,15 +52,15 @@ The seven core crates follow pbrt-v4's dependency order. pbrt-v4's cycles are br
 
 Inside a core crate, each pbrt-v4 chapter or section is a module, for example `umbra_shading::bxdfs`. Interfaces keep pbrt-v4's names and are dispatched through closed `*Kind` enums ([ADR 0006](../adr/0006-closed-enum-dispatch-for-rendering-interfaces.md)).
 
-| Crate | pbrt-v4 chapters | Question it answers |
-| --- | --- | --- |
-| `umbra-math` | 3, 6.8, B.2 | How to operate on numbers and geometric quantities |
-| `umbra-sampling` | 2, 8, A | How to choose numbers |
-| `umbra-spectrum` | 4.5–4.6 | How light is represented |
-| `umbra-geometry` | 6–7 | Where a ray hits |
-| `umbra-shading` | 9–12 | What light does at that point |
-| `umbra-camera` | 5, 8.8 | How a Pixel Sample becomes a ray, and radiance becomes sensor RGB |
-| `umbra-integrators` | 13–15 | How one Pixel Sample is computed from start to end |
+| Crate               | pbrt-v4 chapters | Question it answers                                               |
+| ------------------- | ---------------- | ----------------------------------------------------------------- |
+| `umbra-math`        | 3, 6.8, B.2      | How to operate on numbers and geometric quantities                |
+| `umbra-sampling`    | 2, 8, A          | How to choose numbers                                             |
+| `umbra-spectrum`    | 4.5–4.6          | How light is represented                                          |
+| `umbra-geometry`    | 6–7              | Where a ray hits                                                  |
+| `umbra-shading`     | 9–12             | What light does at that point                                     |
+| `umbra-camera`      | 5, 8.8           | How a Pixel Sample becomes a ray, and radiance becomes sensor RGB |
+| `umbra-integrators` | 13–15            | How one Pixel Sample is computed from start to end                |
 
 Per-sample code receives a `SceneView<'_>` of borrowed arena slices, never `&Scene` (ADR 0014).
 
@@ -136,11 +136,11 @@ The binary has `clap` derive subcommands: `render`, `worker`, `trace`, `bench` a
 
 ## 5.4 Workspace conventions
 
-| Concern | Rule |
-| --- | --- |
-| Layout | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles. |
-| Inheritance | `[workspace.package]` (version, edition, `rust-version`, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`. |
-| Versioning | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)). |
-| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. CI builds them for `aarch64-unknown-none`. |
-| Tests | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)) live in the crate that owns the sampling routine. Cross-crate tests (golden Film hashes, the trace oracle, the counting allocator) live in `crates/umbra/tests/`. |
-| Benchmarks | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4). |
+| Concern     | Rule                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Layout      | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles.                                                                                                                                                                                         |
+| Inheritance | `[workspace.package]` (version, edition, `rust-version`, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`.                                                                                                                          |
+| Versioning  | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)).                                                                                                                                                                         |
+| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. CI builds them for `aarch64-unknown-none`.                                                                                                                                                                                                             |
+| Tests       | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)) live in the crate that owns the sampling routine. Cross-crate tests (golden Film hashes, the trace oracle, the counting allocator) live in `crates/umbra/tests/`. |
+| Benchmarks  | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4).                                                                                                                                                                                                                                 |

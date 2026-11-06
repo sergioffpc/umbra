@@ -13,13 +13,13 @@ Search existing issues first to avoid duplicates. For security issues, follow
 
 Umbra uses [git flow](https://nvie.com/posts/a-successful-git-branching-model/):
 
-| Branch            | Branches from | Merges into         | Purpose                         |
-| ----------------- | ------------- | ------------------- | ------------------------------- |
-| `main`            |               |                     | Released code, tagged `vX.Y.Z`  |
-| `develop`         | `main`        |                     | Integration of upcoming changes |
-| `feature/<name>`  | `develop`     | `develop`           | New features and fixes          |
-| `release/X.Y.Z`   | `develop`     | `main` and `develop` | Release preparation             |
-| `hotfix/X.Y.Z`    | `main`        | `main` and `develop` | Urgent fixes to a release       |
+| Branch           | Branches from | Merges into          | Purpose                         |
+| ---------------- | ------------- | -------------------- | ------------------------------- |
+| `main`           |               |                      | Released code, tagged `vX.Y.Z`  |
+| `develop`        | `main`        |                      | Integration of upcoming changes |
+| `feature/<name>` | `develop`     | `develop`            | New features and fixes          |
+| `release/X.Y.Z`  | `develop`     | `main` and `develop` | Release preparation             |
+| `hotfix/X.Y.Z`   | `main`        | `main` and `develop` | Urgent fixes to a release       |
 
 Open pull requests against `develop`. A `release/X.Y.Z` or `hotfix/X.Y.Z`
 branch gets two pull requests, one into `main` and one into `develop`. Repository rulesets block merges into `develop` and `main` unless
@@ -30,7 +30,7 @@ scanning reports no open alert on the pull request.
 
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
-```
+```text
 <type>(<optional scope>): <description>
 
 [optional body]
@@ -44,7 +44,7 @@ and a `BREAKING CHANGE:` footer. Pull request titles use the same format.
 
 Examples:
 
-```
+```text
 feat(integrator): add path tracing integrator
 fix(bvh): handle degenerate bounding boxes
 ```
@@ -101,6 +101,17 @@ Optional tools used by the hook and CI:
 - [`editorconfig-checker`](https://github.com/editorconfig-checker/editorconfig-checker)
   (`brew install editorconfig-checker`): checks files against
   [`.editorconfig`](.editorconfig).
+- [`prettier`](https://prettier.io) and
+  [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2)
+  (`npm install --global prettier markdownlint-cli2`): Prettier formats JSON,
+  YAML and Markdown ([`.prettierrc.yaml`](.prettierrc.yaml)), markdownlint
+  lints Markdown ([`.markdownlint-cli2.yaml`](.markdownlint-cli2.yaml)). Fix
+  formatting with `prettier --write <files>`.
+- [`taplo`](https://taplo.tamasfe.dev) (`brew install taplo`): formats and
+  checks TOML ([`.taplo.toml`](.taplo.toml)), the same engine as the Even
+  Better TOML extension. Fix formatting with `taplo fmt`.
+- [`yamllint`](https://github.com/adrienverge/yamllint)
+  (`brew install yamllint`): lints YAML ([`.yamllint.yaml`](.yamllint.yaml)).
 
 ## Git setup and hooks
 
@@ -119,8 +130,10 @@ scripts/setup-git.sh
 
 - `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`,
   then runs the linters that replace editor extensions: `typos`,
-  `editorconfig-checker` on the staged files, `shellcheck` on the shell
-  scripts, `actionlint` when a workflow is staged, and `cargo deny check`
+  `editorconfig-checker` on the staged files, `prettier`, `taplo`,
+  `yamllint` and `markdownlint-cli2` on the staged JSON, TOML, YAML and
+  Markdown files, `shellcheck` on the shell scripts, `actionlint` when a
+  workflow is staged, and `cargo deny check`
   when `Cargo.toml`, `Cargo.lock` or `deny.toml` is staged. Each linter is
   skipped with a warning if it is not installed.
 - `commit-msg` rejects messages that are not Conventional Commits (see
@@ -141,9 +154,9 @@ repository ships its workspace configuration in [`.vscode/`](.vscode):
 
 - `extensions.json`: only the essential extensions (rust-analyzer, CodeLLDB,
   Even Better TOML, Claude Code, Dev Containers). VS Code offers to install
-  them when you open the folder. Spelling, EditorConfig, shell scripts,
-  workflows, dependencies and commit messages are checked by the git hooks
-  instead.
+  them when you open the folder. Spelling, EditorConfig, JSON, YAML and
+  Markdown formatting, shell scripts, workflows, dependencies and commit
+  messages are checked by the git hooks instead.
 - `settings.json`: format on save with rustfmt, clippy on save with the same
   flags as the hook and CI, rust-analyzer in its own target directory so it
   never blocks `cargo build`, commit message rulers at 72 characters.
@@ -179,7 +192,9 @@ container.
 
 ## Lint and formatting rules
 
-- Formatting: [`rustfmt.toml`](rustfmt.toml) and [`.editorconfig`](.editorconfig).
+- Formatting: [`rustfmt.toml`](rustfmt.toml) and [`.editorconfig`](.editorconfig);
+  for JSON, YAML and Markdown [`.prettierrc.yaml`](.prettierrc.yaml), for TOML
+  [`.taplo.toml`](.taplo.toml). Markdown prose keeps its line breaks.
 - Lints: the `[lints]` table in [`Cargo.toml`](Cargo.toml) (rustc lints, clippy
   `all`, `pedantic`, `cargo` and selected `restriction` lints) plus
   [`clippy.toml`](clippy.toml). Every warning is an error in the hook and in CI.
@@ -219,12 +234,12 @@ container.
 
 ## Build profiles
 
-| Profile     | Command                             | Use                                                   |
-| ----------- | ----------------------------------- | ----------------------------------------------------- |
-| `dev`       | `cargo build`                       | Day-to-day work: `opt-level = 1`, dependencies at 3, full debug info, all checks |
-| `release`   | `cargo build --release`             | Fastest binary: fat LTO, one codegen unit, `panic = "abort"`, line tables for backtraces |
-| `profiling` | `cargo build --profile profiling`   | Release speed with full debug info for profilers      |
-| `checked`   | `cargo build --profile checked`     | Release speed with debug assertions and overflow checks, for long renders |
+| Profile     | Command                           | Use                                                                                      |
+| ----------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `dev`       | `cargo build`                     | Day-to-day work: `opt-level = 1`, dependencies at 3, full debug info, all checks         |
+| `release`   | `cargo build --release`           | Fastest binary: fat LTO, one codegen unit, `panic = "abort"`, line tables for backtraces |
+| `profiling` | `cargo build --profile profiling` | Release speed with full debug info for profilers                                         |
+| `checked`   | `cargo build --profile checked`   | Release speed with debug assertions and overflow checks, for long renders                |
 
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
 (`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
@@ -245,6 +260,11 @@ typos
 git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
 actionlint
 git ls-files -z | xargs -0 editorconfig-checker
+git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check
+git ls-files -z '*.toml' | xargs -0 taplo fmt --check
+git ls-files -z '*.toml' | xargs -0 taplo lint
+git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
+git ls-files -z '*.md' | xargs -0 markdownlint-cli2
 ```
 
 CI runs the build, lint and test checks on Linux and macOS, and a coverage

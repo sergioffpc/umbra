@@ -111,6 +111,13 @@
       "args": ["fmt", "--all"],
       "problemMatcher": []
     },
+    {
+      "label": "fmt: json, yaml, markdown, toml",
+      "detail": "prettier --write and taplo fmt on every tracked file",
+      "type": "shell",
+      "command": "git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --write --log-level warn && git ls-files -z '*.toml' | xargs -0 taplo fmt",
+      "problemMatcher": []
+    },
 
     // ------------------------------------------------------------- CI checks
     {
@@ -141,7 +148,15 @@
       "label": "ci: test",
       "type": "process",
       "command": "cargo",
-      "args": ["nextest", "run", "--all-features", "--locked", "--profile", "ci", "--no-tests=warn"],
+      "args": [
+        "nextest",
+        "run",
+        "--all-features",
+        "--locked",
+        "--profile",
+        "ci",
+        "--no-tests=warn"
+      ],
       "problemMatcher": ["$rustc", "$rust-panic"]
     },
     {
@@ -166,9 +181,9 @@
     },
     {
       "label": "ci: lint",
-      "detail": "shellcheck, actionlint and editorconfig-checker on every tracked file",
+      "detail": "shellcheck, actionlint, editorconfig-checker, prettier, taplo, yamllint and markdownlint-cli2 on every tracked file",
       "type": "shell",
-      "command": "git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck && actionlint && git ls-files -z | xargs -0 editorconfig-checker",
+      "command": "git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck && actionlint && git ls-files -z | xargs -0 editorconfig-checker && git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check && git ls-files -z '*.toml' | xargs -0 taplo fmt --check && git ls-files -z '*.toml' | xargs -0 taplo lint && git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict && git ls-files -z '*.md' | xargs -0 markdownlint-cli2",
       "problemMatcher": []
     },
     {

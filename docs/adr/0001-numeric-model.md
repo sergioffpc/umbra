@@ -12,7 +12,7 @@ We chose this because:
 
 - **Opt-in `f64`** (pbrt's `PBRT_FLOAT_AS_DOUBLE`): rejected. It doubles the test matrix, halves the SIMD width and spreads casts through the code. Robustness comes from the error bounds, not from more bits.
 - **Configurable N, or an RGB mode**: rejected. An RGB mode would duplicate the material and texture paths. Changing N, if ever needed, means editing one constant.
-- **Wächter & Binder ULP-space offsetting** (*Ray Tracing Gems*, ch. 6): rejected as the default. It is cheaper but empirical: its offsets do not depend on the shape's actual error, it over-offsets contact geometry, and it does not handle shadow-ray endpoints. It may return only for triangles, under the aggressive-optimisation rule (benchmark, isolated contract, tested against the reference).
+- **Wächter & Binder ULP-space offsetting** (_Ray Tracing Gems_, ch. 6): rejected as the default. It is cheaper but empirical: its offsets do not depend on the shape's actual error, it over-offsets contact geometry, and it does not handle shadow-ray endpoints. It may return only for triangles, under the aggressive-optimisation rule (benchmark, isolated contract, tested against the reference).
 - **Epsilon offsets**: rejected because they are fragile under changes of scene scale.
 
 ## Consequences

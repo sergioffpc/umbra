@@ -1,0 +1,7 @@
+# taplo: TOML formatter and linter, also used by the Even Better TOML
+# extension. Indentation (2 spaces) matches .editorconfig.
+include = ["**/*.toml"]
+exclude = ["target/**"]
+
+[formatting]
+column_width = 100
