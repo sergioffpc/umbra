@@ -63,5 +63,13 @@ _Avoid_: Node, slave, client, agent, render thread
 ### Debugging
 
 **Pixel Trace**:
-The detailed record of one Pixel Sample: its path vertices, the light and BSDF samples taken, and their contributions and weights. Inspecting a pixel yields a set of Pixel Traces.
+The detailed record of how one Pixel Sample was computed, from camera sample to Film: its path vertices, the light and BSDF samples taken, their contributions and weights, and how the result was filtered and converted for the Film. It is never captured while a Render Job runs; it is obtained by computing that Pixel Sample again. Inspecting a pixel yields a set of Pixel Traces.
 _Avoid_: Path log, debug ray, pixel dump
+
+**Reproduction Record**:
+What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File and its content, the seed, the Render Job options and the version of Umbra that rendered it.
+_Avoid_: Job manifest, render metadata, provenance
+
+**Anomalous Pixel Sample**:
+A Pixel Sample whose radiance is not a number, infinite or negative. It is left out of the Film and reported, so its Pixel Trace can be inspected.
+_Avoid_: Bad sample, NaN sample (a firefly is a valid, merely very bright, Pixel Sample)
