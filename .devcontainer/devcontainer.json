@@ -10,7 +10,13 @@
 
   "features": {
     // gh: the issue tracker and pull requests are managed with the gh CLI.
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    // Node.js and npm for the Claude Code feature, which needs npm and on
+    // Debian would otherwise apt-install nodejs without it.
+    "ghcr.io/devcontainers/features/node:1": {},
+    // Claude Code CLI; the Matt Pocock skills plugin is installed by
+    // post-create.sh.
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
 
   "remoteUser": "vscode",
@@ -61,7 +67,8 @@
         "timonwong.shellcheck",
         "redhat.vscode-yaml",
         "github.vscode-github-actions",
-        "vivaxy.vscode-conventional-commits"
+        "vivaxy.vscode-conventional-commits",
+        "anthropic.claude-code"
       ],
       // Workspace settings come from .vscode/settings.json; only
       // container-specific ones go here.

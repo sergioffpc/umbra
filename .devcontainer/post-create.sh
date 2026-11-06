@@ -11,6 +11,16 @@ sudo chown -R "$(id -u):$(id -g)" target /usr/local/cargo/registry /usr/local/ca
 # settings. It writes to this clone's .git/config, which the host shares.
 scripts/setup-git.sh
 
+# Matt Pocock's engineering skills (the ones CLAUDE.md and docs/agents refer
+# to). Not fatal: it needs network access and must not block the container.
+# A fresh install starts from a stale snapshot of the official marketplace,
+# so refresh it first or the plugin is "not found".
+{
+    claude plugin marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+    claude plugin marketplace update claude-plugins-official \
+        && claude plugin install mattpocock-skills@claude-plugins-official
+} || echo "warning: could not install mattpocock-skills; run it manually" >&2
+
 # Download dependencies now so the first build and rust-analyzer start fast.
 cargo fetch --locked
 
