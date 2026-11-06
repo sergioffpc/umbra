@@ -128,8 +128,8 @@ recommended local git settings (rebase on pull, prune on fetch, `rerere`,
 scripts/setup-git.sh
 ```
 
-- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy` and
-  the book citations (`cargo xtask book-map --check`), then runs the linters that replace editor extensions: `typos`,
+- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy`,
+  then runs the linters that replace editor extensions: `typos`,
   `editorconfig-checker` on the staged files, `prettier`, `taplo`,
   `yamllint` and `markdownlint-cli2` on the staged JSON, TOML, YAML and
   Markdown files, `shellcheck` on the shell scripts, `actionlint` when a
@@ -253,29 +253,6 @@ first.
   does not apply to that target.
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
-- [`xtask/`](xtask) is repository tooling with a workspace of its own. It is
-  not one of the twelve crates. Run it with `cargo xtask <task>`.
-
-### Book citations
-
-Every rendering-core item that implements a pbrt-v4 algorithm cites the book
-section and the pbrt-v4 symbol in its doc comment (QS-4):
-
-```rust
-/// Samples the cosine-weighted hemisphere.
-///
-/// PBR 4e §A.5.3, pbrt-v4 `SampleCosineHemisphere`.
-pub fn sample_cosine_hemisphere(u: Point2f) -> Vector3f {
-```
-
-`cargo xtask book-map --check` checks every item in the seven core crates
-that is not private, and every method of such a trait. Each one cites at
-least one `PBR 4e §x.y` and one ``pbrt-v4 `Symbol` ``, or declares
-`Not in pbrt-v4: <reason>` on a line of its own. Methods of trait impls,
-private items, `#[cfg(test)]` modules and `tests/` are exempt.
-`cargo xtask book-map` writes the index
-[`docs/book-map.md`](docs/book-map.md) from section to code. Commit it with
-the change: CI fails when it is out of date.
 
 ## Build profiles
 
@@ -303,8 +280,6 @@ cargo test --doc --all-features --locked
 RUSTFLAGS="-D warnings" cargo build --locked --target aarch64-unknown-none \
   -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry \
   -p umbra-shading -p umbra-camera -p umbra-integrators
-cargo test --manifest-path xtask/Cargo.toml --locked
-cargo xtask book-map --check
 cargo deny check
 cargo shear
 typos

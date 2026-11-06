@@ -11,8 +11,6 @@
 rustflags = ["-C", "target-cpu=native"]
 
 [alias]
-# Repository tooling in xtask/, its own workspace: `cargo xtask book-map`.
-xtask = "run --quiet --locked --manifest-path xtask/Cargo.toml --"
 # Test coverage with cargo-llvm-cov and nextest. Add `--open` to view the HTML
 # report, or `--lcov --output-path lcov.info` for editor gutters.
 cov = "llvm-cov nextest --all-features --locked --no-tests=warn"
