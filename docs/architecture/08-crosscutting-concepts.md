@@ -107,6 +107,32 @@ flowchart LR
     Q4["Did the render get faster?"] --> B["umbra bench<br/>(the only proof)"]
 ```
 
+## 8.5 Polymorphism
+
+How pbrt-v4's interfaces are dispatched in Rust ([ADR 0006](../adr/0006-closed-enum-dispatch-for-rendering-interfaces.md)). The rule follows how often a call happens: closed enums on the per-ray and per-Pixel-Sample path, `dyn Trait` only at coarse seams.
+
+| Concern | Rule |
+| --- | --- |
+| Hot-path interfaces | Shape, Primitive (acceleration structure included), Material, BxDF, Light, FloatTexture, SpectrumTexture, Medium, PhaseFunction, Sampler, Camera and Filter dispatch through a closed `enum` and `match`. Never `dyn`. |
+| Shape of an interface | A trait with the book's name is the contract (`trait Shape`). Concrete types keep pbrt-v4's names (`Sphere`, `DiffuseBxDF`) and implement it. The enum is `<Interface>Kind` (`ShapeKind`) and implements the trait with a hand-written `match` per method. pbrt-v4's `LightType` keeps its name, distinct from `LightKind`. |
+| Exhaustive matches | No `_` arm in a `match` on a `*Kind` enum. Enforced crate-wide by lint (§8.6). |
+| Fixed per Render Job | Sampler, Camera and Filter are still matched per call. Hoisting the `match` into a monomorphised loop is an aggressive optimisation (benchmark, isolated contract, per-call version as reference). |
+| Generics | Free when they are not interface dispatch (`Vector3<T>`, `Bounds3<T>`). |
+| `dyn Trait` | Only for code called at most once per Work Unit or outside rendering: `dyn Integrator`, network transport, image writers, `ParserTarget`, telemetry. |
+| BxDF lifetime | Returned by value as `BxDFKind` and held on the stack inside the `BSDF`. `size_of::<BxDFKind>() <= 256` is asserted at compile time. `MixMaterial` picks one material stochastically, so there is no mixed BxDF. |
+| Textures | `FloatTextureKind` and `SpectrumTextureKind`. No `TextureEvaluator` until a wavefront driver needs it. |
+
+Where each dispatch mechanism sits, by call frequency:
+
+```mermaid
+flowchart TD
+    J["Render Job"] -->|"once per Work Unit: dyn Integrator"| I["Integrator<br/>(path, volpath, BDPT, …)"]
+    I -->|"per Pixel Sample: SamplerKind, CameraKind, FilterKind"| P["Pixel Sample"]
+    P -->|"per ray: PrimitiveKind → ShapeKind"| H["Intersection"]
+    H -->|"per hit: MaterialKind, TextureKinds"| B["BSDF holding a BxDFKind by value"]
+    H -->|"per light sample: LightKind"| L["Light sample"]
+```
+
 ## 8.6 Unsafe code and lints
 
 What the compiler and clippy enforce beyond style ([Unsafe policy and lint configuration](https://github.com/sergioffpc/umbra/issues/21)). The full lint set lives in `[lints]` in `Cargo.toml` and in `clippy.toml`. `CONTRIBUTING.md` explains it for contributors. Every warning is an error in CI.

@@ -19,6 +19,11 @@ too-many-arguments-threshold = 5
 max-fn-params-bools = 0
 max-struct-bools = 0
 
+# `large_stack_frames`: the default (500 KB) only catches frames that would
+# already overflow a 2 MiB worker-thread stack. 64 KiB flags big frames early,
+# before deep recursion (BVH traversal, path bounces) multiplies them.
+stack-size-threshold = 65536
+
 # Bit-identical Work Results across arm64 and x86-64 (ADR 0002, ADR 0007).
 # `std`'s transcendental float methods call the platform libm (macOS libm and
 # glibc differ in the last bit): use the `libm` crate instead. Methods that are
