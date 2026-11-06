@@ -146,3 +146,33 @@ What the compiler and clippy enforce beyond style ([Unsafe policy and lint confi
 | Bit-identical numerics | `disallowed-methods` bans `std`'s transcendental `f32`/`f64` methods (platform libm), approximate reciprocal intrinsics (`rcp`, `rsqrt`, `vrecpe`, `vrsqrte`, `wide`'s `recip`) and FP control-register writes (flush-to-zero, denormals-are-zero). Tests are not exempt ([ADR 0002](../adr/0002-bit-identical-results-across-architectures.md)). |
 | Output | No `print!`/`eprint!` outside tests: output goes through `tracing` and the JSON report (§8.4). |
 | Silencing | `#[expect(lint, reason = "...")]` on the narrowest item. `#[allow]` and reasonless attributes are rejected. |
+
+## 8.8 Work scheduling
+
+How a Render Job is split and scheduled across Workers and cores ([ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md), [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md)).
+
+| Concern | Rule |
+| --- | --- |
+| Decomposition | Square Tiles, 32 × 32 by default; Passes of 64 Pixel Samples by default. Both are Render Job options, never derived from the cluster. |
+| Assignment | Workers pull Work Units, about two in flight per eight threads. Pass-major order, raster Tile order within a Pass. Pass p of a Tile waits until Pass p − 2 of that Tile is merged. |
+| Inside a Worker | One rayon pool. Work Units in flight run concurrently, each splitting its rows with `par_iter`. No thread pinning by default. |
+| Failure detection | Connection closed, or 5 s without a heartbeat (sent every second). Both are Coordinator options. No per-Work-Unit timeout. |
+| Reassignment | A dead Worker's Work Units go to the front of the queue. A reconnecting Worker joins as new. The first Work Result per Work Unit is accepted; later ones are hash-compared and discarded. With no Workers, the Render Job waits. |
+| Tail | Once the queue is empty, the oldest Work Unit in flight is copied to a free Worker, at most once. The first Work Result wins, the other is cancelled. |
+| Transport | QUIC (`quinn`) to remote Workers; an in-memory transport to the Coordinator's optional local Worker. |
+
+```mermaid
+sequenceDiagram
+    participant W1 as Worker A
+    participant C as Coordinator
+    participant W2 as Worker B
+    W1->>C: request Work Units
+    C->>W1: (Tile 0, Pass 0), (Tile 1, Pass 0)
+    W2->>C: request Work Units
+    C->>W2: (Tile 2, Pass 0), (Tile 3, Pass 0)
+    W1->>C: Work Result (Tile 0, Pass 0)
+    Note over C: queue empty, Tile 3 still in flight
+    C->>W1: copy of (Tile 3, Pass 0)
+    W1->>C: Work Result (Tile 3, Pass 0)
+    C->>W2: cancel (Tile 3, Pass 0)
+```
