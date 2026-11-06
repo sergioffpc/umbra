@@ -68,6 +68,10 @@ _Avoid_: Master, server, leader, scheduler
 A process that holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. A machine runs one Worker per NUMA node, so usually exactly one.
 _Avoid_: Node, slave, client, agent, render thread
 
+**Worker Slot**:
+One place in a Session where a Worker runs: one machine and one of its NUMA nodes. When its Worker fails, a new Worker takes the same slot, a bounded number of times.
+_Avoid_: Worker instance, seat, node
+
 **Session**:
 One run of a Coordinator and the Workers started with it for a single Render Job; Workers do not outlive it, and a Worker that presents another Session's identifier is refused.
 _Avoid_: Cluster, run, deployment
