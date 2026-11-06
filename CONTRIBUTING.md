@@ -178,6 +178,12 @@ container.
   API of the crate. `unreachable_pub` rejects `pub` that is not reachable from
   outside, `missing_docs` requires docs on every public item, and
   `partial_pub_fields` rejects structs that mix public and private fields.
+- Performance: besides clippy `perf` and the perf lints in `pedantic`, the
+  nursery and restriction lints that catch wasted work are on: redundant
+  clones and collects, eager `or_*` arguments, locks held too long, `Mutex`
+  where an atomic fits, and stack frames over 64 KiB. `missing_asserts_for_indexing`
+  asks for one `assert!` on the length before indexing a slice several times,
+  so LLVM can drop the per-index bounds checks.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 

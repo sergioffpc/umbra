@@ -18,3 +18,8 @@ excessive-nesting-threshold = 3
 too-many-arguments-threshold = 5
 max-fn-params-bools = 0
 max-struct-bools = 0
+
+# `large_stack_frames`: the default (500 KB) only catches frames that would
+# already overflow a 2 MiB worker-thread stack. 64 KiB flags big frames early,
+# before deep recursion (BVH traversal, path bounces) multiplies them.
+stack-size-threshold = 65536
