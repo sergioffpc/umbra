@@ -3,8 +3,8 @@
 
 use crate::rng::Rng;
 use umbra_math::{
-    CompensatedSum, difference_of_products, erf_inv, evaluate_polynomial, find_interval, fma,
-    gaussian, gaussian_integral, inner_product, is_power_of_2, lerp, log2_int, next_float_up,
+    CompensatedSum, difference_of_products, erf_inv, evaluate_polynomial, fast_exp, find_interval,
+    fma, gaussian, gaussian_integral, inner_product, is_power_of_2, lerp, log2_int, next_float_up,
     round_up_pow2, sum_of_products, two_prod, two_sum,
 };
 
@@ -304,4 +304,20 @@ fn fma_rounds_once() {
     let a = 1.0 + f32::EPSILON;
     let ab = a * a;
     assert_eq!(fma(a, a, -ab), f32::EPSILON * f32::EPSILON);
+}
+
+/// `TEST(FastExp, Accuracy)`.
+#[test]
+fn fast_exp_accuracy() {
+    assert_eq!(1.0, fast_exp(0.0));
+    let mut rng = Rng::new(6502);
+    for _ in 0..100 {
+        let v = lerp(rng.uniform_f32(), -20.0, 20.0);
+        let (f, e) = (fast_exp(v), libm::expf(v));
+        let err = ((f - e) / e).abs();
+        assert!(
+            err <= 0.0003,
+            "at {v}: fast {f}, accurate {e}, relative error {err}"
+        );
+    }
 }

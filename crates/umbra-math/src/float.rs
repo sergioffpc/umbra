@@ -77,7 +77,12 @@ pub fn next_float_up(v: f32) -> f32 {
     }
     let v = if v == 0.0 { 0.0 } else { v };
     let bits = v.to_bits();
-    f32::from_bits(if v >= 0.0 { bits + 1 } else { bits - 1 })
+    // Wrapping, as pbrt-v4's unsigned arithmetic, so NaN bits never overflow.
+    f32::from_bits(if v >= 0.0 {
+        bits.wrapping_add(1)
+    } else {
+        bits.wrapping_sub(1)
+    })
 }
 
 /// The next `f32` below `v`. `−∞` stays `−∞`, and `+0` steps to the largest
@@ -91,7 +96,12 @@ pub fn next_float_down(v: f32) -> f32 {
     }
     let v = if v == 0.0 { -0.0 } else { v };
     let bits = v.to_bits();
-    f32::from_bits(if v > 0.0 { bits - 1 } else { bits + 1 })
+    // Wrapping, as pbrt-v4's unsigned arithmetic, so NaN bits never overflow.
+    f32::from_bits(if v > 0.0 {
+        bits.wrapping_sub(1)
+    } else {
+        bits.wrapping_add(1)
+    })
 }
 
 /// `a + b`, rounded so the result is not below the exact sum.

@@ -486,10 +486,11 @@ pub fn rotate_from_to(from: Vector3f, to: Vector3f) -> Transform {
 #[must_use]
 pub fn look_at(pos: Point3f, look: Point3f, up: Vector3f) -> Option<Transform> {
     let dir = (look - pos).normalize();
-    if cross(up.normalize(), dir).length() == 0.0 {
+    let up_cross_dir = cross(up.normalize(), dir);
+    if up_cross_dir.length() == 0.0 {
         return None;
     }
-    let right = cross(up.normalize(), dir).normalize();
+    let right = up_cross_dir.normalize();
     let new_up = cross(dir, right);
     let world_from_camera = SquareMatrix::new([
         [right.x, new_up.x, dir.x, pos.x],

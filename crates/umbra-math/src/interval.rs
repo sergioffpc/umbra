@@ -241,11 +241,13 @@ fn bound_products(a: Interval, b: Interval) -> (usize, usize) {
     ];
     let low = min(min(p[0], p[1]), min(p[2], p[3]));
     let high = max(max(p[0], p[1]), max(p[2], p[3]));
-    let index = |v: f32| {
-        p.iter()
-            .position(|&x| x.to_bits() == v.to_bits())
-            .unwrap_or(3)
-    };
+    // The first equal product, as pbrt-v4's chain of `==` finds it (so -0
+    // matches +0), and 3 when none is equal (NaN).
+    #[expect(
+        clippy::float_cmp,
+        reason = "pbrt-v4 locates the extreme product by `==`"
+    )]
+    let index = |v: f32| p.iter().position(|&x| x == v).unwrap_or(3);
     (index(low), index(high))
 }
 

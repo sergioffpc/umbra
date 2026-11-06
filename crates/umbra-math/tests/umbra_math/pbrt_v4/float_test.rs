@@ -54,3 +54,14 @@ fn next_up_down_special_values() {
         "up from -inf"
     );
 }
+
+/// Not in pbrt-v4's tests: NaN bit patterns step as pbrt-v4's unsigned
+/// arithmetic does, wrapping instead of overflowing.
+#[test]
+fn next_up_down_nan_bits_wrap() {
+    assert_eq!(0, next_float_down(f32::from_bits(0xffff_ffff)).to_bits());
+    assert_eq!(
+        0x7fff_fffe,
+        next_float_up(f32::from_bits(0x7fff_ffff)).to_bits()
+    );
+}

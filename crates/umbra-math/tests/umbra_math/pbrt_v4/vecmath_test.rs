@@ -8,6 +8,7 @@ use umbra_math::{
     Vector2i, Vector3, Vector3f, Vector3fi, Vector3i, abs_dot, angle_between, coordinate_system,
     cross, distance, distance_squared, dot, safe_acos, sqr,
 };
+use umbra_math::{rotate, spherical_triangle_area};
 
 /// `TEST(Vector2, Basics)`, conversion and arithmetic.
 #[test]
@@ -290,4 +291,48 @@ fn frame_round_trip() {
     let frame = Frame::from_xz(Vector3f::new(1.0, 0.0, 0.0), Vector3f::new(0.0, 0.0, 1.0));
     assert_eq!(Vector3f::new(0.0, 1.0, 0.0), frame.y);
     assert_eq!(1.0, abs_dot(Normal3f::new(0.0, 0.0, -1.0), frame.z));
+}
+
+/// `true` if `a` is within pbrt-v4's tolerance of `expected`.
+fn area_near(a: f32, expected: f32, high: f32) -> bool {
+    a >= 0.9999 * expected && a <= high * expected
+}
+
+/// `TEST(SphericalTriangleArea, Basics)`, the fixed octants.
+#[test]
+fn spherical_triangle_area_basics() {
+    let (x, y, z) = (
+        Vector3f::new(1.0, 0.0, 0.0),
+        Vector3f::new(0.0, 1.0, 0.0),
+        Vector3f::new(0.0, 0.0, 1.0),
+    );
+    let a = spherical_triangle_area(x, y, z);
+    assert!(area_near(a, PI / 2.0, 1.00001), "{a}");
+    let a = spherical_triangle_area(x, Vector3f::new(1.0, 1.0, 0.0).normalize(), z);
+    assert!(area_near(a, PI / 4.0, 1.00001), "{a}");
+}
+
+/// `TEST(SphericalTriangleArea, Basics)`, the random rotations. pbrt-v4 passes
+/// `2π·u` as degrees to `Rotate`; the angle is just random, so that is kept.
+#[test]
+fn spherical_triangle_area_basics_rotations() {
+    let mut rng = Rng::default();
+    let corners = [
+        (Vector3f::new(0.0, 1.0, 0.0), PI / 2.0),
+        (Vector3f::new(1.0, 1.0, 0.0).normalize(), PI / 4.0),
+    ];
+    for (b, expected) in corners {
+        for _ in 0..100 {
+            let axis = sample_uniform_sphere(Point2f::new(rng.uniform_f32(), rng.uniform_f32()));
+            let t = rotate(2.0 * PI * rng.uniform_f32(), axis);
+            let [va, vb, vc] = [
+                Vector3f::new(1.0, 0.0, 0.0),
+                b,
+                Vector3f::new(0.0, 0.0, 1.0),
+            ]
+            .map(|v| t.apply(v));
+            let a = spherical_triangle_area(va, vb, vc);
+            assert!(area_near(a, expected, 1.0001), "{a}");
+        }
+    }
 }
