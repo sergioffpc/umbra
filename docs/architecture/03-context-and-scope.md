@@ -55,7 +55,7 @@ flowchart LR
 | Channel | Between | Protocol and format | Where it is decided |
 | --- | --- | --- | --- |
 | Command line | Operator and `umbra` | `clap` subcommands, exit codes `0`/`1`/`2`/`3`/`130` | §5.3, §8.13 |
-| Files | Operator machine and Coordinator | `.pbrt` Scene File and assets in; image and versioned-JSON Render Job Report out, next to the image | §8.2, §8.10, image output (open) |
+| Files | Operator machine and Coordinator | `.pbrt` Scene File and assets in; image and versioned-JSON Render Job Report out, next to the image | §8.2, §8.10, §8.15 |
 | Session launch | `scripts/workers up` and each host | SSH: build with `cargo` or `docker pull`, start one Worker per NUMA node under `numactl` | §7.3, [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md) |
 | Coordinator–Worker | Coordinator and each remote Worker | QUIC (`quinn`), UDP 7470 by default, unverified TLS, `postcard` messages and raw little-endian bulk data | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
 | Local Worker | Coordinator and its in-process Worker | In-memory transport, same messages | §8.8 |

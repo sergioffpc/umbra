@@ -54,7 +54,7 @@ Scene names are paths in `mmp/pbrt-v4-scenes` without their folder; a count in p
 | 9 | `umbra-scene` | Arenas, `SceneBuilder`, Loop subdivision refined to triangles at Scene build, deterministic BVH construction, `RenderJobOptions`. |
 | 10 | `umbra-parser` | `nom` tokenizer, includes, the v0.1.0 subset, strict validation with every error located, content hash. |
 | 11 | `umbra-render`: Renderer and Film | `Renderer::render`, `Film::accept` with the Pass-order merge, Anomalous Pixel Samples. |
-| 12 | `umbra-render`: image writer | The final image and its Reproduction Record. Waits on the image output decision. |
+| 12 | `umbra-render`: image writer | The EXR writer behind the `dyn` image-writer seam: the `"rgb"` Film, the `umbra.reproductionRecord` attribute and pbrt-v4 metadata, written atomically; the whole-file hash test (ADR 0020, §8.15). |
 | 13 | `umbra-render`: Pixel Traces | `TraceRecorder`, `Renderer::trace`, glTF export with display tessellation of spheres and meshes, the bit-identical oracle test. |
 | 14 | `umbra-cluster`, local only | `coordinate` with the local Worker, the status line, the Render Job Report. |
 | 15 | `umbra` binary | `render`, `trace`, `bench` and `validate`. |
