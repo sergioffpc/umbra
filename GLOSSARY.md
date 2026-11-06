@@ -24,6 +24,10 @@ _Avoid_: Scene description, input file, scene source
 A Scene from the pinned pbrt-v4 scene collection, with fixed resolution, Pixel Samples per pixel, seed and Tile size, used to measure performance. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
 
+**Reference Image**:
+The converged pbrt-v4 rendering of a Reference Scene, with far more Pixel Samples per pixel than the Reference Scene fixes, against which the correctness of Umbra's rendering is judged.
+_Avoid_: Ground truth, golden image, reference render
+
 **Render Job Report**:
 The structured record a Render Job leaves when it finishes: how long each phase took, how fast Pixel Samples were computed, what each Worker did and how the work was scheduled. Only some of its measurements are compared between runs; the rest explain them.
 _Avoid_: Benchmark report, stats file, metrics dump
