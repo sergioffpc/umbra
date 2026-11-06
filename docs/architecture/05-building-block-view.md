@@ -95,8 +95,8 @@ impl Scene { pub fn view(&self) -> SceneView<'_>; }
 ### `umbra-render`
 
 ```rust
-impl Renderer {
-    pub fn new(scene: Arc<Scene>, options: &RenderJobOptions) -> Result<Self, RenderError>;
+impl<'s> Renderer<'s> {
+    pub fn new(scene: &'s Scene, options: &RenderJobOptions) -> Result<Self, RenderError>;
     pub fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Rendered;   // Done(WorkResult) | Cancelled
     pub fn trace(&self, request: &TraceRequest) -> Vec<PixelTrace>;
 }

@@ -12,6 +12,10 @@ Rendering terminology (Integrator, Sampler, Camera, Shape, Primitive, BSDF, Ligh
 A request to render one Scene through one camera into one image, from submission to the final image.
 _Avoid_: Job, task, render, frame
 
+**Render Job Options**:
+The settings of a Render Job given at submission rather than in its Scene File, such as Tile size, Pixel Samples per Pass, seed and output path, including pbrt-v4-style overrides of the Scene File.
+_Avoid_: Job settings, config, parameters
+
 **Scene**:
 The complete, validated description of what is rendered: geometry, materials, lights, media, camera and render settings, independent of the file format it was read from. Every Worker holds an identical replica.
 _Avoid_: World, model
@@ -20,8 +24,12 @@ _Avoid_: World, model
 The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator builds a Scene.
 _Avoid_: Scene description, input file, scene source
 
+**Diagnostics**:
+The complete list of reasons, each located in its Scene File, why a Scene File cannot be rendered. A Render Job with any Diagnostics is refused before any Work Unit exists.
+_Avoid_: Parse errors, validation errors, warnings
+
 **Reference Scene**:
-A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed and Tile size for each use. Once listed, a Reference Scene is never removed.
+A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed (seeds 0–15 for validation) and Tile size for each use. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
 
 **Reference Scene Variant**:
@@ -72,6 +80,10 @@ _Avoid_: Master, server, leader, scheduler
 A process that holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. A machine runs one Worker per NUMA node, so usually exactly one.
 _Avoid_: Node, slave, client, agent, render thread
 
+**Local Worker**:
+A Worker that runs inside the Coordinator's own process, so that one machine can render a Render Job alone.
+_Avoid_: Embedded worker, in-process node
+
 **Worker Slot**:
 One place in a Session where a Worker runs: one machine and one of its NUMA nodes. When its Worker fails, a new Worker takes the same slot, a bounded number of times.
 _Avoid_: Worker instance, seat, node
@@ -79,6 +91,10 @@ _Avoid_: Worker instance, seat, node
 **Session**:
 One run of a Coordinator and the Workers started with it for a single Render Job; Workers do not outlive it, and a Worker that presents another Session's identifier is refused.
 _Avoid_: Cluster, run, deployment
+
+**Operator**:
+The person who starts a Session from their own machine, which then hosts the Coordinator and receives the final image.
+_Avoid_: User, admin, client
 
 **Build Identity**:
 The source commit a Coordinator or Worker binary was built from, whether its tree had uncommitted changes, and the CPU it was compiled for. A Render Job admits only Workers whose commit matches the Coordinator's.
@@ -91,9 +107,19 @@ The detailed record of how one Pixel Sample was computed, from camera sample to 
 _Avoid_: Path log, debug ray, pixel dump
 
 **Reproduction Record**:
-What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File and its content, the seed, the Render Job options and the Build Identity of the Umbra that rendered it.
+What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File path with a content hash of it, its includes and its assets, the seed, every Render Job option except the output path, and the Build Identity of the Umbra that rendered it.
 _Avoid_: Job manifest, render metadata, provenance
 
 **Anomalous Pixel Sample**:
 A Pixel Sample whose radiance is not a number, infinite or negative. It is left out of the Film and reported, so its Pixel Trace can be inspected.
 _Avoid_: Bad sample, NaN sample (a firefly is a valid, merely very bright, Pixel Sample)
+
+### Development
+
+**Aggressive Optimisation**:
+A change made only for speed that departs from the readable, book-faithful implementation. It is admitted only with a benchmark showing an end-to-end gain, behind a simple contract, and tested against the readable reference it keeps.
+_Avoid_: Optimisation (unqualified), fast path, hack
+
+**Golden Film Hash**:
+The committed hash of the Film a Reference Scene produces at minimal settings; a change to it means a change in rendered pixels.
+_Avoid_: Golden image, snapshot, expected output

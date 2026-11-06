@@ -9,7 +9,7 @@ The Coordinator schedules a Render Job by letting Workers pull Work Units in Pas
 - **Speculative tail.** When the queue is empty and a Worker has free capacity, the Coordinator assigns it a copy of the oldest Work Unit still in flight, at most one copy per Work Unit. The first Work Result wins; the other is cancelled, or hash-compared and discarded if it arrives anyway. On by default.
 - **Local Worker.** The Coordinator can host a Worker in its own process, reached through an in-memory transport behind the same transport seam ([ADR 0006](0006-closed-enum-dispatch-for-rendering-interfaces.md)), so rendering on one machine is one command and the scheduler is tested without a network. It can be turned off.
 
-Inside a Worker, Work Units in flight run concurrently on one rayon pool and each splits its rows with `par_iter`; work stealing balances the M2's performance and efficiency cores. Thread pinning, per-NUMA-node Scene replicas and per-core-type tuning are aggressive optimisations, kept in the per-architecture tuning backlog (arc42 §8.14). NUMA locality on the R630 comes instead from running one Worker per NUMA node ([ADR 0017](0017-one-worker-per-numa-node.md)).
+Inside a Worker, Work Units in flight run concurrently on one rayon pool and each splits its rows with `par_iter`; work stealing balances the M2's performance and efficiency cores. Thread pinning, per-NUMA-node Scene replicas and per-core-type tuning are aggressive optimisations, kept in the per-architecture tuning backlog ([arc42 §8.14](../architecture/08-crosscutting-concepts.md#814-per-architecture-tuning)). NUMA locality on the R630 comes instead from running one Worker per NUMA node ([ADR 0017](0017-one-worker-per-numa-node.md)).
 
 ## Considered options
 

@@ -1,6 +1,6 @@
 # Chiseled Ubuntu container image, published on every release tag
 
-> **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is now published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, and not as a single `x86-64-v3` image. The `X.Y` and `latest` tags are dropped. The rest of this ADR still applies.
+> **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is to be published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, not as a single `x86-64-v3` image, and the `X.Y` and `latest` tags are dropped. Until that lands ([TD-1](../architecture/11-risks-and-technical-debt.md#112-technical-debt)), the pipeline still works as this ADR describes. The rest of this ADR still applies.
 
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 
@@ -15,5 +15,5 @@ Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux 
 
 - **Trigger on `release: published`**: rejected. It needs a manual or scripted GitHub Release step that git flow does not have, and the tag is already the release.
 - **Static musl binary in `scratch` or distroless `static`**: rejected for the allocator contention above; revisit if the Workers move to a custom global allocator.
-- **`gcr.io/distroless/cc` or Debian slim as the runtime**: viable. Chiseled Ubuntu was chosen for a smaller, slice-level package set with a Chisel manifest that scanners read, and for a 26.04 LTS base that matches the Linux Workers' Ubuntu.
+- **`gcr.io/distroless/cc` or Debian slim as the runtime**: viable. Chiseled Ubuntu was chosen for a smaller, slice-level package set with a Chisel manifest that scanners read, and for a 26.04 LTS base. The image does not depend on the host's distribution: the P620 runs Ubuntu 26.10 and the R630 Debian 13 ([deployment view](../architecture/07-deployment-view.md)).
 - **Publishing a multi-arch image**: rejected for now, see above. Adding `linux/arm64` later is a `platforms:` change plus an arm64 runner.

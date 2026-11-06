@@ -1,6 +1,6 @@
 # 6. Runtime View
 
-The scenarios a Session runs through, from the decisions in [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) (deterministic merge), [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) (scheduling), [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md) (Build Identity), [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md) (Session start-up and restart), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) and [§8.13](08-crosscutting-concepts.md#813-wire-protocol) (wire protocol). The messages are those of §8.13; the rules behind each step are in §8.8 and §8.13 and are not repeated here.
+The scenarios a Session runs through, from the decisions in [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) (deterministic merge), [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) (scheduling), [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md) (Build Identity), [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md) (Session start-up and restart), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) and [§8.13](08-crosscutting-concepts.md#813-wire-protocol) (wire protocol). The messages are those of §8.13. The rules behind each step, and the values they use, are defined in §8.8 and §8.13. A scenario repeats a value only where a step needs it, and §8.13 wins if the two ever disagree.
 
 How a Session starts and who may join it was settled in [Session start-up and Worker joining](https://github.com/sergioffpc/umbra/issues/59); how connections close when a Worker is declared dead or a Render Job is cancelled, in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60).
 
@@ -178,7 +178,7 @@ sequenceDiagram
 2. Nothing of the Scene is sent before `Welcome`, so a rejected Worker costs the Render Job nothing.
 3. `--allow-dirty` admits dirty builds and is recorded in the Render Job Report.
 
-The certificate is never checked, so these rejections catch mistakes of operation, such as a Worker left over from another Session, and not hostile nodes, which are out of scope (ADR 0015).
+The certificate is never checked, so these rejections catch mistakes of operation, such as a Worker left over from another Session, and not hostile nodes, which are out of scope ([ADR 0016](../adr/0016-one-render-job-per-quic-connection.md), §3.3).
 
 ## 6.6 Ctrl-C cancellation
 
@@ -204,6 +204,6 @@ sequenceDiagram
 1. A Render Job either renders every Pass or produces no image. There is no partial image and no time budget (ADR 0004).
 2. Closing a connection with `JOB_CANCELLED` ends every stream on it, so Workers need no separate `Cancel` per Work Unit.
 3. The Coordinator runs on the operator's machine, as a child of the script in the terminal's foreground process group, so Ctrl-C reaches it directly. The script starts every `ssh` client under `setsid`, so Workers end through the protocol, never through a signal, and their last log lines still arrive.
-4. A second Ctrl-C makes the script kill the Coordinator and the `ssh` clients with `SIGKILL`. Remote Workers then exit 1 on the QUIC idle timeout, so no remote kill is needed.
+4. A second Ctrl-C makes the script kill the Coordinator and the `ssh` clients with `SIGKILL`. Remote Workers then exit 1 on the QUIC idle timeout, so no remote kill is needed, and the script restarts nothing once the Coordinator has exited (§8.13).
 5. The cancelled Render Job still leaves its Render Job Report, with `outcome: "cancelled"`; `umbra bench` and `umbra validate` reject it (§8.10). Exit codes are in §8.13.
 6. Ctrl-C on a single Worker stops only that Worker: it closes with `WORKER_STOPPED`, exits 130, and the Coordinator reassigns its Work Units as in §6.3.

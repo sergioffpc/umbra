@@ -19,9 +19,9 @@ flowchart LR
 
 | Version | Name | Adds | Reference Scenes it unlocks | Validated through variants |
 | --- | --- | --- | --- | --- |
-| v0.1.0 | First light | `trianglemesh`, `sphere`, `loopsubdiv`; `diffuse`, `coateddiffuse`; diffuse area light; `bvh` light sampler; `halton`; `gaussian`; `rgb` film with the default sensor; `perspective`; `volpath` with media rejected. All the tooling the closing issues need (§4.2). | killeroo-simple | — |
+| v0.1.0 | First light | `trianglemesh`, `sphere`, `loopsubdiv`; `diffuse`, `coateddiffuse`; diffuse area light; `bvh` light sampler; `halton`; `gaussian`; `rgb` film with every `RGBFilm` parameter, named camera sensors included ([ADR 0020](../adr/0020-bit-identical-exr-final-image.md)); `perspective`; `volpath` with media rejected. All the tooling the closing issues need (§4.2). | killeroo-simple | — |
 | v0.2.0 | Distribution | Remote Workers: QUIC, wire protocol, heartbeats, reassignment, speculative tail, Build Identity admission. Accepted on QS-2, QS-7 and QS-8. | none (those of v0.1.0) | — |
-| v0.3.0 | Metals, glass and textures | `conductor`, `dielectric`; named spectra and `.spd` files; `disk`; `distant` light; `imagemap`, `scale`, `constant` textures (PNG); bump mapping; spectral camera sensors; `ActiveTransform` motion blur; `sobol`, `pmj02bn` | killeroo-moving, killeroo-gold, pbrt-book, lte-orb-silver, lte-orb-rough-glass | `path`, `simplepath`, `randomwalk`, `ambientocclusion`; `box`, `triangle`, `mitchell`, `lanczos`; `independent`, `stratified`, `paddedsobol`; `TransformTimes` |
+| v0.3.0 | Metals, glass and textures | `conductor`, `dielectric`; named spectra and `.spd` files; `disk`; `distant` light; `imagemap`, `scale`, `constant` textures (PNG); bump mapping; `ActiveTransform` motion blur; `sobol`, `pmj02bn` | killeroo-moving, killeroo-gold, pbrt-book, lte-orb-silver, lte-orb-rough-glass | `path`, `simplepath`, `randomwalk`, `ambientocclusion`; `box`, `triangle`, `mitchell`, `lanczos`; `independent`, `stratified`, `paddedsobol`; `TransformTimes` |
 | v0.4.0 | Environment lighting | `coatedconductor`, `mix` material; image `infinite` light (EXR); gzipped PLY; object instancing | killeroo-coated-gold, ganesha, transparent-machines (5), bmw-m6 | PFM and TGA images |
 | v0.5.0 | Measured materials | `measured`; `bilinearmesh`; `gbuffer` film | lte-orb-blue-agat-spec, lte-orb-simple-ball, sportscar (2) | `aov` |
 | v0.6.0 | Production scenes | `diffusetransmission`, `thindielectric`; alpha cut-outs; normal maps; `mix`, `wrinkled`, `windy` textures; `zsobol` | sanmiguel, bistro, landscape, zero-day, villa-daylight, pavilion-day (those needing nothing from v0.7.0) | `checkerboard`, `dots`, `fbm`, `marble`, `bilerp`, `ptex`; `ColorSpace`, `Attribute`, `Option` |
@@ -49,12 +49,12 @@ Scene names are paths in `mmp/pbrt-v4-scenes` without their folder; a count in p
 | 4 | `umbra-spectrum` | `SampledSpectrum`, `SampledWavelengths`, CIE matching functions, the sRGB `RGBColorSpace` and its RGB-to-spectrum tables. |
 | 5 | `umbra-geometry` | `Ray`, `Bounds`, interactions, triangle and sphere intersection, BVH node layout and traversal. |
 | 6 | `umbra-shading` | `DiffuseBxDF`, `CoatedDiffuseBxDF` (LayeredBxDF), `DiffuseAreaLight`, `BVHLightSampler`. χ², `pdf`, normalisation and reciprocity tests. |
-| 7 | `umbra-camera` | `PerspectiveCamera`, `GaussianFilter`, the default `PixelSensor`, sensor RGB. |
+| 7 | `umbra-camera` | `PerspectiveCamera`, `GaussianFilter`, `PixelSensor` with the default and the named camera sensors, sensor RGB. |
 | 8 | `umbra-integrators` | `SceneView`, `VolPathIntegrator` without media, `Recorder` and `NoRecorder`. |
 | 9 | `umbra-scene` | Arenas, `SceneBuilder`, Loop subdivision refined to triangles at Scene build, deterministic BVH construction, `RenderJobOptions`. |
 | 10 | `umbra-parser` | `nom` tokenizer, includes, the v0.1.0 subset, strict validation with every error located, content hash. |
 | 11 | `umbra-render`: Renderer and Film | `Renderer::render`, `Film::accept` with the Pass-order merge, Anomalous Pixel Samples. |
-| 12 | `umbra-render`: image writer | The final image and its Reproduction Record. Waits on the image output decision. |
+| 12 | `umbra-render`: image writer | The EXR final image and its Reproduction Record (§8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)). |
 | 13 | `umbra-render`: Pixel Traces | `TraceRecorder`, `Renderer::trace`, glTF export with display tessellation of spheres and meshes, the bit-identical oracle test. |
 | 14 | `umbra-cluster`, local only | `coordinate` with the local Worker, the status line, the Render Job Report. |
 | 15 | `umbra` binary | `render`, `trace`, `bench` and `validate`. |
