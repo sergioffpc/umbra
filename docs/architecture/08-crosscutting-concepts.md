@@ -86,7 +86,7 @@ How performance claims are measured and guarded ([Benchmark and profiling infras
 | --- | --- |
 | Proof of a gain | An optimisation is accepted only on an end-to-end gain: one Worker, no network, on the Reference Scenes. Micro-benchmarks help to iterate and to locate a gain, but never justify one on their own. |
 | Metrics | The main metric is Pixel Samples per second in the render phase (wall-clock, all threads of the Worker). Each other phase is timed on its own: parse, Scene build, BVH build. They are the comparable fields of the Render Job Report written at the end of every Render Job (§8.10). |
-| Reference Scenes | Taken only from `mmp/pbrt-v4-scenes` at a pinned commit, downloaded and never vendored. Each milestone adds the ones it can render, and none is ever removed. Each entry fixes resolution, Pixel Samples per pixel, seed and Tile size, sized for 10–60 s per machine. |
+| Reference Scenes | Taken only from `mmp/pbrt-v4-scenes` at a pinned commit (§8.11), downloaded and never vendored. Each milestone adds the ones it can render, and none is ever removed. Each entry fixes resolution, Pixel Samples per pixel, seed and Tile size for benchmarking, sized for 10–60 s per machine, and separately for validation (§8.11). |
 | Where | Measured by hand on the three target machines (§7.1) with `umbra bench`, and the report is attached to the PR. Arm64 (M2) is required for NEON changes, at least one x86-64 machine for AVX2 changes, and the R630 for any threading or memory change (NUMA). Shared CI runners only smoke-test: `cargo bench --no-run` and one small Scene rendered to completion, with no numbers compared. |
 | No remote triggers | No self-hosted runners and no GitHub-triggered execution on the target machines. Every measurement on them is started by hand. |
 | Noise | Baseline and candidate commits run interleaved (A, B, A, B, …) on the same idle machine: 1 discarded warm-up, then 5 runs each. A gain counts if the 95 % confidence interval of the difference excludes zero and the median gain is ≥ 2 %. The report records the CPU model, OS, commit, build flags, and the governor and frequency when available. |
@@ -262,4 +262,34 @@ flowchart LR
     C --> L["tracing events<br/>(human or JSON lines)"]
     C --> R["Render Job Report<br/>(&lt;image&gt;.report.json)"]
     R --> B["umbra bench<br/>(comparable fields only)"]
+```
+
+## 8.11 Correctness validation
+
+How Umbra proves it renders what pbrt-v4 renders ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md), [Correctness validation strategy](https://github.com/sergioffpc/umbra/issues/29)). Each layer catches what the one above cannot locate.
+
+| Concern | Rule |
+| --- | --- |
+| Pinned reference | `mmp/pbrt-v4` at `b0bdf461ba5dd6504b70ebf0932acc0fe7aa744f`, `mmp/pbrt-v4-scenes` at `30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572`. One file holds both commits once validation code exists. Moving them is an explicit decision that publishes a new reference. |
+| Reference statistics | A repository script builds the pinned pbrt-v4 and renders every Reference Scene 16 times (seeds 0–15) at its validation settings. Per-pixel mean and variance EXRs, and the Reference Image of QS-1 (§10), are published as assets of the GitHub release `pbrt-v4-reference-<commit>`, downloaded and hash-checked by `umbra validate`. |
+| Image test | Umbra renders the same 16 seeds. Per pixel and RGB channel, a Welch t-test. Benjamini–Hochberg at q = 0.01 over all tests: one rejection fails the Reference Scene. Zero variance on both sides passes only with equal means. Any Anomalous Pixel Sample fails it too. |
+| Report | Per Reference Scene: verdict, p-value map, rejected pixels, Anomalous Pixel Samples as `umbra trace` commands (§8.9), and relMSE and FLIP as diagnostics. |
+| Noise target | The Welch test detects bias. Whether Umbra is noisier than pbrt-v4 is QS-1 (§10): relMSE against the Reference Image, checked by the milestone's benchmark measurement issue. Both block the milestone. |
+| Where | By hand on a target machine with `umbra validate`, never in CI. |
+| Golden Film hashes | CI renders each Reference Scene of the current milestone at minimal settings (e.g. 32 × 32, 4 Pixel Samples per pixel) on arm64 and x86-64 and compares Film hashes with committed values. Scenes are downloaded from the pinned commit and cached in CI. No images are committed. |
+| When to validate | A pull request that changes a golden Film hash updates the committed hashes and attaches a passing `umbra validate` report for the affected Reference Scenes. Every milestone closes with a manual validation issue next to the benchmark issue; its report goes to `docs/validation/<milestone>.json`. |
+| Sampling tests | In `cargo test`, every variant of a sampling interface (BxDF, Light, Shape, PhaseFunction, sampling distributions) passes four tests with fixed seeds: a χ² goodness-of-fit of sampled directions against the PDF integrated over a (θ, φ) grid, low-count cells merged and the p-value corrected for the number of tests; `sample` and `pdf` agree; the PDF integrates to 1; for BxDFs, reciprocity where physics requires it and albedo ≤ 1. A new variant joins them, as it joins the allocation (§8.7) and tracing (§8.9) tests. |
+| Optimisation equivalence | An aggressive optimisation that keeps operations and their order (SIMD, hoisted dispatch, `unsafe`) is bit-identical to its reference: differential `proptest` tests with generated edge cases (NaN, ±∞, signed zeros, denormals, axis-parallel rays) and one Reference Scene with the same Film hash on both paths. One that changes results by nature (polynomial approximations, ULP-space offsets, a non-deterministic BVH builder) declares an error bound in its contract (e.g. ≤ 2 ulp against `libm`), checked by `proptest` or exhaustively over the `f32` domain where feasible, and passes `umbra validate`. |
+| References kept | The readable reference stays as an ordinary function and is never deleted. The Cargo feature `reference` renders with references end to end, for debugging. |
+| Unit tests | When a module lands, its pbrt-v4 `*_test.cpp` cases are ported to idiomatic Rust, each naming its source file and test. Tests of C++-only machinery (`taggedptr`, `buffercache`, `pstd`) are not ported. Module-specific tests come on top. |
+
+Which layer answers which question:
+
+```mermaid
+flowchart TD
+    Q1["Is a routine's sampling consistent<br/>with its PDF?"] --> S["sampling tests (cargo test, CI)"]
+    Q2["Does an optimisation still compute<br/>what its reference computes?"] --> E["equivalence tests (cargo test, CI)"]
+    Q3["Did this pull request change pixels?"] --> H["golden Film hashes (CI)"]
+    H -->|"hash changed"| V["umbra validate (by hand)"]
+    Q4["Is the image unbiased<br/>with respect to pbrt-v4?"] --> V
 ```

@@ -21,7 +21,7 @@ The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator
 _Avoid_: Scene description, input file, scene source
 
 **Reference Scene**:
-A Scene from the pinned pbrt-v4 scene collection, with fixed resolution, Pixel Samples per pixel, seed and Tile size, used to measure performance. Once listed, a Reference Scene is never removed.
+A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed and Tile size for each use. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
 
 **Reference Image**:
