@@ -178,6 +178,19 @@ container.
   API of the crate. `unreachable_pub` rejects `pub` that is not reachable from
   outside, `missing_docs` requires docs on every public item, and
   `partial_pub_fields` rejects structs that mix public and private fields.
+- `unsafe` is denied. An exception is an aggressive optimisation
+  ([ADR 0007](docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md)):
+  it needs a benchmark, a safe contract and a safe reference implementation it
+  is tested against, under Miri (or AddressSanitizer where Miri cannot run the
+  code). Open it with `#[expect(unsafe_code, reason = "...")]` on the narrowest
+  item, one unsafe operation per block, each with a `// SAFETY:` comment.
+- No `_` arm in a `match` on an enum: list the variants, so adding one breaks
+  the build wherever it is not handled.
+- Bit-identical floats ([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)):
+  `std`'s transcendental float methods (`sin`, `exp`, `powf`, …) are banned in
+  favour of the `libm` crate, as are approximate reciprocal intrinsics and
+  flush-to-zero. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
+- No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
