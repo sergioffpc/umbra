@@ -2,9 +2,26 @@
 # Blocks a commit unless formatting, lints and spelling pass.
 # Enable once per clone with: git config core.hooksPath .githooks
 # Bypass in an emergency with: git commit --no-verify
+#
+# The linters after clippy replace editor extensions: each one runs when it
+# is installed and is skipped with a warning otherwise. The dev container
+# ships all of them.
 set -eu
 
 cd "$(git rev-parse --show-toplevel)"
+
+# True when the command is on PATH; warns that its check is skipped if not.
+have() {
+    command -v "$1" >/dev/null 2>&1 && return 0
+    echo "pre-commit: $1 not installed, skipping (see CONTRIBUTING.md, Toolchain)" >&2
+    return 1
+}
+
+# True when a staged (added, copied, modified or renamed) path matches one of
+# the given git pathspecs.
+staged() {
+    [ -n "$(git diff --cached --name-only --diff-filter=ACMR -- "$@")" ]
+}
 
 echo "pre-commit: checking whitespace in staged changes"
 git diff --cached --check
@@ -19,9 +36,31 @@ echo "pre-commit: cargo clippy"
 cargo clippy --all-targets --all-features --locked -- -D warnings
 
 echo "pre-commit: typos"
-if command -v typos >/dev/null 2>&1; then
+if have typos; then
     typos
-else
-    echo "pre-commit: typos not installed, skipping (CI still checks)." >&2
-    echo "  install with: brew install typos-cli  or  cargo install typos-cli" >&2
+fi
+
+# EditorConfig (charset, final newline, indentation) on the staged files.
+echo "pre-commit: editorconfig-checker"
+if have editorconfig-checker && staged .; then
+    git diff --cached --name-only --diff-filter=ACMR -z \
+        | xargs -0 editorconfig-checker
+fi
+
+# Shell scripts: the hooks, scripts/ and the dev container scripts.
+echo "pre-commit: shellcheck"
+if have shellcheck; then
+    git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
+fi
+
+# GitHub Actions workflows (YAML, expressions, and shellcheck on `run:`).
+echo "pre-commit: actionlint"
+if have actionlint && staged '.github/workflows/*'; then
+    actionlint
+fi
+
+# Dependencies: advisories, licenses, bans and sources, when they change.
+echo "pre-commit: cargo deny"
+if have cargo-deny && staged Cargo.toml Cargo.lock deny.toml; then
+    cargo deny check
 fi

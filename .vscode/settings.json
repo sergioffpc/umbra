@@ -24,7 +24,7 @@
     "files.trimTrailingWhitespace": false,
     "editor.tabSize": 2
   },
-  "[yaml][github-actions-workflow]": {
+  "[yaml]": {
     "editor.tabSize": 2
   },
   "[git-commit]": {
@@ -78,14 +78,6 @@
   "lldb.launch.sourceLanguages": ["rust"],
   "debug.allowBreakpointsEverywhere": false,
 
-  // ---------------------------------------------------------- Coverage
-  // target/lcov.info, written by the "coverage" task (cargo llvm-cov).
-  "coverage-gutters.coverageBaseDir": "target",
-  "coverage-gutters.coverageFileNames": ["lcov.info"],
-
-  // ---------------------------------------------------------- Dependencies
-  "dependi.rust.lockFileEnabled": true,
-
   // ---------------------------------------------------------- Git
   // Matches the commit-msg hook (Conventional Commits, header <= 72 chars).
   "git.inputValidation": true,
@@ -93,12 +85,5 @@
   "git.inputValidationLength": 72,
   "git.useCommitInputAsStashMessage": true,
   "git.branchPrefix": "feature/",
-  "git.branchValidationRegex": "^(feature/[a-z0-9][a-z0-9._-]*|(release|hotfix)/[0-9]+\\.[0-9]+\\.[0-9]+)$",
-  "conventionalCommits.gitmoji": false,
-  "conventionalCommits.promptBody": true,
-  "conventionalCommits.promptFooter": true,
-
-  // ---------------------------------------------------------- Shell scripts
-  "shellcheck.enable": true,
-  "shellcheck.run": "onType"
+  "git.branchValidationRegex": "^(feature/[a-z0-9][a-z0-9._-]*|(release|hotfix)/[0-9]+\\.[0-9]+\\.[0-9]+)$"
 }

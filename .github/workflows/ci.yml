@@ -78,6 +78,33 @@ jobs:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
 
+  # Same linters as the pre-commit hook, on every tracked file. Versions match
+  # the ARGs in .devcontainer/Dockerfile; shellcheck comes with the runner.
+  lint:
+    name: shellcheck, actionlint, editorconfig
+    runs-on: ubuntu-latest
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      EDITORCONFIG_CHECKER_VERSION: 4.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install linters
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" actionlint
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" editorconfig-checker
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: shellcheck
+        run: git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
+      - name: actionlint
+        run: actionlint
+      - name: editorconfig-checker
+        run: git ls-files -z | xargs -0 editorconfig-checker
+
   shear:
     name: unused dependencies
     runs-on: ubuntu-latest

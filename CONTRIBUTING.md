@@ -94,6 +94,13 @@ Optional tools used by the hook and CI:
 - [`git-cliff`](https://git-cliff.org) (`brew install git-cliff` or
   `cargo install git-cliff`): generates the changelog (see
   [Changelog](#changelog)).
+- [`shellcheck`](https://www.shellcheck.net) (`brew install shellcheck`):
+  lints the shell scripts in `.githooks/`, `scripts/` and `.devcontainer/`.
+- [`actionlint`](https://github.com/rhysd/actionlint)
+  (`brew install actionlint`): lints the GitHub Actions workflows.
+- [`editorconfig-checker`](https://github.com/editorconfig-checker/editorconfig-checker)
+  (`brew install editorconfig-checker`): checks files against
+  [`.editorconfig`](.editorconfig).
 
 ## Git setup and hooks
 
@@ -110,8 +117,12 @@ recommended local git settings (rebase on pull, prune on fetch, `rerere`,
 scripts/setup-git.sh
 ```
 
-- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy` and
-  `typos` (skipped with a warning if `typos` is not installed).
+- `pre-commit` checks staged whitespace, `cargo fmt` and `cargo clippy`,
+  then runs the linters that replace editor extensions: `typos`,
+  `editorconfig-checker` on the staged files, `shellcheck` on the shell
+  scripts, `actionlint` when a workflow is staged, and `cargo deny check`
+  when `Cargo.toml`, `Cargo.lock` or `deny.toml` is staged. Each linter is
+  skipped with a warning if it is not installed.
 - `commit-msg` rejects messages that are not Conventional Commits (see
   [Commit messages](#commit-messages)): valid type, lowercase scope and
   description, no trailing period, header of at most 72 characters, a blank
@@ -128,17 +139,18 @@ scripts/setup-git.sh
 [VS Code](https://code.visualstudio.com) is the reference editor. The
 repository ships its workspace configuration in [`.vscode/`](.vscode):
 
-- `extensions.json`: recommended extensions (rust-analyzer, CodeLLDB, Even
-  Better TOML, Dependi, EditorConfig, typos, Coverage Gutters, ShellCheck,
-  YAML, GitHub Actions, Conventional Commits, Dev Containers). VS Code offers
-  to install them when you open the folder.
+- `extensions.json`: only the essential extensions (rust-analyzer, CodeLLDB,
+  Even Better TOML, Claude Code, Dev Containers). VS Code offers to install
+  them when you open the folder. Spelling, EditorConfig, shell scripts,
+  workflows, dependencies and commit messages are checked by the git hooks
+  instead.
 - `settings.json`: format on save with rustfmt, clippy on save with the same
   flags as the hook and CI, rust-analyzer in its own target directory so it
   never blocks `cargo build`, commit message rulers at 72 characters.
 - `tasks.json`: builds for every profile (`Ctrl/Cmd+Shift+B` is the dev
-  build), a portable `x86-64-v3` release, tests with nextest, coverage into
-  `target/lcov.info` for Coverage Gutters, and one `ci:` task per CI
-  check. `ci: all checks` runs them all in order.
+  build), a portable `x86-64-v3` release, tests with nextest, an HTML coverage
+  report, and one `ci:` task per CI check. `ci: all checks` runs them all in
+  order.
 - `launch.json`: CodeLLDB configurations for the binary (dev and `profiling`
   profiles) and its unit tests.
 
@@ -148,7 +160,7 @@ files in `.vscode/` are ignored by git.
 ### Dev container
 
 [`.devcontainer/`](.devcontainer) defines a Debian 13 container with the
-pinned toolchain, `rust-src`, Git LFS, ShellCheck, `gh` and every tool listed
+pinned toolchain, `rust-src`, Git LFS, `gh`, Claude Code and every tool listed
 under [Toolchain](#toolchain). With Docker running and the Dev Containers
 extension installed, run **Dev Containers: Reopen in Container**. On creation
 it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
@@ -230,6 +242,9 @@ cargo nextest run --all-features --locked
 cargo deny check
 cargo shear
 typos
+git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
+actionlint
+git ls-files -z | xargs -0 editorconfig-checker
 ```
 
 CI runs the build, lint and test checks on Linux and macOS, and a coverage
