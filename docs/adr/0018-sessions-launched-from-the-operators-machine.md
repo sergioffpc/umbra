@@ -23,5 +23,5 @@ The Coordinator always runs on the operator's machine, as a local process of `sc
 
 - The operator's machine must accept UDP on the Coordinator's port (7470) in its firewall, the macOS Application Firewall included.
 - A Session driven from the MacBook moves every Scene transfer over Wi-Fi: a 1 GB Scene sent to three Workers costs over a minute of loading.
-- The Worker's exit codes become part of the contract between the Worker and `scripts/workers`. Their values are decided with the closing of connections ([Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60)).
+- The Worker's exit codes become part of the contract between the Worker and `scripts/workers`. Their values were decided in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60): the script restarts on any exit status except `0` (finished), `2` (invalid usage), `3` (refused: `Reject`, `PROTOCOL_ERROR`) and `130` (cancelled or stopped), listed in [arc42 §8.13](../architecture/08-crosscutting-concepts.md#813-wire-protocol).
 - The Render Job Report counts restarts per Worker Slot.

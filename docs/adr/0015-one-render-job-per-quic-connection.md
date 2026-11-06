@@ -15,6 +15,8 @@ The Coordinator and a Worker exchange exactly one Render Job over one QUIC conne
 - **A private CA with mutual TLS**: rejected as out of proportion to a trusted LAN.
 - **A protocol version or compatibility negotiation**: rejected, as in ADR 0012.
 
+The connection's close code is also how a Render Job ends for each side ([Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60)): the Coordinator closes a Worker it declared dead by heartbeat with `WORKER_TIMED_OUT`, a Worker stopped by the operator closes with `WORKER_STOPPED`, and Ctrl-C on the Coordinator closes every connection with `JOB_CANCELLED`. No message announces any of them first.
+
 ## Consequences
 
 - Traffic is encrypted but not authenticated. Anyone on the LAN who learns a Session identifier can join as a Worker or impersonate the Coordinator. This is acceptable only while hostile nodes stay out of scope.
