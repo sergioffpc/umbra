@@ -15,6 +15,15 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+  # Release image: the Ubuntu base digest in the root Dockerfile. The Chisel
+  # version and checksums there are bumped by hand.
+  - package-ecosystem: docker
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
   # Dev container: the base image and features (.devcontainer/).
   - package-ecosystem: docker
     directory: /.devcontainer
