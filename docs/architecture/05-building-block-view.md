@@ -40,11 +40,11 @@ Arrows point from a dependency to the crate that uses it. Only the dependencies 
 | `umbra-integrators` | `SceneView`, the per-Pixel-Sample body of each integrator, the `Recorder` trait | — |
 | `umbra-scene` | Owning `Scene` (arenas), `SceneBuilder`, deterministic BVH construction, `RenderJobOptions` | `serde` |
 | `umbra-parser` | The `.pbrt` adapter: tokenising, includes, assets, strict validation, content hash | `nom` |
-| `umbra-render` | Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; image writing | `rayon` |
+| `umbra-render` | Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; writing and reading the EXR final image | `rayon`, `exr` |
 | `umbra-cluster` | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, local Worker, Build Identity admission, status line, Render Job Report | `tokio`, `quinn`, `postcard` |
 | `umbra` | The binary: `clap` subcommands `render`, `worker`, `trace`, `bench`, `validate`; `tracing` setup; the statistics of `bench` and `validate` | `clap`, `tracing` |
 
-The image writer, and how the Reproduction Record is stored in the image, are decided with the image output.
+The final image is an EXR written by `umbra-render` with the `exr` crate, carrying the Reproduction Record in its header (§8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
 
 ## 5.2 Level 2: the core
 
