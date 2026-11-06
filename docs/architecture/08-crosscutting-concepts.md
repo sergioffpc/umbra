@@ -26,3 +26,25 @@ flowchart LR
     S --> R["Work Result<br/>per-pixel sums (f64)"]
     R --> F["Film on the Coordinator<br/>per-pixel sums (f64)"]
 ```
+
+## 8.2 Scene input
+
+Umbra reads pbrt-v4 Scene Files only, validates them strictly and parses them once on the Coordinator ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)).
+
+| Concern | Rule |
+| --- | --- |
+| Format | pbrt-v4 `.pbrt`, unextended, at a pinned `mmp/pbrt-v4` commit. Each milestone declares the supported subset. No pbrt-v3, no custom format. |
+| Validation | Any unsupported directive, type or parameter rejects the Render Job before any Work Unit is assigned. All uses are reported, each with `file:line:column`. Recognised but unused parameters produce a warning. |
+| Parser | `nom` + `nom_locate` for the lexical layer and directives, behind a `ParserTarget`-style interface. Graphics state and Scene builder follow pbrt-v4. |
+| Replication | The Coordinator builds a format-independent Scene, with assets referenced by content hash, and replicates it to every Worker. Workers build their own acceleration structures. |
+| Render Job options | Tile size, Pixel Samples per Pass and Workers are given at submission, never in the Scene File. pbrt-v4-style overrides (`--spp`, `--seed`, …) take precedence and are applied when the Scene is built. |
+
+```mermaid
+flowchart LR
+    F["Scene File<br/>.pbrt + includes + assets"] --> P["Parser<br/>(Coordinator)"]
+    O["Render Job options<br/>overrides"] --> B
+    P --> B["Scene builder<br/>(Coordinator)"]
+    B --> S["Scene"]
+    S --> W1["Worker: replica + BVH"]
+    S --> W2["Worker: replica + BVH"]
+```

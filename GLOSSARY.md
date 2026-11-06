@@ -13,8 +13,12 @@ A request to render one Scene through one camera into one image, from submission
 _Avoid_: Job, task, render, frame
 
 **Scene**:
-The complete description of what is rendered: geometry, materials, lights, media, camera and render settings.
+The complete, validated description of what is rendered: geometry, materials, lights, media, camera and render settings, independent of the file format it was read from. Every Worker holds an identical replica.
 _Avoid_: World, model
+
+**Scene File**:
+The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator builds a Scene.
+_Avoid_: Scene description, input file, scene source
 
 ### Image decomposition
 
