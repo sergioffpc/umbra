@@ -20,7 +20,13 @@ serde = ["dep:serde"]
 [dependencies]
 libm = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
-wide = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "kernels"
+harness = false
 
 [lints]
 workspace = true

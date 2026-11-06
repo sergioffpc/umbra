@@ -2,6 +2,7 @@
 //! where the normal is `+z` (pbrt-v4 `src/pbrt/util/vecmath.h`).
 
 use crate::PI;
+use crate::float::sqrt;
 use crate::math::{clamp, max, safe_acos, sqr};
 use crate::vecmath::vector::{Vector3f, angle_between, cross, dot};
 
@@ -103,7 +104,7 @@ pub fn sin2_theta(w: Vector3f) -> f32 {
 #[inline]
 #[must_use]
 pub fn sin_theta(w: Vector3f) -> f32 {
-    libm::sqrtf(sin2_theta(w))
+    sqrt(sin2_theta(w))
 }
 
 /// PBR 4e §3.8.3, pbrt-v4 `TanTheta`.
@@ -157,11 +158,7 @@ pub fn cos_d_phi(wa: Vector3f, wb: Vector3f) -> f32 {
     if waxy == 0.0 || wbxy == 0.0 {
         return 1.0;
     }
-    clamp(
-        (wa.x * wb.x + wa.y * wb.y) / libm::sqrtf(waxy * wbxy),
-        -1.0,
-        1.0,
-    )
+    clamp((wa.x * wb.x + wa.y * wb.y) / sqrt(waxy * wbxy), -1.0, 1.0)
 }
 
 /// Whether `w` and `wp` are on the same side of the `z = 0` plane. `wp` may

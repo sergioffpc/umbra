@@ -1,14 +1,20 @@
 //! Affine and projective transformations (pbrt-v4 `Transform`,
 //! `src/pbrt/util/transform.h`). Transforming a `Ray` or `Bounds3f` belongs
 //! with those types, in `umbra-geometry`.
+//!
+//! Applying a transform runs as a [`Vec4`](crate::Vec4) kernel
+//! ([`kernels`]) with the four rows of the matrix in the lanes; each computes
+//! the bits of its scalar form in `tests/umbra_math/reference/transform.rs`
+//! (ADR 0007).
+
+mod kernels;
 
 use core::ops::Mul;
 
-use crate::float::gamma;
 use crate::math::radians;
 use crate::square_matrix::SquareMatrix;
 use crate::vecmath::{
-    Frame, Normal3, Normal3f, Point3, Point3f, Point3fi, Vector3, Vector3f, Vector3fi, cross, dot,
+    Frame, Normal3f, Point3f, Point3fi, Vector3, Vector3f, Vector3fi, cross, dot,
 };
 
 /// A transformation and its inverse, as 4 × 4 matrices.
@@ -197,142 +203,80 @@ pub trait Transformable: Copy {
 
 impl Transformable for Point3f {
     /// Sums each row left to right; divides by `w` unless it is exactly 1.
+    #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        let (m, Point3 { x, y, z }) = (t.m.rows(), self);
-        let row = |i: usize| m[i][0] * x + m[i][1] * y + m[i][2] * z + m[i][3];
-        divide_by_w(Self::new(row(0), row(1), row(2)), row(3))
+        kernels::point_left_to_right(t.m.rows(), self)
     }
 
     /// Sums each row in pairs, as pbrt-v4's `ApplyInverse` does.
+    #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        let (m, Point3 { x, y, z }) = (t.m_inv.rows(), self);
-        let row = |i: usize| (m[i][0] * x + m[i][1] * y) + (m[i][2] * z + m[i][3]);
-        let wp = row(3);
-        debug_assert!(wp != 0.0, "apply_inverse: w = 0");
-        divide_by_w(Self::new(row(0), row(1), row(2)), wp)
+        kernels::point_pairwise(t.m_inv.rows(), self)
     }
 }
 
-/// `p / w`, or `p` itself when `w` is exactly 1.
-fn divide_by_w<P: core::ops::Div<f32, Output = P>>(p: P, w: f32) -> P {
-    #[expect(
-        clippy::float_cmp,
-        reason = "pbrt-v4 skips the divide only for an exact 1"
-    )]
-    let affine = w == 1.0;
-    if affine { p } else { p / w }
-}
-
-/// `m` (the upper 3 × 3 part) times `(x, y, z)`.
+/// `m` (the upper 3 × 3 part) times `(x, y, z)`: three dot products of
+/// three terms, which a [`Vec4`](crate::Vec4) kernel did not speed up.
 fn mul_vector(m: &[[f32; 4]; 4], Vector3 { x, y, z }: Vector3f) -> Vector3f {
     let row = |i: usize| m[i][0] * x + m[i][1] * y + m[i][2] * z;
     Vector3f::new(row(0), row(1), row(2))
 }
 
-/// `mᵀ` (the upper 3 × 3 part) times `(x, y, z)`, the rule for normals.
-fn mul_transposed(m: &[[f32; 4]; 4], Normal3 { x, y, z }: Normal3f) -> Normal3f {
-    let col = |j: usize| m[0][j] * x + m[1][j] * y + m[2][j] * z;
-    Normal3f::new(col(0), col(1), col(2))
-}
-
 impl Transformable for Vector3f {
+    #[inline]
     fn transformed(self, t: &Transform) -> Self {
         mul_vector(t.m.rows(), self)
     }
 
+    #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
         mul_vector(t.m_inv.rows(), self)
     }
 }
 
 impl Transformable for Normal3f {
+    /// The inverse transpose.
+    #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        mul_transposed(t.m_inv.rows(), self)
+        kernels::normal_transposed(t.m_inv.rows(), self)
     }
 
+    #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        mul_transposed(t.m.rows(), self)
+        kernels::normal_transposed(t.m.rows(), self)
     }
-}
-
-/// Whether an error bound includes the translation column.
-#[derive(Debug, Clone, Copy)]
-enum Translation {
-    /// Points move with the translation.
-    Included,
-    /// Vectors do not.
-    Excluded,
-}
-
-/// The conservative error bound of `m` (upper 3 × 4 part) applied to the
-/// point or vector with midpoint `c` and input error `e` (`None` when it is
-/// exact): `γ₃` of the absolute products, plus `(1 + γ₃)` of the propagated
-/// input error.
-///
-/// PBR 4e §6.8.5.
-fn transformed_error(
-    m: &[[f32; 4]; 4],
-    c: Vector3f,
-    e: Option<Vector3f>,
-    t: Translation,
-) -> Vector3f {
-    let row = |r: &[f32; 4]| {
-        let products = (r[0] * c.x).abs() + (r[1] * c.y).abs() + (r[2] * c.z).abs();
-        let rounding = gamma(3)
-            * match t {
-                Translation::Included => products + r[3].abs(),
-                Translation::Excluded => products,
-            };
-        e.map_or(rounding, |e| {
-            (gamma(3) + 1.0) * (r[0].abs() * e.x + r[1].abs() * e.y + r[2].abs() * e.z) + rounding
-        })
-    };
-    Vector3f::new(row(&m[0]), row(&m[1]), row(&m[2]))
-}
-
-/// `m` applied to `p` with its error carried along.
-///
-/// pbrt-v4 `Transform::operator()(Point3fi)`. pbrt-v4's
-/// `ApplyInverse(Point3fi)` leaves the translation out of the bound of an
-/// exact point; Umbra uses this one rule both ways, so the inverse bound is
-/// the conservative one.
-fn transform_point3fi(m: &[[f32; 4]; 4], p: Point3fi) -> Point3fi {
-    let Point3 { x, y, z } = Point3f::from(p);
-    let row = |i: usize| (m[i][0] * x + m[i][1] * y) + (m[i][2] * z + m[i][3]);
-    let e = (!p.is_exact()).then(|| Vector3f::from(p.error()));
-    let error = transformed_error(m, Vector3f::new(x, y, z), e, Translation::Included);
-    let pi = Point3fi::from_value_and_error(Point3f::new(row(0), row(1), row(2)), error.into());
-    divide_by_w(pi, row(3))
 }
 
 impl Transformable for Point3fi {
+    /// pbrt-v4 `Transform::operator()(Point3fi)`: the point with its error
+    /// carried along (PBR 4e §6.8.5).
+    #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        transform_point3fi(t.m.rows(), self)
+        kernels::point3fi(t.m.rows(), self)
     }
 
+    /// The same rule with the inverse matrix. pbrt-v4's
+    /// `ApplyInverse(Point3fi)` leaves the translation out of the bound of an
+    /// exact point; Umbra uses one rule both ways, so the inverse bound is
+    /// the conservative one.
+    #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        transform_point3fi(t.m_inv.rows(), self)
+        kernels::point3fi(t.m_inv.rows(), self)
     }
-}
-
-/// `m` applied to `v` with its error carried along.
-///
-/// pbrt-v4 `Transform::operator()(Vector3fi)`; pbrt-v4 has no inverse
-/// overload, so the inverse is the same rule with the inverse matrix.
-fn transform_vector3fi(m: &[[f32; 4]; 4], v: Vector3fi) -> Vector3fi {
-    let c = Vector3f::from(v);
-    let e = (!v.is_exact()).then(|| v.error());
-    let error = transformed_error(m, c, e, Translation::Excluded);
-    Vector3fi::from_value_and_error(mul_vector(m, c), error)
 }
 
 impl Transformable for Vector3fi {
+    /// pbrt-v4 `Transform::operator()(Vector3fi)`.
+    #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        transform_vector3fi(t.m.rows(), self)
+        kernels::vector3fi(t.m.rows(), self)
     }
 
+    /// pbrt-v4 has no inverse overload; the same rule with the inverse
+    /// matrix.
+    #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        transform_vector3fi(t.m_inv.rows(), self)
+        kernels::vector3fi(t.m_inv.rows(), self)
     }
 }
 

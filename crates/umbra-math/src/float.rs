@@ -4,6 +4,15 @@
 //! PBR 4e §6.8.1–§6.8.2. On the CPU, pbrt-v4 rounds up or down by stepping one
 //! ULP with `NextFloatUp`/`NextFloatDown` after the round-to-nearest result;
 //! Umbra does the same and never changes the rounding mode (ADR 0002).
+//!
+//! [`fma`], [`sqrt`], [`floor`] and [`ceil`] are the hardware instruction,
+//! with the bits of the `libm` routines; the `libm` forms are the test oracle in `tests/umbra_math/reference/`
+//! (ADR 0007). [`next_float_up`] and [`next_float_down`] keep pbrt-v4's
+//! branches: a branch-free form measured slower, since the branch on
+//! infinity is perfectly predicted, and the `Interval` kernels step four
+//! lanes at once instead.
+
+mod arch;
 
 /// Half the distance between 1 and the next `f32`: the bound on the relative
 /// error of one correctly rounded operation.
@@ -30,14 +39,44 @@ pub const fn gamma(n: u16) -> f32 {
 /// The fused multiply-add `a * b + c` with a single rounding.
 ///
 /// Umbra uses it exactly where pbrt-v4 uses `FMA` and nowhere else (ADR 0002).
-/// `libm::fmaf` compiles to the hardware instruction where the build target
-/// has one, and is a correctly rounded software routine otherwise.
+/// It is the hardware instruction (`vfmadd213ss` on x86-64, `fmadd` on arm64),
+/// which gives the bits of the correctly rounded `libm::fmaf`.
 ///
 /// pbrt-v4 `FMA`.
 #[inline]
 #[must_use]
 pub fn fma(a: f32, b: f32, c: f32) -> f32 {
-    libm::fmaf(a, b, c)
+    arch::fma(a, b, c)
+}
+
+/// `√x`, correctly rounded: the hardware square root, with the bits of
+/// `libm::sqrtf`.
+///
+/// pbrt-v4 `std::sqrt`.
+#[inline]
+#[must_use]
+pub fn sqrt(x: f32) -> f32 {
+    arch::sqrt(x)
+}
+
+/// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`, NEON
+/// `frintm`). Exact, so the bits of `libm::floorf`.
+///
+/// pbrt-v4 `std::floor`.
+#[inline]
+#[must_use]
+pub fn floor(x: f32) -> f32 {
+    arch::floor(x)
+}
+
+/// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`, NEON
+/// `frintp`). Exact, so the bits of `libm::ceilf`.
+///
+/// pbrt-v4 `std::ceil`.
+#[inline]
+#[must_use]
+pub fn ceil(x: f32) -> f32 {
+    arch::ceil(x)
 }
 
 /// The unbiased exponent of `v`.
@@ -70,6 +109,7 @@ pub const fn sign_bit(v: f32) -> u32 {
 /// positive subnormal.
 ///
 /// PBR 4e §6.8.1, pbrt-v4 `NextFloatUp`.
+#[inline]
 #[must_use]
 pub fn next_float_up(v: f32) -> f32 {
     if v.is_infinite() && v > 0.0 {
@@ -89,6 +129,7 @@ pub fn next_float_up(v: f32) -> f32 {
 /// negative subnormal.
 ///
 /// PBR 4e §6.8.1, pbrt-v4 `NextFloatDown`.
+#[inline]
 #[must_use]
 pub fn next_float_down(v: f32) -> f32 {
     if v.is_infinite() && v < 0.0 {
@@ -107,6 +148,7 @@ pub fn next_float_down(v: f32) -> f32 {
 /// `a + b`, rounded so the result is not below the exact sum.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `AddRoundUp`.
+#[inline]
 #[must_use]
 pub fn add_round_up(a: f32, b: f32) -> f32 {
     next_float_up(a + b)
@@ -115,6 +157,7 @@ pub fn add_round_up(a: f32, b: f32) -> f32 {
 /// `a + b`, rounded so the result is not above the exact sum.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `AddRoundDown`.
+#[inline]
 #[must_use]
 pub fn add_round_down(a: f32, b: f32) -> f32 {
     next_float_down(a + b)
@@ -123,6 +166,7 @@ pub fn add_round_down(a: f32, b: f32) -> f32 {
 /// `a − b`, rounded up.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `SubRoundUp`.
+#[inline]
 #[must_use]
 pub fn sub_round_up(a: f32, b: f32) -> f32 {
     add_round_up(a, -b)
@@ -131,6 +175,7 @@ pub fn sub_round_up(a: f32, b: f32) -> f32 {
 /// `a − b`, rounded down.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `SubRoundDown`.
+#[inline]
 #[must_use]
 pub fn sub_round_down(a: f32, b: f32) -> f32 {
     add_round_down(a, -b)
@@ -139,6 +184,7 @@ pub fn sub_round_down(a: f32, b: f32) -> f32 {
 /// `a · b`, rounded up.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `MulRoundUp`.
+#[inline]
 #[must_use]
 pub fn mul_round_up(a: f32, b: f32) -> f32 {
     next_float_up(a * b)
@@ -147,6 +193,7 @@ pub fn mul_round_up(a: f32, b: f32) -> f32 {
 /// `a · b`, rounded down.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `MulRoundDown`.
+#[inline]
 #[must_use]
 pub fn mul_round_down(a: f32, b: f32) -> f32 {
     next_float_down(a * b)
@@ -155,6 +202,7 @@ pub fn mul_round_down(a: f32, b: f32) -> f32 {
 /// `a / b`, rounded up.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `DivRoundUp`.
+#[inline]
 #[must_use]
 pub fn div_round_up(a: f32, b: f32) -> f32 {
     next_float_up(a / b)
@@ -163,6 +211,7 @@ pub fn div_round_up(a: f32, b: f32) -> f32 {
 /// `a / b`, rounded down.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `DivRoundDown`.
+#[inline]
 #[must_use]
 pub fn div_round_down(a: f32, b: f32) -> f32 {
     next_float_down(a / b)
@@ -171,22 +220,25 @@ pub fn div_round_down(a: f32, b: f32) -> f32 {
 /// `√a`, rounded up.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `SqrtRoundUp`.
+#[inline]
 #[must_use]
 pub fn sqrt_round_up(a: f32) -> f32 {
-    next_float_up(libm::sqrtf(a))
+    next_float_up(sqrt(a))
 }
 
 /// `√a`, rounded down and never below zero.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `SqrtRoundDown`.
+#[inline]
 #[must_use]
 pub fn sqrt_round_down(a: f32) -> f32 {
-    crate::max(0.0, next_float_down(libm::sqrtf(a)))
+    crate::max(0.0, next_float_down(sqrt(a)))
 }
 
 /// `a · b + c` with one rounding, rounded up.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `FMARoundUp`.
+#[inline]
 #[must_use]
 pub fn fma_round_up(a: f32, b: f32, c: f32) -> f32 {
     next_float_up(fma(a, b, c))
@@ -195,6 +247,7 @@ pub fn fma_round_up(a: f32, b: f32, c: f32) -> f32 {
 /// `a · b + c` with one rounding, rounded down.
 ///
 /// PBR 4e §6.8.2, pbrt-v4 `FMARoundDown`.
+#[inline]
 #[must_use]
 pub fn fma_round_down(a: f32, b: f32, c: f32) -> f32 {
     next_float_down(fma(a, b, c))

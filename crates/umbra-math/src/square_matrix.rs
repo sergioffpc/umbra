@@ -1,4 +1,11 @@
 //! `N × N` matrices (pbrt-v4 `SquareMatrix`, `src/pbrt/util/math.h`).
+//!
+//! The 3 × 3 and 4 × 4 products and the 4 × 4 inverse run as
+//! [`Vec4`](crate::Vec4) kernels ([`kernels`]), a row at a time with the
+//! columns in the lanes; each computes the bits of its scalar form in
+//! `tests/umbra_math/reference/square_matrix.rs` (ADR 0007).
+
+mod kernels;
 
 use core::ops::{Add, Div, Index, IndexMut, Mul};
 
@@ -155,27 +162,18 @@ impl Mul for SquareMatrix<2> {
 impl Mul for SquareMatrix<3> {
     type Output = Self;
     /// Each element by `InnerProduct`.
+    #[inline]
     fn mul(self, o: Self) -> Self {
-        let (a, b) = (self.m, o.m);
-        Self::from_fn(|i, j| {
-            inner_product([(a[i][0], b[0][j]), (a[i][1], b[1][j]), (a[i][2], b[2][j])])
-        })
+        Self::new(kernels::mul3(&self.m, &o.m))
     }
 }
 
 impl Mul for SquareMatrix<4> {
     type Output = Self;
     /// Each element by `InnerProduct`.
+    #[inline]
     fn mul(self, o: Self) -> Self {
-        let (a, b) = (self.m, o.m);
-        Self::from_fn(|i, j| {
-            inner_product([
-                (a[i][0], b[0][j]),
-                (a[i][1], b[1][j]),
-                (a[i][2], b[2][j]),
-                (a[i][3], b[3][j]),
-            ])
-        })
+        Self::new(kernels::mul4(&self.m, &o.m))
     }
 }
 
@@ -306,40 +304,11 @@ impl SquareMatrix<4> {
         if det == 0.0 {
             return None;
         }
-        Some(scaled_adjugate4(&self.m, &s, &c, 1.0 / det))
+        Some(Self::new(kernels::scaled_adjugate4(
+            &self.m,
+            &s,
+            &c,
+            1.0 / det,
+        )))
     }
-}
-
-/// The adjugate of `m` from its shared minors, each element scaled by
-/// `scale` as pbrt-v4's `s * InnerProduct(…)`.
-fn scaled_adjugate4(m: &[[f32; 4]; 4], s: &[f32; 6], c: &[f32; 6], scale: f32) -> SquareMatrix<4> {
-    let ip = |a: f32, x: f32, b: f32, y: f32, d: f32, z: f32| {
-        scale * inner_product([(a, x), (b, y), (d, z)])
-    };
-    SquareMatrix::new([
-        [
-            ip(m[1][1], c[5], m[1][3], c[3], -m[1][2], c[4]),
-            ip(-m[0][1], c[5], m[0][2], c[4], -m[0][3], c[3]),
-            ip(m[3][1], s[5], m[3][3], s[3], -m[3][2], s[4]),
-            ip(-m[2][1], s[5], m[2][2], s[4], -m[2][3], s[3]),
-        ],
-        [
-            ip(-m[1][0], c[5], m[1][2], c[2], -m[1][3], c[1]),
-            ip(m[0][0], c[5], m[0][3], c[1], -m[0][2], c[2]),
-            ip(-m[3][0], s[5], m[3][2], s[2], -m[3][3], s[1]),
-            ip(m[2][0], s[5], m[2][3], s[1], -m[2][2], s[2]),
-        ],
-        [
-            ip(m[1][0], c[4], m[1][3], c[0], -m[1][1], c[2]),
-            ip(-m[0][0], c[4], m[0][1], c[2], -m[0][3], c[0]),
-            ip(m[3][0], s[4], m[3][3], s[0], -m[3][1], s[2]),
-            ip(-m[2][0], s[4], m[2][1], s[2], -m[2][3], s[0]),
-        ],
-        [
-            ip(-m[1][0], c[3], m[1][1], c[1], -m[1][2], c[0]),
-            ip(m[0][0], c[3], m[0][2], c[0], -m[0][1], c[1]),
-            ip(-m[3][0], s[3], m[3][1], s[1], -m[3][2], s[0]),
-            ip(m[2][0], s[3], m[2][2], s[0], -m[2][1], s[1]),
-        ],
-    ])
 }

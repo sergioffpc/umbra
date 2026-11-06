@@ -1,13 +1,17 @@
 //! Interval arithmetic for conservative floating-point error bounds
 //! (pbrt-v4 `Interval`, `src/pbrt/util/math.h`).
+//!
+//! The arithmetic runs as [`Vec4`](crate::Vec4) kernels ([`kernels`]): the
+//! four bound products of a multiplication in one lane-wise multiply, their
+//! outward rounding in one pass, and the extremes by two deinterleaves,
+//! without a branch on the values. Each kernel computes the bits of its
+//! scalar form in `tests/umbra_math/reference/interval.rs` (ADR 0007).
+
+pub(crate) mod kernels;
 
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::float::{
-    add_round_down, add_round_up, div_round_down, div_round_up, fma_round_down, fma_round_up,
-    mul_round_down, mul_round_up, next_float_down, next_float_up, significand, sqrt_round_down,
-    sqrt_round_up, sub_round_down, sub_round_up,
-};
+use crate::float::{ceil, floor, significand};
 use crate::math::{Products, max, min};
 
 /// A closed interval `[low, high]` of `f32` that contains the exact result of
@@ -31,19 +35,25 @@ impl Interval {
         }
     }
 
+    /// The bounds as given, not sorted: pbrt-v4's direct member assignment
+    /// in `FromValueAndError`.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn from_bounds(low: f32, high: f32) -> Self {
+        Self { low, high }
+    }
+
     /// The interval `[v − err, v + err]`, rounded outward; exactly `[v, v]`
     /// when `err` is zero.
     ///
     /// pbrt-v4 `Interval::FromValueAndError`.
+    #[inline]
     #[must_use]
     pub fn from_value_and_error(v: f32, err: f32) -> Self {
         if err == 0.0 {
             Self { low: v, high: v }
         } else {
-            Self {
-                low: sub_round_down(v, err),
-                high: add_round_up(v, err),
-            }
+            kernels::from_value_and_error(v, err)
         }
     }
 
@@ -59,6 +69,12 @@ impl Interval {
     #[must_use]
     pub fn lower_bound(self) -> f32 {
         self.low
+    }
+
+    /// Bound `i`: the lower for 0, the upper for 1.
+    #[inline]
+    fn bound(self, i: usize) -> f32 {
+        [self.low, self.high][i]
     }
 
     /// The middle of the interval: the value pbrt-v4 converts it to.
@@ -114,7 +130,7 @@ impl Interval {
     /// pbrt-v4 `Floor(Interval)`.
     #[must_use]
     pub fn floor(self) -> f32 {
-        libm::floorf(self.low)
+        floor(self.low)
     }
 
     /// `⌈high⌉`.
@@ -122,29 +138,23 @@ impl Interval {
     /// pbrt-v4 `Ceil(Interval)`.
     #[must_use]
     pub fn ceil(self) -> f32 {
-        libm::ceilf(self.high)
+        ceil(self.high)
     }
 
     /// The square, which unlike `self * self` is never negative.
     ///
     /// pbrt-v4 `Sqr(Interval)`.
+    #[inline]
     #[must_use]
     pub fn sqr(self) -> Self {
-        let (a, b) = (self.low.abs(), self.high.abs());
-        let (abs_low, abs_high) = if a > b { (b, a) } else { (a, b) };
-        if self.contains(0.0) {
-            return Self::new(0.0, mul_round_up(abs_high, abs_high));
-        }
-        Self::new(
-            mul_round_down(abs_low, abs_low),
-            mul_round_up(abs_high, abs_high),
-        )
+        kernels::sqr(self)
     }
 
     /// pbrt-v4 `Sqrt(Interval)`.
+    #[inline]
     #[must_use]
     pub fn sqrt(self) -> Self {
-        Self::new(sqrt_round_down(self.low), sqrt_round_up(self.high))
+        kernels::sqrt(self)
     }
 
     /// pbrt-v4 `Abs(Interval)`.
@@ -177,29 +187,10 @@ impl Interval {
     /// `a · b + c` with each bound computed by one rounded-out FMA.
     ///
     /// pbrt-v4 `FMA(Interval, Interval, Interval)`.
+    #[inline]
     #[must_use]
     pub fn fma(a: Self, b: Self, c: Self) -> Self {
-        let low = min(
-            min(
-                fma_round_down(a.low, b.low, c.low),
-                fma_round_down(a.high, b.low, c.low),
-            ),
-            min(
-                fma_round_down(a.low, b.high, c.low),
-                fma_round_down(a.high, b.high, c.low),
-            ),
-        );
-        let high = max(
-            max(
-                fma_round_up(a.low, b.low, c.high),
-                fma_round_up(a.high, b.low, c.high),
-            ),
-            max(
-                fma_round_up(a.low, b.high, c.high),
-                fma_round_up(a.high, b.high, c.high),
-            ),
-        );
-        Self::new(low, high)
+        kernels::fma(a, b, c)
     }
 
     /// `Σ tᵢ²`, never negative, folded with FMA from the last term to the
@@ -217,12 +208,6 @@ impl Interval {
             Self::new(max(0.0, ss.low), ss.high)
         })
     }
-
-    /// The bounds `[low, high]` as an array, for the index arithmetic of
-    /// `difference_of_products`.
-    fn bounds(self) -> [f32; 2] {
-        [self.low, self.high]
-    }
 }
 
 /// Whether `a > 0` is an exact power of two, the check of `MulPow2`.
@@ -230,54 +215,15 @@ fn is_power_of_2_magnitude(a: f32) -> bool {
     a.is_normal() && significand(a) == 0
 }
 
-/// The four products of the bounds of `a` and `b`, and the indices of the
-/// smallest and largest of them.
-fn bound_products(a: Interval, b: Interval) -> (usize, usize) {
-    let p = [
-        a.low * b.low,
-        a.high * b.low,
-        a.low * b.high,
-        a.high * b.high,
-    ];
-    let low = min(min(p[0], p[1]), min(p[2], p[3]));
-    let high = max(max(p[0], p[1]), max(p[2], p[3]));
-    // The first equal product, as pbrt-v4's chain of `==` finds it (so -0
-    // matches +0), and 3 when none is equal (NaN).
-    #[expect(
-        clippy::float_cmp,
-        reason = "pbrt-v4 locates the extreme product by `==`"
-    )]
-    let index = |v: f32| p.iter().position(|&x| x == v).unwrap_or(3);
-    (index(low), index(high))
-}
-
 impl Products for Interval {
     /// Evaluates the scalar `difference_of_products` at the bound
     /// combinations that give the extreme products, then widens by two ULPs.
+    #[inline]
     fn difference_of_products(a: Self, b: Self, c: Self, d: Self) -> Self {
-        let (ab_low, ab_high) = bound_products(a, b);
-        let (cd_low, cd_high) = bound_products(c, d);
-        let (a, b, c, d) = (a.bounds(), b.bounds(), c.bounds(), d.bounds());
-        // `cd` is subtracted, so its extreme indices swap roles.
-        let low = f32::difference_of_products(
-            a[ab_low & 1],
-            b[ab_low >> 1],
-            c[cd_high & 1],
-            d[cd_high >> 1],
-        );
-        let high = f32::difference_of_products(
-            a[ab_high & 1],
-            b[ab_high >> 1],
-            c[cd_low & 1],
-            d[cd_low >> 1],
-        );
-        debug_assert!(low <= high, "difference_of_products: {low} > {high}");
-        Self::new(
-            next_float_down(next_float_down(low)),
-            next_float_up(next_float_up(high)),
-        )
+        kernels::difference_of_products(a, b, c, d)
     }
 
+    #[inline]
     fn sum_of_products(a: Self, b: Self, c: Self, d: Self) -> Self {
         Self::difference_of_products(a, b, -c, d)
     }
@@ -314,10 +260,7 @@ impl Add for Interval {
     type Output = Self;
     #[inline]
     fn add(self, i: Self) -> Self {
-        Self::new(
-            add_round_down(self.low, i.low),
-            add_round_up(self.high, i.high),
-        )
+        kernels::add(self, i)
     }
 }
 
@@ -325,60 +268,27 @@ impl Sub for Interval {
     type Output = Self;
     #[inline]
     fn sub(self, i: Self) -> Self {
-        Self::new(
-            sub_round_down(self.low, i.high),
-            sub_round_up(self.high, i.low),
-        )
+        kernels::sub(self, i)
     }
 }
 
 impl Mul for Interval {
     type Output = Self;
+    #[inline]
     fn mul(self, i: Self) -> Self {
-        let (a, b) = (self, i);
-        let lp = [
-            mul_round_down(a.low, b.low),
-            mul_round_down(a.high, b.low),
-            mul_round_down(a.low, b.high),
-            mul_round_down(a.high, b.high),
-        ];
-        let hp = [
-            mul_round_up(a.low, b.low),
-            mul_round_up(a.high, b.low),
-            mul_round_up(a.low, b.high),
-            mul_round_up(a.high, b.high),
-        ];
-        Self::new(
-            min(min(lp[0], lp[1]), min(lp[2], lp[3])),
-            max(max(hp[0], hp[1]), max(hp[2], hp[3])),
-        )
+        kernels::mul(self, i)
     }
 }
 
 impl Div for Interval {
     type Output = Self;
     /// Everything, `[−∞, ∞]`, when the divisor straddles zero.
+    #[inline]
     fn div(self, i: Self) -> Self {
         if i.contains(0.0) {
             return Self::new(f32::NEG_INFINITY, f32::INFINITY);
         }
-        let (a, b) = (self, i);
-        let lq = [
-            div_round_down(a.low, b.low),
-            div_round_down(a.high, b.low),
-            div_round_down(a.low, b.high),
-            div_round_down(a.high, b.high),
-        ];
-        let hq = [
-            div_round_up(a.low, b.low),
-            div_round_up(a.high, b.low),
-            div_round_up(a.low, b.high),
-            div_round_up(a.high, b.high),
-        ];
-        Self::new(
-            min(min(lq[0], lq[1]), min(lq[2], lq[3])),
-            max(max(hq[0], hq[1]), max(hq[2], hq[3])),
-        )
+        kernels::div(self, i)
     }
 }
 
@@ -409,15 +319,12 @@ impl Mul<f32> for Interval {
 impl Div<f32> for Interval {
     type Output = Self;
     /// Everything, `[−∞, ∞]`, for a zero divisor.
+    #[inline]
     fn div(self, f: f32) -> Self {
         if f == 0.0 {
             return Self::new(f32::NEG_INFINITY, f32::INFINITY);
         }
-        if f > 0.0 {
-            Self::new(div_round_down(self.low, f), div_round_up(self.high, f))
-        } else {
-            Self::new(div_round_down(self.high, f), div_round_up(self.low, f))
-        }
+        kernels::div_scalar(self, f)
     }
 }
 
@@ -439,27 +346,21 @@ impl Sub<Interval> for f32 {
 
 impl Mul<Interval> for f32 {
     type Output = Interval;
+    #[inline]
     fn mul(self, i: Interval) -> Interval {
-        if self > 0.0 {
-            Interval::new(mul_round_down(self, i.low), mul_round_up(self, i.high))
-        } else {
-            Interval::new(mul_round_down(self, i.high), mul_round_up(self, i.low))
-        }
+        kernels::scale(self, i)
     }
 }
 
 impl Div<Interval> for f32 {
     type Output = Interval;
     /// Everything, `[−∞, ∞]`, when the divisor straddles zero.
+    #[inline]
     fn div(self, i: Interval) -> Interval {
         if i.contains(0.0) {
             return Interval::new(f32::NEG_INFINITY, f32::INFINITY);
         }
-        if self > 0.0 {
-            Interval::new(div_round_down(self, i.high), div_round_up(self, i.low))
-        } else {
-            Interval::new(div_round_down(self, i.low), div_round_up(self, i.high))
-        }
+        kernels::scalar_div(self, i)
     }
 }
 

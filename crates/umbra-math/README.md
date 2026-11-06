@@ -5,8 +5,7 @@ frames, transforms, interval arithmetic and floating-point error bounds, the
 scalar helpers pbrt-v4 relies on, and the `Vec4`/`Mask4` SIMD facade.
 
 It is the bottom of the core (arc42 §5.1): every other core crate depends on
-it, and it depends only on [`libm`](https://crates.io/crates/libm) and
-[`wide`](https://crates.io/crates/wide).
+it, and it depends only on [`libm`](https://crates.io/crates/libm).
 
 ```rust
 use umbra_math::{Point3f, Point3fi, Vector3f, cross, dot, look_at, perspective};
@@ -36,13 +35,13 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 
 | Module (pbrt-v4 source)                  | Contents                                                                                                                                                                                                                                                                                                                     |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`                                                                                                                                                                            |
+| `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`, `sqrt`, `floor`, `ceil`                                                                                                                                                   |
 | `math` (`util/math.h`)                   | `lerp`, `clamp`, `sqr`, `safe_sqrt`/`asin`/`acos`, `evaluate_polynomial`, `difference_of_products`, `sum_of_products`, `two_prod`, `two_sum`, `inner_product`, `CompensatedSum`, `erf_inv`, `fast_exp`, `gaussian`, `gaussian_integral`, `find_interval`, `quadratic`, `log2_int`, `round_up_pow2`, `min`/`max`, π constants |
 | `interval` (`util/math.h`)               | `Interval`, a closed `[low, high]` that bounds the rounding error of the computation that produced it                                                                                                                                                                                                                        |
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
-| `simd`                                   | `Vec4`, `Mask4`                                                                                                                                                                                                                                                                                                              |
+| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE/FMA on x86-64, NEON on arm64)                                                                                                                                                                                                                                       |
 
 Everything is re-exported at the crate root, so `use umbra_math::{…}` is all
 you need.
@@ -95,10 +94,18 @@ The same input must give the same bits on arm64 (macOS) and x86-64 (Linux)
 (ADR 0002). Hence:
 
 - **Transcendentals come from `libm`**, never from the platform's math
-  library or `std`'s float methods (which `clippy.toml` bans). `core` has no
-  `sqrt`, `floor` or `mul_add` without `std`, so those come from `libm` too;
-  with its `arch` feature, `sqrt` and `fma` compile to the hardware
-  instruction where there is one.
+  library or `std`'s float methods (which `clippy.toml` bans).
+- **x86-64 requires `x86-64-v3`** (FMA, SSE4.1, AVX2), which every target
+  machine has: without it the crate stops the build with a `compile_error!`,
+  so there is no software-FMA path to keep identical. Build with
+  `target-cpu=native` (the local default) or `-C target-cpu=x86-64-v3`.
+- **Two architectures only**: x86-64 with `x86-64-v3` and arm64 with NEON,
+  the target machines (ADR 0014). Any other target stops the build; a GPU
+  or other port adds its own backend.
+- **`fma`, `sqrt`, `floor` and `ceil` are the hardware instruction** on both. `fma` and `sqrt` are correctly rounded and `floor`/`ceil` are
+  exact, so every build computes the same bits; the hardware forms are
+  inlined, where `libm`'s `fmaf` is an indirect call through a runtime CPU
+  check and its `sqrtf` opaque inline assembly.
 - **FMA is explicit**: `umbra_math::fma` exactly where pbrt-v4 uses `FMA`, and
   nowhere else. Rust never contracts `a * b + c` on its own.
 - **`min` and `max` have C++ `std::min`/`std::max` semantics**: `min(a, b)` is
@@ -141,22 +148,77 @@ epsilons.
 ### `Vec4`/`Mask4`: SIMD that computes what scalar code computes
 
 `Vec4` is four `f32` lanes in one SSE/NEON register, the width of
-`SampledSpectrum` (N = 4 wavelengths). It wraps `wide::f32x4`, but pins down
-everything `wide` leaves platform-dependent:
+`SampledSpectrum` (N = 4 wavelengths). The lanes are stored as a
+16-byte-aligned `[f32; 4]`, so `new`, `splat` and `ZERO` are `const`; each
+operation moves them through one `core::arch` intrinsic, chosen so that every
+lane computes what the scalar operation computes:
 
-- `min`/`max` are a compare plus a select, with `std::min`/`std::max`
-  semantics, not `minps`/`fminnm`, whose NaN rules differ. So
-  `t0.max(t_near)` ignores a NaN slab bound, as pbrt-v4's ray–box test does.
-- `mul_add` is always fused. Without a hardware FMA target feature (CI's
-  portable build), `wide` would round twice, so `Vec4` falls back to
-  `libm::fmaf` per lane.
+- `min`/`max` have `std::min`/`std::max` semantics: `minps`/`maxps` with the
+  operands swapped on x86-64 (`minps(b, a)` returns `b` when `b < a` and `a`
+  otherwise, so `a` for a NaN in either), a compare and a `bsl` select on
+  arm64, never `fmin`/`fminnm`, whose NaN rules differ. So `t0.max(t_near)`
+  ignores a NaN slab bound, as pbrt-v4's ray–box test does.
+- `mul_add` is always fused: `vfmaddps` on x86-64, `fmla` on arm64, never
+  a multiply and an add.
 - Horizontal reductions (`reduce_add`, `reduce_min`, `reduce_max`) fold left
   to right, like a scalar loop.
 
-The scalar operation is the test oracle: every lane of every operation is
-checked bit for bit against it. The one thing outside the contract is the
-payload of a NaN created from non-NaN inputs, which differs between CPU
-vendors in scalar code too.
+There are two backends under one facade, `x86_64` (SSE with `blendvps` and
+`vfmaddps`) and `aarch64` (NEON), each compiled only for its architecture.
+The scalar operation is the oracle of the facade
+(`tests/umbra_math/simd_test.rs`), lane by lane, over random bit patterns and
+the special values. The one thing outside the
+contract is the payload of a NaN created from non-NaN inputs, which differs
+between CPU vendors in scalar code too.
+
+### Aggressive optimisations, each with its reference (ADR 0007)
+
+The crate's hot operations run as `Vec4` kernels, written so that each lane
+performs the operations of pbrt-v4's scalar code on the same values in the
+same order; the only reordering is across lanes, which are independent, so
+every result is the same bits:
+
+- **`Interval` arithmetic** (`src/interval/kernels.rs`): the four bound
+  products of `×`, `÷` and `fma` in one lane-wise operation, their outward
+  rounding (pbrt-v4's `NextFloatUp`/`NextFloatDown`, as three selects and
+  one integer add per lane) in one pass, and the extremes by two
+  deinterleaves and `std::min`/`std::max` selects. `+`, `−`, scalar `×`
+  and `÷`, `sqrt`, `sqr`, `from_value_and_error` and
+  `difference_of_products` round both bounds at once. No branch depends on
+  the values.
+- **`SquareMatrix` products and the 4 × 4 inverse**
+  (`src/square_matrix/kernels.rs`): one output row at a time with its columns
+  in the lanes, so the compensated `InnerProduct` (`TwoProd`, `TwoSum`) of
+  every element of the row is one lane-wise chain; the adjugate reads the
+  matrix down its columns with the row order `1, 0, 3, 2` and alternating
+  signs, as pbrt-v4's formulas do element by element.
+- **`Transform` application** (`src/transform/kernels.rs`): the four rows of
+  the matrix in the lanes, so one chain of multiplies and adds transforms a
+  point, and the `gamma(3)` error bound of a `Point3fi` comes out of the same
+  lanes. Vectors stay scalar: three dot products of three terms, which a
+  kernel did not speed up.
+- **Scalar primitives**: `fma`, `sqrt`, `floor` and `ceil` as the hardware
+  instruction (above), and `round_up_pow2` by a count of leading zeros
+  instead of pbrt-v4's five shift-or steps.
+
+The `unsafe` is confined to the three backends of `Vec4` and to
+`src/float/arch.rs`: one intrinsic per `unsafe` block, each with its
+`// SAFETY:` comment, under `#[expect(unsafe_code)]` on that function. The
+kernels and the facade are safe code.
+
+Every optimised operation keeps its reference in
+`tests/umbra_math/reference/`: pbrt-v4's code in plain scalar Rust over
+`libm`, working on the public types through their public interface, so it
+shares nothing with the kernels. It lives with the tests, not in `src/`
+(nothing in `src/` exists only for tests), and `benches/kernels.rs` includes
+it by `#[path]`. `tests/umbra_math/equivalence/` checks each kernel against its
+reference bit for bit over random bit patterns, the special values and values
+of renderer magnitude; `benches/kernels.rs` times the two side by side.
+
+What was tried and did not win stays in its reference form: a branch-free
+`next_float_up`/`next_float_down` (the branch on infinity is perfectly
+predicted; the scalar form is 20 % faster) and a `Vec4` transform of a
+`Vector3f` (the transpose costs what the lanes save).
 
 ## Things to know when using it
 
@@ -172,24 +234,62 @@ vendors in scalar code too.
 - **`Transform` equality compares the forward matrix only**, as in pbrt-v4.
 - **Prefer `umbra_math::min`/`max` over `f32::min`/`max`** in code that ports
   pbrt-v4, for the NaN reason above.
+- **Use `umbra_math::sqrt`, `floor`, `ceil` and `fma`** rather than `libm`'s
+  directly: the same bits, as one inlined instruction.
+- **An `Interval` bound must not be NaN.** The outward rounding steps the bits
+  of its operand, as pbrt-v4's `NextFloatUp`/`NextFloatDown` do; for a NaN
+  that depends on its payload (a NaN whose payload is all ones steps to a
+  zero), and a NaN's payload is not stable across compilations. pbrt-v4 has
+  the same property. A NaN bound is garbage in; the kernels and the reference
+  agree on every finite and infinite input, and on NaNs produced from them.
 - **The `serde` feature** (off by default; `umbra-scene` turns it on) derives
   `Serialize`/`Deserialize` for the types stored in Scene arenas: the tuples,
   `Frame`, `OctahedralVector` and `Transform`.
 
 ## Performance
 
-Speed was not the goal; reproducibility and robustness were. Several choices
-cost cycles on purpose: `difference_of_products` is three operations where
-`a*b − c*d` is two, `inner_product` (used by matrix products and the 4 × 4
-inverse) is compensated, every `Interval` operation is several float
-operations plus ULP steps, `libm` is somewhat slower than glibc, and `fma` is a
-software routine on targets built without hardware FMA (build with
-`-C target-cpu=x86-64-v3` or native for Workers). `fast_exp` is the one
-deliberate approximation, as in pbrt-v4, for the Gaussian filter.
+Several choices cost cycles on purpose, for reproducibility and robustness:
+`difference_of_products` is three operations where `a*b − c*d` is two,
+`inner_product` (matrix products and the 4 × 4 inverse) is compensated, every
+`Interval` operation is several float operations plus ULP steps, and `libm`
+is somewhat slower than glibc. `fast_exp` is the one deliberate
+approximation, as in pbrt-v4, for the Gaussian filter.
 
-Nothing here has been benchmarked yet. Any faster variant falls under the
-aggressive-optimisation rule (ADR 0007): a benchmark, an isolated contract,
-and tests against this implementation as the reference.
+Within those choices, the kernels above take back most of the cost.
+`cargo bench -p umbra-math` runs `benches/kernels.rs` (`divan`): each bench
+runs a kernel over a batch of 1024 inputs of renderer magnitude, once with the
+reference and once with the optimised implementation. Medians on an AMD
+Ryzen Threadripper PRO 3975WX (Linux x86-64, `target-cpu=native`, Rust
+1.99.1), in nanoseconds per call:
+
+| Kernel                                 | Reference | Optimised | Speed-up |
+| -------------------------------------- | --------: | --------: | -------: |
+| `fma`                                  |      1.54 |      0.52 |    2.9 × |
+| `difference_of_products`               |      2.81 |      0.53 |    5.3 × |
+| `sqrt`                                 |      1.44 |      1.42 |    1.0 × |
+| `round_up_pow2`                        |      1.23 |      0.69 |    1.8 × |
+| `Interval + Interval`                  |      3.15 |      1.73 |    1.8 × |
+| `Interval − Interval`                  |      3.15 |      1.91 |    1.6 × |
+| `Interval × Interval`                  |      11.9 |      3.93 |    3.0 × |
+| `Interval ÷ Interval`                  |      12.7 |      5.20 |    2.4 × |
+| `Interval::fma`                        |      19.8 |      4.49 |    4.4 × |
+| `Interval::sqr`                        |      3.51 |      2.83 |    1.2 × |
+| `Interval::from_value_and_error`       |      3.44 |      1.51 |    2.3 × |
+| `difference_of_products` on `Interval` |      19.7 |      12.9 |    1.5 × |
+| `SquareMatrix<3> × SquareMatrix<3>`    |      41.0 |      9.91 |    4.1 × |
+| `SquareMatrix<4> × SquareMatrix<4>`    |      95.4 |      15.8 |    6.0 × |
+| `SquareMatrix<4>::inverse`             |       137 |      36.2 |    3.8 × |
+| `Transform::apply(Point3f)`            |      3.75 |      2.46 |    1.5 × |
+| `Transform::apply_inverse(Point3f)`    |      3.71 |      2.34 |    1.6 × |
+| `Transform::apply(Normal3f)`           |      1.68 |      1.13 |    1.5 × |
+| `Transform::apply(Point3fi)`           |      23.8 |      15.2 |    1.6 × |
+| `Transform::apply(Vector3fi)`          |      15.5 |      10.9 |    1.4 × |
+
+`sqrt` is the same instruction either way; the gain is that LLVM sees
+through the intrinsic and can fold, schedule and vectorise it, which it
+cannot do with `libm`'s inline assembly. Micro-benchmarks locate a gain but
+do not justify it on their own (arc42 §8.4): the end-to-end proof is
+`umbra bench` on the Reference Scenes, once there is a renderer to run it.
 
 ## Tests
 
@@ -202,7 +302,19 @@ and tests against this implementation as the reference.
   sampling routines the tests draw from, so the ported tests see the same
   random values as the originals.
 - `simd_test.rs` checks `Vec4`/`Mask4` against the scalar reference.
+- `reference/*.rs` are the safe, book-faithful references of the optimised
+  kernels, and `equivalence/*.rs` checks every kernel against its reference
+  bit for bit (ADR 0007). Two exhaustive sweeps of
+  every `u32` are `#[ignore]`d; run them with
+  `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`.
 
-Run them with `cargo nextest run -p umbra-math`. To exercise the
-software-FMA fallback as CI does, build without `target-cpu=native`:
-`RUSTFLAGS="-D warnings" cargo test -p umbra-math`.
+Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
+`RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
+the local CPU. The `unsafe` backends run under Miri in CI (ADR 0007), with
+`libm` in software (Miri cannot run its inline assembly) and without the
+pbrt-v4 ports (too slow interpreted):
+
+```sh
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo +nightly miri nextest run -p umbra-math \
+  --all-features --features libm/force-soft-floats -E 'not test(/^pbrt_v4::/)'
+```

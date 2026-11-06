@@ -20,3 +20,7 @@ There is no fixed list of modules allowed to contain `unsafe`. Each exception is
 
 - An `unsafe` PR carries more weight than any other optimisation: benchmark report, safe reference, equivalence tests, Miri or ASan job.
 - Reviewers can find every exception with a search for `expect(unsafe_code`.
+
+## Status
+
+The first exception is the SIMD backend of `umbra-math` (`Vec4`/`Mask4` over `core::arch`, which replaced `wide`) and its scalar `fma`/`sqrt`/`floor`/`ceil` primitives: `unsafe` is confined to one intrinsic per block in the `x86_64` and `aarch64` backends, the safe references are the scalar code in `tests/umbra_math/reference/` and, for `Vec4`, the scalar operation per lane (`tests/umbra_math/simd_test.rs`), `tests/umbra_math/equivalence/` holds the bit-for-bit equivalence tests, `benches/kernels.rs` the benchmark, and the `miri` CI job runs the crate's tests under Miri with the `x86-64-v3` baseline the crate requires. See the crate's `README.md`.

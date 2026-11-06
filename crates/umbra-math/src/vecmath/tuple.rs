@@ -41,7 +41,7 @@ macro_rules! impl_tuple {
             /// pbrt-v4 `Ceil(Tuple)`.
             #[must_use]
             pub fn ceil(self) -> Self {
-                Self { $($f: libm::ceilf(self.$f)),+ }
+                Self { $($f: crate::float::ceil(self.$f)),+ }
             }
 
             /// The component-wise `⌊·⌋`.
@@ -49,7 +49,7 @@ macro_rules! impl_tuple {
             /// pbrt-v4 `Floor(Tuple)`.
             #[must_use]
             pub fn floor(self) -> Self {
-                Self { $($f: libm::floorf(self.$f)),+ }
+                Self { $($f: crate::float::floor(self.$f)),+ }
             }
         }
 

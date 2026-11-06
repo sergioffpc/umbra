@@ -31,7 +31,7 @@ Arrows point from a dependency to the crate that uses it. Only the dependencies 
 
 | Crate               | Responsibility                                                                                                                                                  | External dependencies        |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `umbra-math`        | Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers                                                       | `libm`, `wide`               |
+| `umbra-math`        | Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers                                                       | `libm`                       |
 | `umbra-sampling`    | Sampling functions (warps), hashing and RNG, low-discrepancy sequences, `Sampler` and `SamplerKind`                                                             | —                            |
 | `umbra-spectrum`    | `Spectrum` and `SpectrumKind`, `SampledSpectrum`, `SampledWavelengths`, RGB and color spaces                                                                    | —                            |
 | `umbra-geometry`    | `Ray`, `Bounds`, interactions (carrying `MaterialId`, `LightId`, `MediumId`), Shapes and `ShapeKind`, BVH node layout and traversal                             | —                            |

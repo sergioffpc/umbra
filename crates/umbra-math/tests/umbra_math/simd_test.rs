@@ -29,7 +29,8 @@ const SPECIAL: [f32; 12] = [
 
 /// Lanes of random bits, with a special value in every third lane.
 fn inputs(rng: &mut Rng) -> impl Iterator<Item = [f32; 4]> + '_ {
-    (0..20_000_usize).map(move |i| core::array::from_fn(|lane| random_lane(rng, i + lane)))
+    let count = if cfg!(miri) { 2_000 } else { 20_000 };
+    (0..count).map(move |i| core::array::from_fn(|lane| random_lane(rng, i + lane)))
 }
 
 /// A special value when `k` is a multiple of 3, otherwise random bits.
