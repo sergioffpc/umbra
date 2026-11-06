@@ -65,6 +65,9 @@ trivial_casts = "warn"
 trivial_numeric_casts = "warn"
 unreachable_pub = "warn"
 unit_bindings = "warn"
+# `unsafe` is denied by default. An exception is an aggressive optimisation
+# (ADR 0007): `#[expect(unsafe_code, reason = "...")]` on the narrowest item.
+# Never `forbid`, which would make exceptions impossible.
 unsafe_code = "deny"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
@@ -93,7 +96,9 @@ dbg_macro = "warn"
 empty_structs_with_brackets = "warn"
 float_cmp_const = "warn"
 get_unwrap = "warn"
-# Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy. The sibling
+# Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy, taken from
+# the `libm` crate: the `std` methods are in `disallowed-methods` in clippy.toml
+# (platform libm, ADR 0002), which `all` enables. The sibling
 # `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow libm
 # call on targets built without FMA.
 imprecise_flops = "warn"
@@ -103,10 +108,21 @@ mem_forget = "warn"
 missing_assert_message = "warn"
 mod_module_files = "warn"
 multiple_unsafe_ops_per_block = "warn"
+# Output goes through `tracing` and the JSON report, never `println!`.
+print_stderr = "warn"
+print_stdout = "warn"
 rc_buffer = "warn"
 rest_pat_in_fully_bound_structs = "warn"
 str_to_string = "warn"
 todo = "warn"
+# Every `unsafe` block carries a `// SAFETY:` comment, and only `unsafe` code
+# does (ADR 0007).
 undocumented_unsafe_blocks = "warn"
 unimplemented = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
 unwrap_used = "warn"
+# Exhaustive dispatch: no `_` arm in a `match` on an enum, so a new `*Kind`
+# variant breaks the build wherever it is ignored (ADR 0006). The sibling
+# `match_wildcard_for_single_variants` comes from `pedantic`.
+wildcard_enum_match_arm = "warn"

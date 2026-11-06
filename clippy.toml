@@ -18,3 +18,91 @@ excessive-nesting-threshold = 3
 too-many-arguments-threshold = 5
 max-fn-params-bools = 0
 max-struct-bools = 0
+
+# Bit-identical Work Results across arm64 and x86-64 (ADR 0002, ADR 0007).
+# `std`'s transcendental float methods call the platform libm (macOS libm and
+# glibc differ in the last bit): use the `libm` crate instead. Methods that are
+# exact or correctly rounded under IEEE 754 everywhere stay allowed: `sqrt`,
+# `mul_add`, `abs`, `floor`, `ceil`, `round`, `trunc`, `min`, `max`, `recip`.
+# Approximate-reciprocal intrinsics differ between CPU vendors, and Umbra never
+# changes the floating-point control register (no flush-to-zero, no DAZ).
+# Applies to tests too: test oracles must be bit-identical as well.
+# `allow-invalid` keeps paths for the other architecture, and for crates that
+# are not dependencies yet, from failing configuration loading.
+disallowed-methods = [
+  { path = "f32::sin", reason = "platform libm (ADR 0002): use `libm::sinf`" },
+  { path = "f32::cos", reason = "platform libm (ADR 0002): use `libm::cosf`" },
+  { path = "f32::tan", reason = "platform libm (ADR 0002): use `libm::tanf`" },
+  { path = "f32::sin_cos", reason = "platform libm (ADR 0002): use `libm::sincosf`" },
+  { path = "f32::asin", reason = "platform libm (ADR 0002): use `libm::asinf`" },
+  { path = "f32::acos", reason = "platform libm (ADR 0002): use `libm::acosf`" },
+  { path = "f32::atan", reason = "platform libm (ADR 0002): use `libm::atanf`" },
+  { path = "f32::atan2", reason = "platform libm (ADR 0002): use `libm::atan2f`" },
+  { path = "f32::sinh", reason = "platform libm (ADR 0002): use `libm::sinhf`" },
+  { path = "f32::cosh", reason = "platform libm (ADR 0002): use `libm::coshf`" },
+  { path = "f32::tanh", reason = "platform libm (ADR 0002): use `libm::tanhf`" },
+  { path = "f32::asinh", reason = "platform libm (ADR 0002): use `libm::asinhf`" },
+  { path = "f32::acosh", reason = "platform libm (ADR 0002): use `libm::acoshf`" },
+  { path = "f32::atanh", reason = "platform libm (ADR 0002): use `libm::atanhf`" },
+  { path = "f32::exp", reason = "platform libm (ADR 0002): use `libm::expf`" },
+  { path = "f32::exp2", reason = "platform libm (ADR 0002): use `libm::exp2f`" },
+  { path = "f32::exp_m1", reason = "platform libm (ADR 0002): use `libm::expm1f`" },
+  { path = "f32::ln", reason = "platform libm (ADR 0002): use `libm::logf`" },
+  { path = "f32::log", reason = "platform libm (ADR 0002): use `libm::logf` and a division" },
+  { path = "f32::log2", reason = "platform libm (ADR 0002): use `libm::log2f`" },
+  { path = "f32::log10", reason = "platform libm (ADR 0002): use `libm::log10f`" },
+  { path = "f32::ln_1p", reason = "platform libm (ADR 0002): use `libm::log1pf`" },
+  { path = "f32::powf", reason = "platform libm (ADR 0002): use `libm::powf`" },
+  { path = "f32::powi", reason = "unspecified precision (ADR 0002): use repeated multiplication or `libm::powf`" },
+  { path = "f32::cbrt", reason = "platform libm (ADR 0002): use `libm::cbrtf`" },
+  { path = "f32::hypot", reason = "platform libm (ADR 0002): use `libm::hypotf`" },
+  { path = "f64::sin", reason = "platform libm (ADR 0002): use `libm::sin`" },
+  { path = "f64::cos", reason = "platform libm (ADR 0002): use `libm::cos`" },
+  { path = "f64::tan", reason = "platform libm (ADR 0002): use `libm::tan`" },
+  { path = "f64::sin_cos", reason = "platform libm (ADR 0002): use `libm::sincos`" },
+  { path = "f64::asin", reason = "platform libm (ADR 0002): use `libm::asin`" },
+  { path = "f64::acos", reason = "platform libm (ADR 0002): use `libm::acos`" },
+  { path = "f64::atan", reason = "platform libm (ADR 0002): use `libm::atan`" },
+  { path = "f64::atan2", reason = "platform libm (ADR 0002): use `libm::atan2`" },
+  { path = "f64::sinh", reason = "platform libm (ADR 0002): use `libm::sinh`" },
+  { path = "f64::cosh", reason = "platform libm (ADR 0002): use `libm::cosh`" },
+  { path = "f64::tanh", reason = "platform libm (ADR 0002): use `libm::tanh`" },
+  { path = "f64::asinh", reason = "platform libm (ADR 0002): use `libm::asinh`" },
+  { path = "f64::acosh", reason = "platform libm (ADR 0002): use `libm::acosh`" },
+  { path = "f64::atanh", reason = "platform libm (ADR 0002): use `libm::atanh`" },
+  { path = "f64::exp", reason = "platform libm (ADR 0002): use `libm::exp`" },
+  { path = "f64::exp2", reason = "platform libm (ADR 0002): use `libm::exp2`" },
+  { path = "f64::exp_m1", reason = "platform libm (ADR 0002): use `libm::expm1`" },
+  { path = "f64::ln", reason = "platform libm (ADR 0002): use `libm::log`" },
+  { path = "f64::log", reason = "platform libm (ADR 0002): use `libm::log` and a division" },
+  { path = "f64::log2", reason = "platform libm (ADR 0002): use `libm::log2`" },
+  { path = "f64::log10", reason = "platform libm (ADR 0002): use `libm::log10`" },
+  { path = "f64::ln_1p", reason = "platform libm (ADR 0002): use `libm::log1p`" },
+  { path = "f64::powf", reason = "platform libm (ADR 0002): use `libm::pow`" },
+  { path = "f64::powi", reason = "unspecified precision (ADR 0002): use repeated multiplication or `libm::pow`" },
+  { path = "f64::cbrt", reason = "platform libm (ADR 0002): use `libm::cbrt`" },
+  { path = "f64::hypot", reason = "platform libm (ADR 0002): use `libm::hypot`" },
+  # Approximate reciprocals: results differ between CPU vendors.
+  { path = "core::arch::x86_64::_mm_rcp_ps", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm_rcp_ss", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm_rsqrt_ps", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm_rsqrt_ss", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm256_rcp_ps", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm256_rsqrt_ps", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm512_rcp14_ps", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::x86_64::_mm512_rsqrt14_ps", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrecpe_f32", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrecpeq_f32", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrecpes_f32", reason = "approximate instruction (ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrsqrte_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrsqrteq_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "core::arch::aarch64::vrsqrtes_f32", reason = "approximate instruction (ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "wide::f32x4::recip", reason = "approximate on x86 (`rcpps`, ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "wide::f32x4::recip_sqrt", reason = "approximate on x86 (`rsqrtps`, ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  { path = "wide::f32x8::recip", reason = "approximate on x86 (`rcpps`, ADR 0002): use an exact `1.0 / x`", allow-invalid = true },
+  { path = "wide::f32x8::recip_sqrt", reason = "approximate on x86 (`rsqrtps`, ADR 0002): use `1.0 / x.sqrt()`", allow-invalid = true },
+  # Floating-point control register: no flush-to-zero, no denormals-are-zero.
+  { path = "core::arch::x86_64::_mm_setcsr", reason = "changes FP control state (ADR 0002): keep IEEE defaults", allow-invalid = true },
+  { path = "core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE", reason = "flush-to-zero (ADR 0002): keep IEEE defaults", allow-invalid = true },
+  { path = "core::arch::x86_64::_MM_SET_DENORMALS_ZERO_MODE", reason = "denormals-are-zero (ADR 0002): keep IEEE defaults", allow-invalid = true },
+]
