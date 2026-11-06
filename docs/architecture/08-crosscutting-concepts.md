@@ -242,7 +242,7 @@ What a running Render Job shows and what it leaves behind ([Progress metrics](ht
 
 | Concern | Rule |
 | --- | --- |
-| Status line | On the Coordinator's stderr, redrawn in place when stderr is a TTY. One aggregate line: current Pass, Work Units merged / total, percentage of Pixel Samples (merged plus in flight), cluster Pixel Samples per second, elapsed time and ETA. Below it, one line per Worker: host, threads, Work Units in flight, its Pixel Samples per second, heartbeat age and state (`alive`, `stale`, `stalled`, `dead`). Without a TTY, the same content is an `info` event every ~10 s, one per Worker. |
+| Status line | On the Coordinator's stderr, redrawn in place when stderr is a TTY. One aggregate line: current Pass, Work Units merged / total, percentage of Pixel Samples (merged plus in flight), cluster Pixel Samples per second, elapsed time and ETA. Below it, one line per Worker: host, threads, Work Units in flight, its Pixel Samples per second, heartbeat age and state (`loading`, `alive`, `stale`, `stalled`, `dead`). Without a TTY, the same content is an `info` event every ~10 s, one per Worker. |
 | No endpoint | No HTTP, Prometheus or other metrics endpoint. One may be added later behind the telemetry seam (`dyn`, §8.5) without touching the rest. |
 | Heartbeat progress | Every heartbeat carries, per Work Unit in flight, the cumulative count of Pixel Samples completed, and the Worker's busy threads / total threads. Cumulative counts tolerate lost heartbeats. The Coordinator derives every rate; Workers never send rates. |
 | ETA | During Pass 0: remaining Pixel Samples over an exponential moving average (~10 s) of the cluster rate, shown as provisional (`~`). From Pass 1: the sum of the remaining Work Units' Tile costs over the recent cluster throughput. A Tile's cost is its render time, measured by the Worker, sent in the Work Result and normalised by that Worker's rate. The duration is metadata outside the Work Result content hash (ADR 0004). |
@@ -332,4 +332,53 @@ flowchart LR
     P --> K
     P --> B
     B --> V
+```
+
+## 8.13 Wire protocol
+
+The messages between the Coordinator and its Workers and how they travel over QUIC ([ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0015](../adr/0015-one-render-job-per-quic-connection.md), [Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)).
+
+| Concern | Rule |
+| --- | --- |
+| Connection | One Render Job per connection. The Worker is the client and connects to the Coordinator's UDP port, 7470 by default. Workers receive `--coordinator <host:port> --session <id>` from `scripts/workers up`. No reconnection: a Worker that loses the Coordinator exits, and one that comes back joins as a new Worker (§8.8). |
+| TLS | The Coordinator generates a self-signed certificate at start-up; Workers accept any certificate. TLS exists only because QUIC requires it. |
+| Encoding | Control messages, Scene structure and Work Result headers are `postcard` with a length prefix. Bulk data (assets, pixel sums, splats) is raw little-endian bytes through `bytemuck`. No protocol version: both sides are on the same commit (ADR 0012). |
+| Handshake | `Hello { session_id, build_identity: { commit, dirty, target_cpu }, host, threads }`. The Coordinator answers `Reject { reason }` (`SessionMismatch`, `CommitMismatch { coordinator_commit }`, `DirtyBuild` without `--allow-dirty`) or `Welcome { worker_id }`. A rejected Worker logs the reason and exits non-zero. |
+| Scene transfer | After `Welcome`, the Coordinator streams to each Worker a header with the Render Job options the Worker needs (seed, Tile size, Pixel Samples per Pass, total Pixel Samples per pixel), the Scene structure, and then every asset with its content hash, which the Worker checks. No asset cache. |
+| Readiness | The Worker's first `RequestWork`, sent once the Scene is loaded and its BVH built, is the readiness signal. Until then the status line (§8.10) shows the Worker as `loading`. |
+| Credits | `RequestWork { count }` adds `count` to the Worker's pending demand. The Coordinator sends `Assign { work_unit: { tile_index, pass } }` whenever it has a Work Unit for that demand and never answers "nothing". The Worker sends one credit back for each finished Work Result and each `Cancel`. Pixel ranges derive from the Render Job options and never travel. |
+| Cancel | `Cancel { work_unit }`: the Worker drops the Work Unit if it is still rendering it (checked between Tile rows) and sends nothing. If the Work Result is already being sent, the Coordinator stops its stream with `stop_sending`. |
+| Work Result | Header: the Work Unit, a 64-bit content hash, the Anomalous Pixel Samples (pixel, sample index, kind), a Film kind; outside the hash, render time and the `stats` counters. Body, for `RGBFilm`: per pixel of the Tile in raster order `rgb_sum: [f64; 3]` and `weight_sum: f64` (32 KiB for a 32 × 32 Tile), then an optional image-sized `rgb_splat: [f64; 3]` accumulator, absent until BDPT. The hash is `xxh3-64` over the body and the Anomalous Pixel Samples; the Worker computes it and the Coordinator checks it on receipt. |
+| Heartbeat | Every second: per Work Unit in flight, the cumulative Pixel Samples completed, and busy / total threads (§8.10). |
+| Fatal error | A Worker that cannot continue (asset hash mismatch, out of memory, a panic caught at its top level) sends `Fatal { message }` and closes. The Coordinator logs it and treats the Worker as dead (§8.8). |
+| End | `JobFinished` when the last Work Unit is merged: the Worker drops its remaining copies, closes and exits 0. The Coordinator writes the image and Render Job Report and exits once its Workers have closed, or after 2 s. Losing the Coordinator is detected by the QUIC idle timeout, set to the heartbeat death time (5 s). |
+| Close codes | `FINISHED`, `JOB_CANCELLED` (Ctrl-C on the Coordinator: no image, ADR 0004), `REJECTED`, `WORKER_FATAL`, `PROTOCOL_ERROR` (any malformed or out-of-order message, always a bug). |
+| Local Worker | The in-memory transport passes the same typed messages without encoding them or recomputing hashes. Encoding is covered by round-trip tests and by an integration test with two QUIC Workers on `localhost`. |
+
+Streams of one connection:
+
+| Stream | Opened by | Direction | Carries |
+| --- | --- | --- | --- |
+| Control (bidirectional, one) | Worker | both | `Hello`, `Welcome`, `Reject`, `RequestWork`, `Assign`, `Cancel`, `Fatal`, `JobFinished`, in order |
+| Scene (unidirectional, one) | Coordinator | C → W | Render Job options, Scene structure, assets; end of stream ends the Scene |
+| Heartbeat (unidirectional, one) | Worker | W → C | one heartbeat per second |
+| Work Result (unidirectional, one per Work Result) | Worker | W → C | one Work Result; end of stream ends it |
+
+Heartbeats are not QUIC datagrams, because a burst of lost datagrams would declare a live Worker dead. Work Results each get their own stream, so a large one never delays another, a heartbeat or a `Cancel`.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant C as Coordinator
+    W->>C: Hello (session, Build Identity, threads)
+    C->>W: Welcome (worker_id)
+    C-->>W: Scene stream: options, structure, assets
+    Note over W: load Scene, build BVH
+    W->>C: RequestWork (count)
+    C->>W: Assign (Tile, Pass)
+    W-->>C: heartbeat stream, every 1 s
+    W-->>C: Work Result stream
+    W->>C: RequestWork (1)
+    C->>W: JobFinished
+    W->>C: close (FINISHED)
 ```
