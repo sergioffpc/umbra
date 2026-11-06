@@ -15,6 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Jobs that build for x86-64 set `-C target-cpu=x86-64-v3` on top of this:
+  # `umbra-math` requires that baseline (ADR 0002). The arm64 and bare-metal
+  # builds use their targets' defaults, which include NEON.
   RUSTFLAGS: -D warnings
 
 # Job names (including matrix values) are required status checks in the
@@ -33,6 +36,10 @@ jobs:
         # SIMD differences between AVX and NEON code paths.
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: >-
+        ${{ matrix.os == 'ubuntu-latest'
+        && '-D warnings -C target-cpu=x86-64-v3' || '-D warnings' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +63,8 @@ jobs:
       # doctests, so they run separately.
       - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
       - run: cargo test --doc --all-features --locked
+      # Micro-benchmarks only have to build on a shared runner (§8.4).
+      - run: cargo bench --no-run --all-features --locked
 
   # The seven core crates on a target with no `std` (ADR 0014, ADR 0015): a
   # dependency on `std` breaks the build. The target's sysroot ships `alloc`,
@@ -91,6 +100,36 @@ jobs:
             echo "::error::a core crate links alloc (ADR 0014)"
             exit 1
           fi
+
+  # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on a
+  # nightly pinned for this job only, with the `x86-64-v3` baseline the crate
+  # requires. The equivalence tests sample fewer inputs under `cfg(miri)`.
+  # Miri cannot run inline assembly, which `libm` uses for its runtime CPU
+  # check, so `libm` is built with `force-soft-floats` (the same, correctly
+  # rounded bits). The pbrt-v4 test ports are left out: their long loops take
+  # hours under Miri, and the equivalence tests cover every `unsafe` item.
+  miri:
+    name: miri
+    runs-on: ubuntu-latest
+    env:
+      MIRI_TOOLCHAIN: nightly-2026-11-05
+      RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: >-
+          rustup toolchain install "$MIRI_TOOLCHAIN" --profile minimal
+          --component miri --component rust-src
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: miri
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-nextest
+      - run: >-
+          cargo +"$MIRI_TOOLCHAIN" miri nextest run -p umbra-math --all-features
+          --features libm/force-soft-floats --locked --no-tests=warn
+          -E 'not test(/^pbrt_v4::/)'
 
   deny:
     name: cargo deny (${{ matrix.checks }})
@@ -181,6 +220,8 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
