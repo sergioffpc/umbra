@@ -8,3 +8,13 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-print-in-tests = true
 allow-dbg-in-tests = true
+
+# Small functions that do one thing. Clippy cannot see intent, so these
+# thresholds stand in for "one responsibility": short bodies, shallow nesting,
+# little branching, few inputs, and enums instead of `bool` parameters or fields.
+too-many-lines-threshold = 40
+cognitive-complexity-threshold = 10
+excessive-nesting-threshold = 3
+too-many-arguments-threshold = 5
+max-fn-params-bools = 0
+max-struct-bools = 0

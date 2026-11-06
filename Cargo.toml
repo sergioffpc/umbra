@@ -53,7 +53,11 @@ panic = "unwind"
 # Lints are set to `warn` so local builds keep compiling while iterating; the
 # pre-commit hook and CI run with `-D warnings`, so every warning blocks a merge.
 [lints.rust]
+# Least privilege: every item is private unless it must be public. `pub` that is
+# not reachable from outside the crate must be `pub(crate)` (`unreachable_pub`),
+# and anything that is public must carry docs (`missing_docs`).
 missing_debug_implementations = "warn"
+missing_docs = "warn"
 redundant_imports = "warn"
 redundant_lifetimes = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
@@ -75,6 +79,12 @@ cargo = { level = "warn", priority = -1 }
 many_single_char_names = "allow"
 # Transitive duplicates are outside our control.
 multiple_crate_versions = "allow"
+# One thing per function: thresholds are set in clippy.toml. `too_many_lines`,
+# `too_many_arguments` and `fn_params_excessive_bools` come from the groups above.
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
+# Least privilege for fields: no struct with a mix of public and private fields.
+partial_pub_fields = "warn"
 # Selected restriction lints.
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"

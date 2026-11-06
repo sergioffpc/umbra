@@ -16,6 +16,12 @@ Git flow:
 - `release/X.Y.Z` branches from `develop`, merges into both `main` and `develop`.
 - `hotfix/X.Y.Z` branches from `main`, merges into both `main` and `develop`.
 
+## Rust style
+
+Write idiomatic Rust, the shape a seasoned Rust reviewer expects: iterators over index loops, `?` and `Option`/`Result` combinators, `From`/`TryFrom` for conversions, newtypes for units and identifiers, borrowing over cloning.
+
+Model every choice as an enum with named variants, in parameters and fields alike (`Visibility::Hidden`, not `visible: false`); `bool` is for predicates such as `is_empty()`. Lint rules and thresholds: `CONTRIBUTING.md`, section "Lint and formatting rules".
+
 ## Agent skills
 
 ### Issue tracker
