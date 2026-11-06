@@ -17,5 +17,5 @@ A Pixel Trace is never recorded during a Render Job. It is produced afterwards b
 ## Consequences
 
 - `R: Recorder` appears in the signatures of every integrator and of the traversal. This is the price of keeping the guarantee structural.
-- Reproducing a Pixel Sample needs the exact Scene, seed, Render Job options and Umbra version. The final image therefore carries a Reproduction Record, and `umbra trace` refuses to run when it does not match.
+- Reproducing a Pixel Sample needs the exact Scene, seed, Render Job options and Build Identity. The final image therefore carries a Reproduction Record, and `umbra trace` refuses to run when it does not match.
 - The trace of a pixel does not show splats that other Pixel Samples (BDPT `t = 1`, light tracing) sent to that pixel. It shows only the splats this pixel's Pixel Samples sent elsewhere.

@@ -1,8 +1,8 @@
 # `unsafe` code as an aggressive optimisation
 
-Umbra code is safe Rust by default. `unsafe_code = "deny"` applies to the whole crate. SIMD, byte casts, thread pinning and allocators come from crates with safe APIs (`wide` behind the `Vec4`/`Mask4` facade, `bytemuck`, …), so the expected amount of `unsafe` in Umbra itself is zero.
+Umbra code is safe Rust by default. `unsafe_code = "deny"` applies to every crate of the workspace. SIMD, byte casts, thread pinning and allocators come from crates with safe APIs (`wide` behind the `Vec4`/`Mask4` facade, `bytemuck`, …), so the expected amount of `unsafe` in Umbra itself is zero.
 
-An `unsafe` exception is treated as an **aggressive optimisation** and has to meet the same rule as any other: a benchmark showing the gain end-to-end (arc42 §8.4), isolation behind a simple safe contract, and a readable, book-faithful safe reference implementation that the unsafe version is tested against. On top of that rule:
+An `unsafe` exception is treated as an **aggressive optimisation** and has to meet the same rule as any other: a benchmark showing the gain end-to-end ([arc42 §8.4](../architecture/08-crosscutting-concepts.md#84-performance-measurement)), isolation behind a simple safe contract, and a readable, book-faithful safe reference implementation that the unsafe version is tested against. On top of that rule:
 
 - **Narrowest scope.** The exception is a `#[expect(unsafe_code, reason = "...")]` on the narrowest item possible, never on a module or crate. The lint stays at `deny` and never at `forbid`, because `forbid` cannot be overridden locally.
 - **Documented.** Every `unsafe` block has a `// SAFETY:` comment stating why its preconditions hold, and holds only one unsafe operation. Every `unsafe fn` has a `# Safety` section. `SAFETY` comments appear only on `unsafe` code. All of this is enforced by lints.

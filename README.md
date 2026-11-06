@@ -7,6 +7,9 @@ Umbra is a physically based ray tracer written in Rust, inspired by
 [pbrt-v4](https://github.com/mmp/pbrt-v4) and the book
 [*Physically Based Rendering: From Theory to Implementation*](https://pbr-book.org/).
 
+It is designed to render on CPUs only, use every core of a machine, and spread
+the work of one image over the machines of a LAN.
+
 > **Status:** early development. Nothing renders yet.
 
 ## Building
@@ -47,6 +50,11 @@ Tags: `X.Y.Z` for a release, `X.Y` for the latest patch of a minor version,
 ```sh
 gh attestation verify oci://ghcr.io/sergioffpc/umbra:latest -R sergioffpc/umbra
 ```
+
+## Documentation
+
+The architecture (arc42), the architecture decision records and the glossary
+are indexed in [`docs/`](docs/README.md).
 
 ## Contributing
 

@@ -1,5 +1,7 @@
 # pbrt-v4 Scene Files, parsed once on the Coordinator
 
+> **Amended by [ADR 0018](0018-sessions-launched-from-the-operators-machine.md).** The set of Workers is not a Render Job option: it is the launch script's host list ([arc42 §7.3](../architecture/07-deployment-view.md#73-deployment-and-launch)), and it never changes the Film ([ADR 0004](0004-deterministic-film-for-a-fixed-render-job.md)). The rest of this ADR still applies.
+
 Umbra reads exactly one input format: pbrt-v4's `.pbrt` Scene File, unextended. Each milestone declares the subset it supports and grows it until the whole format is covered. This lets the pbrt-v4 test scenes, and reference images rendered by pbrt-v4 itself, serve as Umbra's correctness oracle and benchmark suite without a converter.
 
 - **Strict validation.** The Coordinator rejects a Render Job before assigning any Work Unit if its Scene File uses a directive, type or parameter the current milestone does not support. It reports every such use with `file:line:column`, not only the first. There is no lenient mode, because a render that silently skips unsupported features looks plausible but no longer matches the reference. Parameters that are recognised but unused produce a warning, as in pbrt-v4.
