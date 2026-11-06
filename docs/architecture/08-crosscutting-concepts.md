@@ -160,7 +160,7 @@ How the Scene is stored and where rendering may allocate ([ADR 0008](../adr/0008
 | Allocation boundary | Allowed per Render Job, per Work Unit (Work Result buffer) and outside rendering. Never per Pixel Sample, except while recording a Pixel Trace. A counting-allocator test (N vs 2N Pixel Samples) enforces it for every integrator. |
 | Per-sample contract | `SceneView` (`get(handle)`, slices), `&mut` slices of the thread context and `Copy` values. No `alloc` dependency (§8.12). Bounds-checked indexing, `get_unchecked` only under §8.6. |
 | Alignment | `CachePadded` (128 B) for per-thread mutable data adjacent to other threads'. Natural alignment elsewhere. A cache-line BVH node layout is an aggressive optimisation. |
-| NUMA | No NUMA-local allocation yet. The Scene is pointer-free and `Clone`, so a replica per NUMA node (R630) can be added with a benchmark. |
+| NUMA | One Worker per NUMA node gives each node its own Scene ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)). No NUMA-local allocation inside a Worker. The Scene is pointer-free and `Clone`, so an in-process replica per node is a backlog entry (§8.14). |
 | Global allocator | System allocator. Replacing it is an aggressive optimisation measured on the scene-build phase. |
 
 Who allocates what, and when:
@@ -182,7 +182,7 @@ How a Render Job is split and scheduled across Workers and cores ([ADR 0009](../
 | --- | --- |
 | Decomposition | Square Tiles, 32 × 32 by default; Passes of 64 Pixel Samples by default. Both are Render Job options, never derived from the cluster. |
 | Assignment | Workers pull Work Units, about two in flight per eight threads. Pass-major order, raster Tile order within a Pass. Pass p of a Tile waits until Pass p − 2 of that Tile is merged. |
-| Inside a Worker | One rayon pool. Work Units in flight run concurrently, each splitting its rows with `par_iter`. No thread pinning by default. |
+| Inside a Worker | One rayon pool over every logical CPU of the Worker's NUMA node. Work Units in flight run concurrently, each splitting its rows with `par_iter`. No thread pinning by default (§8.14). |
 | Failure detection | Connection closed, or 5 s without a heartbeat (sent every second). Both are Coordinator options. No per-Work-Unit timeout. |
 | Reassignment | A dead Worker's Work Units go to the front of the queue. A reconnecting Worker joins as new. The first Work Result per Work Unit is accepted; later ones are hash-compared and discarded. With no Workers, the Render Job waits. |
 | Tail | Once the queue is empty, the oldest Work Unit in flight is copied to a free Worker, at most once. The first Work Result wins, the other is cancelled. |
@@ -382,3 +382,30 @@ sequenceDiagram
     C->>W: JobFinished
     W->>C: close (FINISHED)
 ```
+## 8.14 Per-architecture tuning
+
+How Umbra is tuned to each target machine (§7.1) beyond the portable defaults ([Per-architecture tuning plan](https://github.com/sergioffpc/umbra/issues/48), [ADR 0017](../adr/0017-one-worker-per-numa-node.md)). The plan is an evidence-driven backlog, not a schedule. Every entry is an aggressive optimisation: a benchmark proves it (§8.4), a simple contract isolates it, and a readable reference stays next to it (§8.11).
+
+| Concern | Rule |
+| --- | --- |
+| Threads | A Worker uses every logical CPU of its NUMA node by default: 64 on the P620, 28 per Worker on the R630 and 12 on the M2 (P- and E-cores). `--threads N` overrides it and never changes the Film (§8.3). No thread pinning and no QoS class. |
+| Workers per machine | One per NUMA node, bound with `numactl --cpunodebind/--membind`, so two on the R630 and one elsewhere ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)). Before distribution, the R630's local Worker runs under `numactl --interleave=all`. |
+| Fixed host configuration | The P620's BIOS stays in NPS1 (one NUMA node). SMT stays on on both x86 machines. Changing either invalidates comparisons with earlier benchmark reports. |
+| One BVH everywhere | Every architecture builds and traverses the same BVH layout, so traversal-level Pixel Traces reproduce on any machine (§8.3, §8.9). A wider BVH is a backlog entry for all architectures at once, never for one. |
+| Triggers | An entry is reopened when a machine misses its QS-5 (speed relative to pbrt-v4) or QS-6 (scaling within a Worker) target (§10). A QS-6 miss reopens that machine's threading and memory entries. A QS-5 miss reopens the kernel entries of its architecture. |
+| Selection | A trigger says that work is needed, not which entry. The entry is chosen from a profile that points at its cause (samply, Instruments, `perf`, §8.4), never by going down the list. An entry may also be taken without a trigger when a profile justifies it, because QS-5 must reach 1.0 by the last milestone. |
+| Acceptance | The end-to-end gain rule of §8.4, measured on every machine the entry targets. An entry that targets all architectures must also not regress any other machine by more than 2 %. |
+
+The backlog, in the order its entries are worth trying:
+
+| # | Entry | Machines | Trigger and evidence | Cost |
+| --- | --- | --- | --- | --- |
+| 1 | BVH8 traversal with `f32x8` (two NEON registers on arm64) | all | QS-5 miss on x86, profile dominated by traversal | code, equivalence tests (§8.11) |
+| 2 | Scene and BVH replica per NUMA node inside one Worker, one rayon pool per node | R630 | QS-6 miss with two Workers | code, amends ADR 0008 and ADR 0017 |
+| 3 | Pinning pool threads to cores | P620, R630 | QS-6 miss, profile showing thread migrations | `unsafe` or a crate (§8.6) |
+| 4 | One rayon pool per CCX, each Work Unit in flight confined to one CCX | P620 | QS-6 miss, profile showing L3 misses across CCXs | code |
+| 5 | Huge pages for the Scene arenas and the BVH (`madvise`) | P620, R630 | profile showing TLB misses | `unsafe` or a crate (§8.6) |
+| 6 | Excluding SMT siblings or E-cores (`--threads`) | all | benchmark | none |
+| 7 | `USER_INITIATED` QoS class for pool threads | M2 | QS-5 or QS-6 miss on the M2 | FFI, `unsafe` (§8.6) |
+
+Rejected: an AVX-512 path (no target machine has it, §7.1), one Worker per CCX on the P620 ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)), and a different BVH width per architecture. Ray-packet and wavefront kernels are deferred with the wavefront driver (§8.12).

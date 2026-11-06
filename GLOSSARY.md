@@ -65,7 +65,7 @@ The single process that accepts a Render Job, owns its Film, assigns Work Units 
 _Avoid_: Master, server, leader, scheduler
 
 **Worker**:
-A process on one machine that holds a replica of the Scene and renders the Work Units assigned to it using all of that machine's cores.
+A process that holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. A machine runs one Worker per NUMA node, so usually exactly one.
 _Avoid_: Node, slave, client, agent, render thread
 
 **Session**:
