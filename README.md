@@ -25,6 +25,29 @@ cargo build --release
 cargo run --release
 ```
 
+## Container image
+
+Every release publishes a minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
+image to the GitHub Container Registry: no shell, no package manager, running
+as the non-root user `umbra` (uid 10001) in `/work`. It is built for
+`linux/amd64` with the `x86-64-v3` baseline (AVX2 and FMA: Intel Haswell, AMD Zen
+or newer).
+
+```sh
+docker pull ghcr.io/sergioffpc/umbra:latest
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/sergioffpc/umbra:latest
+```
+
+`--user` lets `umbra` write its output into the mounted directory with your
+own ownership.
+
+Tags: `X.Y.Z` for a release, `X.Y` for the latest patch of a minor version,
+`latest` for the newest release. Verify an image's build provenance with:
+
+```sh
+gh attestation verify oci://ghcr.io/sergioffpc/umbra:latest -R sergioffpc/umbra
+```
+
 ## Contributing
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
