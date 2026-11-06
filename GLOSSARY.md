@@ -60,6 +60,10 @@ _Avoid_: Master, server, leader, scheduler
 A process on one machine that holds a replica of the Scene and renders the Work Units assigned to it using all of that machine's cores.
 _Avoid_: Node, slave, client, agent, render thread
 
+**Build Identity**:
+The source commit a Coordinator or Worker binary was built from, whether its tree had uncommitted changes, and the CPU it was compiled for. A Render Job admits only Workers whose commit matches the Coordinator's.
+_Avoid_: Version, build number, release
+
 ### Debugging
 
 **Pixel Trace**:
