@@ -194,7 +194,8 @@ sequenceDiagram
     W-->>S: SSH sessions end
     Note over C: write the Render Job Report<br/>(outcome: cancelled), no image (ADR 0004)
     Note over C: exit 130 once Workers have closed, or after 2 s
-    S->>O: copy the Render Job Report back, exit 130
+    C-->>S: exit 130
+    S->>O: exit 130 (Workers not restarted)
 ```
 
 1. A Render Job either renders every Pass or produces no image. There is no partial image and no time budget (ADR 0004).
