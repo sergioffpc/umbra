@@ -1,5 +1,7 @@
 # Chiseled Ubuntu container image, published on every release tag
 
+> **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is now published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, and not as a single `x86-64-v3` image. The `X.Y` and `latest` tags are dropped. The rest of this ADR still applies.
+
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 
 - **Triggered by the `vX.Y.Z` tag push, not by a published GitHub Release.** In git flow the release ends when `main` is tagged and the tag is pushed; nothing in the repository creates GitHub Releases, and a Release created by a workflow's `GITHUB_TOKEN` would not trigger another workflow anyway. The job refuses a tag that is not reachable from `origin/main` or does not match the crate version in `Cargo.toml`, so a stray tag on a feature branch publishes nothing.
