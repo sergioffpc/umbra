@@ -60,22 +60,12 @@
         "rust-lang.rust-analyzer",
         "vadimcn.vscode-lldb",
         "tamasfe.even-better-toml",
-        "fill-labs.dependi",
-        "editorconfig.editorconfig",
-        "tekumara.typos-vscode",
-        "ryanluker.vscode-coverage-gutters",
-        "timonwong.shellcheck",
-        "redhat.vscode-yaml",
-        "github.vscode-github-actions",
-        "vivaxy.vscode-conventional-commits",
         "anthropic.claude-code"
       ],
       // Workspace settings come from .vscode/settings.json; only
       // container-specific ones go here.
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
-        // Use the shellcheck binary from the image, not the bundled one.
-        "shellcheck.executablePath": "/usr/bin/shellcheck"
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   }

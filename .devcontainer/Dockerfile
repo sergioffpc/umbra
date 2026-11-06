@@ -6,7 +6,7 @@
 FROM mcr.microsoft.com/devcontainers/rust:1-trixie
 
 # Native packages: Git LFS (images and meshes, required by the git hooks) and
-# shellcheck (the hook scripts). The base image already has build-essential,
+# shellcheck (shell scripts, run by the pre-commit hook). The base image already has build-essential,
 # git, curl and lldb.
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
@@ -47,3 +47,16 @@ RUN curl -fsSL --proto '=https' --tlsv1.2 \
         "typos-cli@${TYPOS_VERSION}" \
         "git-cliff@${GIT_CLIFF_VERSION}" \
     && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
+# Linters run by the pre-commit hook that are not cargo crates: prebuilt
+# release binaries for the container's architecture (amd64 or arm64).
+# Keep the versions in sync with the `lint` job in .github/workflows/ci.yml.
+ARG ACTIONLINT_VERSION=1.7.12
+ARG EDITORCONFIG_CHECKER_VERSION=4.0.2
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz" \
+        | tar -xz -C "${CARGO_HOME}/bin" actionlint \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-${arch}.tar.gz" \
+        | tar -xz -C "${CARGO_HOME}/bin" editorconfig-checker

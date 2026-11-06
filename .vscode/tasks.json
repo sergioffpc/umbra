@@ -93,24 +93,6 @@
       "problemMatcher": ["$rustc", "$rust-panic"]
     },
     {
-      "label": "coverage",
-      "detail": "cargo llvm-cov under nextest; writes target/lcov.info for Coverage Gutters",
-      "type": "process",
-      "command": "cargo",
-      "args": [
-        "llvm-cov",
-        "nextest",
-        "--all-features",
-        "--locked",
-        "--no-tests=warn",
-        "--lcov",
-        "--output-path",
-        "target/lcov.info"
-      ],
-      "group": "test",
-      "problemMatcher": ["$rustc", "$rust-panic"]
-    },
-    {
       "label": "coverage: html report",
       "detail": "cargo cov --open (HTML report in the browser)",
       "type": "process",
@@ -183,8 +165,15 @@
       "problemMatcher": []
     },
     {
+      "label": "ci: lint",
+      "detail": "shellcheck, actionlint and editorconfig-checker on every tracked file",
+      "type": "shell",
+      "command": "git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck && actionlint && git ls-files -z | xargs -0 editorconfig-checker",
+      "problemMatcher": []
+    },
+    {
       "label": "ci: all checks",
-      "detail": "fmt, clippy, doc, test, deny, shear, typos (stops at the first failure)",
+      "detail": "fmt, clippy, doc, test, deny, shear, typos, lint (stops at the first failure)",
       "dependsOrder": "sequence",
       "dependsOn": [
         "ci: fmt",
@@ -193,7 +182,8 @@
         "ci: test",
         "ci: deny",
         "ci: shear",
-        "ci: typos"
+        "ci: typos",
+        "ci: lint"
       ],
       "problemMatcher": []
     },
