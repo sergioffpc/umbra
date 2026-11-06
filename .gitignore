@@ -16,6 +16,11 @@ flamegraph.svg
 
 # Editors and OS
 .idea/
-.vscode/
+# VS Code is the reference editor: share the workspace configuration only.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
 *.swp
 .DS_Store

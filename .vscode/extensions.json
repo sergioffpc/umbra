@@ -1,0 +1,37 @@
+{
+  // Extensions recommended for working on umbra. VS Code offers to install
+  // them when the folder is opened; the dev container installs them itself.
+  "recommendations": [
+    // Rust language server: completion, diagnostics (clippy on save), tests.
+    "rust-lang.rust-analyzer",
+    // Native debugger for Rust (launch.json).
+    "vadimcn.vscode-lldb",
+    // TOML: Cargo.toml, rustfmt.toml, clippy.toml, deny.toml, ...
+    "tamasfe.even-better-toml",
+    // Inline dependency versions and advisories in Cargo.toml.
+    "fill-labs.dependi",
+    // Applies .editorconfig to non-Rust files.
+    "editorconfig.editorconfig",
+    // Spell checker using _typos.toml, same as the pre-commit hook and CI.
+    "tekumara.typos-vscode",
+    // Coverage gutters from `target/lcov.info` (task "coverage").
+    "ryanluker.vscode-coverage-gutters",
+    // Lints the shell scripts in .githooks/ and scripts/.
+    "timonwong.shellcheck",
+    // YAML schema validation and GitHub Actions workflow support.
+    "redhat.vscode-yaml",
+    "github.vscode-github-actions",
+    // Conventional Commits prompt for the Source Control view.
+    "vivaxy.vscode-conventional-commits",
+    // Reopens the folder in the dev container (.devcontainer/).
+    "ms-vscode-remote.remote-containers"
+  ],
+  "unwantedRecommendations": [
+    // Deprecated predecessors of rust-analyzer and dependi.
+    "rust-lang.rust",
+    "serayuzgur.crates",
+    // C/C++ tooling would compete with CodeLLDB and rust-analyzer.
+    "ms-vscode.cpptools",
+    "llvm-vs-code-extensions.vscode-clangd"
+  ]
+}

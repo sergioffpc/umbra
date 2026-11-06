@@ -95,6 +95,48 @@ Optional tools used by the hook and CI:
   `cargo install git-cliff`): generates the changelog (see
   [Changelog](#changelog)).
 
+## Editor and dev container
+
+[VS Code](https://code.visualstudio.com) is the reference editor. The
+repository ships its workspace configuration in [`.vscode/`](.vscode):
+
+- `extensions.json`: recommended extensions (rust-analyzer, CodeLLDB, Even
+  Better TOML, Dependi, EditorConfig, typos, Coverage Gutters, ShellCheck,
+  YAML, GitHub Actions, Conventional Commits, Dev Containers). VS Code offers
+  to install them when you open the folder.
+- `settings.json`: format on save with rustfmt, clippy on save with the same
+  flags as the hook and CI, rust-analyzer in its own target directory so it
+  never blocks `cargo build`, commit message rulers at 72 characters.
+- `tasks.json`: builds for every profile (`Ctrl/Cmd+Shift+B` is the dev
+  build), a portable `x86-64-v3` release, tests with nextest, coverage into
+  `target/lcov.info` for Coverage Gutters, and one `ci:` task per CI
+  check. `ci: all checks` runs them all in order.
+- `launch.json`: CodeLLDB configurations for the binary (dev and `profiling`
+  profiles) and its unit tests.
+
+Personal settings belong in your user settings, not in `.vscode/`; other
+files in `.vscode/` are ignored by git.
+
+### Dev container
+
+[`.devcontainer/`](.devcontainer) defines a Debian 13 container with the
+pinned toolchain, `rust-src`, Git LFS, ShellCheck, `gh` and every tool listed
+under [Toolchain](#toolchain). With Docker running and the Dev Containers
+extension installed, run **Dev Containers: Reopen in Container**. On creation
+it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
+container.
+
+- `target/` and the cargo download cache are Docker volumes, not bind mounts:
+  builds stay fast on macOS and survive container rebuilds. The container's
+  `target/` is separate from the host's.
+- On Apple silicon the container is `aarch64-unknown-linux-gnu`, a platform no
+  Worker runs; use it for development, and the host or CI for anything that
+  depends on the target platform.
+- Tool versions are `ARG`s in the [`Dockerfile`](.devcontainer/Dockerfile);
+  Dependabot updates the base image and features.
+- A git worktree cannot be opened in the container: its `.git` file points
+  to a path on the host. Open the main clone instead.
+
 ## Lint and formatting rules
 
 - Formatting: [`rustfmt.toml`](rustfmt.toml) and [`.editorconfig`](.editorconfig).

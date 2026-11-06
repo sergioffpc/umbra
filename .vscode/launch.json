@@ -1,0 +1,47 @@
+{
+  // CodeLLDB (vadimcn.vscode-lldb) launch configurations. Each one builds the
+  // binary first through cargo, so no preLaunchTask is needed. The run/debug
+  // lenses that rust-analyzer shows above `main` and `#[test]` use CodeLLDB
+  // too.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug umbra (dev)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      // Release speed with full debug info: for bugs that only show up in
+      // long renders. Inlining makes stepping jumpier than in dev.
+      "name": "Debug umbra (profiling profile)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra", "--profile=profiling"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      "name": "Debug unit tests in umbra (bin)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    }
+  ]
+}

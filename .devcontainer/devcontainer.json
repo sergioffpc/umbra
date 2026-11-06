@@ -1,0 +1,75 @@
+// Dev container for umbra: VS Code "Dev Containers: Reopen in Container".
+// https://containers.dev/implementors/json_reference/
+{
+  "name": "umbra",
+  "build": {
+    "dockerfile": "Dockerfile",
+    // Repository root, so the Dockerfile can copy rust-toolchain.toml.
+    "context": ".."
+  },
+
+  "features": {
+    // gh: the issue tracker and pull requests are managed with the gh CLI.
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "remoteUser": "vscode",
+
+  // The build output and the cargo download cache live in named volumes:
+  // on macOS and Windows a bind-mounted target/ is many times slower, and
+  // the volumes survive container rebuilds.
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "umbra-target-${devcontainerId}",
+      "target": "${containerWorkspaceFolder}/target"
+    },
+    {
+      "type": "volume",
+      "source": "umbra-cargo-registry",
+      "target": "/usr/local/cargo/registry"
+    },
+    {
+      "type": "volume",
+      "source": "umbra-cargo-git",
+      "target": "/usr/local/cargo/git"
+    }
+  ],
+
+  // LLDB needs ptrace to attach to the debuggee.
+  "capAdd": ["SYS_PTRACE"],
+  "securityOpt": ["seccomp=unconfined"],
+
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb"
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      // Keep in sync with .vscode/extensions.json (minus Dev Containers).
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "fill-labs.dependi",
+        "editorconfig.editorconfig",
+        "tekumara.typos-vscode",
+        "ryanluker.vscode-coverage-gutters",
+        "timonwong.shellcheck",
+        "redhat.vscode-yaml",
+        "github.vscode-github-actions",
+        "vivaxy.vscode-conventional-commits"
+      ],
+      // Workspace settings come from .vscode/settings.json; only
+      // container-specific ones go here.
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        // Use the shellcheck binary from the image, not the bundled one.
+        "shellcheck.executablePath": "/usr/bin/shellcheck"
+      }
+    }
+  }
+}
