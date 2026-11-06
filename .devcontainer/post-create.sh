@@ -21,6 +21,14 @@ scripts/setup-git.sh
         && claude plugin install mattpocock-skills@claude-plugins-official
 } || echo "warning: could not install mattpocock-skills; run it manually" >&2
 
+# Prettier and markdownlint-cli2, run by the pre-commit hook. npm comes from
+# the Node.js feature, which is installed after the Dockerfile, so they cannot
+# go there. Keep the versions in sync with the `lint` job in
+# .github/workflows/ci.yml.
+npm install --global --no-fund --no-audit \
+    prettier@3.9.10 \
+    markdownlint-cli2@0.24.0
+
 # Download dependencies now so the first build and rust-analyzer start fast.
 cargo fetch --locked
 

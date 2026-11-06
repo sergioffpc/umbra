@@ -1,0 +1,12 @@
+# yamllint: YAML correctness and conventions. Layout belongs to Prettier, so
+# the rules that would fight it (line length, comment spacing) are relaxed.
+extends: default
+
+rules:
+  # GitHub workflows start with `on:`, which YAML 1.1 reads as a boolean key.
+  truthy:
+    check-keys: false
+  document-start: disable
+  line-length: disable
+  comments:
+    min-spaces-from-content: 1

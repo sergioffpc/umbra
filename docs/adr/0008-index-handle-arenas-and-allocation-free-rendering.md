@@ -1,7 +1,7 @@
 # Index-handle arenas and allocation-free rendering
 
 > **Amended by [ADR 0014](0014-gpu-ready-no-std-rendering-core.md).** Per-sample code reads a `SceneView<'_>` of borrowed arena slices instead of `&Scene`, and the per-thread buffers live outside the core.
-
+>
 > **Amended by [ADR 0017](0017-one-worker-per-numa-node.md).** A machine runs one Worker per NUMA node, which this ADR had rejected.
 
 The Scene stores every object in a per-type arena (one `Vec<T>` per concrete type) and objects refer to one another through typed `u32` index handles (`MeshId`, `MaterialId`, generically `Handle<T>`), never through references, `Box`, `Arc` or a raw `usize`. Rendering code never allocates per Pixel Sample. Together these keep the per-sample code free of lifetimes, pointers and allocation, which pbrt-v4 achieves on the GPU with pointers into pre-allocated memory and which Rust gets more simply from indices ([pbrt-v4 CPU/GPU shared-code architecture](https://github.com/sergioffpc/umbra/issues/15)).

@@ -79,18 +79,33 @@ jobs:
       - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
 
   # Same linters as the pre-commit hook, on every tracked file. Versions match
-  # the ARGs in .devcontainer/Dockerfile; shellcheck comes with the runner.
+  # the ARGs and apt packages in .devcontainer/Dockerfile and the npm packages
+  # in .devcontainer/post-create.sh; shellcheck comes with the runner.
+  # The job name is a required check (see above): it predates the JSON, TOML,
+  # YAML and Markdown linters, which run here too.
   lint:
     name: shellcheck, actionlint, editorconfig
     runs-on: ubuntu-latest
     env:
       ACTIONLINT_VERSION: 1.7.12
       EDITORCONFIG_CHECKER_VERSION: 4.0.2
+      TAPLO_VERSION: 0.10.0
+      YAMLLINT_VERSION: 1.37.1
+      PRETTIER_VERSION: 3.9.10
+      MARKDOWNLINT_CLI2_VERSION: 0.24.0
     steps:
       - uses: actions/checkout@v4
       - name: Install linters
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz" \
+            | gunzip > "$RUNNER_TEMP/bin/taplo"
+          chmod +x "$RUNNER_TEMP/bin/taplo"
+          pipx install "yamllint==${YAMLLINT_VERSION}"
+          npm install --global --no-fund --no-audit \
+            "prettier@${PRETTIER_VERSION}" \
+            "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
           curl -fsSL --proto '=https' --tlsv1.2 \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C "$RUNNER_TEMP/bin" actionlint
@@ -104,6 +119,16 @@ jobs:
         run: actionlint
       - name: editorconfig-checker
         run: git ls-files -z | xargs -0 editorconfig-checker
+      - name: prettier
+        run: git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check
+      - name: taplo
+        run: |
+          git ls-files -z '*.toml' | xargs -0 taplo fmt --check
+          git ls-files -z '*.toml' | xargs -0 taplo lint
+      - name: yamllint
+        run: git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
+      - name: markdownlint-cli2
+        run: git ls-files -z '*.md' | xargs -0 markdownlint-cli2
 
   shear:
     name: unused dependencies
