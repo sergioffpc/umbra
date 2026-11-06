@@ -203,3 +203,34 @@ sequenceDiagram
     W1->>C: Work Result (Tile 3, Pass 0)
     C->>W2: cancel (Tile 3, Pass 0)
 ```
+
+## 8.9 Per-pixel debugging
+
+How to see how a pixel was computed ([ADR 0011](../adr/0011-pixel-traces-by-deterministic-re-execution.md), [Per-pixel debugging](https://github.com/sergioffpc/umbra/issues/24)). A Render Job never records a Pixel Trace. `umbra trace` re-runs the chosen Pixel Samples later, in one local process, with recording switched on.
+
+| Concern | Rule |
+| --- | --- |
+| Production | `umbra trace final.exr --pixel x,y` re-runs Pixel Samples locally. It parses the Scene File and builds the BVH itself, with no Coordinator and no Workers. The protocol and Work Results carry no traces. |
+| Addressing | pbrt-v4 raster convention: origin at the top left, full Film resolution even with a crop window. `--pixel x,y`, or `--pixels x0,x1,y0,y1` (a small rectangle, capped). `--sample i` selects one Pixel Sample; without it, every Pixel Sample of the pixel is traced. |
+| Reproduction | The final image carries a Reproduction Record in its metadata: the Scene File path, a content hash of the Scene File with its includes and assets, the seed, every Render Job option and the Umbra commit. `umbra trace` refuses to run on a mismatch and names what differs. `--force` runs anyway, with a warning. |
+| Detail levels | Path, the default: camera sample, sampled wavelengths, primary ray. Then, per vertex: hit point, normal, Shape, Material, BSDF, BSDF sample (`f`, `pdf`, flags), light sample (Light, selection probability, `Li`, `pdf`, shadow-ray outcome), MIS weights, throughput before and after, Russian roulette, and the contribution added to `L`. Then the termination reason and the sampler dimension consumed by each request. Traversal (`--detail traversal`) adds, per ray, the BVH nodes visited and the primitives tested with their hit distances. |
+| Film side | Each Pixel Sample ends with the filter offset and weight, the sensor RGB and the value after `maxcomponentvalue` clamping. The trace ends with the pixel summary: the weighted sum of the traced Pixel Samples. |
+| Mechanism | Integrators and traversal take `R: Recorder` (`no_std` core). `NoRecorder` is zero-sized and compiled away; `TraceRecorder` lives outside the core and may allocate (§8.7). Event arguments are values already computed. |
+| Oracle | A test checks that radiance and the pixel summary are bit-identical with `NoRecorder` and `TraceRecorder`, and match the Work Result. |
+| Text output | An indented tree per Pixel Sample on stdout, written through `io::Write` (not `print!`, §8.6). Each `f32` is printed in its shortest round-trip form, so two traces compare exactly with `diff`. No JSON. |
+| 3D output | `--scene-export trace.glb` writes glTF that Blender opens natively. It contains the Scene as resolved by Umbra, tessellated for display only, together with the traced paths and the shadow rays, unoccluded and occluded in separate materials. At traversal level it also contains the wireframe boxes of the visited BVH nodes, one collection per ray, with hit and missed nodes in separate materials and the tested primitives highlighted. Scene and paths share one world space, so they always line up. |
+| Anomalous Pixel Samples | A Pixel Sample with NaN, infinite or negative radiance is discarded, as in pbrt-v4. The Work Result lists the first 16 per Work Unit as (pixel, sample index, kind), plus a total count. At the end of the Render Job the Coordinator logs them in deterministic order, as ready-to-run `umbra trace` commands. |
+| Integrators | Tracing is an acceptance criterion of every integrator. volpath adds medium events; BDPT adds both subpaths and each `(s, t)` strategy with its MIS weight. Splats that other Pixel Samples send to the inspected pixel do not appear in its trace. MLT and SPPM are decided with their work decomposition. |
+
+From a suspicious pixel to its trace:
+
+```mermaid
+flowchart LR
+    R["Render Job"] --> I["final.exr<br/>(with Reproduction Record)"]
+    R --> G["Coordinator log:<br/>Anomalous Pixel Samples<br/>as umbra trace commands"]
+    I --> V["image viewer<br/>(pixel coordinates)"]
+    V --> T["umbra trace final.exr --pixel x,y"]
+    G --> T
+    T -->|"hash and version match"| E["re-run with TraceRecorder"]
+    E --> X["text trace on stdout"]
+    E --> B["trace.glb → Blender"]
