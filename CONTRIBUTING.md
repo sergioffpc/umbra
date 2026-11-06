@@ -143,6 +143,15 @@ container.
 - Lints: the `[lints]` table in [`Cargo.toml`](Cargo.toml) (rustc lints, clippy
   `all`, `pedantic`, `cargo` and selected `restriction` lints) plus
   [`clippy.toml`](clippy.toml). Every warning is an error in the hook and in CI.
+- Functions do one thing. Lints enforce the measurable part: at most 40 lines,
+  cognitive complexity at most 10, nesting at most 3 levels, at most 5
+  arguments and at most 1 `bool` argument. Split a function rather than
+  silencing these.
+- Least privilege: items are private by default. Use `pub(crate)` (or
+  narrower) for anything shared inside the crate; `pub` only for the essential
+  API of the crate. `unreachable_pub` rejects `pub` that is not reachable from
+  outside, `missing_docs` requires docs on every public item, and
+  `partial_pub_fields` rejects structs that mix public and private fields.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
