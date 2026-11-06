@@ -48,3 +48,32 @@ flowchart LR
     S --> W1["Worker: replica + BVH"]
     S --> W2["Worker: replica + BVH"]
 ```
+
+## 8.3 Determinism
+
+For a fixed Scene, seed and Render Job options, the final Film is bit-identical regardless of Workers, threads, arrival order or failures ([ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md)).
+
+| Concern | Rule |
+| --- | --- |
+| Scope | Fixed: Scene, seed, Tile size, Pixel Samples per Pass. Free: number of Workers, Worker and thread per Work Unit, arrival order, failures and reassignments. Changing the decomposition may change the last bit. |
+| Sampling | A Pixel Sample is a pure function of `(Scene, seed, pixel, sample index)`. pbrt-v4 samplers, hashes (`MixBits`, `MurmurHash64A`), PCG32 and Sobol tables are ported faithfully. No randomness outside the sampler on the render path, enforced by lint. Default seed 0, `--seed` overrides it. |
+| Work Result order | Each pixel sums its Pixel Samples in ascending sample index. Threads split a Work Unit by pixel. |
+| Film order | Per Tile, Work Results are merged in Pass order. Early arrivals wait on the Coordinator. |
+| Splats | Cross-Tile contributions go into a separate splat accumulator, merged in the total order (Pass, Tile index). MLT and SPPM designs must preserve the guarantee. |
+| BVH | A pure function of the Scene: stable SAH partitioning, explicit tie-breaks, parallelism only over disjoint subtrees joined in a fixed order. |
+| Termination | Every Render Job renders all its Passes. No time budget, no adaptive sampling. Cancelling produces no image. |
+| Verification | Film-hash tests in CI on arm64 and x86-64. Invariance tests (thread count, Work Unit order, simulated Worker failure). A 64-bit hash per Work Result, compared when duplicates arrive. An opt-in `verify` Render Job option. |
+
+Merge order for one Tile on the Coordinator:
+
+```mermaid
+sequenceDiagram
+    participant W as Workers
+    participant C as Coordinator
+    participant F as Film
+    W->>C: Work Result (Tile 7, Pass 2)
+    Note over C: Pass 1 not merged yet: hold
+    W->>C: Work Result (Tile 7, Pass 1)
+    C->>F: merge Pass 1
+    C->>F: merge Pass 2 (held)
+```
