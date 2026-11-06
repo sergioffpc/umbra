@@ -4,6 +4,8 @@
 [default.extend-words]
 # Accept a word flagged as a typo, e.g. domain terms or identifiers:
 # word = "word"
+# Multiple importance sampling (PBR 4e §2.2.3).
+MIS = "MIS"
 
 [files]
 extend-exclude = []
