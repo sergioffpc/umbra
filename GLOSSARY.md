@@ -24,6 +24,10 @@ _Avoid_: Scene description, input file, scene source
 A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed and Tile size for each use. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
 
+**Reference Scene Variant**:
+A Reference Scene with one declared, minimal edit to its Scene File, such as a different integrator, camera, sampler, filter, film, texture or light. The same edit is applied before pbrt-v4 renders it, so it exercises a feature no Reference Scene uses while pbrt-v4 stays the judge. It is listed, measured and validated like a Reference Scene.
+_Avoid_: Modified scene, custom scene, test scene
+
 **Reference Image**:
 The converged pbrt-v4 rendering of a Reference Scene, with far more Pixel Samples per pixel than the Reference Scene fixes, against which the correctness of Umbra's rendering is judged.
 _Avoid_: Ground truth, golden image, reference render
