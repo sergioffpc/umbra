@@ -2,7 +2,7 @@
 
 The scenarios a Session runs through, from the decisions in [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) (deterministic merge), [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) (scheduling), [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md) (Build Identity), [ADR 0015](../adr/0015-one-render-job-per-quic-connection.md) and [§8.13](08-crosscutting-concepts.md#813-wire-protocol) (wire protocol). The messages are those of §8.13; the rules behind each step are in §8.8 and §8.13 and are not repeated here.
 
-Two parts of these scenarios are still open and are marked where they appear: how a Session starts and who may join it ([Session start-up and Worker joining](https://github.com/sergioffpc/umbra/issues/59)), and how connections close when a Worker is declared dead or a Render Job is cancelled ([Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60)).
+One part of these scenarios is still open and is marked where it appears: how a Session starts and who may join it ([Session start-up and Worker joining](https://github.com/sergioffpc/umbra/issues/59)). How connections close when a Worker is declared dead or a Render Job is cancelled was settled in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60).
 
 ## 6.1 Worker join and Scene transfer
 
@@ -83,9 +83,9 @@ sequenceDiagram
 
 Open ([Session start-up and Worker joining](https://github.com/sergioffpc/umbra/issues/59)): how the Scene File and its assets reach the Coordinator's host when it is not the operator's machine, and what connected Workers see when parsing fails.
 
-## 6.3 Worker failure, reassignment and a duplicate Work Result
+## 6.3 Worker failure and reassignment
 
-Worker B stops sending heartbeats while two Work Units are in flight. One of them was already being sent and arrives after its reassigned copy.
+Worker B stops sending heartbeats while two Work Units are in flight. The Coordinator closes its connection and reassigns both, and nothing more arrives from Worker B.
 
 ```mermaid
 sequenceDiagram
@@ -97,26 +97,23 @@ sequenceDiagram
     B-->>C: heartbeat
     Note over B: stops responding
     Note over C: 5 s without a heartbeat:<br/>Worker B dead
+    C->>B: close (WORKER_TIMED_OUT)
+    Note over B: if still running: log, exit 1
     Note over C: (Tile 4, Pass 1), (Tile 5, Pass 1)<br/>go to the front of the queue
     A->>C: RequestWork (2)
     C->>A: Assign (Tile 4, Pass 1), (Tile 5, Pass 1)
     A-->>C: Work Result (Tile 4, Pass 1), hash h
     C->>F: accept: Merged
-    B-->>C: late Work Result (Tile 4, Pass 1), hash h'
-    C->>F: accept: Duplicate if h' = h, Conflict otherwise
-    Note over C: Conflict: error log naming A and B,<br/>counted in the Render Job Report
     A-->>C: Work Result (Tile 5, Pass 1)
     C->>F: accept: Merged
 ```
 
-1. A Worker is dead when its connection closes, when it sends `Fatal`, or after 5 s without a heartbeat. There is no per-Work-Unit timeout.
+1. A Worker is dead when its connection closes, when it sends `Fatal`, or after 5 s without a heartbeat. There is no per-Work-Unit timeout. A Worker dead by heartbeat has its connection closed with `WORKER_TIMED_OUT`, so a dead Worker is always a closed connection, and a Work Result it was still sending is lost. Since the QUIC idle timeout equals the death time, this matters only when other traffic kept the connection alive.
 2. Its Work Units in flight go to the front of the queue, because they are the ones holding back ordered merges.
-3. The first Work Result for a Work Unit is merged, even from a Worker already declared dead. Any later one is compared by hash and discarded. Equal hashes are the expected outcome (`Duplicate`). Different hashes (`Conflict`) are a bug in determinism and are logged as an error naming both Workers. The Film keeps the first.
+3. The first Work Result for a Work Unit is merged. Any later one, from a speculative copy (§6.4) or from a reassigned Work Unit whose stream had already ended, is compared by hash and discarded. Equal hashes are the expected outcome (`Duplicate`). Different hashes (`Conflict`) are a bug in determinism and are logged as an error naming both Workers. The Film keeps the first.
 4. With no Workers left, the Render Job waits. A Worker that comes back joins as a new Worker (§6.1).
 
 A Worker whose connection merely went quiet but whose render pool is still progressing is not dead: it keeps sending heartbeats. If its Pixel Sample count stops growing for 30 s, the status line shows it as `stalled` and nothing is reassigned. The speculative tail (§6.4) covers it at the end.
-
-Open ([Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60)): whether the Coordinator closes the connection of a Worker it declared dead by heartbeat, and with which close code, given that closing it would cut off the late Work Result shown above.
 
 ## 6.4 Speculative tail
 
@@ -182,20 +179,27 @@ The certificate is never checked, so these rejections catch mistakes of operatio
 
 ## 6.6 Ctrl-C cancellation
 
-The operator cancels a running Render Job on the Coordinator.
+The operator presses Ctrl-C in the terminal running `scripts/workers up`.
 
 ```mermaid
 sequenceDiagram
     actor O as Operator
-    participant C as Coordinator
-    participant W as Workers
-    O->>C: Ctrl-C
+    participant S as scripts/workers up
+    participant C as Coordinator (local)
+    participant W as Workers (over SSH)
+    O->>C: Ctrl-C: SIGINT to the foreground process group
+    Note over S: ssh clients run under setsid,<br/>so they keep streaming logs
     C->>W: close (JOB_CANCELLED)
-    Note over W: drop every Work Unit in flight, exit
-    Note over C: no image is written (ADR 0004),<br/>exit
+    Note over W: drop every Work Unit in flight, exit 130
+    W-->>S: SSH sessions end
+    Note over C: write the Render Job Report<br/>(outcome: cancelled), no image (ADR 0004)
+    Note over C: exit 130 once Workers have closed, or after 2 s
+    S->>O: copy the Render Job Report back, exit 130
 ```
 
 1. A Render Job either renders every Pass or produces no image. There is no partial image and no time budget (ADR 0004).
 2. Closing a connection with `JOB_CANCELLED` ends every stream on it, so Workers need no separate `Cancel` per Work Unit.
-
-Open ([Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60)): how Ctrl-C in `scripts/workers up`, which runs everything over SSH, reaches the Coordinator, what Ctrl-C on a Worker means, the exit codes on `JOB_CANCELLED`, and whether a cancelled Render Job still writes its Render Job Report.
+3. The Coordinator runs on the operator's machine, as a child of the script in the terminal's foreground process group, so Ctrl-C reaches it directly. The script starts every `ssh` client under `setsid`, so Workers end through the protocol, never through a signal, and their last log lines still arrive.
+4. A second Ctrl-C makes the script kill the Coordinator and the `ssh` clients with `SIGKILL`. Remote Workers then exit 1 on the QUIC idle timeout, so no remote kill is needed.
+5. The cancelled Render Job still leaves its Render Job Report, with `outcome: "cancelled"`; `umbra bench` and `umbra validate` reject it (§8.10). Exit codes are in §8.13.
+6. Ctrl-C on a single Worker stops only that Worker: it closes with `WORKER_STOPPED`, exits 130, and the Coordinator reassigns its Work Units as in §6.3.
