@@ -24,6 +24,9 @@ publish = false
 # Core crates use `default-features = false` for every external dependency:
 # it must build without `std` (ADR 0014).
 [workspace.dependencies]
+# Pure-Rust transcendentals (ADR 0002). `arch` keeps the hardware `sqrt`/`fma`,
+# which are correctly rounded.
+libm = { version = "0.2.16", default-features = false, features = ["arch"] }
 serde = { version = "1.0.228", default-features = false }
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }
@@ -36,6 +39,8 @@ umbra-sampling = { path = "crates/umbra-sampling" }
 umbra-scene = { path = "crates/umbra-scene" }
 umbra-shading = { path = "crates/umbra-shading" }
 umbra-spectrum = { path = "crates/umbra-spectrum" }
+# SIMD behind the `Vec4`/`Mask4` facade of `umbra-math` (ADR 0002, ADR 0014).
+wide = { version = "1.7.1", default-features = false }
 
 # Development builds: optimised enough that test renders finish, with full
 # debug info and every runtime check (debug assertions, overflow checks) on.
