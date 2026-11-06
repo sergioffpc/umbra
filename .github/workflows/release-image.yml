@@ -1,0 +1,139 @@
+name: Release image
+
+# Builds the chiseled container image from the Dockerfile at the repository
+# root and publishes it to ghcr.io/sergioffpc/umbra at the end of every
+# release: the push of a vX.Y.Z tag on main (git flow, see CONTRIBUTING.md).
+# Why a tag push rather than a published GitHub Release, and why amd64 only:
+# docs/adr/0005-chiseled-release-container-image.md.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+# One run per tag; a re-run of the same tag waits instead of racing a push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+# Every action, first-party included, is pinned to a commit SHA (tags can be
+# moved), since this job can publish; Dependabot updates the SHA and the
+# version comment together.
+jobs:
+  image:
+    name: container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Push to GHCR.
+      packages: write
+      # Sign and store the build provenance attestation.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Full history and branches, to check the tag against main.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tag is a release on main
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main; push main first, then re-run this workflow."
+            exit 1
+          fi
+          crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ "$crate" != "$version" ]; then
+            echo "::error::$GITHUB_REF_NAME does not match the crate version $crate in Cargo.toml."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Tags X.Y.Z, X.Y and latest, plus the OCI labels and annotations
+      # (source, revision, version, created, licenses, ...).
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=umbra
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
+          annotations: |
+            org.opencontainers.image.title=umbra
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
+
+      # Build into the local image store first and smoke-test it, so a broken
+      # image is never published. The push below reuses the cached layers.
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: umbra:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run --rm umbra:smoke --version
+          test "$(docker image inspect umbra:smoke --format '{{.Config.User}}')" = "10001:10001"
+          if docker run --rm --entrypoint /bin/sh umbra:smoke -c true 2>/dev/null; then
+            echo "::error::the image has a shell"
+            exit 1
+          fi
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # BuildKit attaches an SLSA provenance and an SPDX SBOM to the image.
+      - id: push
+        name: Push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      # GitHub artifact attestation, verifiable with
+      # `gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z -R sergioffpc/umbra`.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo '## Container image'
+            echo
+            echo "Digest: \`$DIGEST\`"
+            echo
+            echo '```text'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
