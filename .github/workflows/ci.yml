@@ -87,3 +87,33 @@ jobs:
         with:
           tool: cargo-shear
       - run: cargo shear
+
+  # Informational: reports coverage without a threshold and is not a required
+  # check. The HTML report and lcov file are kept as a workflow artifact.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+      - run: cargo llvm-cov nextest --no-report --all-features --locked --profile ci --no-tests=warn
+      - name: Reports
+        run: |
+          cargo llvm-cov report --html
+          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
+          {
+            echo '## Coverage'
+            echo '```text'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: target/llvm-cov/
+          retention-days: 14

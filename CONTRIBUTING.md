@@ -83,6 +83,11 @@ Optional tools used by the hook and CI:
 - [`cargo-nextest`](https://nexte.st) (`brew install cargo-nextest` or
   `cargo install cargo-nextest`): test runner, configured in
   [`.config/nextest.toml`](.config/nextest.toml).
+- [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov)
+  (`brew install cargo-llvm-cov` or `cargo install cargo-llvm-cov`): test
+  coverage. `cargo cov --open` runs the tests under nextest and opens the HTML
+  report. Coverage is reported in CI but has no threshold: use it to find
+  untested code, not as a target.
 - [`cargo-shear`](https://github.com/Boshen/cargo-shear)
   (`brew install cargo-shear` or `cargo install cargo-shear`): finds unused
   dependencies; `cargo shear --fix` removes them.
@@ -152,7 +157,8 @@ cargo shear
 typos
 ```
 
-CI runs the build, lint and test checks on Linux and macOS.
+CI runs the build, lint and test checks on Linux and macOS, and a coverage
+report on Linux (in the run summary, with the HTML report as an artifact).
 
 Then:
 
