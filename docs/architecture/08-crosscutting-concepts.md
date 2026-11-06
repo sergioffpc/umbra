@@ -77,3 +77,32 @@ sequenceDiagram
     C->>F: merge Pass 1
     C->>F: merge Pass 2 (held)
 ```
+
+## 8.4 Performance measurement
+
+How performance claims are measured and guarded ([Benchmark and profiling infrastructure](https://github.com/sergioffpc/umbra/issues/14)). It backs the rule that an aggressive optimisation needs a benchmark showing the gain.
+
+| Concern | Rule |
+| --- | --- |
+| Proof of a gain | An optimisation is accepted only on an end-to-end gain: one Worker, no network, on the Reference Scenes. Micro-benchmarks help to iterate and to locate a gain, but never justify one on their own. |
+| Metrics | The main metric is Pixel Samples per second in the render phase (wall-clock, all threads of the Worker). Each other phase is timed on its own: parse, Scene build, BVH build. Umbra writes them as a structured JSON report at the end of every Render Job. |
+| Reference Scenes | Taken only from `mmp/pbrt-v4-scenes` at a pinned commit, downloaded and never vendored. Each milestone adds the ones it can render, and none is ever removed. Each entry fixes resolution, Pixel Samples per pixel, seed and Tile size, sized for 10–60 s per machine. |
+| Where | Measured by hand on the three target machines (§7.1) with `umbra bench`, and the report is attached to the PR. Arm64 (M2) is required for NEON changes, at least one x86-64 machine for AVX2 changes, and the R630 for any threading or memory change (NUMA). Shared CI runners only smoke-test: `cargo bench --no-run` and one small Scene rendered to completion, with no numbers compared. |
+| No remote triggers | No self-hosted runners and no GitHub-triggered execution on the target machines. Every measurement on them is started by hand. |
+| Noise | Baseline and candidate commits run interleaved (A, B, A, B, …) on the same idle machine: 1 discarded warm-up, then 5 runs each. A gain counts if the 95 % confidence interval of the difference excludes zero and the median gain is ≥ 2 %. The report records the CPU model, OS, commit, build flags, and the governor and frequency when available. |
+| Regressions | Every milestone ends with a benchmark measurement issue, run by hand on all three machines against the previous milestone. Results are committed to `docs/benchmarks/<milestone>/<machine>.json`. A regression above 2 % blocks closing the milestone until it is fixed or explained. |
+| Distribution | From the milestone that introduces distribution, the measurement issue also records three numbers. Scaling efficiency is the cluster's Pixel Samples per second divided by the sum of each Worker's standalone rate. The other two are Scene replication time and Worker idle time (no Work Unit). A drop of more than 2 percentage points in efficiency blocks the milestone. |
+| pbrt-v4 reference | The measurement issue also renders each Reference Scene with pbrt-v4 (CPU, pinned commit) on the same machine, at the same resolution, Pixel Samples per pixel and thread count. The Umbra / pbrt-v4 ratio is recorded for information and never blocks. Targets belong to the quality goals. |
+| Micro-benchmarks | `divan` in `benches/`. A readable reference and its optimised version are benchmarked side by side in one generic bench, and `AllocProfiler` checks the allocation-free core. |
+| Instrumentation | Coarse `tracing` spans only: Render Job, each phase, Work Unit, Work Result send and merge. Never inside the rendering core, never per Pixel Sample or per ray. Tracy via `tracing-tracy` behind the Cargo feature `tracy`, off by default. |
+| Profilers | Sampling profilers on the `profiling` build profile: samply on all three machines, plus Instruments on macOS and `perf` (hardware counters) on Linux. |
+
+What answers which question:
+
+```mermaid
+flowchart LR
+    Q1["Where does the time go<br/>in a real render?"] --> T["tracing spans + Tracy"]
+    Q2["Which function or instruction<br/>is hot?"] --> S["samply / Instruments / perf"]
+    Q3["Is the optimised kernel faster<br/>than its reference?"] --> D["divan micro-benchmark"]
+    Q4["Did the render get faster?"] --> B["umbra bench<br/>(the only proof)"]
+```

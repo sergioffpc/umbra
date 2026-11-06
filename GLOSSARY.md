@@ -20,6 +20,10 @@ _Avoid_: World, model
 The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator builds a Scene.
 _Avoid_: Scene description, input file, scene source
 
+**Reference Scene**:
+A Scene from the pinned pbrt-v4 scene collection, with fixed resolution, Pixel Samples per pixel, seed and Tile size, used to measure performance. Once listed, a Reference Scene is never removed.
+_Avoid_: Benchmark scene, test scene, test asset
+
 ### Image decomposition
 
 **Tile**:
