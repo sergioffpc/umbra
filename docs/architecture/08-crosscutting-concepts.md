@@ -85,12 +85,12 @@ How performance claims are measured and guarded ([Benchmark and profiling infras
 | Concern | Rule |
 | --- | --- |
 | Proof of a gain | An optimisation is accepted only on an end-to-end gain: one Worker, no network, on the Reference Scenes. Micro-benchmarks help to iterate and to locate a gain, but never justify one on their own. |
-| Metrics | The main metric is Pixel Samples per second in the render phase (wall-clock, all threads of the Worker). Each other phase is timed on its own: parse, Scene build, BVH build. Umbra writes them as a structured JSON report at the end of every Render Job. |
+| Metrics | The main metric is Pixel Samples per second in the render phase (wall-clock, all threads of the Worker). Each other phase is timed on its own: parse, Scene build, BVH build. They are the comparable fields of the Render Job Report written at the end of every Render Job (§8.10). |
 | Reference Scenes | Taken only from `mmp/pbrt-v4-scenes` at a pinned commit, downloaded and never vendored. Each milestone adds the ones it can render, and none is ever removed. Each entry fixes resolution, Pixel Samples per pixel, seed and Tile size, sized for 10–60 s per machine. |
 | Where | Measured by hand on the three target machines (§7.1) with `umbra bench`, and the report is attached to the PR. Arm64 (M2) is required for NEON changes, at least one x86-64 machine for AVX2 changes, and the R630 for any threading or memory change (NUMA). Shared CI runners only smoke-test: `cargo bench --no-run` and one small Scene rendered to completion, with no numbers compared. |
 | No remote triggers | No self-hosted runners and no GitHub-triggered execution on the target machines. Every measurement on them is started by hand. |
 | Noise | Baseline and candidate commits run interleaved (A, B, A, B, …) on the same idle machine: 1 discarded warm-up, then 5 runs each. A gain counts if the 95 % confidence interval of the difference excludes zero and the median gain is ≥ 2 %. The report records the CPU model, OS, commit, build flags, and the governor and frequency when available. |
-| Regressions | Every milestone ends with a benchmark measurement issue, run by hand on all three machines against the previous milestone. Results are committed to `docs/benchmarks/<milestone>/<machine>.json`. A regression above 2 % blocks closing the milestone until it is fixed or explained. |
+| Regressions | Every milestone ends with a benchmark measurement issue, run by hand on all three machines against the previous milestone. `umbra bench` reads the Render Job Report of every run and commits the aggregated result to `docs/benchmarks/<milestone>/<machine>.json`. A regression above 2 % in a comparable field blocks closing the milestone until it is fixed or explained. Informative fields are carried along (median of the runs) to explain a difference and never block. `umbra bench` refuses to compare reports of different schema major versions. |
 | Distribution | From the milestone that introduces distribution, the measurement issue also records three numbers. Scaling efficiency is the cluster's Pixel Samples per second divided by the sum of each Worker's standalone rate. The other two are Scene replication time and Worker idle time (no Work Unit). A drop of more than 2 percentage points in efficiency blocks the milestone. |
 | pbrt-v4 reference | The measurement issue also renders each Reference Scene with pbrt-v4 (CPU, pinned commit) on the same machine, at the same resolution, Pixel Samples per pixel and thread count. The Umbra / pbrt-v4 ratio is recorded for information and never blocks. Targets belong to the quality goals. |
 | Micro-benchmarks | `divan` in `benches/`. A readable reference and its optimised version are benchmarked side by side in one generic bench, and `AllocProfiler` checks the allocation-free core. |
@@ -144,7 +144,7 @@ What the compiler and clippy enforce beyond style ([Unsafe policy and lint confi
 | `unsafe` verification | Tests of every `unsafe` item run under Miri in CI (nightly pinned for that job), or under AddressSanitizer on Linux where Miri cannot execute the code. The job lands with the first exception. |
 | Exhaustive dispatch | No `_` arm in a `match` on an enum (`wildcard_enum_match_arm`, `match_wildcard_for_single_variants`), so a new `*Kind` variant breaks the build wherever it is not handled (§8.5). On a `#[non_exhaustive]` foreign enum, a `_` arm is allowed after listing the known variants. |
 | Bit-identical numerics | `disallowed-methods` bans `std`'s transcendental `f32`/`f64` methods (platform libm), approximate reciprocal intrinsics (`rcp`, `rsqrt`, `vrecpe`, `vrsqrte`, `wide`'s `recip`) and FP control-register writes (flush-to-zero, denormals-are-zero). Tests are not exempt ([ADR 0002](../adr/0002-bit-identical-results-across-architectures.md)). |
-| Output | No `print!`/`eprint!` outside tests: output goes through `tracing` and the JSON report (§8.4). |
+| Output | No `print!`/`eprint!` outside tests: output goes through `tracing` and the Render Job Report (§8.10). |
 | Silencing | `#[expect(lint, reason = "...")]` on the narrowest item. `#[allow]` and reasonless attributes are rejected. |
 
 ## 8.7 Memory and allocation
@@ -234,3 +234,32 @@ flowchart LR
     T -->|"hash and version match"| E["re-run with TraceRecorder"]
     E --> X["text trace on stdout"]
     E --> B["trace.glb → Blender"]
+
+## 8.10 Progress and telemetry
+
+What a running Render Job shows and what it leaves behind ([Progress metrics](https://github.com/sergioffpc/umbra/issues/25)). There is no live view, so progress is text on the Coordinator's terminal, and the lasting record is the Render Job Report.
+
+| Concern | Rule |
+| --- | --- |
+| Status line | On the Coordinator's stderr, redrawn in place when stderr is a TTY. One aggregate line: current Pass, Work Units merged / total, percentage of Pixel Samples (merged plus in flight), cluster Pixel Samples per second, elapsed time and ETA. Below it, one line per Worker: host, threads, Work Units in flight, its Pixel Samples per second, heartbeat age and state (`alive`, `stale`, `stalled`, `dead`). Without a TTY, the same content is an `info` event every ~10 s, one per Worker. |
+| No endpoint | No HTTP, Prometheus or other metrics endpoint. One may be added later behind the telemetry seam (`dyn`, §8.5) without touching the rest. |
+| Heartbeat progress | Every heartbeat carries, per Work Unit in flight, the cumulative count of Pixel Samples completed, and the Worker's busy threads / total threads. Cumulative counts tolerate lost heartbeats. The Coordinator derives every rate; Workers never send rates. |
+| ETA | During Pass 0: remaining Pixel Samples over an exponential moving average (~10 s) of the cluster rate, shown as provisional (`~`). From Pass 1: the sum of the remaining Work Units' Tile costs over the recent cluster throughput. A Tile's cost is its render time, measured by the Worker, sent in the Work Result and normalised by that Worker's rate. The duration is metadata outside the Work Result content hash (ADR 0004). |
+| Stalled Worker | A Worker that sends heartbeats but whose Pixel Sample count has not grown for 30 s (Coordinator option) is shown as `stalled` and logged as a `warn`. Nothing is reassigned: scheduling stays as in ADR 0009, and the speculative tail covers it at the end. |
+| Ray statistics | pbrt-v4-style counters (rays by kind, intersection tests, BVH nodes visited, path lengths) only with the Cargo feature `stats`, off by default and compiled away when off. Plain integers in the per-thread context (§8.7): no atomics, no allocation, never shared. Summed per Work Unit, sent in the Work Result, aggregated in the Render Job Report. Never on the status line. They do not touch the Film. |
+| Render Job Report | One JSON file per Render Job, written next to the final image (`<image>.report.json`, path is a Render Job option). Umbra's own schema, versioned `major.minor`, with a JSON Schema generated from the Rust types (`serde` + `schemars`) and committed. |
+| Report content | Render Job: options, Film hash, phase times (parse, Scene build, BVH build, Scene replication, render, merge, image write), Pixel Samples per second, Anomalous Pixel Sample count (§8.9). Per Worker: host, CPU, threads, version, Work Units accepted, Pixel Samples, busy and idle time, mean thread occupancy, Scene replication and BVH build time. Scheduling: reassignments, speculative copies (won, lost, cancelled), duplicate Work Results discarded, hash mismatches, scaling efficiency when standalone rates are known. Per Tile: normalised cost. Scene and BVH: primitives per type, BVH nodes, maximum and mean depth, primitives per leaf (maximum, mean), total SAH cost, memory per arena and of the BVH, always present. `stats` counters when the feature is on. |
+| Comparable fields | Only render-phase Pixel Samples per second and phase times are compared by `umbra bench` under the 2 % / 95 % CI rule (§8.4), plus scaling efficiency once the cluster is distributed. Everything else is informative. Changing the meaning of a comparable field bumps the schema major version. |
+| Logs | `tracing` to stderr in the Coordinator and the Workers. Human-readable on a TTY, JSON lines otherwise; `--log-format=human\|json` forces one. `info` by default, with an `RUST_LOG`-style filter in `--log`. Workers have no status line: at `info` they log lifecycle events (joined, Scene received, BVH built, disconnected) and a summary of their Work Units in flight every ~10 s. |
+
+Where each metric comes from and where it ends up:
+
+```mermaid
+flowchart LR
+    W["Worker"] -->|"heartbeat, every 1 s:<br/>cumulative Pixel Samples,<br/>busy threads"| C["Coordinator"]
+    W -->|"Work Result:<br/>render time, stats counters"| C
+    C --> S["status line (stderr)<br/>aggregate + per Worker"]
+    C --> L["tracing events<br/>(human or JSON lines)"]
+    C --> R["Render Job Report<br/>(&lt;image&gt;.report.json)"]
+    R --> B["umbra bench<br/>(comparable fields only)"]
+```
