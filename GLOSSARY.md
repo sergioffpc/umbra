@@ -71,7 +71,7 @@ The detailed record of how one Pixel Sample was computed, from camera sample to 
 _Avoid_: Path log, debug ray, pixel dump
 
 **Reproduction Record**:
-What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File and its content, the seed, the Render Job options and the version of Umbra that rendered it.
+What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File and its content, the seed, the Render Job options and the Build Identity of the Umbra that rendered it.
 _Avoid_: Job manifest, render metadata, provenance
 
 **Anomalous Pixel Sample**:
