@@ -18,7 +18,9 @@ publish.workspace = true
 serde = ["dep:serde"]
 
 [dependencies]
-serde = { workspace = true, optional = true }
+libm = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+wide = { workspace = true }
 
 [lints]
 workspace = true
