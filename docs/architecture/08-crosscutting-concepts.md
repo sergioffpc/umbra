@@ -158,7 +158,7 @@ How the Scene is stored and where rendering may allocate ([ADR 0008](../adr/0008
 | Scene lifetime | `SceneBuilder` mints handles and freezes into an immutable `Scene` (BVH built). Threads share `&Scene`, with no `Arc`, locks or global mutable state. Dropped at the end of the Render Job. |
 | Per-thread memory | A per-thread context of typed buffers (BDPT/MLT vertices, …) sized at Render Job start and cleared between Pixel Samples. No `ScratchBuffer`. |
 | Allocation boundary | Allowed per Render Job, per Work Unit (Work Result buffer) and outside rendering. Never per Pixel Sample, except while recording a Pixel Trace. A counting-allocator test (N vs 2N Pixel Samples) enforces it for every integrator. |
-| Per-sample contract | `&Scene` (`get(handle)`, slices), `&mut` thread context and `Copy` values. No `alloc` dependency. Bounds-checked indexing, `get_unchecked` only under §8.6. |
+| Per-sample contract | `SceneView` (`get(handle)`, slices), `&mut` slices of the thread context and `Copy` values. No `alloc` dependency (§8.12). Bounds-checked indexing, `get_unchecked` only under §8.6. |
 | Alignment | `CachePadded` (128 B) for per-thread mutable data adjacent to other threads'. Natural alignment elsewhere. A cache-line BVH node layout is an aggressive optimisation. |
 | NUMA | No NUMA-local allocation yet. The Scene is pointer-free and `Clone`, so a replica per NUMA node (R630) can be added with a benchmark. |
 | Global allocator | System allocator. Replacing it is an aggressive optimisation measured on the scene-build phase. |
@@ -170,7 +170,7 @@ flowchart TD
     J["Render Job start"] -->|"allocates"| S["SceneBuilder → immutable Scene<br/>(per-type arenas, BVH)"]
     J -->|"allocates"| C["Per-thread contexts<br/>(typed buffers, CachePadded)"]
     W["Work Unit"] -->|"allocates or reuses"| R["Work Result buffer"]
-    P["Pixel Sample"] -->|"reads &Scene, clears and fills"| C
+    P["Pixel Sample"] -->|"reads SceneView, clears and fills"| C
     P -.->|"never allocates"| X["heap"]
 ```
 
@@ -234,6 +234,7 @@ flowchart LR
     T -->|"hash and version match"| E["re-run with TraceRecorder"]
     E --> X["text trace on stdout"]
     E --> B["trace.glb → Blender"]
+```
 
 ## 8.10 Progress and telemetry
 
@@ -292,4 +293,43 @@ flowchart TD
     Q3["Did this pull request change pixels?"] --> H["golden Film hashes (CI)"]
     H -->|"hash changed"| V["umbra validate (by hand)"]
     Q4["Is the image unbiased<br/>with respect to pbrt-v4?"] --> V
+```
+
+## 8.12 GPU readiness
+
+What the CPU code commits to so that a GPU port does not mean a rewrite ([ADR 0014](../adr/0014-gpu-ready-no-std-rendering-core.md), [GPU-readiness constraints](https://github.com/sergioffpc/umbra/issues/32)). `f32` only (§8.1), closed enum dispatch (§8.5) and allocation-free index handles (§8.7) are part of it and are not repeated here.
+
+| Concern | Rule |
+| --- | --- |
+| Rendering core | One `#![no_std]` crate without `alloc` holds all per-Pixel-Sample code: geometry, spectra, Shapes, BxDFs, Materials, textures, Lights, media, Samplers, Camera, Filter, BVH traversal and the per-sample body of each integrator. CI builds it for `aarch64-unknown-none`. Its dependencies are `no_std` (`libm`, `wide` without default features). |
+| Scene access | The core defines `SceneView<'a>`, a `Copy` struct of borrowed arena slices. The owning `Scene`, `SceneBuilder`, BVH construction and the per-thread contexts live outside the core and lend slices to it. |
+| Recursion | None on the per-sample path. Fixed-size explicit stacks (BVH traversal `[u32; 64]`) and iterative integrators. Checked in review. |
+| Panics | Never control flow, never caught. Bounds checks and `debug_assert!` stay; a panic is a bug. |
+| Values | Per-sample values and arena elements are `Copy`. `#[repr(C)]` + `bytemuck::Pod` only where a byte layout is already needed (Tile pixels on the wire). |
+| Determinism | Bit-identical results are a guarantee across CPU Workers only (§8.3). A GPU backend decides its own. |
+| Deferred | Wavefront driver, SoA derive, GPU toolchain (rust-gpu, Rust-CUDA or hand-written shaders), `TextureEvaluator`, tag-plus-handle split of the `*Kind` enums for GPU sharing. |
+
+Where the core boundary falls:
+
+```mermaid
+flowchart LR
+    subgraph host["outside the core (std)"]
+        S["Scene, SceneBuilder,<br/>BVH build"]
+        T["per-thread context<br/>(Vec buffers)"]
+        I["dyn Integrator,<br/>transport, writers"]
+        R["TraceRecorder"]
+    end
+    subgraph core["rendering core (no_std, no alloc)"]
+        V["SceneView&lt;'a&gt;"]
+        K["Shapes, BxDFs, Lights, textures,<br/>media, Samplers, Camera, Filter"]
+        B["BVH traversal"]
+        P["per-sample integrator body<br/>generic over R: Recorder"]
+    end
+    S -->|"view()"| V
+    T -->|"&mut slices"| P
+    I -->|"calls per Pixel Sample"| P
+    R -.->|"implements Recorder"| P
+    P --> K
+    P --> B
+    B --> V
 ```
