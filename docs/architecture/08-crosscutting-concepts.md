@@ -338,7 +338,7 @@ flowchart LR
 
 ## 8.13 Wire protocol
 
-The messages between the Coordinator and its Workers and how they travel over QUIC ([ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0015](../adr/0015-one-render-job-per-quic-connection.md), [Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)).
+The messages between the Coordinator and its Workers and how they travel over QUIC ([ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md), [Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)).
 
 | Concern | Rule |
 | --- | --- |

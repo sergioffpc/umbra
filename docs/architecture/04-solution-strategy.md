@@ -1,6 +1,6 @@
 # 4. Solution Strategy
 
-> Only the delivery roadmap (sections 4.1 and 4.2) is settled. The rest of the solution strategy is written from decisions already made, on the implementation-plan map.
+Umbra reaches pbrt-v4 by following it closely: the same algorithms, the same Scene format and the same numerics, ported to idiomatic Rust and distributed over a LAN. Sections 4.1 and 4.2 say in which order it gets there. Sections 4.3 to 4.5 summarise the fundamental decisions and how they serve the quality goals; the detail is in the ADRs (section 9) and the crosscutting concepts (section 8).
 
 ## 4.1 Delivery roadmap
 
@@ -33,7 +33,7 @@ flowchart LR
 | v0.12.0 | Bidirectional | `bdpt` | pavilion-night | `lightpath` |
 | v0.13.0 | Photon mapping | `sppm` | contemporary-bathroom | — |
 | v0.14.0 | Metropolis | `mlt` | — | `mlt` on Reference Scenes |
-| v1.0.0 | Parity | No feature. The per-architecture tuning backlog (§8.13) until QS-5 reaches ≥ 1.0 on each machine with no Reference Scene below 0.8, then validation of every Reference Scene and variant again. | — | — |
+| v1.0.0 | Parity | No feature. The per-architecture tuning backlog (§8.14) until QS-5 reaches ≥ 1.0 on each machine with no Reference Scene below 0.8, then validation of every Reference Scene and variant again. | — | — |
 
 Scene names are paths in `mmp/pbrt-v4-scenes` without their folder; a count in parentheses is the number of variants of that scene in the collection. When a milestone is detailed, a Reference Scene may move to the next milestone if it needs a feature that milestone delivers. Milestones after the first stay coarse until they are planned.
 
@@ -43,7 +43,7 @@ Scene names are paths in `mmp/pbrt-v4-scenes` without their folder; a count in p
 
 | # | Issue | Contents |
 | --- | --- | --- |
-| 1 | Workspace and CI | The twelve crates of §5.1 and the conventions of §5.4. CI: `aarch64-unknown-none` build of the core, clippy, rustfmt, cargo-deny, typos, the book-citation check and `docs/book-map.md` (QS-4), the counting-allocator test. |
+| 1 | Workspace and CI | The twelve crates of §5.1 and the conventions of §5.4. CI: `aarch64-unknown-none` build of the core, clippy, rustfmt, cargo-deny, typos, the book-citation check and `docs/book-map.md` (QS-4), the counting-allocator test. Release images per Linux CPU (ADR 0012, TD-1 in §11.2). |
 | 2 | `umbra-math` | Vectors, points, normals, transforms, `Interval`, floating-point error bounds, `libm` wrappers. pbrt-v4 tests ported. |
 | 3 | `umbra-sampling` | Hashing and RNG, warps, `HaltonSampler` with its permutations and scrambling, `SamplerKind`. Sampling tests. |
 | 4 | `umbra-spectrum` | `SampledSpectrum`, `SampledWavelengths`, CIE matching functions, the sRGB `RGBColorSpace` and its RGB-to-spectrum tables. |
@@ -62,3 +62,34 @@ Scene names are paths in `mmp/pbrt-v4-scenes` without their folder; a count in p
 | 17 | Golden Film hashes | CI renders on arm64 and x86-64 and caches the downloaded Scenes. |
 | 18 | Benchmark measurement v0.1.0 | Sets the baseline on the three machines (no regression check). QS-5 ≥ 0.5, QS-6. |
 | 19 | Validation v0.1.0 | `umbra validate` on killeroo-simple, QS-1, QS-2 on one machine. |
+
+## 4.3 Technology decisions
+
+| Decision | Choice | Instead of | Detail |
+| --- | --- | --- | --- |
+| Language | Rust 2024, stable, safe by default | C++ (pbrt-v4's), nightly Rust | §2.1, [ADR 0007](../adr/0007-unsafe-code-as-an-aggressive-optimisation.md) |
+| Numerics | `f32` only, spectral with 4 wavelengths, pbrt-v4's error bounds; `f64` only in Film sums | `f64` builds, RGB rendering | §8.1, [ADR 0001](../adr/0001-numeric-model.md) |
+| Portable bit-identical maths | `libm`, explicit FMA, SIMD equal to scalar, no flush-to-zero | platform maths libraries, approximate reciprocals | §8.1, [ADR 0002](../adr/0002-bit-identical-results-across-architectures.md) |
+| SIMD | `wide` behind Umbra's `Vec4`/`Mask4` facade; `x86-64-v3` and NEON | `std::simd` (nightly), hand-written intrinsics | [SIMD options](https://github.com/sergioffpc/umbra/issues/16), §7.1 |
+| Dispatch | Closed `*Kind` enums with exhaustive `match`; `dyn` only at seams called at most once per Work Unit | `dyn Trait` on the per-ray path | §8.5, [ADR 0006](../adr/0006-closed-enum-dispatch-for-rendering-interfaces.md) |
+| Memory | Per-type arenas with typed `u32` handles; no allocation per Pixel Sample | `Arc`/`Box` object graphs, a scratch allocator | §8.7, [ADR 0008](../adr/0008-index-handle-arenas-and-allocation-free-rendering.md) |
+| Input | pbrt-v4 `.pbrt`, parsed with `nom` on the Coordinator | a custom format, a converter | §8.2, [ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md) |
+| Threads | `rayon`, one pool per Worker | hand-rolled pools | §8.8 |
+| Network | QUIC with `quinn`, `postcard` messages, raw bulk data | TCP, gRPC, `bincode` | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
+| Deployment | One binary per CPU, locked to one commit per Render Job; Sessions launched over SSH from the operator's machine | a portable binary, long-running Workers | §7, [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md), [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md) |
+
+## 4.4 Decomposition
+
+- **A `no_std` core and a `std` shell.** Seven `#![no_std]` crates without `alloc` hold every line that runs per Pixel Sample, in pbrt-v4's chapter order. Five `std` crates around them parse, build Scenes, render Work Units, distribute them and offer the command line (§5, [ADR 0015](../adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)). The core reads the Scene only through a borrowed `SceneView` ([ADR 0014](../adr/0014-gpu-ready-no-std-rendering-core.md)).
+- **One Coordinator, N Workers.** The Coordinator parses the Scene File once, replicates the Scene to every Worker, hands out Work Units (one Tile for one Pass) and merges Work Results into the one Film. Each Worker builds its own BVH and renders with every core of its NUMA node (§8.8, [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md), [ADR 0017](../adr/0017-one-worker-per-numa-node.md)).
+- **One code path for every use.** A local `render`, a distributed `render`, `bench` and `validate` all go through `coordinate`; `trace` re-runs Pixel Samples through the same `Renderer` (§5.3).
+
+## 4.5 How the quality goals are reached
+
+| Goal | Main approach |
+| --- | --- |
+| 1 Correctness | Follow pbrt-v4 algorithm by algorithm and port its unit tests; test every sampling routine statistically; validate images per pixel against published pbrt-v4 renders; make the Film a pure function of Scene, seed and Render Job options, so a changed hash means a changed result (§8.3, §8.11). |
+| 2 Comprehensibility | Book structure and names in the core crates, book-section citations checked in CI, strict lint thresholds, simple contracts between crates, and readable reference implementations kept beside every optimisation (§5.2, §8.6, QS-3, QS-4). |
+| 3 Performance | Closed-enum dispatch, allocation-free arenas, SIMD behind a facade and per-CPU binaries from the start; everything more aggressive waits for a benchmark showing an end-to-end gain and goes through the tuning backlog (§8.4, §8.14). |
+| 4 Scalability | Pull-based, Pass-major scheduling that adapts to machines of very different speeds, a speculative tail, one Worker per NUMA node, and reassignment that never changes the Film (§8.8). |
+| 5 Debuggability | Pixel Traces by deterministic re-execution through a monomorphised `Recorder`, so a Render Job pays nothing for them and every pixel of a finished image can be traced on any machine (§8.9). |

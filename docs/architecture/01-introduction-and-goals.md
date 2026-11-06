@@ -1,6 +1,23 @@
 # 1. Introduction and Goals
 
-> Only the quality goals (section 1.2) are settled. The requirements overview and stakeholders are still open on the implementation-plan map.
+Umbra is a physically based renderer that follows pbrt-v4 and *Physically Based Rendering*, 4th edition. It renders on CPUs only, uses every core of a machine, and spreads one Render Job over the machines of a LAN. Its decisions were taken on the [Umbra implementation plan](https://github.com/sergioffpc/umbra/issues/9) map; each section of this document links the issue and ADR that hold its detail.
+
+## 1.1 Requirements overview
+
+| Id | Requirement | Where it is decided |
+| --- | --- | --- |
+| R-1 | **All of pbrt-v4 on CPU.** Spectral rendering, every Shape, Material, Light, Texture, Medium, Camera, Sampler and Filter, and the `path`, `volpath`, `bdpt`, `mlt` and `sppm` integrators, reached milestone by milestone from simple to advanced. | §4.1, [ADR 0019](../adr/0019-milestones-defined-by-the-reference-scenes-they-unlock.md) |
+| R-2 | **pbrt-v4 Scene Files as the only input.** `.pbrt` files, unextended, validated strictly before any Work Unit is rendered. | §8.2, [ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md) |
+| R-3 | **The same image as pbrt-v4.** Images agree with pbrt-v4 within its own noise. | QS-1, §8.11 |
+| R-4 | **A reproducible Film.** A fixed Scene, seed and Render Job options give a bit-identical Film, whatever Workers, threads, order or failures. | QS-2, §8.3, [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) |
+| R-5 | **Multicore and distributed.** One Coordinator and N Workers on a LAN, the Scene replicated to every Worker, Work Units of a failed Worker rendered again elsewhere. | §8.8, §8.13, [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) |
+| R-6 | **Aggressive per-architecture performance.** Fast on each of the three target machines (§7.1), reaching pbrt-v4's speed by the last milestone. | QS-5, QS-6, §8.14 |
+| R-7 | **Code that reads like the book.** Small documented functions, cohesive modules, simple contracts, every algorithm cited to its book section and pbrt-v4 symbol. | QS-3, QS-4 |
+| R-8 | **Per-pixel debuggability.** Any Pixel Sample of a finished image can be computed again and inspected as a Pixel Trace. | QS-9, §8.9, [ADR 0011](../adr/0011-pixel-traces-by-deterministic-re-execution.md) |
+| R-9 | **Measurable progress.** A status line while a Render Job runs, and a Render Job Report when it ends. | §8.10 |
+| R-10 | **The image at the end.** The image is seen only when the Render Job finishes; there is no live view. | [Live view design](https://github.com/sergioffpc/umbra/issues/26) (out of scope) |
+
+What Umbra does not do is in section 3.3.
 
 ## 1.2 Quality goals
 
@@ -15,3 +32,12 @@ Decided in [Quality goals and measurable targets](https://github.com/sergioffpc/
 | 5 | Debuggability | Any Pixel Sample of a finished image can be computed again and inspected as a Pixel Trace (ADR 0011). |
 
 Scalability and debuggability rank last because ADRs 0004 and 0009–0011 already secure most of them by design. Section 10 gives them targets, but they rarely need to win a conflict.
+
+## 1.3 Stakeholders
+
+| Role | Who | Expectations |
+| --- | --- | --- |
+| Owner and operator | Sérgio Carvalho, who owns the three target machines | Decides scope and priorities. Runs Sessions with `scripts/workers up` (§7.3), runs the benchmark and validation issues that close each milestone by hand (§8.4, §8.11), and reads the Render Job Report. |
+| Contributor | Whoever implements an issue: the owner or an agent working a `ready-for-agent` issue | Issues that can be implemented with no open decision, contracts written down (§5.3), lints and checks that say when a change is acceptable (`CONTRIBUTING.md`, §10). |
+| Reader | Someone studying physically based rendering with the book open | Finds the implementation of a book section through `docs/book-map.md` (QS-4), and code that follows the book's structure and names (§5.2). |
+| pbrt-v4 | The upstream renderer and its scene collection, at pinned commits (§8.11) | Not a party to the project, but its behaviour is the specification: its renders are the correctness oracle (QS-1) and its speed the performance yardstick (QS-5). |
