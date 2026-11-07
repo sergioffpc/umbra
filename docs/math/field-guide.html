@@ -342,7 +342,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
         <h3>The <code>f32</code> number line</h3>
     </div>
     <div class="prose">
-        <p>An <code>f32</code> is 32 bits: one sign bit <var>s</var>, eight exponent bits <var>e</var> and 23 significand bits <var>f</var>. A normal value is</p>
+        <p>An <code>f32</code> is 32 bits: 1 sign bit <var>s</var>, 8 exponent bits <var>e</var> and 23 significand bits <var>f</var>. A normal value is</p>
         <div class="eq">v = (−1)<sup>s</sup> × 1.f × 2<sup>e − 127</sup></div>
         <p>So floats are not evenly spaced. Between one power of two and the next there are always exactly 2²³ of them, and the gap between neighbours, one <em>ULP</em> (unit in the last place), doubles at every power of two. Near 1 an ULP is 1.19 × 10⁻⁷. Near 100 000, a plausible scene coordinate, it is 0.0078.</p>
         <p>Umbra never changes the hardware rounding mode (ADR 0002). Every <code>+ − × ÷ √</code> rounds to the nearest float, so each result is off by at most half an ULP. That is a relative error of at most <var>ε</var> = 2⁻²⁴ ≈ 5.96 × 10⁻⁸, the constant <code>MACHINE_EPSILON</code>. When the code needs a result rounded <em>outward</em> instead, it takes the nearest result and steps one float further with <code>next_float_up</code> or <code>next_float_down</code>, which add or subtract 1 from the bit pattern.</p>
