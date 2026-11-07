@@ -6,7 +6,7 @@ Hard-to-reverse decisions are recorded as ADRs in [`docs/adr/`](../adr/), one fi
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------- | ------------ |
 | [0001](../adr/0001-numeric-model.md)                                                | Numeric model: `f32`, spectral-only, pbrt-v4 error bounds                     | Accepted                           | §8.1         |
 | [0002](../adr/0002-bit-identical-results-across-architectures.md)                   | Bit-identical Work Results on arm64 and x86-64                                | Accepted                           | §8.1         |
-| [0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)                | pbrt-v4 Scene Files only, parsed once on the Coordinator                      | Accepted, amended by 0018          | §8.2         |
+| [0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)                | pbrt-v4 Scene Files only, parsed once on the Coordinator                      | Accepted, amended by 0018 and 0021 | §8.2         |
 | [0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md)                    | Deterministic Film for a fixed Render Job                                     | Accepted                           | §8.3         |
 | [0005](../adr/0005-chiseled-release-container-image.md)                             | Chiseled Ubuntu container image on every release tag                          | Accepted, amended by 0012          | §7.2         |
 | [0006](../adr/0006-closed-enum-dispatch-for-rendering-interfaces.md)                | Closed enum dispatch for rendering interfaces                                 | Accepted                           | §8.5         |
@@ -15,15 +15,16 @@ Hard-to-reverse decisions are recorded as ADRs in [`docs/adr/`](../adr/), one fi
 | [0009](../adr/0009-pull-based-pass-major-scheduling.md)                             | Pull-based, Pass-major scheduling with speculative tail                       | Accepted                           | §8.8         |
 | [0010](../adr/0010-quic-transport-between-coordinator-and-workers.md)               | QUIC transport between Coordinator and Workers                                | Accepted                           | §8.8, §8.13  |
 | [0011](../adr/0011-pixel-traces-by-deterministic-re-execution.md)                   | Pixel Traces by deterministic re-execution through a monomorphised `Recorder` | Accepted                           | §8.9         |
-| [0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)                        | Per-CPU binaries, locked to one commit per Render Job                         | Accepted, amended by 0018          | §7.2, §7.3   |
+| [0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)                        | Per-CPU binaries, locked to one commit per Render Job                         | Accepted, amended by 0018 and 0021 | §7.2, §7.3   |
 | [0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md) | Statistical validation against a published pbrt-v4 reference                  | Accepted, amended by 0019          | §8.11        |
 | [0014](../adr/0014-gpu-ready-no-std-rendering-core.md)                              | A GPU-ready `no_std` rendering core                                           | Accepted, amended by 0015          | §8.12        |
 | [0015](../adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)             | A layered workspace with a seven-crate `no_std` core                          | Accepted                           | §5           |
-| [0016](../adr/0016-one-render-job-per-quic-connection.md)                           | Wire protocol: one Render Job per QUIC connection, unverified TLS             | Accepted                           | §8.13        |
-| [0017](../adr/0017-one-worker-per-numa-node.md)                                     | One Worker per NUMA node                                                      | Accepted                           | §7.3, §8.14  |
-| [0018](../adr/0018-sessions-launched-from-the-operators-machine.md)                 | Sessions launched from the operator's machine                                 | Accepted                           | §7.3         |
+| [0016](../adr/0016-one-render-job-per-quic-connection.md)                           | Wire protocol: one Render Job per QUIC connection, unverified TLS             | Accepted, amended by 0021          | §8.13        |
+| [0017](../adr/0017-one-worker-per-numa-node.md)                                     | One Worker per NUMA node                                                      | Accepted, amended by 0021          | §7.3, §8.14  |
+| [0018](../adr/0018-sessions-launched-from-the-operators-machine.md)                 | Sessions launched from the operator's machine                                 | Superseded by 0021                 | §7.3         |
 | [0019](../adr/0019-milestones-defined-by-the-reference-scenes-they-unlock.md)       | Milestones defined by the Reference Scenes they unlock                        | Accepted                           | §4.1         |
 | [0020](../adr/0020-bit-identical-exr-final-image.md)                                | A bit-identical EXR final image carrying its Reproduction Record              | Accepted                           | §8.15        |
+| [0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)                     | Plug-and-play Workers in a named Cluster                                      | Accepted                           | §7.3, §8.13  |
 
 How the ADRs build on one another:
 
@@ -37,13 +38,15 @@ flowchart LR
     A8["0008 Arenas"] --> A14
     A14 --> A15["0015 Workspace"]
     A3["0003 Scene Files"] --> A13["0013 Validation"] --> A19["0019 Milestones"]
-    A5["0005 Container image"] --> A12["0012 Per-CPU binaries"] --> A18["0018 Session launch"]
+    A5["0005 Container image"] --> A12["0012 Per-CPU binaries"] --> A18["0018 Session launch"] --> A21["0021 Plug-and-play Workers"]
     A12 --> A16
     A8 --> A17["0017 Worker per NUMA node"]
     A3 --> A18
     A4 --> A20["0020 EXR final image"]
     A11 --> A20
     A18 --> A20
+    A16 --> A21
+    A17 --> A21
 ```
 
 Arrows point from a decision to one that depends on it, amends it or refines it. Decisions that needed no ADR, because they are easy to reverse, are recorded only in their issue and in section 8.

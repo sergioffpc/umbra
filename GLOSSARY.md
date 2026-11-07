@@ -77,7 +77,7 @@ The single process that accepts a Render Job, owns its Film, assigns Work Units 
 _Avoid_: Master, server, leader, scheduler
 
 **Worker**:
-A process that holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. A machine runs one Worker per NUMA node, so usually exactly one.
+A long-running process that joins the Render Jobs of its Cluster one at a time. While it is in a Render Job, it holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. Between Render Jobs it holds no Scene. A machine runs one Worker per NUMA node, so usually exactly one.
 _Avoid_: Node, slave, client, agent, render thread
 
 **Local Worker**:
@@ -85,15 +85,19 @@ A Worker that runs inside the Coordinator's own process, so that one machine can
 _Avoid_: Embedded worker, in-process node
 
 **Worker Slot**:
-One place in a Session where a Worker runs: one machine and one of its NUMA nodes. When its Worker fails, a new Worker takes the same slot, a bounded number of times.
+One machine and one of its NUMA nodes, as a Worker reports them when it joins a Render Job. The Coordinator counts the failures of successive Workers in the same slot and refuses the slot after three in a row.
 _Avoid_: Worker instance, seat, node
 
-**Session**:
-One run of a Coordinator and the Workers started with it for a single Render Job; Workers do not outlive it, and a Worker that presents another Session's identifier is refused.
-_Avoid_: Cluster, run, deployment
+**Cluster**:
+The Coordinators and Workers that share a Cluster Name. A Coordinator gives work only to Workers of its own Cluster, and an idle Worker joins whichever Coordinator of its Cluster announces a Render Job.
+_Avoid_: Session, pool, farm, swarm
+
+**Cluster Name**:
+The name that defines a Cluster, given to every Coordinator and Worker in it, and `default` unless set. It guards against mistakes of operation, not attacks: it is a label, not a secret.
+_Avoid_: Cookie, session identifier, cluster key, namespace
 
 **Operator**:
-The person who starts a Session from their own machine, which then hosts the Coordinator and receives the final image.
+The person who runs Render Jobs from their own machine, which then hosts the Coordinator and receives the final image, and who keeps the Workers of their Cluster running.
 _Avoid_: User, admin, client
 
 **Build Identity**:

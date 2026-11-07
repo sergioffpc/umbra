@@ -36,8 +36,7 @@ flowchart LR
 flowchart LR
     subgraph opm["Operator machine"]
         fs[("Scene File,<br/>image, report")]
-        script["scripts/workers up"]
-        coord["Coordinator<br/>(+ local Worker)"]
+        coord["umbra render:<br/>Coordinator (+ local Worker)"]
         val["umbra validate"]
     end
     subgraph hosts["Other hosts on the LAN"]
@@ -45,23 +44,22 @@ flowchart LR
     end
     gh[("GitHub:<br/>ghcr.io images,<br/>release assets")]
     fs <--> coord
-    script -- "local process" --> coord
-    script -- "SSH" --> w
+    coord -. "mDNS: Render Job announced" .-> w
     w -- "QUIC, UDP 7470" --> coord
     w -. "docker pull (releases)" .-> gh
     val -. "download reference" .-> gh
 ```
 
-| Channel            | Between                                    | Protocol and format                                                                                      | Where it is decided                                                                                                                             |
-| ------------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Command line       | Operator and `umbra`                       | `clap` subcommands, exit codes `0`/`1`/`2`/`3`/`130`                                                     | §5.3, §8.13                                                                                                                                     |
-| Files              | Operator machine and Coordinator           | `.pbrt` Scene File and assets in; image and versioned-JSON Render Job Report out, next to the image      | §8.2, §8.10, §8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)                                                                    |
-| Session launch     | `scripts/workers up` and each host         | SSH: build with `cargo` or `docker pull`, start one Worker per NUMA node under `numactl`                 | §7.3, [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md)                                                                   |
-| Coordinator–Worker | Coordinator and each remote Worker         | QUIC (`quinn`), UDP 7470 by default, unverified TLS, `postcard` messages and raw little-endian bulk data | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
-| Local Worker       | Coordinator and its in-process Worker      | In-memory transport, same messages                                                                       | §8.8                                                                                                                                            |
-| Releases           | CI and Linux hosts                         | One container image per CPU on `ghcr.io`                                                                 | §7.2, [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)                                                                          |
-| Reference          | GitHub release assets and `umbra validate` | `pbrt-v4-reference-<commit>` release, downloaded and hash-checked                                        | §8.11                                                                                                                                           |
-| Telemetry          | Coordinator and the operator               | Status line on stderr; `tracing` logs; Tracy behind the `tracy` feature. No metrics endpoint             | §8.4, §8.10                                                                                                                                     |
+| Channel            | Between                                         | Protocol and format                                                                                                   | Where it is decided                                                                                                                             |
+| ------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command line       | Operator and `umbra`                            | `clap` subcommands, exit codes `0`/`1`/`2`/`3`/`130`                                                                  | §5.3, §8.13                                                                                                                                     |
+| Files              | Operator machine and Coordinator                | `.pbrt` Scene File and assets in; image and versioned-JSON Render Job Report out, next to the image                   | §8.2, §8.10, §8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)                                                                    |
+| Discovery          | Coordinator and the idle Workers of its Cluster | DNS-SD over multicast DNS (UDP 5353): the Coordinator announces its Render Job as `_umbra._udp` with `cluster=<name>` | §7.3, §8.13, [ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)                                                                |
+| Coordinator–Worker | Coordinator and each remote Worker              | QUIC (`quinn`), UDP 7470 by default, unverified TLS, `postcard` messages and raw little-endian bulk data              | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
+| Local Worker       | Coordinator and its in-process Worker           | In-memory transport, same messages                                                                                    | §8.8                                                                                                                                            |
+| Releases           | CI and Linux hosts                              | One container image per CPU on `ghcr.io`                                                                              | §7.2, [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)                                                                          |
+| Reference          | GitHub release assets and `umbra validate`      | `pbrt-v4-reference-<commit>` release, downloaded and hash-checked                                                     | §8.11                                                                                                                                           |
+| Telemetry          | Coordinator and the operator                    | Status line on stderr; `tracing` logs; Tracy behind the `tracy` feature. No metrics endpoint                          | §8.4, §8.10                                                                                                                                     |
 
 ## 3.3 Out of scope
 
@@ -70,6 +68,6 @@ Ruled out of this architecture, so no section of this document plans for them:
 - A GPU backend (CUDA, Vulkan, Metal). Only the readiness rules of §8.12 are in scope.
 - Cloud deployment, autoscaling, Workers outside the LAN.
 - Out-of-core Scenes: every Worker holds the whole Scene.
-- Hostile nodes: the TLS certificate is not verified, and the Session identifier and Build Identity guard only against mistakes of operation (§6.5).
+- Hostile nodes: the TLS certificate is not verified, and the Cluster Name and Build Identity guard only against mistakes of operation (§6.5).
 - A live view: the image is seen only when the Render Job finishes.
 - Input formats other than pbrt-v4's `.pbrt`, and extensions to it.

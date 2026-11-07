@@ -121,9 +121,10 @@ pub fn coordinate(job: RenderJob, options: &CoordinatorOptions, status: &mut dyn
 pub fn work(options: &WorkerOptions) -> Result<(), ClusterError>;
 ```
 
-- Both functions are synchronous. Each owns its `tokio` runtime, so callers never see `async`, QUIC, heartbeats or scheduling.
+- Both functions are synchronous. Each owns its `tokio` runtime, so callers never see `async`, QUIC, discovery, heartbeats or scheduling.
+- `work` runs until the Worker is stopped, joining the Render Jobs of its Cluster one after another (§8.13). `WorkerOptions` carries the Cluster Name, the thread count and the Build Identity.
 - `umbra-cluster` receives a parsed Scene and does not depend on `umbra-parser`.
-- `CoordinatorOptions` carries the listen address, the heartbeat and death timeouts, `LocalWorker::{Enabled, Disabled}` and the Build Identity to admit.
+- `CoordinatorOptions` carries the listen address, the heartbeat and death timeouts, `LocalWorker::{Enabled, Disabled}`, `Discovery::{Announce(ClusterName), Off}` and the Build Identity to admit. A Coordinator with `Discovery::Off` announces nothing and renders with its local Worker alone.
 - A distributed `render`, a single-Worker `bench` and a 16-seed `validate` all go through `coordinate`, with different options.
 - The status line goes to the `io::Write` it is given (§8.10). The Render Job Report is returned, not written, and the caller decides where it goes.
 
