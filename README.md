@@ -28,6 +28,95 @@ cargo build --release
 cargo run --release
 ```
 
+## Rendering on several machines
+
+> **Status:** remote Workers arrive in v0.2.0. Until then, `umbra render` uses
+> only the machine it runs on.
+
+Umbra spreads one image over every machine on the LAN that runs a Worker. You
+start a Worker on each machine once and leave it running. A Worker sits idle
+until some machine runs `umbra render`. It then joins that Render Job, renders
+its share, and goes back to waiting. You never write a host list or an address:
+the Coordinator (the `umbra render` process) announces each Render Job with
+multicast DNS (DNS-SD, service `_umbra._udp`), and idle Workers find it.
+
+### Clusters
+
+Every Worker and every `umbra render` belongs to a Cluster. A Coordinator only
+uses Workers of its own Cluster. Name the Cluster with `--cluster <name>` or the
+`UMBRA_CLUSTER` environment variable; without either, it is `default`. Give two
+groups of machines different names to keep them apart on the same LAN, for
+example to benchmark one machine on its own. The name is a label, not a
+password.
+
+### 1. Start a Worker on each machine
+
+From a release image, on Linux. Choose the tag for the machine's CPU, such as
+`X.Y.Z-znver2` or `X.Y.Z-broadwell`:
+
+```sh
+docker run -d --name umbra-worker --restart unless-stopped --network host \
+  ghcr.io/sergioffpc/umbra:X.Y.Z-znver2 worker
+```
+
+`--network host` lets the Worker see multicast DNS. `--restart unless-stopped`
+brings the Worker back after a crash or a reboot.
+
+From source, on Linux or macOS:
+
+```sh
+git checkout <ref>
+cargo build --release
+target/release/umbra worker
+```
+
+Run one Worker per NUMA node. On a machine with two nodes, such as a
+two-socket server, bind one Worker to each node:
+
+```sh
+numactl --cpunodebind=0 --membind=0 target/release/umbra worker &
+numactl --cpunodebind=1 --membind=1 target/release/umbra worker &
+```
+
+With containers, use `--cpuset-cpus "$(cat /sys/devices/system/node/node0/cpulist)"`
+and `--cpuset-mems 0`, then the same with node 1.
+
+A Worker logs when it joins a Render Job, loads the Scene and goes back to idle.
+Stop it with Ctrl-C, `SIGTERM` or `docker stop`.
+
+### 2. Render
+
+On the machine that holds the Scene File:
+
+```sh
+umbra render scene.pbrt
+```
+
+`umbra render` parses the Scene File first. If the file has errors, it reports
+them and exits before any Worker joins. Otherwise it announces the Render Job,
+and every idle Worker of its Cluster joins, receives the Scene and starts
+rendering. The Coordinator also renders on its own machine, so a Render Job
+finishes even if no Worker joins. A Worker started while a Render Job runs joins
+it too. The image and its Render Job Report are written on this machine, and the
+status line shows each Worker as it works.
+
+Ctrl-C cancels the Render Job: there is no image, the Render Job Report is still
+written, and the Workers go back to waiting.
+
+### Keep every machine on the same commit
+
+A Coordinator only admits Workers built from its own commit, with a clean tree
+unless it runs with `--allow-dirty`. It refuses a Worker on any other commit and
+logs that Worker's host and commit. After you change commit, rebuild and restart
+the Worker on every machine, or pull and restart the release image.
+
+### Firewall, once per machine
+
+- Every machine: allow mDNS, UDP port 5353, from the LAN.
+- Every machine you run `umbra render` on: also allow UDP port 7470, the
+  Coordinator's port. On macOS, allow incoming connections for `umbra` in the
+  Application Firewall.
+
 ## Container image
 
 Every release publishes a minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)

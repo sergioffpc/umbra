@@ -1,6 +1,8 @@
 # Per-CPU binaries, locked to one commit per Render Job
 
 > **Amended by [ADR 0018](0018-sessions-launched-from-the-operators-machine.md).** The Coordinator always runs on the operator's machine.
+>
+> **Amended by [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md).** There is no host list and no launch script. Each host's target CPU is chosen when its Worker is started, by the image variant it pulls or by `target-cpu=native`. A Worker on another commit is refused when it joins.
 
 Each target machine runs a binary compiled for its own CPU, and the Coordinator accepts only Workers built from its own commit. Decided in [Per-machine build and deployment](https://github.com/sergioffpc/umbra/issues/27). This amends [ADR 0005](0005-chiseled-release-container-image.md), which published a single `x86-64-v3` image.
 

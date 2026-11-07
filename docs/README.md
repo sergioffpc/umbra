@@ -15,8 +15,8 @@ When an ADR and an arc42 section disagree, the later ADR is the decision and the
 3. [Context and scope](architecture/03-context-and-scope.md): what Umbra talks to, and what is out of scope
 4. [Solution strategy](architecture/04-solution-strategy.md): the milestone roadmap and the fundamental decisions
 5. [Building block view](architecture/05-building-block-view.md): the crates and their interfaces
-6. [Runtime view](architecture/06-runtime-view.md): a Session from start-up to image, failures and cancellation
-7. [Deployment view](architecture/07-deployment-view.md): the target machines, per-CPU builds, Session launch
+6. [Runtime view](architecture/06-runtime-view.md): a Render Job from start-up to image, Workers joining, failures and cancellation
+7. [Deployment view](architecture/07-deployment-view.md): the target machines, per-CPU builds, running Workers and Render Jobs
 8. [Crosscutting concepts](architecture/08-crosscutting-concepts.md): numerics, determinism, scheduling, wire protocol, tuning, image output
 9. [Architecture decisions](architecture/09-architecture-decisions.md): the ADR index
 10. [Quality requirements](architecture/10-quality-requirements.md): the measurable quality scenarios

@@ -28,7 +28,7 @@ Consequences for later decisions:
 - **Cache-line padding**: per-thread data must be padded to 128 B to avoid false sharing on Apple silicon (64 B suffices on x86).
 - **Heterogeneous threads**: the M2's P and E cores differ in speed; x86 machines use SMT.
 - **Bandwidth**: ~117 MB/s per link to the Coordinator bounds Scene replication and Work Result traffic.
-- **Firewall**: Workers only open outgoing connections, so only the Coordinator's UDP port needs opening, on every machine that runs a Coordinator (§7.3). The R630's nftables admits only SSH.
+- **Firewall**: Workers only open outgoing QUIC connections, so only the Coordinator's UDP port needs opening, on every machine that runs a Coordinator. Discovery needs mDNS (UDP 5353) on every machine, so the R630's nftables, which admits only SSH, needs a rule for it (§7.3).
 
 ## 7.2 Build per machine
 
@@ -49,24 +49,23 @@ Each machine runs a binary compiled for its own CPU ([ADR 0012](../adr/0012-per-
 ```mermaid
 flowchart LR
     subgraph op["Operator machine (P620 for large Scenes)"]
-        script["scripts/workers up"]
-        coord["Coordinator<br/>+ local Worker"]
+        coord["umbra render:<br/>Coordinator + local Worker"]
     end
     subgraph lan["LAN, 1 GbE"]
         r630["Dell R630<br/>2 Workers (one per socket)"]
         mac["MacBook Pro M2<br/>Worker (optional, Wi-Fi)"]
     end
-    script -- "local process" --> coord
-    script -- "SSH: build or pull,<br/>start, restart" --> r630
-    script -- SSH --> mac
+    coord -. "mDNS: Render Job announced<br/>(_umbra._udp, cluster)" .-> r630
+    coord -. "mDNS" .-> mac
     r630 -- "QUIC (UDP)" --> coord
     mac -- "QUIC (UDP)" --> coord
 ```
 
-- **The Coordinator runs on the operator's machine** ([ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md)). The operator's machine is wherever `scripts/workers up` runs; the Coordinator and its optional in-process local Worker ([ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md)) run there as local processes. The Scene File is read and the image and Render Job Report are written on that machine, so nothing is copied to or from it. For large Scenes the operator logs into the P620 and runs the script there, because it is the strongest machine and is wired; from the MacBook every Scene transfer crosses Wi-Fi.
-- **Workers are started per session from the operator's machine.** `scripts/workers up --ref <git-ref>` builds that ref on every host, the local one included, with `cargo`. `scripts/workers up --version X.Y.Z` pulls the host's CPU variant and runs it with `docker run --network host`. The script starts one Worker per NUMA node, each under `numactl --cpunodebind=N --membind=N` ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)), so the R630 runs two. The host list, which records each host's SSH name, target CPU and NUMA node count, belongs to the operator. A Worker exits when it loses the Coordinator, and nothing keeps running between sessions.
-- **Start-up order.** Build or pull on every host in parallel, aborting on any failure. Start the Coordinator, which parses the Scene File and builds the Scene before it opens its UDP port, and exits on Diagnostics before any Worker exists. Wait for its readiness line on stderr. Start the Workers over SSH, in the foreground, with `--coordinator <operator address as seen by the host, from $SSH_CLIENT>:<port> --session <id>`, and stream their logs. A Worker does not retry its initial connection.
-- **Automatic restart.** While the Coordinator runs, the script restarts a Worker Slot whose Worker or SSH session ends abnormally, at most three consecutive times, and never after a normal end, a cancellation or a refusal. The exit statuses it acts on, the backoff and the reset rule are in [§8.13](08-crosscutting-concepts.md#813-wire-protocol) and [ADR 0018](../adr/0018-sessions-launched-from-the-operators-machine.md). Restarts reuse the built binary. Hosts outside the starting host list cannot join a running Session.
-- **Ctrl-C stops the Session.** In the terminal running `scripts/workers up`, Ctrl-C reaches only the Coordinator, which cancels the Render Job and writes the Render Job Report without an image. The Workers exit and are not restarted, and the script exits with the Coordinator's code, 130. Scenario in [§6.6](06-runtime-view.md#66-ctrl-c-cancellation), close and exit codes in [§8.13](08-crosscutting-concepts.md#813-wire-protocol); decided in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60).
-- **Version lockstep.** On connection, the Coordinator rejects any Worker whose Build Identity names a different commit. Dirty builds are rejected unless the Render Job runs with `--allow-dirty`, which the Render Job Report records. Workers must also present the Session identifier the launch script generates. The handshake is in [§8.13](08-crosscutting-concepts.md#813-wire-protocol).
-- **One-time host setup.** Each Linux host needs Docker and rustup; the MacBook needs rustup. The Coordinator's QUIC UDP port is opened once in the firewall of every machine an operator runs Sessions from (the macOS Application Firewall on the MacBook, nftables on the R630).
+- **Workers run permanently** ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). The operator starts one Worker per NUMA node on each host and leaves it running ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)). For a release, that means running the host's CPU variant with `docker run -d --restart unless-stopped --network host`. For a development build, it means running `target/release/umbra worker` from a checkout of the ref under test. Each Worker is bound to its NUMA node with `numactl --cpunodebind=N --membind=N`, or in a container with `--cpuset-cpus` and `--cpuset-mems`, so the R630 runs two. The commands are in the [README](../../README.md#rendering-on-several-machines). An idle Worker holds no Scene.
+- **Cluster.** Every Coordinator and Worker takes a Cluster Name from `--cluster` or `UMBRA_CLUSTER`, and uses `default` when neither is set. A Coordinator works only with Workers of its own Cluster, so separate Clusters can share the LAN, for example to benchmark one machine alone.
+- **The Coordinator runs on the operator's machine.** That is wherever the operator runs `umbra render`. The Coordinator and its optional in-process local Worker ([ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md)) run in that process. The Scene File is read and the image and Render Job Report are written on that machine, so nothing is copied to or from it. For large Scenes the operator logs into the P620 and runs `umbra render` there, because it is the strongest machine and is wired. From the MacBook, every Scene transfer crosses Wi-Fi.
+- **Start-up order.** The Coordinator parses the Scene File and builds the Scene, opens its UDP port, and only then announces the Render Job by DNS-SD. On Diagnostics it exits before announcing anything. Idle Workers of its Cluster join as soon as they see the announcement, and Workers that start later join the Render Job in progress. Discovery is described in [§8.13](08-crosscutting-concepts.md#813-wire-protocol).
+- **Failures.** A Worker that loses its Render Job abnormally rejoins it after a backoff, and the Coordinator refuses a Worker Slot after three consecutive failures (§8.13). A Worker process that dies is restarted by its supervisor: Docker's restart policy for releases, the operator for development builds.
+- **Ctrl-C stops the Render Job, not the Workers.** In the terminal running `umbra render`, Ctrl-C makes the Coordinator withdraw its announcement, cancel the Render Job, write the Render Job Report without an image, and exit 130. The Workers return to idle. The scenario is in [§6.6](06-runtime-view.md#66-ctrl-c-cancellation) and the close and exit codes in [§8.13](08-crosscutting-concepts.md#813-wire-protocol). This was decided in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60).
+- **Version lockstep.** On connection, the Coordinator rejects any Worker whose Build Identity names a different commit. Dirty builds are rejected unless the Render Job runs with `--allow-dirty`, which the Render Job Report records. After changing commit, the operator rebuilds and restarts the Worker on every host, or pulls and restarts the release image. The Coordinator logs each refused Worker with its host and commit. The handshake is described in [§8.13](08-crosscutting-concepts.md#813-wire-protocol).
+- **One-time host setup.** Each Linux host needs Docker and rustup; the MacBook needs rustup. Every machine admits mDNS, UDP 5353 from the LAN (nftables on the R630). Every machine an operator runs `umbra render` from also admits the Coordinator's QUIC port, UDP 7470 (on the MacBook, through the macOS Application Firewall).
