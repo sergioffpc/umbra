@@ -23,6 +23,10 @@ When an ADR and an arc42 section disagree, the later ADR is the decision and the
 11. [Risks and technical debt](architecture/11-risks-and-technical-debt.md)
 12. [Glossary](architecture/12-glossary.md): points to `GLOSSARY.md`
 
+## Background
+
+- [`math/field-guide.html`](math/field-guide.html): an interactive explainer of the mathematics Umbra relies on, from `f32` rounding and error bounds in `umbra-math` to the sampling, spectral and microfacet maths of the crates still to come. Open it in a browser.
+
 ## For contributors and agents
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md): branching, commits, checks and lint rules.

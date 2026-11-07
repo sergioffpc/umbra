@@ -1,0 +1,2119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Math Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="The mathematics behind Umbra, a pbrt-v4 renderer: floating-point error, intervals, compensated arithmetic, frames, sampling, spectra and microfacets, with interactive examples.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout: one 66ch reading column; each interactive "bench" widens to the full
+    1120px measure, like an instrument laid on the page. Every section is tagged
+    with the crate, source file and PBR 4e section it explains. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --bit-sign: #96379f;
+    --bit-exp: #2f43c4;
+    --bit-sig: #0b7b84;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --bit-sign: #d98ae2;
+        --bit-exp: #8e9cff;
+        --bit-sig: #4fc4cd;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --bit-sign: #d98ae2;
+    --bit-exp: #8e9cff;
+    --bit-sig: #4fc4cd;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page > * + * { margin-top: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.hero-strip {
+    display: grid; gap: 0.8rem; padding: 1.4rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px;
+}
+.hero-strip .typed { font: 600 0.8rem/1.4 var(--mono); color: var(--muted); }
+.hero-strip .stored { font: 400 clamp(1.05rem, 2.6vw, 1.7rem)/1.3 var(--mono); word-break: break-all; }
+.hero-strip .stored b { color: var(--accent); font-weight: 600; }
+.hero-strip .stored .tail { color: var(--err); }
+
+.pipeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.5rem), 1fr)); }
+.pipeline li { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 0.6rem; padding: 0.65rem 0.8rem; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+.pipeline .ord { font: 600 0.72rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pipeline a { font: 600 0.9rem var(--mono); color: var(--ink); text-decoration: none; }
+.pipeline a:hover { color: var(--accent); }
+.pill { font: 600 0.62rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.3em 0.55em; border-radius: 99px; white-space: nowrap; }
+.pill.live { background: color-mix(in srgb, var(--exact) 16%, transparent); color: var(--exact); }
+.pill.planned { border: 1px dashed var(--rule); color: var(--muted); }
+.pipeline-caption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); margin: 0.6rem 0 0; }
+
+.howto { max-width: var(--measure); font-size: 0.98rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 1rem; }
+
+/* ---------- table of contents ---------- */
+nav.toc { display: grid; gap: 1rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+nav.toc h2 { font: 700 1.35rem/1.1 var(--display); letter-spacing: -0.01em; margin: 0; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+.toc .after { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(13rem, 70vw); accent-color: var(--accent); }
+input[type="text"], input[type="number"], select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+input[type="text"] { width: 11.5rem; }
+input.short { width: 7rem; }
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.quad { display: grid; gap: 0.8rem; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+    .quad { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.2; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 1.1em; height: 1.1em; border-radius: 2px; vertical-align: -0.2em; }
+
+/* f32 bit strip */
+.bits { display: grid; grid-template-columns: repeat(32, minmax(0, 1fr)); gap: 2px; }
+.bits button {
+    font: 600 clamp(0.6rem, 1.6vw, 0.86rem)/1 var(--mono); padding: 0.55em 0; border-radius: 2px; border: 0;
+    color: var(--ink); background: color-mix(in srgb, var(--f) 14%, var(--surface));
+    box-shadow: inset 0 -2px 0 var(--f); min-width: 0;
+}
+.bits button.one { background: color-mix(in srgb, var(--f) 70%, var(--surface)); color: var(--surface); }
+.bits button:hover { filter: brightness(1.1); color: inherit; }
+.bits button.one:hover { color: var(--surface); }
+.bits .s { --f: var(--bit-sign); }
+.bits .e { --f: var(--bit-exp); }
+.bits .f { --f: var(--bit-sig); }
+.bitlabels { display: grid; grid-template-columns: 1fr 8fr 23fr; gap: 2px; font: 600 0.64rem/1.2 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.bitlabels span { padding-top: 0.3rem; border-top: 2px solid var(--c); color: var(--c); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.exact-val { font: 400 0.9rem/1.45 var(--mono); word-break: break-all; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.chips span { font: 400 0.78rem var(--mono); padding: 0.25em 0.5em; border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); font-variant-numeric: tabular-nums; }
+
+.meter { display: grid; gap: 0.3rem; }
+.meter .bar { height: 0.7rem; background: var(--grid); border-radius: 2px; overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--c, var(--accent)); }
+
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+@media (prefers-reduced-motion: no-preference) {
+    .bits button { transition: background-color 120ms ease, color 120ms ease; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+    <div>
+        <div class="kicker">docs/math · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Math Field Guide</h1>
+    </div>
+    <p class="lede">Every pixel Umbra renders comes out of a long chain of <code>f32</code> operations. A sampler picks numbers, the numbers become wavelengths and rays, the rays meet surfaces, and the surfaces scatter light. This guide follows that chain crate by crate, and each step has a figure you can play with.</p>
+
+    <div class="hero-strip" aria-live="polite">
+        <div class="typed">You write <code>0.1_f32</code>. Umbra stores the nearest of the 2³² bit patterns, which is exactly:</div>
+        <div class="stored" id="hero-stored"><b>0.1</b><span class="tail">00000001490116119384765625</span></div>
+        <div class="typed" id="hero-note">1 sign bit · 8 exponent bits · 23 significand bits = 0x3DCCCCCD. The red digits are rounding error, and the rest of this guide is about keeping errors like that under control.</div>
+    </div>
+
+    <div>
+        <ol class="pipeline">
+            <li><span class="ord">1</span><a href="#float">umbra-math</a><span class="pill live">in code</span></li>
+            <li><span class="ord">2</span><a href="#monte-carlo">umbra-sampling</a><span class="pill planned">planned</span></li>
+            <li><span class="ord">3</span><a href="#wavelengths">umbra-spectrum</a><span class="pill planned">planned</span></li>
+            <li><span class="ord">4</span><a href="#intervals">umbra-geometry</a><span class="pill planned">planned</span></li>
+            <li><span class="ord">5</span><a href="#microfacets">umbra-shading</a><span class="pill planned">planned</span></li>
+            <li><span class="ord">6</span><a href="#projection">umbra-camera</a><span class="pill planned">planned</span></li>
+            <li><span class="ord">7</span><a href="#mis">umbra-integrators</a><span class="pill planned">planned</span></li>
+        </ol>
+        <p class="pipeline-caption">The seven <code>no_std</code> core crates, in the dependency order of <a href="../architecture/05-building-block-view.md">arc42 §5.1</a>. Only <code>umbra-math</code> has code so far, so Part I explains code that exists and Part II explains the maths the other crates will need.</p>
+    </div>
+
+    <p class="howto">How the figures compute: every figure runs in emulated <code>f32</code> (JavaScript's <code>Math.fround</code> after each operation, with an exactly rounded FMA). It performs the same operations, in the same order, as the Rust function it names. Where a figure compares against an exact answer, it says how that answer was obtained. Section references (“PBR 4e §6.8.1”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Arithmetic you can trust</div>
+                <ol>
+                    <li><a href="#float"><span class="n">1</span><span class="t">The f32 number line</span><span class="c">float.rs · ULP, next_float_up</span></a></li>
+                    <li><a href="#gamma"><span class="n">2</span><span class="t">How error grows: γ(n)</span><span class="c">gamma() · summation order</span></a></li>
+                    <li><a href="#intervals"><span class="n">3</span><span class="t">Intervals, and where the next ray starts</span><span class="c">Interval · offset_ray_origin</span></a></li>
+                    <li><a href="#compensated"><span class="n">4</span><span class="t">Cancellation, and the FMA that repairs it</span><span class="c">difference_of_products · CompensatedSum</span></a></li>
+                    <li><a href="#normals"><span class="n">5</span><span class="t">Points, vectors and normals transform differently</span><span class="c">Transform · inverse transpose</span></a></li>
+                    <li><a href="#frames"><span class="n">6</span><span class="t">Shading frames and spherical coordinates</span><span class="c">Frame::from_z · spherical.rs</span></a></li>
+                    <li><a href="#octahedral"><span class="n">7</span><span class="t">A unit vector in 32 bits</span><span class="c">OctahedralVector</span></a></li>
+                    <li><a href="#projection"><span class="n">8</span><span class="t">The perspective projection</span><span class="c">perspective()</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · The maths still to come</div>
+                <ol>
+                    <li><a href="#monte-carlo"><span class="n">9</span><span class="t">Monte Carlo: estimating an integral with random numbers</span><span class="c">umbra-integrators · PCG32</span></a></li>
+                    <li><a href="#patterns"><span class="n">10</span><span class="t">Better than random: stratified and low-discrepancy samples</span><span class="c">umbra-sampling · radical inverse</span></a></li>
+                    <li><a href="#warps"><span class="n">11</span><span class="t">Warping the square onto discs and hemispheres</span><span class="c">umbra-sampling · concentric map</span></a></li>
+                    <li><a href="#wavelengths"><span class="n">12</span><span class="t">Four wavelengths per Pixel Sample</span><span class="c">umbra-spectrum · SampledWavelengths</span></a></li>
+                    <li><a href="#microfacets"><span class="n">13</span><span class="t">Microfacets: roughness as a distribution of tiny mirrors</span><span class="c">umbra-shading · Trowbridge–Reitz</span></a></li>
+                    <li><a href="#mis"><span class="n">14</span><span class="t">Multiple importance sampling</span><span class="c">umbra-integrators · power heuristic</span></a></li>
+                </ol>
+                <a class="after" href="#sources">Where to read more: primary sources</a>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · in the code today</div>
+    <h2>Arithmetic you can trust</h2>
+    <p>umbra-math holds the numeric ground floor: floats and their rounding, interval bounds, compensated products, vectors, frames and transforms. Everything is <code>f32</code> (ADR 0001) and gives the same bits on x86-64 and arm64 (ADR 0002).</p>
+</div>
+
+<section class="topic" id="float">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/float.rs">float.rs</a> · PBR 4e §6.8.1</div>
+        <h3>The <code>f32</code> number line</h3>
+    </div>
+    <div class="prose">
+        <p>An <code>f32</code> is 32 bits: 1 sign bit <var>s</var>, 8 exponent bits <var>e</var> and 23 significand bits <var>f</var>. A normal value is</p>
+        <div class="eq">v = (−1)<sup>s</sup> × 1.f × 2<sup>e − 127</sup></div>
+        <p>So floats are not evenly spaced. Between one power of two and the next there are always exactly 2²³ of them, and the gap between neighbours, one <em>ULP</em> (unit in the last place), doubles at every power of two. Near 1 an ULP is 1.19 × 10⁻⁷. Near 100 000, a plausible scene coordinate, it is 0.0078.</p>
+        <p>Umbra never changes the hardware rounding mode (ADR 0002). Every <code>+ − × ÷ √</code> rounds to the nearest float, so each result is off by at most half an ULP. That is a relative error of at most <var>ε</var> = 2⁻²⁴ ≈ 5.96 × 10⁻⁸, the constant <code>MACHINE_EPSILON</code>. When the code needs a result rounded <em>outward</em> instead, it takes the nearest result and steps one float further with <code>next_float_up</code> or <code>next_float_down</code>, which add or subtract 1 from the bit pattern.</p>
+    </div>
+    <figure class="bench" id="fl">
+        <div class="controls">
+            <div class="ctl"><label for="fl-in">Value</label><input id="fl-in" type="text" value="0.1" spellcheck="false" autocomplete="off"></div>
+            <div class="ctl"><span class="lbl">Step one float</span><div class="btns"><button id="fl-down" type="button">next_float_down</button><button id="fl-up" type="button">next_float_up</button></div></div>
+            <div class="ctl"><span class="lbl">Try</span><div class="btns" id="fl-presets">
+                <button type="button" data-v="1">1</button>
+                <button type="button" data-v="0.99999994">ONE_MINUS_EPSILON</button>
+                <button type="button" data-v="16777216">2²⁴</button>
+                <button type="button" data-v="100000">1e5</button>
+                <button type="button" data-v="1e-40">subnormal</button>
+            </div></div>
+        </div>
+        <div>
+            <div class="bits" id="fl-bits" role="group" aria-label="The 32 bits of the value; click a bit to flip it"></div>
+            <div class="bitlabels"><span style="--c: var(--bit-sign)">s</span><span style="--c: var(--bit-exp)">exponent</span><span style="--c: var(--bit-sig)">significand (implicit leading 1 not stored)</span></div>
+        </div>
+        <div class="split">
+            <dl class="readout">
+                <dt>stored, exactly</dt><dd class="exact-val" id="fl-exact"></dd>
+                <dt>shortest round-trip</dt><dd id="fl-short"></dd>
+                <dt>bits</dt><dd id="fl-hex"></dd>
+            </dl>
+            <dl class="readout">
+                <dt>exponent(v)</dt><dd id="fl-exp"></dd>
+                <dt>significand(v)</dt><dd id="fl-sig"></dd>
+                <dt>class</dt><dd id="fl-kind"></dd>
+                <dt>1 ULP here</dt><dd id="fl-ulp"></dd>
+                <dt>v + 1 in f32</dt><dd id="fl-plus1"></dd>
+            </dl>
+        </div>
+        <figcaption>Click any bit to flip it. <b>2²⁴</b> is the first integer where <code>v + 1.0</code> rounds back to <code>v</code>. <b>ONE_MINUS_EPSILON</b> (0x3F7FFFFF) is the largest float below 1, which samplers use so that a sample in [0, 1) never reaches 1.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="gamma">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/float.rs">gamma()</a> · PBR 4e §6.8.1 · ADR 0004</div>
+        <h3>How error grows: <var>γ</var>(<var>n</var>)</h3>
+    </div>
+    <div class="prose">
+        <p>One rounded operation multiplies the exact result by some factor in [1 − <var>ε</var>, 1 + <var>ε</var>]. A chain of <var>n</var> operations multiplies it by up to (1 ± <var>ε</var>)<sup><var>n</var></sup>, and the book bounds that product with one number:</p>
+        <div class="eq">(1 + ε)<sup>n</sup> ≤ 1 + γ(n),&emsp; γ(n) = nε ⁄ (1 − nε) <span class="note">gamma(n: u16) → f32</span></div>
+        <p>Umbra's <code>gamma</code> is that formula, evaluated in <code>f32</code>. Shapes use it to state how far a computed intersection can be from the true one. The figure checks the bound on the simplest chain there is: adding <code>0.1_f32</code> to itself <var>n</var> times. For a sum, the standard bound is |error| ≤ <var>γ</var>(<var>n</var> − 1) · Σ|<var>x<sub>i</sub></var>|.</p>
+    </div>
+    <figure class="bench" id="sum">
+        <div class="controls">
+            <div class="ctl"><label for="sum-n">Terms n</label><div class="row"><input id="sum-n" type="range" min="1" max="2000" value="100"><output id="sum-n-o" for="sum-n"></output></div></div>
+        </div>
+        <div class="split even">
+            <dl class="readout">
+                <dt>f32 running sum</dt><dd id="sum-f"></dd>
+                <dt>exact sum of the inputs</dt><dd id="sum-x"></dd>
+                <dt>actual |error|</dt><dd id="sum-err" class="bad"></dd>
+                <dt>γ(n − 1)</dt><dd id="sum-g"></dd>
+                <dt>bound γ(n−1)·Σ|xᵢ|</dt><dd id="sum-b" class="acc"></dd>
+            </dl>
+            <div class="meter">
+                <span class="lbl">Actual error as a share of the bound</span>
+                <div class="bar"><i id="sum-bar" style="--c: var(--err); width: 0"></i></div>
+                <span class="panel-foot" id="sum-ratio"></span>
+            </div>
+        </div>
+        <figcaption>The exact sum is <var>n</var> × 0.100000001490116…, computed in <code>f64</code>, where it is exact for these <var>n</var>. The bound always holds and is usually loose. A loose bound is fine here, because a bound only has to be safe.</figcaption>
+    </figure>
+
+    <h4>Addition is not associative</h4>
+    <div class="prose">
+        <p>Each addition rounds, so (<var>a</var> + <var>b</var>) + <var>c</var> and <var>a</var> + (<var>b</var> + <var>c</var>) can differ in the last bits. Below are eight <code>f32</code> values. Two of them nearly cancel, as bright and dark samples do. Shuffle their order and the <code>f32</code> sum changes. This is why <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> fixes a canonical summation order: each pixel sums its Pixel Samples in ascending sample index, so the Film is bit-identical however the Work Units were spread across Workers.</p>
+    </div>
+    <figure class="bench" id="assoc">
+        <div class="controls"><button class="primary" id="assoc-shuffle" type="button">Shuffle the order</button><button id="assoc-reset" type="button">Ascending index</button></div>
+        <div class="chips" id="assoc-chips"></div>
+        <dl class="readout">
+            <dt>f32 sum, left to right</dt><dd id="assoc-sum"></dd>
+            <dt>exact sum</dt><dd id="assoc-exact"></dd>
+            <dt>distinct results seen</dt><dd id="assoc-seen"></dd>
+        </dl>
+    </figure>
+</section>
+
+<section class="topic" id="intervals">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/interval.rs">interval.rs</a>, Point3fi · used by <span class="crate">umbra-geometry</span> · PBR 4e §6.8.2–§6.8.6 · ADR 0001</div>
+        <h3>Intervals, and where the next ray starts</h3>
+    </div>
+    <div class="prose">
+        <p>An <code>Interval</code> is a pair [<var>low</var>, <var>high</var>] that contains the exact result of the computation that produced it. Each operation rounds its bounds outward: the low bound uses a round-down operation (<code>add_round_down</code>, <code>mul_round_down</code>, …) and the high bound a round-up one. A product takes all four bound products and keeps the extremes. If the inputs contained the exact values, the output does too. That holds by construction, not by testing.</p>
+    </div>
+    <figure class="bench" id="iv">
+        <div class="controls">
+            <div class="ctl"><label for="iv-av">a = value</label><input id="iv-av" class="short" type="text" value="0.1" spellcheck="false"></div>
+            <div class="ctl"><label for="iv-ae">± error</label><input id="iv-ae" class="short" type="text" value="0" spellcheck="false"></div>
+            <div class="ctl"><label for="iv-op">operation</label>
+                <select id="iv-op"><option value="add">a + b</option><option value="sub">a − b</option><option value="mul" selected>a × b</option><option value="div">a ÷ b</option><option value="sqr">sqr(a)</option><option value="sqrt">sqrt(a)</option></select></div>
+            <div class="ctl"><label for="iv-bv">b = value</label><input id="iv-bv" class="short" type="text" value="3" spellcheck="false"></div>
+            <div class="ctl"><label for="iv-be">± error</label><input id="iv-be" class="short" type="text" value="0" spellcheck="false"></div>
+        </div>
+        <div class="split">
+            <canvas id="iv-cv" class="cv-strip" aria-label="Number line around the result, in ULPs"></canvas>
+            <dl class="readout">
+                <dt>a</dt><dd id="iv-a"></dd>
+                <dt>b</dt><dd id="iv-b"></dd>
+                <dt>result</dt><dd id="iv-r" class="acc"></dd>
+                <dt>width</dt><dd id="iv-w"></dd>
+                <dt>plain f32 op</dt><dd id="iv-n"></dd>
+            </dl>
+        </div>
+        <figcaption>Each input is built with <code>Interval::from_value_and_error(v, err)</code>, which is exactly [<var>v</var>, <var>v</var>] when err is 0. Even with exact inputs, a rounded operation produces an interval one or two ULPs wide, and it always contains the plain <code>f32</code> result. Division by an interval that contains 0 gives (−∞, ∞).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Why a renderer pays for this: when a ray hits a surface, the computed hit point <var>p</var> is almost never exactly on the surface. It can land a fraction of an ULP inside. A shadow or bounce ray that starts there can hit the same surface again at <var>t</var> ≈ 0, which shows up as the speckled artefact called <em>shadow acne</em>. pbrt-v4, and Umbra after it, keeps a conservative error box with every hit point (a <code>Point3fi</code> is a point made of Intervals). For a sphere the box is <var>γ</var>(5)·|<var>p</var>| per axis. <code>offset_ray_origin</code> then pushes the origin along the normal just far enough to leave that box, and steps one more float outward.</p>
+        <p><a href="../adr/0001-numeric-model.md">ADR 0001</a> rejected the alternative, a fixed epsilon offset, “because they are fragile under changes of scene scale”. Change the scale below to see why.</p>
+    </div>
+    <figure class="bench" id="sp">
+        <div class="controls">
+            <div class="ctl"><label for="sp-r">Sphere radius</label><div class="row"><input id="sp-r" type="range" min="0" max="12" step="1" value="0"><output id="sp-r-o" for="sp-r"></output></div></div>
+            <div class="ctl"><label for="sp-th">Hit latitude</label><div class="row"><input id="sp-th" type="range" min="5" max="80" step="1" value="37"><output id="sp-th-o" for="sp-th"></output></div></div>
+            <div class="ctl"><label for="sp-eps">Fixed epsilon</label><select id="sp-eps"><option value="1e-5">1e-5</option><option value="1e-4" selected>1e-4</option><option value="1e-3">1e-3</option></select></div>
+        </div>
+        <div class="split">
+            <canvas id="sp-cv" class="cv-mid" aria-label="Zoomed view of the hit point, its error box and the offset ray origins"></canvas>
+            <div style="display:grid; gap: 0.9rem">
+                <dl class="readout">
+                    <dt>1 ULP at p</dt><dd id="sp-ulp"></dd>
+                    <dt>error box ±</dt><dd id="sp-box"></dd>
+                    <dt>computed p</dt><dd id="sp-p"></dd>
+                    <dt>offset_ray_origin</dt><dd id="sp-o"></dd>
+                    <dt>p + ε·n</dt><dd id="sp-e"></dd>
+                </dl>
+                <div class="legend">
+                    <span style="--sw: var(--muted)">true surface</span>
+                    <span style="--sw: var(--grid)">representable f32 points</span>
+                    <span style="--sw: var(--ink)">computed p</span>
+                    <span style="--sw: var(--err)">error box, ε origin</span>
+                    <span style="--sw: var(--accent)">offset_ray_origin</span>
+                </div>
+            </div>
+        </div>
+        <figcaption>A ray from (−2<var>R</var>, <var>h</var>) along +x hits a circle of radius <var>R</var>. The hit is solved with <code>quadratic()</code> in <code>f32</code> and reprojected onto the surface, as pbrt-v4 does for spheres. The view is centred on <var>p</var>, a few ULPs across. “Outside/inside” is tested exactly. At large radii the fixed epsilon is smaller than half an ULP, so <var>p</var> + <var>ε</var>·<var>n</var> rounds back to <var>p</var>, while the error-bound offset grows with the scene.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="compensated">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/math.rs">math.rs</a> · PBR 4e §B.2.9–§B.2.10</div>
+        <h3>Cancellation, and the FMA that repairs it</h3>
+    </div>
+    <div class="prose">
+        <p>Subtracting two nearly equal floats is exact. The trouble is that the subtraction exposes the rounding error both operands already carried, which can be larger than the true difference. This is <em>catastrophic cancellation</em>, and <var>a</var>·<var>b</var> − <var>c</var>·<var>d</var> is the textbook case. It appears in every 2 × 2 determinant, every cross product, and the discriminant <var>b</var>² − 4<var>ac</var> that decides whether a ray hits a quadric.</p>
+        <p>A fused multiply-add computes <var>a</var>·<var>b</var> + <var>c</var> with a single rounding. So <code>fma(a, b, −a·b)</code> is the exact rounding error of the product <var>a</var>·<var>b</var>, which is what <code>two_prod</code> returns. <code>difference_of_products</code> (Kahan's algorithm) uses that to put the lost error of <var>c</var>·<var>d</var> back:</p>
+    </div>
+    <pre class="code"><span class="k">fn</span> difference_of_products(a: f32, b: f32, c: f32, d: f32) -> f32 {
+    <span class="k">let</span> cd = c * d;
+    <span class="k">let</span> difference = fma(a, b, -cd);   <span class="c">// a·b − cd, rounded once</span>
+    <span class="k">let</span> error = fma(-c, d, cd);       <span class="c">// exactly cd − c·d</span>
+    difference + error
+}</pre>
+    <figure class="bench" id="dp">
+        <div class="controls">
+            <div class="ctl"><label for="dp-a">a</label><input id="dp-a" class="short" type="text" spellcheck="false"></div>
+            <div class="ctl"><label for="dp-b">b</label><input id="dp-b" class="short" type="text" spellcheck="false"></div>
+            <div class="ctl"><label for="dp-c">c</label><input id="dp-c" class="short" type="text" spellcheck="false"></div>
+            <div class="ctl"><label for="dp-d">d</label><input id="dp-d" class="short" type="text" spellcheck="false"></div>
+            <div class="ctl"><span class="lbl">Presets</span><div class="btns">
+                <button type="button" data-p="disc">grazing ray b² − 4ac</button>
+                <button type="button" data-p="cross">cross product, near-parallel</button>
+                <button type="button" data-p="tame">well conditioned</button>
+            </div></div>
+        </div>
+        <div class="tablewrap">
+            <table class="data">
+                <thead><tr><th>method</th><th>result</th><th>error vs exact</th><th>verdict</th></tr></thead>
+                <tbody>
+                    <tr><td>a*b − c*d (naive f32)</td><td id="dp-n"></td><td id="dp-ne"></td><td id="dp-nv"></td></tr>
+                    <tr><td>difference_of_products</td><td id="dp-k"></td><td id="dp-ke"></td><td id="dp-kv"></td></tr>
+                    <tr><td class="mut">exact (see caption)</td><td id="dp-x"></td><td class="mut">—</td><td id="dp-xv"></td></tr>
+                </tbody>
+            </table>
+        </div>
+        <figcaption id="dp-cap">With two <code>f32</code> inputs, each product is exact in <code>f64</code>, so the exact column is that difference rounded once in <code>f64</code>. The verdict for the grazing-ray preset reads the sign as a ray test: positive means two hits, zero a tangent hit, negative a miss.</figcaption>
+    </figure>
+
+    <h4>Long sums: <code>two_sum</code> and <code>CompensatedSum</code></h4>
+    <div class="prose">
+        <p><code>two_sum</code> does for addition what <code>two_prod</code> does for products, with plain operations (Knuth): <var>s</var> = <var>a</var> + <var>b</var>, and the exact error is recovered from <var>s</var> − <var>a</var>. <code>CompensatedSum</code> applies the same idea to a running sum. It carries the low-order bits each addition drops in a second variable and feeds them into the next term, so that adding many small terms to a large total does not stall.</p>
+    </div>
+    <figure class="bench" id="ks">
+        <div class="controls">
+            <div class="ctl"><label for="ks-n">Add 1e-8 to 1.0, n times</label><div class="row"><input id="ks-n" type="range" min="1" max="6" step="0.25" value="5"><output id="ks-n-o" for="ks-n"></output></div></div>
+        </div>
+        <dl class="readout">
+            <dt>plain f32 sum</dt><dd id="ks-p"></dd>
+            <dt>CompensatedSum&lt;f32&gt;</dt><dd id="ks-k"></dd>
+            <dt>exact (f64)</dt><dd id="ks-x"></dd>
+        </dl>
+        <figcaption>1e-8 is less than half an ULP of 1.0 (5.96e-8), so the plain sum rounds every addition back to 1.0 and never moves. The compensated sum keeps the dropped part and lands within one ULP of the exact answer.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="normals">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/transform.rs">transform.rs</a>, <a href="../../crates/umbra-math/src/vecmath/normal.rs">normal.rs</a> · PBR 4e §3.5, §3.9–§3.10</div>
+        <h3>Points, vectors and normals transform differently</h3>
+    </div>
+    <div class="prose">
+        <p>Umbra has three types for three different things, as pbrt-v4 does. A <code>Point3f</code> is a position, so a translation moves it. A <code>Vector3f</code> is a direction with a length, so a translation leaves it alone (in homogeneous coordinates its <var>w</var> is 0). A <code>Normal3f</code> is perpendicular to a surface and must stay perpendicular after the surface is transformed. Multiplying it by <var>M</var> does not keep it perpendicular once <var>M</var> scales unevenly. Normals transform by the inverse transpose:</p>
+        <div class="eq">n · t = 0 &ensp;⇒&ensp; ((M<sup>−1</sup>)<sup>T</sup> n) · (M t) = n<sup>T</sup> M<sup>−1</sup> M t = 0</div>
+        <p>That is why every <code>Transform</code> stores both <code>m</code> and <code>m_inv</code>. Normals need the inverse anyway, so keeping it costs nothing at run time.</p>
+    </div>
+    <figure class="bench" id="nm">
+        <div class="controls">
+            <div class="ctl"><label for="nm-sx">scale x</label><div class="row"><input id="nm-sx" type="range" min="0.25" max="3" step="0.05" value="2.4"><output id="nm-sx-o" for="nm-sx"></output></div></div>
+            <div class="ctl"><label for="nm-sy">scale y</label><div class="row"><input id="nm-sy" type="range" min="0.25" max="3" step="0.05" value="0.8"><output id="nm-sy-o" for="nm-sy"></output></div></div>
+            <div class="ctl"><label for="nm-t">point on surface</label><div class="row"><input id="nm-t" type="range" min="0" max="360" step="1" value="40"><output id="nm-t-o" for="nm-t"></output></div></div>
+        </div>
+        <div class="split">
+            <canvas id="nm-cv" class="cv-mid" aria-label="A unit circle scaled into an ellipse, with tangent and two candidate normals"></canvas>
+            <div style="display:grid; gap:0.9rem">
+                <dl class="readout">
+                    <dt>angle(M·n, tangent)</dt><dd id="nm-a1" class="bad"></dd>
+                    <dt>angle((M⁻¹)ᵀ·n, tangent)</dt><dd id="nm-a2" class="ok"></dd>
+                </dl>
+                <div class="legend">
+                    <span style="--sw: var(--muted)">surface and tangent</span>
+                    <span style="--sw: var(--err)">M · n</span>
+                    <span style="--sw: var(--accent)">(M⁻¹)ᵀ · n</span>
+                </div>
+            </div>
+        </div>
+        <figcaption>A unit circle scaled by <code>scale(sx, sy, 1)</code>. Before scaling, the normal at the point is the radius. With equal scales both rules agree. Make the scales unequal and <var>M</var>·<var>n</var> tilts off the perpendicular, while the inverse transpose stays at 90°.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="frames">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/vecmath/frame.rs">frame.rs</a>, <a href="../../crates/umbra-math/src/vecmath/spherical.rs">spherical.rs</a> · PBR 4e §3.3.3, §3.8</div>
+        <h3>Shading frames and spherical coordinates</h3>
+    </div>
+    <div class="prose">
+        <p>A BSDF is written in a local <em>shading frame</em> where the surface normal is +<var>z</var>. In that frame cos <var>θ</var> is just <code>w.z</code>, and all the trigonometry a BSDF needs comes from reading coordinates: <code>cos_theta</code>, <code>sin2_theta</code>, <code>cos_phi</code> and the rest in <code>spherical.rs</code>. No <code>acos</code> is ever called.</p>
+        <p><code>Frame::from_z(n)</code> builds that frame from the normal with <code>coordinate_system</code>, the construction of Duff et al. (2017). It produces two unit vectors, perpendicular to <var>n</var> and to each other, from one <code>copysign</code> and a handful of multiplies, and it has no singularity anywhere on the sphere:</p>
+    </div>
+    <pre class="code"><span class="k">pub fn</span> coordinate_system(v: Vector3f) -> (Vector3f, Vector3f) {
+    <span class="k">let</span> sign = 1.0_f32.copysign(v.z);
+    <span class="k">let</span> a = -1.0 / (sign + v.z);
+    <span class="k">let</span> b = v.x * v.y * a;
+    (
+        Vector3f::new(1.0 + sign * v.x * v.x * a, sign * b, -sign * v.x),
+        Vector3f::new(b, sign + v.y * v.y * a, -v.y),
+    )
+}</pre>
+    <figure class="bench" id="fr">
+        <div class="controls">
+            <div class="ctl"><label for="fr-nt">normal tilt</label><div class="row"><input id="fr-nt" type="range" min="0" max="180" step="1" value="35"><output id="fr-nt-o" for="fr-nt"></output></div></div>
+            <div class="ctl"><label for="fr-np">normal azimuth</label><div class="row"><input id="fr-np" type="range" min="0" max="360" step="1" value="220"><output id="fr-np-o" for="fr-np"></output></div></div>
+            <div class="ctl"><label for="fr-th">direction θ (local)</label><div class="row"><input id="fr-th" type="range" min="0" max="90" step="1" value="50"><output id="fr-th-o" for="fr-th"></output></div></div>
+            <div class="ctl"><label for="fr-ph">direction φ (local)</label><div class="row"><input id="fr-ph" type="range" min="0" max="360" step="1" value="30"><output id="fr-ph-o" for="fr-ph"></output></div></div>
+        </div>
+        <div class="split">
+            <canvas id="fr-cv" class="cv-mid" tabindex="0" aria-label="3D view of the shading frame; drag to rotate"></canvas>
+            <div style="display:grid; gap:0.9rem">
+                <dl class="readout">
+                    <dt>n (world)</dt><dd id="fr-n"></dd>
+                    <dt>frame.x</dt><dd id="fr-x"></dd>
+                    <dt>frame.y</dt><dd id="fr-y"></dd>
+                    <dt>w = to_local(w)</dt><dd id="fr-w"></dd>
+                    <dt>cos_theta(w)</dt><dd id="fr-ct"></dd>
+                    <dt>sin_theta(w)</dt><dd id="fr-st"></dd>
+                    <dt>tan_theta(w)</dt><dd id="fr-tt"></dd>
+                    <dt>cos_phi / sin_phi</dt><dd id="fr-cp"></dd>
+                    <dt>x·y, x·n, y·n</dt><dd id="fr-dots"></dd>
+                </dl>
+                <div class="legend">
+                    <span style="--sw: var(--bit-sign)">frame.x</span>
+                    <span style="--sw: var(--bit-sig)">frame.y</span>
+                    <span style="--sw: var(--accent)">frame.z = n</span>
+                    <span style="--sw: var(--ink)">direction w</span>
+                </div>
+            </div>
+        </div>
+        <figcaption>Drag the view to rotate it. The direction is set in local spherical coordinates with <code>spherical_direction(sin θ, cos θ, φ)</code> and taken to world space with <code>frame.from_local</code>. The readouts read it back with the <code>spherical.rs</code> helpers, all in <code>f32</code>. Tilt the normal to 180° (straight down): the frame stays well defined.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="octahedral">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/vecmath/octahedral.rs">octahedral.rs</a> · PBR 4e §3.8.4</div>
+        <h3>A unit vector in 32 bits</h3>
+    </div>
+    <div class="prose">
+        <p>Three <code>f32</code> make a unit vector 12 bytes. <code>OctahedralVector</code> stores it in 4. First the vector is projected onto the octahedron |<var>x</var>| + |<var>y</var>| + |<var>z</var>| = 1. The upper half (<var>z</var> ≥ 0) projects straight down onto a diamond. The lower half is folded outward over the diamond's edges into the four corners. The whole sphere then lies flat on the square [−1, 1]², and each coordinate is quantised to a <code>u16</code>.</p>
+    </div>
+    <figure class="bench" id="oc">
+        <div class="controls">
+            <div class="ctl"><label for="oc-bits">bits per coordinate</label><select id="oc-bits"><option value="16" selected>16 (Umbra)</option><option value="8">8</option><option value="6">6</option><option value="4">4</option></select></div>
+        </div>
+        <div class="split">
+            <canvas id="oc-cv" class="cv-sq" tabindex="0" aria-label="The octahedral square coloured by direction; click to pick a direction"></canvas>
+            <div style="display:grid; gap:0.9rem">
+                <dl class="readout">
+                    <dt>picked direction</dt><dd id="oc-v"></dd>
+                    <dt>stored (x, y)</dt><dd id="oc-q"></dd>
+                    <dt>decoded</dt><dd id="oc-d"></dd>
+                    <dt>round-trip error</dt><dd id="oc-e"></dd>
+                    <dt>worst of 20 000 random</dt><dd id="oc-w"></dd>
+                </dl>
+                <p class="panel-foot">Colour is the decoded direction mapped to RGB as ½ + ½·<var>n</var>, as in a normal map. Click or drag on the square to pick a direction. The dashed diamond is the upper hemisphere and the corners are the folded lower one. Drop to 4 bits to see the quantisation cells.</p>
+            </div>
+        </div>
+    </figure>
+</section>
+
+<section class="topic" id="projection">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/transform.rs">perspective()</a> · used by <span class="crate">umbra-camera</span> · PBR 4e §5.2.2</div>
+        <h3>The perspective projection</h3>
+    </div>
+    <div class="prose">
+        <p><code>perspective(fov, n, f)</code> is the matrix a perspective camera uses to relate camera space to screen space. It divides <var>x</var> and <var>y</var> by depth, scales them by 1 ⁄ tan(fov ⁄ 2) so that the field of view spans [−1, 1], and maps depth <var>z</var> ∈ [<var>n</var>, <var>f</var>] onto [0, 1]:</p>
+        <div class="eq">x′ = x ⁄ (z · tan(fov⁄2)),&emsp; z′ = f (z − n) ⁄ (z (f − n))</div>
+        <p>A ray tracer runs the map backwards. The camera takes a raster position, applies the inverse to reach camera space, and shoots a ray from the origin through that point. The depth mapping matters little here, since there is no depth buffer. What matters is the field-of-view scale.</p>
+    </div>
+    <figure class="bench" id="pj">
+        <div class="controls">
+            <div class="ctl"><label for="pj-fov">field of view</label><div class="row"><input id="pj-fov" type="range" min="10" max="150" step="1" value="60"><output id="pj-fov-o" for="pj-fov"></output></div></div>
+            <div class="ctl"><label for="pj-px">pixels across</label><div class="row"><input id="pj-px" type="range" min="2" max="16" step="1" value="8"><output id="pj-px-o" for="pj-px"></output></div></div>
+            <div class="ctl"><label for="pj-n">near n</label><div class="row"><input id="pj-n" type="range" min="-2" max="1" step="0.1" value="-2"><output id="pj-n-o" for="pj-n"></output></div></div>
+            <div class="ctl"><label for="pj-f">far f</label><div class="row"><input id="pj-f" type="range" min="1.5" max="4" step="0.1" value="3"><output id="pj-f-o" for="pj-f"></output></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">Camera rays through pixel centres (seen from above)</p>
+                <canvas id="pj-cv" class="cv-mid" aria-label="Rays from the camera through pixel centres"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div>
+                    <p class="panel-title">perspective(fov, n, f), in f32</p>
+                    <div class="tablewrap"><table class="data" id="pj-m"></table></div>
+                </div>
+                <div>
+                    <p class="panel-title">z′ against z on [n, f]</p>
+                    <canvas id="pj-z" class="cv-strip" aria-label="The depth mapping"></canvas>
+                    <p class="panel-foot" id="pj-half"></p>
+                </div>
+            </div>
+        </div>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · on the roadmap</div>
+    <h2>The maths still to come</h2>
+    <p>The remaining core crates are empty shells today (arc42 §5). This part covers the maths they will implement, following pbrt-v4. The figures use the book's formulas and are not tied to Umbra code yet.</p>
+</div>
+
+<section class="topic" id="monte-carlo">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-integrators</span>, <span class="crate">umbra-sampling</span> · PBR 4e ch. 2, ch. 13 · ADR 0004</div>
+        <h3>Monte Carlo: estimating an integral with random numbers</h3>
+    </div>
+    <div class="prose">
+        <p>The light leaving a point is an integral over every direction light can arrive from. This is the rendering equation:</p>
+        <div class="eq">L<sub>o</sub>(p, ω<sub>o</sub>) = L<sub>e</sub>(p, ω<sub>o</sub>) + ∫<sub>S²</sub> f(p, ω<sub>o</sub>, ω<sub>i</sub>) L<sub>i</sub>(p, ω<sub>i</sub>) |cos θ<sub>i</sub>| dω<sub>i</sub></div>
+        <p>It has no closed form, and <var>L<sub>i</sub></var> is itself the same integral seen from somewhere else. A renderer estimates it instead. Draw <var>N</var> samples <var>X<sub>i</sub></var> from any density <var>p</var> that is non-zero wherever the integrand is, and average:</p>
+        <div class="eq">F<sub>N</sub> = (1⁄N) Σ<sub>i</sub> f(X<sub>i</sub>) ⁄ p(X<sub>i</sub>),&emsp; E[F<sub>N</sub>] = ∫ f(x) dx</div>
+        <p>The estimate is right on average, and its error shrinks like 1⁄√<var>N</var>, so four times the Pixel Samples halve the noise. Picking <var>p</var> shaped like <var>f</var> (<em>importance sampling</em>) shrinks the constant in front of that rate. The figure estimates ∫₀¹ 4<var>x</var>³ d<var>x</var> = 1 both ways: with uniform samples, and with <var>p</var>(<var>x</var>) = 3<var>x</var>², drawn as <var>x</var> = ∛<var>u</var>.</p>
+    </div>
+    <figure class="bench" id="mc">
+        <div class="controls">
+            <div class="ctl"><label for="mc-seed">seed</label><div class="row"><input id="mc-seed" type="number" min="0" max="999999" value="0" style="width:6rem"><button id="mc-next" type="button">next seed</button></div></div>
+            <div class="ctl"><label for="mc-n">samples N</label><div class="row"><input id="mc-n" type="range" min="0" max="12" step="1" value="8"><output id="mc-n-o" for="mc-n"></output></div></div>
+        </div>
+        <div class="split">
+            <canvas id="mc-cv" class="cv-mid" aria-label="Running estimates converging to 1"></canvas>
+            <div style="display:grid; gap:0.9rem">
+                <dl class="readout">
+                    <dt>uniform estimate</dt><dd id="mc-u"></dd>
+                    <dt>importance estimate</dt><dd id="mc-i"></dd>
+                    <dt>σ uniform / importance</dt><dd>√(9⁄7) ≈ 1.134 / √(1⁄15) ≈ 0.258</dd>
+                </dl>
+                <div class="legend">
+                    <span style="--sw: var(--err)">uniform p = 1</span>
+                    <span style="--sw: var(--accent)">importance p = 3x²</span>
+                    <span style="--sw: var(--grid)">±σ⁄√N band</span>
+                </div>
+                <p class="panel-foot">The random numbers come from PCG32, the generator pbrt-v4 uses, here on stream <i>seed</i>. The same seed always draws the same numbers, which is what makes a Pixel Sample a pure function of (Scene, seed, pixel, sample index) in ADR 0004.</p>
+            </div>
+        </div>
+    </figure>
+</section>
+
+<section class="topic" id="patterns">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-sampling</span> · PBR 4e ch. 8</div>
+        <h3>Better than random: stratified and low-discrepancy samples</h3>
+    </div>
+    <div class="prose">
+        <p>Independent random points clump and leave holes, and the holes are noise. Stratification cuts the square into a grid and puts one jittered point in each cell. Low-discrepancy sequences go further and fill the square evenly for every prefix of the sequence. The simplest is the base-2 <em>radical inverse</em>: write <var>i</var> in binary and mirror the digits around the binary point, so 6 = 110₂ becomes 0.011₂ = 0.375. Pairing <var>i</var>⁄<var>N</var> with that gives the Hammersley set. pbrt-v4's default sampler (Z-Sobol) is a more refined member of the same family.</p>
+    </div>
+    <figure class="bench" id="pt">
+        <div class="controls">
+            <div class="ctl"><label for="pt-n">points</label><select id="pt-n"><option>16</option><option selected>64</option><option>256</option><option>1024</option></select></div>
+            <div class="ctl"><span class="lbl">random draws</span><button id="pt-seed" type="button">new seed</button></div>
+        </div>
+        <div class="trio">
+            <div><p class="panel-title">independent (PCG32)</p><canvas id="pt-a" class="cv-sq"></canvas><p class="panel-foot" id="pt-a-f"></p></div>
+            <div><p class="panel-title">stratified, jittered</p><canvas id="pt-b" class="cv-sq"></canvas><p class="panel-foot" id="pt-b-f"></p></div>
+            <div><p class="panel-title">Hammersley (radical inverse)</p><canvas id="pt-c" class="cv-sq"></canvas><p class="panel-foot" id="pt-c-f"></p></div>
+        </div>
+        <figcaption>Each panel estimates π as 4 × the share of points inside the quarter disc. Over many seeds the stratified and low-discrepancy errors fall faster than 1⁄√<var>N</var>, while independent points stay at that rate.</figcaption>
+        <div class="tablewrap"><table class="data" id="pt-ri"></table></div>
+    </figure>
+</section>
+
+<section class="topic" id="warps">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-sampling</span> · PBR 4e §2.3, app. A</div>
+        <h3>Warping the square onto discs and hemispheres</h3>
+    </div>
+    <div class="prose">
+        <p>Samplers produce points in [0, 1)². Rendering needs points on discs (lens apertures, area lights) and hemispheres (BSDF directions). The <em>inversion method</em> turns one into the other: if <var>P</var> is a cumulative distribution, then <var>X</var> = <var>P</var>⁻¹(<var>U</var>) has density <var>p</var>. The figure shows three ways to fill a disc:</p>
+        <ul>
+            <li>Polar coordinates with <var>r</var> = <var>u</var> crowd the centre, because a ring's area grows with its radius.</li>
+            <li><var>r</var> = √<var>u</var> fixes the density but stretches each stratum into a long thin wedge.</li>
+            <li>Shirley and Chiu's <em>concentric</em> map sends nested squares to nested circles. It keeps the strata compact, so stratified samples stay stratified.</li>
+        </ul>
+        <p>Lifting concentric disc samples straight up onto the hemisphere, <var>z</var> = √(1 − <var>x</var>² − <var>y</var>²), gives directions with density cos <var>θ</var> ⁄ π (Malley's method). That matches the |cos <var>θ</var>| factor in the rendering equation exactly.</p>
+    </div>
+    <figure class="bench" id="wp">
+        <div class="quad">
+            <div><p class="panel-title">[0, 1)² source</p><canvas id="wp-0" class="cv-sq"></canvas></div>
+            <div><p class="panel-title">polar, r = u</p><canvas id="wp-1" class="cv-sq"></canvas></div>
+            <div><p class="panel-title">polar, r = √u</p><canvas id="wp-2" class="cv-sq"></canvas></div>
+            <div><p class="panel-title">concentric</p><canvas id="wp-3" class="cv-sq"></canvas></div>
+            <div><p class="panel-title">cosine hemisphere, side view</p><canvas id="wp-4" class="cv-sq"></canvas></div>
+        </div>
+        <figcaption>1 024 Hammersley points, coloured by the 8 × 8 stratum they started in, with the stratum boundaries warped along with them.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="wavelengths">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-spectrum</span> · PBR 4e §4.5–§4.6 · ADR 0001</div>
+        <h3>Four wavelengths per Pixel Sample</h3>
+    </div>
+    <div class="prose">
+        <p>Umbra is spectral only (ADR 0001). Each Pixel Sample carries radiance at <code>N_SPECTRUM_SAMPLES = 4</code> wavelengths, which fill one <code>Vec4</code> and one 128-bit register. The wavelengths come from one uniform number <var>u</var>, stratified into <var>u</var>, <var>u</var> + ¼, <var>u</var> + ½ and <var>u</var> + ¾ (wrapped into [0, 1)). Each is mapped through the inverse CDF of pbrt-v4's visible-wavelength density on [360, 830] nm:</p>
+        <div class="eq">p(λ) ∝ 1 ⁄ cosh²(0.0072 (λ − 538)),&emsp; λ(u) = 538 − 138.888889 · atanh(0.85691062 − 1.82750197 u)</div>
+        <p>The density looks much like the eye's luminous efficiency curve <var>ȳ</var>(λ), so samples gather where they change the image most. Each wavelength's radiance is later divided by its <var>p</var>(λ), and the estimate stays unbiased.</p>
+    </div>
+    <figure class="bench" id="wl">
+        <div class="controls">
+            <div class="ctl"><label for="wl-u">u</label><div class="row"><input id="wl-u" type="range" min="0" max="0.999" step="0.001" value="0.13"><output id="wl-u-o" for="wl-u"></output></div></div>
+        </div>
+        <canvas id="wl-cv" class="cv-wide" aria-label="Visible spectrum with the sampling density and four sampled wavelengths"></canvas>
+        <div class="tablewrap"><table class="data" id="wl-t"></table></div>
+        <div class="legend">
+            <span style="--sw: var(--accent)">p(λ), pbrt-v4 visible-wavelength pdf</span>
+            <span style="--sw: var(--muted)">ȳ(λ), CIE 1931 luminance, scaled to the same peak</span>
+        </div>
+        <figcaption>Spectral colours and <var>ȳ</var> are drawn from the analytic CIE fit of Wyman, Sloan and Shirley (2013), for display only. Umbra will use pbrt-v4's tabulated CIE data (arc42 §8.1).</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="microfacets">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-shading</span> · PBR 4e §9.6 · ADR 0013</div>
+        <h3>Microfacets: roughness as a distribution of tiny mirrors</h3>
+    </div>
+    <div class="prose">
+        <p>Rough metals and plastics are modelled as many tiny perfect mirrors whose normals <var>ω<sub>m</sub></var> scatter around the surface normal. The microfacet distribution <var>D</var>(<var>ω<sub>m</sub></var>) gives the density of those normals. pbrt-v4 uses Trowbridge–Reitz (also known as GGX). Its isotropic form, with roughness <var>α</var>, is:</p>
+        <div class="eq">D(ω<sub>m</sub>) = 1 ⁄ ( π α² cos⁴θ<sub>m</sub> (1 + tan²θ<sub>m</sub> ⁄ α²)² )</div>
+        <p>As <var>α</var> → 0 the surface becomes a mirror, and at <var>α</var> = 1 it is very rough. Whatever <var>α</var> is, the projected microfacet area has to add up to the macro surface: ∫ <var>D</var>(<var>ω<sub>m</sub></var>) cos <var>θ<sub>m</sub></var> d<var>ω<sub>m</sub></var> = 1. Normalisation checks like this are the kind <a href="../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md">ADR 0013</a> asks the crate that owns the routine to test.</p>
+    </div>
+    <figure class="bench" id="mf">
+        <div class="controls">
+            <div class="ctl"><label for="mf-a">roughness α</label><div class="row"><input id="mf-a" type="range" min="0.03" max="1" step="0.01" value="0.3"><output id="mf-a-o" for="mf-a"></output></div></div>
+        </div>
+        <div class="split">
+            <canvas id="mf-cv" class="cv-wide" aria-label="Polar plot of the microfacet distribution"></canvas>
+            <dl class="readout">
+                <dt>D(n) = 1 ⁄ (πα²)</dt><dd id="mf-d0"></dd>
+                <dt>half the mass within</dt><dd id="mf-half"></dd>
+                <dt>∫ D cos θ dω (numeric)</dt><dd id="mf-int" class="ok"></dd>
+            </dl>
+        </div>
+        <figcaption>A slice through the lobe: distance from the centre is <var>D</var>(<var>θ<sub>m</sub></var>) cos <var>θ<sub>m</sub></var>, scaled to its peak. The integral is evaluated live with Simpson's rule over 4 000 steps.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="mis">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-integrators</span> · PBR 4e §2.2.3</div>
+        <h3>Multiple importance sampling</h3>
+    </div>
+    <div class="prose">
+        <p>At each bounce a path tracer can find direct light in two ways. It can sample a point on the light, which works well for small lights and rough surfaces. Or it can sample the BSDF and see whether the ray hits a light, which works well for large lights and glossy surfaces. Neither wins everywhere. MIS takes one sample of each and weights each sample by how likely <em>both</em> strategies were to produce it. With pbrt-v4's power heuristic:</p>
+        <div class="eq">w<sub>light</sub>(ω) = p<sub>light</sub>(ω)² ⁄ (p<sub>light</sub>(ω)² + p<sub>bsdf</sub>(ω)²)</div>
+        <p>The weights of the two strategies add up to 1 at every direction, so the combined estimate stays unbiased. Each sample counts mostly where its own strategy was the better one.</p>
+    </div>
+    <figure class="bench" id="mi">
+        <div class="controls">
+            <div class="ctl"><label for="mi-l">light size</label><div class="row"><input id="mi-l" type="range" min="2" max="60" step="1" value="10"><output id="mi-l-o" for="mi-l"></output></div></div>
+            <div class="ctl"><label for="mi-r">BSDF lobe width</label><div class="row"><input id="mi-r" type="range" min="4" max="60" step="1" value="25"><output id="mi-r-o" for="mi-r"></output></div></div>
+            <div class="ctl"><label for="mi-h">heuristic</label><select id="mi-h"><option value="power" selected>power (pbrt-v4)</option><option value="balance">balance</option></select></div>
+        </div>
+        <canvas id="mi-cv" class="cv-wide" aria-label="Two densities over direction and the MIS weights they give"></canvas>
+        <div class="legend">
+            <span style="--sw: var(--bit-sig)">p<sub>light</sub>, uniform over the light</span>
+            <span style="--sw: var(--bit-sign)">p<sub>bsdf</sub>, a lobe around the reflection direction</span>
+            <span style="--sw: var(--accent)">w<sub>light</sub> (lower band; w<sub>bsdf</sub> = 1 − w<sub>light</sub>)</span>
+        </div>
+    </figure>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> Every section reference in this guide points here. Read §6.8 (floating-point error) and appendix B.2 (the numeric helpers) alongside <code>umbra-math</code>.</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/util/float.h</code>, <code>math.h</code>, <code>vecmath.h</code>, <code>transform.h</code>, <code>sampling.h</code>, <code>spectrum.h</code>. Umbra's functions keep these names in snake case.</li>
+        <li>Higham. <i>Accuracy and Stability of Numerical Algorithms</i>, 2nd ed., SIAM 2002. The source of the <var>γ</var>(<var>n</var>) notation and the summation bounds.</li>
+        <li>Duff et al. <a href="https://jcgt.org/published/0006/01/01/">Building an Orthonormal Basis, Revisited</a>. JCGT 6(1), 2017. The <code>coordinate_system</code> construction.</li>
+        <li>Shirley and Chiu. A Low Distortion Map Between Disk and Square. <i>Journal of Graphics Tools</i> 2(3), 1997. The concentric mapping.</li>
+        <li>Wyman, Sloan, Shirley. <a href="https://jcgt.org/published/0002/02/01/">Simple Analytic Approximations to the CIE XYZ Color Matching Functions</a>. JCGT 2(2), 2013. Used here for display colours only.</li>
+        <li>In this repository: <a href="../adr/0001-numeric-model.md">ADR 0001</a> (numeric model), <a href="../adr/0002-bit-identical-results-across-architectures.md">ADR 0002</a> (bit-identical results), <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md">ADR 0013</a> (statistical validation), <a href="../architecture/08-crosscutting-concepts.md">arc42 §8.1</a> (numerics and spectral representation).</li>
+    </ul>
+</section>
+
+<footer>Umbra Math Field Guide · docs/math/field-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    f32 emulation. Every helper rounds to f32 after each operation, in
+    the order the Rust code performs them.
+    ================================================================ */
+const f32 = Math.fround;
+const EPS = 2 ** -24;                       // MACHINE_EPSILON
+const dv = new DataView(new ArrayBuffer(4));
+const toBits = (x) => { dv.setFloat32(0, x); return dv.getUint32(0); };
+const fromBits = (u) => { dv.setUint32(0, u >>> 0); return dv.getFloat32(0); };
+const ONE_MINUS_EPSILON = fromBits(0x3f7fffff);
+
+function nextUp(v) {
+    if (v === Infinity || Number.isNaN(v)) return v;
+    if (v === 0) v = 0;
+    const b = toBits(v);
+    return v >= 0 ? fromBits(b + 1) : fromBits(b - 1);
+}
+function nextDown(v) {
+    if (v === -Infinity || Number.isNaN(v)) return v;
+    if (v === 0) v = -0;
+    const b = toBits(v);
+    return v > 0 ? fromBits(b - 1) : fromBits(b + 1);
+}
+function ulp(x) {
+    const a = Math.abs(f32(x));
+    if (!Number.isFinite(a)) return NaN;
+    return nextUp(a) - a;
+}
+/* a*b + c with one rounding to f32. a*b of two f32 is exact in f64; the
+    f64 sum is corrected with its exact TwoSum error, so ties resolve right. */
+function fma32(a, b, c) {
+    const p = a * b, s = p + c, bb = s - p, e = (p - (s - bb)) + (c - bb);
+    let r = f32(s);
+    if (r !== s && e !== 0 && Number.isFinite(r)) {
+        const o = s > r ? nextUp(r) : nextDown(r);
+        const lo = Math.min(r, o), hi = Math.max(r, o);
+        if (s === (lo + hi) / 2) r = e > 0 ? hi : lo;
+    }
+    return r;
+}
+const gamma = (n) => f32(f32(n * EPS) / f32(1 - f32(n * EPS)));
+const copysign1 = (v) => (v > 0 || Object.is(v, 0)) ? 1 : -1;
+function dop32(a, b, c, d) {               // difference_of_products
+    const cd = f32(c * d);
+    const difference = fma32(a, b, -cd);
+    const error = fma32(-c, d, cd);
+    return f32(difference + error);
+}
+function sop32(a, b, c, d) {               // sum_of_products
+    const cd = f32(c * d);
+    const sum = fma32(a, b, cd);
+    const error = fma32(c, d, -cd);
+    return f32(sum + error);
+}
+function quadratic32(a, b, c) {
+    if (a === 0) { if (b === 0) return null; const t = f32(-c / b); return [t, t]; }
+    const discrim = dop32(b, b, f32(4 * a), c);
+    if (discrim < 0) return null;
+    const rd = f32(Math.sqrt(discrim));
+    const q = f32(-0.5 * f32(b + rd * copysign1(b)));
+    const t0 = f32(q / a), t1 = f32(c / q);
+    return t0 > t1 ? [t1, t0] : [t0, t1];
+}
+const dot32 = (v, w) => fma32(v[0], w[0], sop32(v[1], w[1], v[2], w[2]));
+
+/* ---------- formatting ---------- */
+function short(x) {
+    if (Number.isNaN(x)) return "NaN";
+    if (!Number.isFinite(x)) return x > 0 ? "∞" : "−∞";
+    if (x === 0) return Object.is(x, -0) ? "−0" : "0";
+    for (let p = 1; p <= 9; p++) {
+        const s = x.toPrecision(p);
+        if (f32(parseFloat(s)) === x) return tidy(s);
+    }
+    return tidy(x.toPrecision(9));
+}
+function tidy(s) {
+    return s.replace(/e\+?/, "e").replace(/^-/, "−");
+}
+const sci = (x, d = 3) => Number.isFinite(x) ? tidy(x.toExponential(d)) : short(x);
+const hex = (x) => "0x" + toBits(x).toString(16).toUpperCase().padStart(8, "0");
+function exactDecimal(x) {
+    if (Number.isNaN(x)) return "NaN";
+    if (!Number.isFinite(x)) return x > 0 ? "+∞" : "−∞";
+    const b = toBits(x), neg = b >>> 31, e = (b >>> 23) & 0xff, f = b & 0x7fffff;
+    let m, ex;
+    if (e === 0) { m = f; ex = -149; } else { m = f | 0x800000; ex = e - 150; }
+    let s;
+    if (m === 0) s = "0";
+    else if (ex >= 0) s = (BigInt(m) << BigInt(ex)).toString();
+    else {
+        const k = -ex;
+        const digits = (BigInt(m) * 5n ** BigInt(k)).toString().padStart(k + 1, "0");
+        const ip = digits.slice(0, digits.length - k), fp = digits.slice(digits.length - k).replace(/0+$/, "");
+        s = fp ? ip + "." + fp : ip;
+    }
+    return (neg ? "−" : "") + s;
+}
+const deg = (r) => r * 180 / Math.PI;
+const rad = (d) => d * Math.PI / 180;
+const $ = (id) => document.getElementById(id);
+const setText = (id, t) => { const el = $(id); if (el) el.textContent = t; };
+const setHTML = (id, t) => { const el = $(id); if (el) el.innerHTML = t; };
+
+/* ================================================================
+    Theme-aware canvas plumbing
+    ================================================================ */
+let C = {};
+function readTheme() {
+    const s = getComputedStyle(document.documentElement);
+    const g = (n) => s.getPropertyValue(n).trim();
+    C = {
+        paper: g("--paper"), surface: g("--surface"), ink: g("--ink"), muted: g("--muted"),
+        rule: g("--rule"), grid: g("--grid"), accent: g("--accent"), err: g("--err"),
+        exact: g("--exact"), sign: g("--bit-sign"), sig: g("--bit-sig"),
+        mono: g("--mono") || "monospace",
+    };
+}
+readTheme();
+const entries = [];
+const updaters = [];
+function canvasEntry(id, draw) {
+    const cv = $(id);
+    const en = { cv, draw };
+    entries.push(en);
+    return en;
+}
+function paint(en) {
+    const { cv } = en;
+    const r = cv.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, r.width, r.height);
+    ctx.fillStyle = C.paper;
+    ctx.fillRect(0, 0, r.width, r.height);
+    en.draw(ctx, r.width, r.height);
+}
+const ro = new ResizeObserver((list) => list.forEach((e) => {
+    const en = entries.find((x) => x.cv === e.target);
+    if (en) paint(en);
+}));
+function alpha(color, a) {
+    const m = /^#([0-9a-f]{6})$/i.exec(color);
+    if (!m) return color;
+    const n = parseInt(m[1], 16);
+    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+function font(ctx, size = 11, weight = 400) { ctx.font = `${weight} ${size}px ${C.mono}`; }
+function line(ctx, pts, color, w = 1.5, dash = []) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+}
+function arrow(ctx, x0, y0, x1, y1, color, w = 2) {
+    line(ctx, [[x0, y0], [x1, y1]], color, w);
+    const a = Math.atan2(y1 - y0, x1 - x0), h = 7 + w;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - h * Math.cos(a - 0.4), y1 - h * Math.sin(a - 0.4));
+    ctx.lineTo(x1 - h * Math.cos(a + 0.4), y1 - h * Math.sin(a + 0.4));
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+function dot(ctx, x, y, r, color, ring) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
+    if (ring) { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke(); }
+    else { ctx.fillStyle = color; ctx.fill(); }
+}
+function label(ctx, t, x, y, color, align = "left", size = 11, base = "middle") {
+    font(ctx, size); ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(t, x, y);
+}
+function bindRange(id, fmt, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const go = () => { if (out) out.textContent = fmt(parseFloat(el.value)); onInput(); };
+    el.addEventListener("input", go);
+    return () => { if (out) out.textContent = fmt(parseFloat(el.value)); };
+}
+const num = (id) => parseFloat($(id).value);
+
+/* ================================================================
+    PCG32 and MixBits, as pbrt-v4's RNG (src/pbrt/util/rng.h)
+    ================================================================ */
+const M64 = (1n << 64n) - 1n;
+function mixBits(v) {
+    v = BigInt(v) & M64;
+    v ^= v >> 31n; v = (v * 0x7fb5d329728ea185n) & M64;
+    v ^= v >> 27n; v = (v * 0x81dadef4bc2dd44dn) & M64;
+    v ^= v >> 33n;
+    return v;
+}
+class Pcg32 {
+    constructor(seq) {                       // pbrt-v4 RNG(seqIndex)
+        this.state = 0n;
+        this.inc = ((BigInt(seq) << 1n) | 1n) & M64;
+        this.u32();
+        this.state = (this.state + mixBits(seq)) & M64;
+        this.u32();
+    }
+    u32() {
+        const old = this.state;
+        this.state = (old * 0x5851f42d4c957f2dn + this.inc) & M64;
+        const xs = Number((((old >> 18n) ^ old) >> 27n) & 0xffffffffn);
+        const rot = Number(old >> 59n);
+        return ((xs >>> rot) | (xs << ((-rot) & 31))) >>> 0;
+    }
+    uniform() { return Math.min(ONE_MINUS_EPSILON, f32(f32(this.u32()) * 2 ** -32)); }
+}
+function radicalInverse2(i) {
+    let r = 0, b = i >>> 0;
+    for (let k = 0; k < 32; k++) { r = (r << 1) | (b & 1); b >>>= 1; }
+    return (r >>> 0) * 2 ** -32;
+}
+
+/* ================================================================
+    1 · the f32 number line
+    ================================================================ */
+(() => {
+    let v = f32(0.1);
+    const box = $("fl-bits");
+    const btns = [];
+    for (let k = 0; k < 32; k++) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = k === 0 ? "s" : k <= 8 ? "e" : "f";
+        b.setAttribute("aria-label", `bit ${31 - k}`);
+        b.addEventListener("click", () => { v = fromBits(toBits(v) ^ (1 << (31 - k))); syncInput(); update(); });
+        box.appendChild(b);
+        btns.push(b);
+    }
+    const input = $("fl-in");
+    const syncInput = () => { input.value = Number.isNaN(v) ? "NaN" : short(v).replace("−", "-").replace("∞", "Infinity"); };
+    input.addEventListener("input", () => {
+        const t = input.value.trim();
+        if (t === "") return;
+        const x = Number(t);
+        if (!Number.isNaN(x) || /^nan$/i.test(t)) { v = f32(x); update(); }
+    });
+    $("fl-up").addEventListener("click", () => { v = nextUp(v); syncInput(); update(); });
+    $("fl-down").addEventListener("click", () => { v = nextDown(v); syncInput(); update(); });
+    $("fl-presets").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+        v = f32(parseFloat(b.dataset.v)); syncInput(); update();
+    }));
+    function update() {
+        const b = toBits(v);
+        btns.forEach((btn, k) => {
+            const bit = (b >>> (31 - k)) & 1;
+            btn.textContent = bit;
+            btn.classList.toggle("one", bit === 1);
+            btn.setAttribute("aria-pressed", bit ? "true" : "false");
+        });
+        const e = (b >>> 23) & 0xff, f = b & 0x7fffff;
+        setText("fl-exact", exactDecimal(v));
+        setText("fl-short", short(v));
+        const bin = b.toString(2).padStart(32, "0");
+        setText("fl-hex", `${hex(v)}  (${bin[0]} ${bin.slice(1, 9)} ${bin.slice(9)})`);
+        setText("fl-exp", `${e - 127}  (stored ${e} − bias 127)`);
+        setText("fl-sig", `${f}  (0x${f.toString(16).toUpperCase().padStart(6, "0")})`);
+        let kind;
+        if (Number.isNaN(v)) kind = "NaN (exponent all ones, significand ≠ 0)";
+        else if (!Number.isFinite(v)) kind = "infinity (exponent all ones)";
+        else if (v === 0) kind = "zero";
+        else if (e === 0) kind = "subnormal: no implicit 1, value = 0.f × 2⁻¹²⁶";
+        else kind = "normal";
+        setText("fl-kind", kind);
+        const u = ulp(v);
+        setText("fl-ulp", Number.isFinite(u) ? `${sci(u, 4)} = 2^${Math.log2(u)}${v !== 0 ? ` · relative ${sci(u / Math.abs(v), 2)}` : ""}` : "—");
+        const p1 = f32(v + 1);
+        setText("fl-plus1", Number.isFinite(v) ? `${short(p1)}${p1 === v ? "  (unchanged: 1 is under half an ULP)" : ""}` : "—");
+    }
+    update();
+})();
+
+/* ================================================================
+    2 · γ(n) and summation; non-associativity
+    ================================================================ */
+(() => {
+    const X = f32(0.1);
+    const sync = bindRange("sum-n", (n) => String(n), update);
+    function update() {
+        const n = Math.round(num("sum-n"));
+        let s = 0;
+        for (let i = 0; i < n; i++) s = f32(s + X);
+        const exact = n * X;
+        const err = Math.abs(s - exact);
+        const g = gamma(n - 1);
+        const bound = g * n * X;
+        setText("sum-f", s.toPrecision(12));
+        setText("sum-x", exact.toPrecision(12));
+        setText("sum-err", err === 0 ? "0 (exact)" : sci(err));
+        setText("sum-g", sci(g, 4));
+        setText("sum-b", bound === 0 ? "0" : sci(bound));
+        const ratio = bound > 0 ? err / bound : 0;
+        $("sum-bar").style.width = `${Math.min(100, ratio * 100).toFixed(2)}%`;
+        setText("sum-ratio", n === 1 ? "A single term needs no rounding at all." :
+            `The actual error is ${(ratio * 100).toFixed(ratio < 0.01 ? 3 : 1)} % of the bound.`);
+    }
+    sync(); update();
+})();
+
+(() => {
+    const vals = [1048576.1, 0.37, 2.9, -1048575.0, 0.031, 5.25, 0.66, 13.7].map(f32);
+    const exact = vals.reduce((a, b) => a + b, 0); // exact: all terms fit in 53 bits
+    let order = vals.map((_, i) => i);
+    const seen = new Set();
+    const sub = (i) => String(i).split("").map((d) => "₀₁₂₃₄₅₆₇₈₉"[+d]).join("");
+    function update() {
+        let s = 0;
+        for (const i of order) s = f32(s + vals[i]);
+        seen.add(s);
+        setHTML("assoc-chips", order.map((i) => `<span>x${sub(i)} = ${short(vals[i])}</span>`).join(""));
+        setText("assoc-sum", `${s.toPrecision(10)}   ${hex(s)}`);
+        setText("assoc-exact", exact.toPrecision(12));
+        setText("assoc-seen", `${seen.size}${seen.size === 1 ? " (shuffle to find more)" : ""}`);
+    }
+    $("assoc-shuffle").addEventListener("click", () => {
+        for (let i = order.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [order[i], order[j]] = [order[j], order[i]];
+        }
+        update();
+    });
+    $("assoc-reset").addEventListener("click", () => { order = vals.map((_, i) => i); update(); });
+    update();
+})();
+
+/* ================================================================
+    3 · Interval arithmetic
+    ================================================================ */
+(() => {
+    const fromVE = (v, e) => {
+        v = f32(v); e = f32(Math.abs(e));
+        if (e === 0) return [v, v];
+        return [nextDown(f32(v - e)), nextUp(f32(v + e))];
+    };
+    const ops = {
+        add: (a, b) => [nextDown(f32(a[0] + b[0])), nextUp(f32(a[1] + b[1]))],
+        sub: (a, b) => [nextDown(f32(a[0] - b[1])), nextUp(f32(a[1] - b[0]))],
+        mul: (a, b) => {
+            const p = [a[0] * b[0], a[0] * b[1], a[1] * b[0], a[1] * b[1]].map(f32);
+            return [Math.min(...p.map(nextDown)), Math.max(...p.map(nextUp))];
+        },
+        div: (a, b) => {
+            if (b[0] <= 0 && b[1] >= 0) return [-Infinity, Infinity];
+            const q = [a[0] / b[0], a[0] / b[1], a[1] / b[0], a[1] / b[1]].map(f32);
+            return [Math.min(...q.map(nextDown)), Math.max(...q.map(nextUp))];
+        },
+        sqr: (a) => {
+            let lo = Math.abs(a[0]), hi = Math.abs(a[1]);
+            if (lo > hi) [lo, hi] = [hi, lo];
+            if (a[0] <= 0 && a[1] >= 0) return [0, nextUp(f32(hi * hi))];
+            return [nextDown(f32(lo * lo)), nextUp(f32(hi * hi))];
+        },
+        sqrt: (a) => {
+            const lo = nextDown(f32(Math.sqrt(a[0])));
+            return [lo > 0 ? lo : 0, nextUp(f32(Math.sqrt(a[1])))];
+        },
+    };
+    const plain = {
+        add: (a, b) => f32(a + b), sub: (a, b) => f32(a - b), mul: (a, b) => f32(a * b),
+        div: (a, b) => f32(a / b), sqr: (a) => f32(a * a), sqrt: (a) => f32(Math.sqrt(a)),
+    };
+    let state = null;
+    const en = canvasEntry("iv-cv", draw);
+    ["iv-av", "iv-ae", "iv-bv", "iv-be", "iv-op"].forEach((id) => $(id).addEventListener("input", update));
+    const showIv = (r) => `[${short(r[0])}, ${short(r[1])}]`;
+    function update() {
+        const p = (id) => { const x = Number($(id).value.trim()); return Number.isNaN(x) ? 0 : x; };
+        const a = fromVE(p("iv-av"), p("iv-ae")), b = fromVE(p("iv-bv"), p("iv-be"));
+        const op = $("iv-op").value;
+        const unary = op === "sqr" || op === "sqrt";
+        $("iv-bv").disabled = unary; $("iv-be").disabled = unary;
+        const r = ops[op](a, b);
+        const n = plain[op](f32(p("iv-av")), f32(p("iv-bv")));
+        setText("iv-a", showIv(a));
+        setText("iv-b", unary ? "(not used)" : showIv(b));
+        setText("iv-r", showIv(r));
+        if (Number.isFinite(r[0]) && Number.isFinite(r[1])) {
+            const mid = (r[0] + r[1]) / 2;
+            const u = ulp(mid) || ulp(r[1]);
+            setText("iv-w", `${sci(r[1] - r[0], 3)} ≈ ${((r[1] - r[0]) / u).toFixed(1)} ULP`);
+        } else setText("iv-w", Number.isNaN(r[0]) || Number.isNaN(r[1]) ? "NaN: the operation is undefined here" : "unbounded: the divisor contains 0");
+        const inside = n >= r[0] && n <= r[1];
+        setHTML("iv-n", `${short(n)}  <span class="${inside ? "ok" : "bad"}">${inside ? "inside the interval" : "outside!"}</span>`);
+        state = { r, n };
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        if (!state) return;
+        const { r, n } = state;
+        const y = H * 0.5;
+        if (!Number.isFinite(r[0]) || !Number.isFinite(r[1])) {
+            label(ctx, Number.isNaN(r[0]) || Number.isNaN(r[1]) ? "NaN" : "(−∞, ∞)", W / 2, y, C.err, "center", 13);
+            return;
+        }
+        const span = Math.max(r[1] - r[0], ulp(r[1]) * 2);
+        const L = r[0] - span * 0.6, R = r[1] + span * 0.6;
+        const X = (x) => 16 + (x - L) / (R - L) * (W - 32);
+        line(ctx, [[8, y], [W - 8, y]], C.rule, 1);
+        // every representable float in view
+        let f = nextUp(L), count = 0;
+        const ticks = [];
+        while (f <= R && count < 60) { ticks.push(f); f = nextUp(f); count++; }
+        if (count < 60) ticks.forEach((t) => line(ctx, [[X(t), y - 6], [X(t), y + 6]], C.muted, 1));
+        ctx.fillStyle = alpha(C.accent, 0.18);
+        ctx.fillRect(X(r[0]), y - 16, X(r[1]) - X(r[0]), 32);
+        line(ctx, [[X(r[0]), y - 18], [X(r[0]), y + 18]], C.accent, 2);
+        line(ctx, [[X(r[1]), y - 18], [X(r[1]), y + 18]], C.accent, 2);
+        dot(ctx, X(n), y, 4.5, C.ink);
+        label(ctx, "low", X(r[0]), y + 28, C.accent, "center", 10);
+        label(ctx, "high", X(r[1]), y + 28, C.accent, "center", 10);
+        label(ctx, "f32 op", X(n), y - 28, C.ink, "center", 10);
+        label(ctx, count < 60 ? "ticks: every f32 in view" : "", 10, 12, C.muted, "left", 10);
+    }
+    update();
+    updaters.push(() => paint(en));
+})();
+
+/* ---------- 3b · spawned ray origin ---------- */
+(() => {
+    const en = canvasEntry("sp-cv", draw);
+    let S = null;
+    const fmtR = (k) => { const R = 10 ** (k / 2); return R >= 1000 ? R.toExponential(1).replace("e+", "e") : R.toPrecision(3).replace(/\.?0+$/, ""); };
+    const s1 = bindRange("sp-r", fmtR, update);
+    const s2 = bindRange("sp-th", (d) => `${d}°`, update);
+    $("sp-eps").addEventListener("input", update);
+    function side(x, y, R, u) {
+        const d = (x * x + y * y - R * R) / (2 * R) / u;   // signed distance in ULPs (f64 is ample here)
+        return d;
+    }
+    function status(d, kind) {
+        const a = Math.abs(d);
+        const amt = a < 0.005 ? "on the surface" : `${d > 0 ? "outside" : "inside"} by ${a.toFixed(2)} ULP`;
+        if (kind === "p") return `<span class="${d < 0 ? "bad" : "mut"}">${amt}${d < 0 ? ": a new ray can hit the surface again" : ""}</span>`;
+        return `<span class="${d > 0.005 ? "ok" : "bad"}">${amt}${d > 0.005 ? " ✓" : " ✗"}</span>`;
+    }
+    function update() {
+        const k = num("sp-r");
+        const R = f32(10 ** (k / 2));
+        const th = rad(num("sp-th"));
+        const eps = f32(parseFloat($("sp-eps").value));
+        const h = f32(R * f32(Math.sin(th)));
+        const ox = f32(-2 * R), oy = h;
+        const b = f32(2 * ox);
+        const c = f32(f32(f32(ox * ox) + f32(oy * oy)) - f32(R * R));
+        const roots = quadratic32(1, b, c);
+        if (!roots) return;
+        let px = f32(ox + roots[0]), py = oy;
+        const len0 = f32(Math.sqrt(f32(f32(px * px) + f32(py * py))));
+        const sc = f32(R / len0);
+        px = f32(px * sc); py = f32(py * sc);
+        const g5 = gamma(5);
+        const ex = f32(g5 * Math.abs(px)), ey = f32(g5 * Math.abs(py));
+        const len = f32(Math.sqrt(f32(f32(px * px) + f32(py * py))));
+        const nx = f32(px / len), ny = f32(py / len);
+        const d = f32(f32(Math.abs(nx) * ex) + f32(Math.abs(ny) * ey));
+        const offx = f32(d * nx), offy = f32(d * ny);
+        let qx = f32(px + offx), qy = f32(py + offy);
+        if (offx > 0) qx = nextUp(qx); else if (offx < 0) qx = nextDown(qx);
+        if (offy > 0) qy = nextUp(qy); else if (offy < 0) qy = nextDown(qy);
+        const exn = f32(px + f32(eps * nx)), eyn = f32(py + f32(eps * ny));
+        const u = Math.max(ulp(px), ulp(py));
+        S = { R, px, py, ex, ey, nx, ny, qx, qy, exn, eyn, u };
+        setText("sp-ulp", `${sci(ulp(px), 2)} in x, ${sci(ulp(py), 2)} in y`);
+        setText("sp-box", `${sci(ex, 2)} × ${sci(ey, 2)}  (γ(5)·|p|)`);
+        setHTML("sp-p", status(side(px, py, R, u), "p"));
+        setHTML("sp-o", status(side(qx, qy, R, u), "o"));
+        const same = exn === px && eyn === py;
+        setHTML("sp-e", same ? `<span class="bad">rounds back to p exactly ✗</span>` : status(side(exn, eyn, R, u), "e"));
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        if (!S) return;
+        const { R, px, py, ex, ey, nx, ny, qx, qy, exn, eyn, u } = S;
+        const base = Math.max(ex, ey, Math.abs(qx - px), Math.abs(qy - py), u * 3) * 1.7;
+        const eDist = Math.hypot(exn - px, eyn - py);
+        const epsInView = eDist <= base * 3;
+        const hw = epsInView ? Math.max(base, eDist * 1.4) : base;
+        const sc = Math.min(W, H) / 2 / hw;
+        const X = (x) => W / 2 + (x - px) * sc, Y = (y) => H / 2 - (y - py) * sc;
+        // inside of the circle
+        const a0 = Math.atan2(py, px), span = Math.min(0.5, 4 * hw / R);
+        const arc = [];
+        for (let i = 0; i <= 160; i++) { const a = a0 - span + 2 * span * i / 160; arc.push([X(R * Math.cos(a)), Y(R * Math.sin(a))]); }
+        const far = 4 * Math.max(W, H);
+        ctx.beginPath();
+        arc.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        const [lx, ly] = arc[arc.length - 1], [fx, fy] = arc[0];
+        ctx.lineTo(lx - nx * far, ly + ny * far); ctx.lineTo(fx - nx * far, fy + ny * far); ctx.closePath();
+        ctx.fillStyle = alpha(C.muted, 0.12); ctx.fill();
+        // f32 grid
+        const ux = ulp(px), uy = ulp(py);
+        if (ux * sc >= 6 && uy * sc >= 6) {
+            ctx.fillStyle = C.rule;
+            const nxs = Math.ceil(hw * 1.2 * W / Math.min(W, H) / ux), nys = Math.ceil(hw * 1.2 * H / Math.min(W, H) / uy);
+            for (let i = -nxs; i <= nxs; i++) for (let j = -nys; j <= nys; j++) {
+                ctx.beginPath(); ctx.arc(X(px + i * ux), Y(py + j * uy), 1.6, 0, 2 * Math.PI); ctx.fill();
+            }
+        }
+        line(ctx, arc, C.muted, 1.5);
+        label(ctx, "inside", X(px - nx * hw * 0.75), Y(py - ny * hw * 0.75), C.muted, "center", 10);
+        label(ctx, "outside", X(px + nx * hw * 0.75) , Y(py + ny * hw * 0.75), C.muted, "center", 10);
+        // error box
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = C.err; ctx.lineWidth = 1.5;
+        ctx.strokeRect(X(px - ex), Y(py + ey), 2 * ex * sc, 2 * ey * sc); ctx.setLineDash([]);
+        arrow(ctx, X(px), Y(py), X(px + nx * hw * 0.55), Y(py + ny * hw * 0.55), alpha(C.muted, 0.7), 1.2);
+        label(ctx, "n", X(px + nx * hw * 0.6), Y(py + ny * hw * 0.6), C.muted, "left", 11);
+        const same = exn === px && eyn === py;
+        dot(ctx, X(px), Y(py), 4.5, C.ink);
+        label(ctx, "p", X(px) - 8, Y(py) + 2, C.ink, "right", 12);
+        if (epsInView) {
+            dot(ctx, X(exn), Y(eyn), same ? 8 : 4.5, C.err, true);
+            if (!same) label(ctx, "p + ε·n", X(exn) + 9, Y(eyn), C.err, "left", 11);
+        } else {
+            const ex0 = X(px + nx * hw * 0.62), ey0 = Y(py + ny * hw * 0.62);
+            const ex1 = X(px + nx * hw * 0.92), ey1 = Y(py + ny * hw * 0.92);
+            arrow(ctx, ex0, ey0, ex1, ey1, C.err, 2);
+            label(ctx, `p + ε·n is ${(eDist / u).toFixed(0)} ULP away`, Math.min(ex1, W - 10), Math.max(16, ey1 - 14), C.err, "right", 11);
+        }
+        dot(ctx, X(qx), Y(qy), 4.5, C.accent);
+        label(ctx, "offset_ray_origin", X(qx) + 9, Y(qy) - 10, C.accent, "left", 11);
+        label(ctx, `view ≈ ${(2 * hw / u).toFixed(0)} ULP across`, 10, H - 12, C.muted, "left", 10);
+    }
+    s1(); s2(); update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    4 · difference_of_products and CompensatedSum
+    ================================================================ */
+(() => {
+    const presets = {
+        disc: ["1.5003455", "1.5003455", "1", "2.2510366"],
+        cross: [short(f32(0.6000001)), "0.8", short(f32(0.80000013)), "0.6"],
+        tame: ["3", "4", "2", "5"],
+    };
+    let current = "disc";
+    const ids = ["dp-a", "dp-b", "dp-c", "dp-d"];
+    const set = (p) => { current = p; presets[p].forEach((v, i) => { $(ids[i]).value = v; }); update(); };
+    document.querySelectorAll("#dp [data-p]").forEach((b) => b.addEventListener("click", () => set(b.dataset.p)));
+    ids.forEach((id) => $(id).addEventListener("input", () => { current = null; update(); }));
+    function verdict(x) {
+        if (current === "disc") return x > 0 ? "two hits" : x === 0 ? "tangent: one hit" : "miss";
+        return x > 0 ? "positive" : x === 0 ? "zero" : "negative";
+    }
+    function update() {
+        const [a, b, c, d] = ids.map((id) => f32(Number($(id).value) || 0));
+        const naive = f32(f32(a * b) - f32(c * d));
+        const kahan = dop32(a, b, c, d);
+        const exact = a * b - c * d;
+        const errStr = (v) => {
+            const e = v - exact;
+            if (e === 0) return `<span class="ok">0</span>`;
+            const ulps = exact !== 0 ? Math.abs(e) / ulp(f32(exact)) : Infinity;
+            const rel = exact !== 0 ? Math.abs(e / exact) : Infinity;
+            const cls = rel > 1e-6 ? "bad" : "ok";
+            return `<span class="${cls}">${sci(e, 2)}${Number.isFinite(ulps) ? ` (${ulps < 10 ? ulps.toFixed(2) : sci(ulps, 1)} ULP)` : ""}</span>`;
+        };
+        setText("dp-n", sci(naive, 6)); setHTML("dp-ne", errStr(naive));
+        setText("dp-k", sci(kahan, 6)); setHTML("dp-ke", errStr(kahan));
+        setText("dp-x", sci(exact, 6));
+        const sv = (x) => Math.sign(x) === Math.sign(exact);
+        setHTML("dp-nv", `<span class="${sv(naive) ? "" : "bad"}">${verdict(naive)}</span>`);
+        setHTML("dp-kv", `<span class="${sv(kahan) ? "ok" : "bad"}">${verdict(kahan)}</span>`);
+        setText("dp-xv", verdict(exact));
+    }
+    set("disc");
+})();
+
+(() => {
+    const t = f32(1e-8);
+    const sync = bindRange("ks-n", (s) => Math.round(10 ** s).toLocaleString("en"), update);
+    function update() {
+        const n = Math.round(10 ** num("ks-n"));
+        let p = f32(1);
+        let sum = f32(1), c = 0;
+        for (let i = 0; i < n; i++) {
+            p = f32(p + t);
+            const delta = f32(t - c);
+            const ns = f32(sum + delta);
+            c = f32(f32(ns - sum) - delta);
+            sum = ns;
+        }
+        const exact = 1 + n * t;
+        setHTML("ks-p", `${p.toPrecision(9)}  <span class="${p === f32(exact) ? "ok" : "bad"}">${p === 1 ? "never moved" : ""}</span>`);
+        const du = (sum - exact) / ulp(f32(exact));
+        setHTML("ks-k", `${sum.toPrecision(9)}  <span class="${Math.abs(du) <= 1 ? "ok" : "bad"}">${du.toFixed(2)} ULP from exact</span>`);
+        setText("ks-x", exact.toPrecision(12));
+    }
+    sync(); update();
+})();
+
+/* ================================================================
+    5 · normals under non-uniform scale
+    ================================================================ */
+(() => {
+    const en = canvasEntry("nm-cv", draw);
+    const fx = (v) => v.toFixed(2);
+    const syncs = [bindRange("nm-sx", fx, update), bindRange("nm-sy", fx, update), bindRange("nm-t", (v) => `${v}°`, update)];
+    let S = null;
+    const norm = ([x, y]) => { const l = Math.hypot(x, y); return [x / l, y / l]; };
+    function update() {
+        const sx = num("nm-sx"), sy = num("nm-sy"), t = rad(num("nm-t"));
+        const c = Math.cos(t), s = Math.sin(t);
+        const P = [sx * c, sy * s];
+        const T = norm([-sx * s, sy * c]);
+        const N1 = norm([sx * c, sy * s]);
+        const N2 = norm([c / sx, s / sy]);
+        const ang = (a) => deg(Math.acos(Math.max(-1, Math.min(1, a[0] * T[0] + a[1] * T[1]))));
+        setText("nm-a1", `${ang(N1).toFixed(2)}°`);
+        setText("nm-a2", `${ang(N2).toFixed(2)}°`);
+        S = { sx, sy, P, T, N1, N2 };
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        if (!S) return;
+        const { sx, sy, P, T, N1, N2 } = S;
+        const k = Math.min(W / (2 * Math.max(sx, 1) + 1.6), H / (2 * Math.max(sy, 1) + 1.6));
+        const X = (x) => W / 2 + x * k, Y = (y) => H / 2 - y * k;
+        const circ = [], ell = [];
+        for (let i = 0; i <= 120; i++) { const a = 2 * Math.PI * i / 120; circ.push([X(Math.cos(a)), Y(Math.sin(a))]); ell.push([X(sx * Math.cos(a)), Y(sy * Math.sin(a))]); }
+        line(ctx, circ, C.rule, 1, [4, 4]);
+        line(ctx, ell, C.muted, 2);
+        const L = 0.75;
+        line(ctx, [[X(P[0] - T[0] * L), Y(P[1] - T[1] * L)], [X(P[0] + T[0] * L), Y(P[1] + T[1] * L)]], C.muted, 1.2, [5, 4]);
+        arrow(ctx, X(P[0]), Y(P[1]), X(P[0] + N1[0] * L), Y(P[1] + N1[1] * L), C.err, 2.2);
+        arrow(ctx, X(P[0]), Y(P[1]), X(P[0] + N2[0] * L), Y(P[1] + N2[1] * L), C.accent, 2.2);
+        dot(ctx, X(P[0]), Y(P[1]), 4, C.ink);
+        label(ctx, "M · n", X(P[0] + N1[0] * (L + 0.12)), Y(P[1] + N1[1] * (L + 0.12)), C.err, "center", 11);
+        label(ctx, "(M⁻¹)ᵀ · n", X(P[0] + N2[0] * (L + 0.2)), Y(P[1] + N2[1] * (L + 0.2)), C.accent, "center", 11);
+        label(ctx, "unit circle before scaling", 10, H - 12, C.muted, "left", 10);
+    }
+    syncs.forEach((f) => f()); update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    6 · Frame::from_z and spherical helpers
+    ================================================================ */
+(() => {
+    const en = canvasEntry("fr-cv", draw);
+    let yaw = rad(-35), pitch = rad(22), S = null;
+    const dg = (v) => `${v}°`;
+    const syncs = ["fr-nt", "fr-np", "fr-th", "fr-ph"].map((id) => bindRange(id, dg, update));
+    const sphDir = (st, ct, phi) => {
+        st = Math.max(-1, Math.min(1, st));
+        return [f32(st * f32(Math.cos(phi))), f32(st * f32(Math.sin(phi))), Math.max(-1, Math.min(1, ct))];
+    };
+    function coordSystem(v) {
+        const sign = copysign1(v[2]);
+        const a = f32(-1 / f32(sign + v[2]));
+        const b = f32(f32(v[0] * v[1]) * a);
+        return [
+            [f32(1 + f32(f32(sign * f32(v[0] * v[0])) * a)), f32(sign * b), f32(-sign * v[0])],
+            [b, f32(sign + f32(f32(v[1] * v[1]) * a)), -v[1]],
+        ];
+    }
+    const fmtV = (v) => `(${v.map((x) => (x < 0 ? "" : " ") + x.toFixed(4)).join(", ")})`;
+    function update() {
+        const nt = rad(num("fr-nt")), np = rad(num("fr-np")), th = rad(num("fr-th")), ph = rad(num("fr-ph"));
+        const n = sphDir(f32(Math.sin(nt)), f32(Math.cos(nt)), f32(np));
+        const [x, y] = coordSystem(n);
+        const wl = sphDir(f32(Math.sin(th)), f32(Math.cos(th)), f32(ph));
+        const w = [0, 1, 2].map((i) => f32(f32(f32(wl[0] * x[i]) + f32(wl[1] * y[i])) + f32(wl[2] * n[i])));
+        const loc = [dot32(w, x), dot32(w, y), dot32(w, n)];
+        const cos2 = f32(loc[2] * loc[2]);
+        const sin2 = Math.max(0, f32(1 - cos2));
+        const sinT = f32(Math.sqrt(sin2));
+        const cosP = sinT === 0 ? 1 : Math.max(-1, Math.min(1, f32(loc[0] / sinT)));
+        const sinP = sinT === 0 ? 0 : Math.max(-1, Math.min(1, f32(loc[1] / sinT)));
+        setText("fr-n", fmtV(n));
+        setText("fr-x", fmtV(x));
+        setText("fr-y", fmtV(y));
+        setText("fr-w", fmtV(loc));
+        setText("fr-ct", loc[2].toFixed(6));
+        setText("fr-st", sinT.toFixed(6));
+        setText("fr-tt", loc[2] === 0 ? "∞" : f32(sinT / loc[2]).toFixed(6));
+        setText("fr-cp", `${cosP.toFixed(6)} / ${sinP.toFixed(6)}`);
+        setText("fr-dots", [dot32(x, y), dot32(x, n), dot32(y, n)].map((d) => sci(d, 1)).join(", "));
+        S = { n, x, y, w };
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        if (!S) return;
+        const k = Math.min(W, H) * 0.36;
+        const P = ([x, y, z]) => {
+            const x1 = x * Math.cos(yaw) - y * Math.sin(yaw);
+            const y1 = x * Math.sin(yaw) + y * Math.cos(yaw);
+            const sy = z * Math.cos(pitch) - y1 * Math.sin(pitch);
+            return [W / 2 + x1 * k, H / 2 + 0.12 * H - sy * k];
+        };
+        const seg = (a, b, col, w = 1, dash = []) => line(ctx, [P(a), P(b)], col, w, dash);
+        const O = [0, 0, 0];
+        [[1.25, 0, 0, "X"], [0, 1.25, 0, "Y"], [0, 0, 1.25, "Z"]].forEach(([a, b, c, t]) => {
+            seg(O, [a, b, c], C.rule, 1);
+            const p = P([a * 1.08, b * 1.08, c * 1.08]); label(ctx, t, p[0], p[1], C.muted, "center", 10);
+        });
+        const { n, x, y, w } = S;
+        const at = (u, v, z) => [0, 1, 2].map((i) => u * x[i] + v * y[i] + z * n[i]);
+        // tangent disc and hemisphere wireframe in the frame
+        for (const lat of [0, 30, 60]) {
+            const r = Math.cos(rad(lat)), z = Math.sin(rad(lat));
+            const pts = [];
+            for (let i = 0; i <= 72; i++) { const a = 2 * Math.PI * i / 72; pts.push(P(at(r * Math.cos(a), r * Math.sin(a), z))); }
+            line(ctx, pts, lat === 0 ? C.muted : C.rule, lat === 0 ? 1.2 : 1);
+        }
+        for (let m = 0; m < 8; m++) {
+            const a = Math.PI * m / 4, pts = [];
+            for (let i = 0; i <= 24; i++) { const t = (Math.PI / 2) * i / 24; pts.push(P(at(Math.cos(t) * Math.cos(a), Math.cos(t) * Math.sin(a), Math.sin(t)))); }
+            line(ctx, pts, C.grid, 1);
+        }
+        const wxy = at(dot32(w, x), dot32(w, y), 0);
+        seg(w, wxy, C.muted, 1, [3, 3]);
+        seg(O, wxy, C.muted, 1, [3, 3]);
+        const ar = (v, col, t, wd = 2.2) => { const a = P(O), b = P(v); arrow(ctx, a[0], a[1], b[0], b[1], col, wd); const l = P(v.map((c) => c * 1.12)); label(ctx, t, l[0], l[1], col, "center", 11); };
+        ar(x, C.sign, "x"); ar(y, C.sig, "y"); ar(n, C.accent, "n"); ar(w, C.ink, "w", 2.6);
+        label(ctx, "drag to rotate", 10, H - 12, C.muted, "left", 10);
+    }
+    let drag = null;
+    const cv = $("fr-cv");
+    cv.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY, yaw, pitch]; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        yaw = drag[2] + (e.clientX - drag[0]) * 0.01;
+        pitch = Math.max(-1.4, Math.min(1.4, drag[3] + (e.clientY - drag[1]) * 0.01));
+        paint(en);
+    });
+    cv.addEventListener("pointerup", () => { drag = null; });
+    cv.addEventListener("keydown", (e) => {
+        const d = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0], ArrowUp: [0, -0.1], ArrowDown: [0, 0.1] }[e.key];
+        if (!d) return;
+        e.preventDefault(); yaw += d[0]; pitch = Math.max(-1.4, Math.min(1.4, pitch + d[1])); paint(en);
+    });
+    syncs.forEach((f) => f()); update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    7 · OctahedralVector
+    ================================================================ */
+(() => {
+    const en = canvasEntry("oc-cv", draw);
+    let pick = [0.42, 0.18];
+    const cache = {};
+    const worst = {};
+    const sgn = copysign1;
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const enc = (f, max) => Math.round(f32(f32(clamp(f32(f32(f + 1) / 2), 0, 1)) * max));
+    function encode(v, max) {
+        const l1 = f32(f32(Math.abs(v[0]) + Math.abs(v[1])) + Math.abs(v[2]));
+        const x = f32(v[0] / l1), y = f32(v[1] / l1), z = f32(v[2] / l1);
+        if (z >= 0) return [enc(x, max), enc(y, max)];
+        return [enc(f32(f32(1 - Math.abs(y)) * sgn(x)), max), enc(f32(f32(1 - Math.abs(x)) * sgn(y)), max)];
+    }
+    function decode(q, max) {
+        const x = f32(-1 + f32(2 * f32(q[0] / max)));
+        const y = f32(-1 + f32(2 * f32(q[1] / max)));
+        const z = f32(1 - f32(Math.abs(x) + Math.abs(y)));
+        const v = z < 0 ? [f32(f32(1 - Math.abs(y)) * sgn(x)), f32(f32(1 - Math.abs(x)) * sgn(y)), z] : [x, y, z];
+        const l = f32(Math.sqrt(f32(f32(f32(v[0] * v[0]) + f32(v[1] * v[1])) + f32(v[2] * v[2]))));
+        return v.map((c) => f32(c / l));
+    }
+    function unfold(u, v) {               // continuous square → unit vector (f64)
+        let x = u, y = v;
+        const z = 1 - Math.abs(x) - Math.abs(y);
+        if (z < 0) { const ox = x; x = (1 - Math.abs(y)) * Math.sign(ox || 1); y = (1 - Math.abs(ox)) * Math.sign(y || 1); }
+        const l = Math.hypot(x, y, z);
+        return [x / l, y / l, z / l];
+    }
+    const angleDeg = (a, b) => deg(Math.acos(clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1)));
+    function image(bits) {
+        if (cache[bits]) return cache[bits];
+        const N = 220, max = 2 ** bits - 1;
+        const c = document.createElement("canvas"); c.width = N; c.height = N;
+        const g = c.getContext("2d"), img = g.createImageData(N, N);
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+            let u = -1 + 2 * (i + 0.5) / N, v = 1 - 2 * (j + 0.5) / N;
+            u = -1 + 2 * Math.round((u + 1) / 2 * max) / max;
+            v = -1 + 2 * Math.round((v + 1) / 2 * max) / max;
+            const d = unfold(u, v), o = 4 * (j * N + i);
+            img.data[o] = 255 * (0.5 + 0.5 * d[0]); img.data[o + 1] = 255 * (0.5 + 0.5 * d[1]); img.data[o + 2] = 255 * (0.5 + 0.5 * d[2]); img.data[o + 3] = 255;
+        }
+        g.putImageData(img, 0, 0);
+        return (cache[bits] = c);
+    }
+    function worstError(bits) {
+        if (worst[bits]) return worst[bits];
+        const rng = new Pcg32(7), max = 2 ** bits - 1;
+        let w = 0;
+        for (let i = 0; i < 20000; i++) {
+            const z = 1 - 2 * rng.uniform(), r = Math.sqrt(Math.max(0, 1 - z * z)), p = 2 * Math.PI * rng.uniform();
+            const v = [f32(r * Math.cos(p)), f32(r * Math.sin(p)), f32(z)];
+            w = Math.max(w, angleDeg(v, decode(encode(v, max), max)));
+        }
+        return (worst[bits] = w);
+    }
+    const fmtA = (d) => d >= 0.01 ? `${d.toFixed(3)}°` : `${(d * 3600).toFixed(2)}″ (arcseconds)`;
+    function update() {
+        const bits = +$("oc-bits").value, max = 2 ** bits - 1;
+        const v = unfold(pick[0], pick[1]).map(f32);
+        const q = encode(v, max), d = decode(q, max);
+        const fmtV = (a) => `(${a.map((x) => (x < 0 ? "" : " ") + x.toFixed(5)).join(", ")})`;
+        setText("oc-v", fmtV(v));
+        setText("oc-q", `(${q[0]}, ${q[1]}) of ${max}`);
+        setText("oc-d", fmtV(d));
+        setText("oc-e", fmtA(angleDeg(v, d)));
+        setText("oc-w", fmtA(worstError(bits)));
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        const s = Math.min(W, H);
+        const ox = (W - s) / 2, oy = (H - s) / 2;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(image(+$("oc-bits").value), ox, oy, s, s);
+        const X = (u) => ox + (u + 1) / 2 * s, Y = (v) => oy + (1 - v) / 2 * s;
+        line(ctx, [[X(0), Y(1)], [X(1), Y(0)], [X(0), Y(-1)], [X(-1), Y(0)], [X(0), Y(1)]], "rgba(0,0,0,0.55)", 1.5, [6, 5]);
+        font(ctx, 11, 600); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillText("z ≥ 0", X(0), Y(0));
+        [[-0.78, 0.78], [0.78, 0.78], [-0.78, -0.78], [0.78, -0.78]].forEach(([u, v]) => ctx.fillText("z < 0", X(u), Y(v)));
+        const px = X(pick[0]), py = Y(pick[1]);
+        dot(ctx, px, py, 7, "#ffffff", true); dot(ctx, px, py, 9, "#000000", true);
+    }
+    const cv = $("oc-cv");
+    const setPick = (e) => {
+        const r = cv.getBoundingClientRect(), s = Math.min(r.width, r.height);
+        const ox = (r.width - s) / 2, oy = (r.height - s) / 2;
+        pick = [clamp(((e.clientX - r.left - ox) / s) * 2 - 1, -1, 1), clamp(1 - ((e.clientY - r.top - oy) / s) * 2, -1, 1)];
+        update();
+    };
+    let down = false;
+    cv.addEventListener("pointerdown", (e) => { down = true; cv.setPointerCapture(e.pointerId); setPick(e); });
+    cv.addEventListener("pointermove", (e) => { if (down) setPick(e); });
+    cv.addEventListener("pointerup", () => { down = false; });
+    cv.addEventListener("keydown", (e) => {
+        const d = { ArrowLeft: [-0.02, 0], ArrowRight: [0.02, 0], ArrowUp: [0, 0.02], ArrowDown: [0, -0.02] }[e.key];
+        if (!d) return;
+        e.preventDefault(); pick = [clamp(pick[0] + d[0], -1, 1), clamp(pick[1] + d[1], -1, 1)]; update();
+    });
+    $("oc-bits").addEventListener("input", update);
+    update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    8 · perspective()
+    ================================================================ */
+(() => {
+    const en = canvasEntry("pj-cv", drawRays);
+    const ez = canvasEntry("pj-z", drawZ);
+    const fmtE = (e) => { const v = 10 ** e; return v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3); };
+    const syncs = [bindRange("pj-fov", (v) => `${v}°`, update), bindRange("pj-px", String, update), bindRange("pj-n", fmtE, update), bindRange("pj-f", fmtE, update)];
+    let S = null;
+    function update() {
+        const fov = num("pj-fov"), npx = num("pj-px");
+        const n = f32(10 ** num("pj-n")), f = f32(10 ** num("pj-f"));
+        const radians = f32(f32(Math.PI / 180) * fov);
+        const invTan = f32(1 / f32(Math.tan(f32(radians / 2))));
+        const fmn = f32(f - n);
+        const A = f32(f / fmn), B = f32(f32(-f * n) / fmn);
+        const M = [[invTan, 0, 0, 0], [0, invTan, 0, 0], [0, 0, A, B], [0, 0, 1, 0]];
+        setHTML("pj-m", "<tbody>" + M.map((r) => "<tr>" + r.map((v) => `<td>${short(v)}</td>`).join("") + "</tr>").join("") + "</tbody>");
+        const zh = 2 * n * f / (n + f);
+        setText("pj-half", `z′ = 0.5 already at z = ${zh.toPrecision(3)}, ${((zh - n) / (f - n) * 100).toPrecision(2)} % of the way from n to f.`);
+        S = { fov, npx, n, f, A, B };
+        paint(en); paint(ez);
+    }
+    function drawRays(ctx, W, H) {
+        if (!S) return;
+        const { fov, npx } = S;
+        const t = Math.tan(rad(fov) / 2);
+        const k = Math.min((H * 0.72), (W * 0.44) / t);
+        const cx = W / 2, cy = H * 0.9;
+        const X = (x) => cx + x * k, Y = (z) => cy - z * k;
+        const ext = Math.min(1.25, (cy - 10) / k);
+        line(ctx, [[X(-t * ext), Y(ext)], [X(0), Y(0)], [X(t * ext), Y(ext)]], C.muted, 1.2);
+        line(ctx, [[X(-t), Y(1)], [X(t), Y(1)]], C.ink, 2.4);
+        for (let i = 0; i <= npx; i++) { const x = -t + 2 * t * i / npx; line(ctx, [[X(x), Y(1) - 5], [X(x), Y(1) + 5]], C.ink, 1); }
+        for (let i = 0; i < npx; i++) {
+            const sx = -1 + (2 * i + 1) / npx;
+            const x = sx * t;
+            line(ctx, [[X(0), Y(0)], [X(x * ext), Y(ext)]], alpha(C.accent, 0.75), 1.2);
+            dot(ctx, X(x), Y(1), 2.6, C.accent);
+        }
+        dot(ctx, X(0), Y(0), 4, C.ink);
+        label(ctx, "camera", X(0) + 8, Y(0) - 2, C.muted, "left", 10);
+        label(ctx, "screen window x′ ∈ [−1, 1] at z = 1", X(0), Y(1) - 16, C.ink, "center", 10);
+        label(ctx, `tan(fov/2) = ${t.toFixed(3)}`, 10, 14, C.muted, "left", 10);
+    }
+    function drawZ(ctx, W, H) {
+        if (!S) return;
+        const { n, f, A, B } = S;
+        const pad = 26;
+        const L = Math.log10(n), R = Math.log10(f);
+        const X = (z) => pad + (Math.log10(z) - L) / (R - L) * (W - 2 * pad), Y = (v) => H - 16 - v * (H - 30);
+        line(ctx, [[pad, Y(0)], [W - pad, Y(0)]], C.rule, 1);
+        line(ctx, [[pad, Y(1)], [W - pad, Y(1)]], C.grid, 1);
+        const pts = [];
+        for (let i = 0; i <= 160; i++) { const z = 10 ** (L + (R - L) * i / 160); pts.push([X(z), Y(f32(f32(f32(A * z) + B) / z))]); }
+        line(ctx, pts, C.accent, 2);
+        const zh = 2 * n * f / (n + f);
+        line(ctx, [[X(zh), Y(0)], [X(zh), Y(0.5)]], C.muted, 1, [3, 3]);
+        label(ctx, "1", pad - 6, Y(1), C.muted, "right", 10);
+        label(ctx, "0", pad - 6, Y(0), C.muted, "right", 10);
+        label(ctx, "n", X(n), H - 6, C.muted, "center", 10);
+        label(ctx, "f", X(f), H - 6, C.muted, "center", 10);
+        label(ctx, "z (log scale)", W / 2, H - 6, C.muted, "center", 10);
+    }
+    syncs.forEach((s) => s()); update();
+    updaters.push(() => { paint(en); paint(ez); });
+})();
+
+/* ================================================================
+    9 · Monte Carlo
+    ================================================================ */
+(() => {
+    const en = canvasEntry("mc-cv", draw);
+    const NMAX = 4096;
+    let U = [], I = [];
+    const syncN = bindRange("mc-n", (e) => String(2 ** e), () => { readout(); paint(en); });
+    function simulate() {
+        const seed = Math.max(0, Math.floor(num("mc-seed")) || 0);
+        const rng = new Pcg32(seed);
+        U = []; I = [];
+        let su = 0, si = 0;
+        for (let i = 1; i <= NMAX; i++) {
+            const u = rng.uniform();
+            su += 4 * u * u * u;
+            const x = Math.cbrt(u);
+            si += x > 0 ? (4 * x * x * x) / (3 * x * x) : 0;
+            U.push(su / i); I.push(si / i);
+        }
+        readout(); paint(en);
+    }
+    function readout() {
+        const n = 2 ** num("mc-n");
+        const fe = (v) => `${v.toFixed(5)}  (error ${(v - 1 >= 0 ? "+" : "") + (v - 1).toFixed(5)})`;
+        setText("mc-u", fe(U[n - 1]));
+        setText("mc-i", fe(I[n - 1]));
+    }
+    function draw(ctx, W, H) {
+        if (!U.length) return;
+        const pl = 34, pr = 12, pt = 12, pb = 26;
+        const lo = 0.2, hi = 1.8;
+        const X = (i) => pl + Math.log2(i) / 12 * (W - pl - pr);
+        const Y = (v) => pt + (hi - Math.max(lo, Math.min(hi, v))) / (hi - lo) * (H - pt - pb);
+        for (let e = 0; e <= 12; e += 2) { line(ctx, [[X(2 ** e), pt], [X(2 ** e), H - pb]], C.grid, 1); label(ctx, String(2 ** e), X(2 ** e), H - 10, C.muted, "center", 10); }
+        [0.5, 1, 1.5].forEach((v) => label(ctx, v.toFixed(1), pl - 6, Y(v), C.muted, "right", 10));
+        const band = (sigma, col) => {
+            ctx.beginPath();
+            for (let i = 1; i <= NMAX; i *= 1.05) ctx.lineTo(X(i), Y(1 + sigma / Math.sqrt(i)));
+            for (let i = NMAX; i >= 1; i /= 1.05) ctx.lineTo(X(i), Y(1 - sigma / Math.sqrt(i)));
+            ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+        };
+        band(Math.sqrt(9 / 7), alpha(C.err, 0.1));
+        band(Math.sqrt(1 / 15), alpha(C.accent, 0.14));
+        line(ctx, [[pl, Y(1)], [W - pr, Y(1)]], C.ink, 1, [4, 3]);
+        const path = (arr, col) => line(ctx, arr.map((v, i) => [X(i + 1), Y(v)]), col, 1.6);
+        path(U, C.err); path(I, C.accent);
+        const n = 2 ** num("mc-n");
+        line(ctx, [[X(n), pt], [X(n), H - pb]], C.muted, 1, [2, 3]);
+        dot(ctx, X(n), Y(U[n - 1]), 3.5, C.err); dot(ctx, X(n), Y(I[n - 1]), 3.5, C.accent);
+        label(ctx, "N (log scale)", W - pr, H - pb - 8, C.muted, "right", 10);
+    }
+    $("mc-seed").addEventListener("input", simulate);
+    $("mc-next").addEventListener("click", () => { $("mc-seed").value = (Math.floor(num("mc-seed")) || 0) + 1; simulate(); });
+    syncN(); simulate();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    10 · sample patterns
+    ================================================================ */
+(() => {
+    let seed = 0;
+    const pts = { a: [], b: [], c: [] };
+    const ens = ["a", "b", "c"].map((k) => canvasEntry("pt-" + k, (ctx, W, H) => draw(ctx, W, H, k)));
+    function build() {
+        const N = +$("pt-n").value, k = Math.round(Math.sqrt(N));
+        const r1 = new Pcg32(2 * seed), r2 = new Pcg32(2 * seed + 1);
+        pts.a = Array.from({ length: N }, () => [r1.uniform(), r1.uniform()]);
+        pts.b = [];
+        for (let j = 0; j < k; j++) for (let i = 0; i < k; i++) pts.b.push([(i + r2.uniform()) / k, (j + r2.uniform()) / k]);
+        pts.c = Array.from({ length: N }, (_, i) => [i / N, radicalInverse2(i)]);
+        for (const key of ["a", "b", "c"]) {
+            const inside = pts[key].filter(([x, y]) => x * x + y * y < 1).length;
+            const est = 4 * inside / N;
+            setText(`pt-${key}-f`, `π ≈ ${est.toFixed(4)} · error ${(est - Math.PI >= 0 ? "+" : "") + (est - Math.PI).toFixed(4)}`);
+        }
+        ens.forEach(paint);
+    }
+    function draw(ctx, W, H, key) {
+        const m = 8, s = Math.min(W, H) - 2 * m;
+        const X = (x) => m + x * s, Y = (y) => m + (1 - y) * s;
+        ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.strokeRect(m, m, s, s);
+        const arc = [];
+        for (let i = 0; i <= 60; i++) { const a = Math.PI / 2 * i / 60; arc.push([X(Math.cos(a)), Y(Math.sin(a))]); }
+        line(ctx, arc, C.muted, 1.2);
+        const N = pts[key].length, r = N > 300 ? 1.6 : N > 80 ? 2.3 : 3.2;
+        for (const [x, y] of pts[key]) dot(ctx, X(x), Y(y), r, x * x + y * y < 1 ? C.accent : C.muted);
+    }
+    const ri = $("pt-ri");
+    let rows = "<thead><tr><th>i</th><th>i in binary</th><th>mirrored</th><th>radical inverse</th></tr></thead><tbody>";
+    for (let i = 0; i < 8; i++) {
+        const b = i.toString(2).padStart(3, "0");
+        rows += `<tr><td>${i}</td><td>${b}₂</td><td>0.${b.split("").reverse().join("")}₂</td><td>${radicalInverse2(i)}</td></tr>`;
+    }
+    ri.innerHTML = rows + "</tbody>";
+    $("pt-n").addEventListener("input", build);
+    $("pt-seed").addEventListener("click", () => { seed++; build(); });
+    build();
+    updaters.push(() => ens.forEach(paint));
+})();
+
+/* ================================================================
+    11 · warps
+    ================================================================ */
+(() => {
+    const N = 1024;
+    const src = Array.from({ length: N }, (_, i) => [i / N, radicalInverse2(i)]);
+    const polar = (r) => ([u, v]) => [r(u) * Math.cos(2 * Math.PI * v), r(u) * Math.sin(2 * Math.PI * v)];
+    function concentric([u, v]) {
+        const x = 2 * u - 1, y = 2 * v - 1;
+        if (x === 0 && y === 0) return [0, 0];
+        let r, t;
+        if (Math.abs(x) > Math.abs(y)) { r = x; t = (Math.PI / 4) * (y / x); }
+        else { r = y; t = Math.PI / 2 - (Math.PI / 4) * (x / y); }
+        return [r * Math.cos(t), r * Math.sin(t)];
+    }
+    const maps = [([u, v]) => [u, v], polar((u) => u), polar(Math.sqrt), concentric];
+    const color = ([u, v]) => ((Math.floor(u * 8) + Math.floor(v * 8)) % 2 ? C.accent : C.sign);
+    const ens = maps.map((m, k) => canvasEntry("wp-" + k, (ctx, W, H) => {
+        const s = Math.min(W, H);
+        const isSq = k === 0;
+        const X = isSq ? (x) => (W - s) / 2 + 6 + x * (s - 12) : (x) => W / 2 + x * (s / 2 - 6);
+        const Y = isSq ? (y) => (H - s) / 2 + 6 + (1 - y) * (s - 12) : (y) => H / 2 - y * (s / 2 - 6);
+        for (let g = 0; g <= 8; g++) {
+            const a = [], b = [];
+            for (let i = 0; i <= 64; i++) {
+                const t = i / 64;
+                const p = m([g / 8, Math.min(t, 0.99999)]), q = m([Math.min(t, 0.99999), g / 8]);
+                a.push([X(p[0]), Y(p[1])]); b.push([X(q[0]), Y(q[1])]);
+            }
+            line(ctx, a, C.rule, 1); line(ctx, b, C.rule, 1);
+        }
+        for (const p of src) { const [x, y] = m(p); dot(ctx, X(x), Y(y), 1.5, color(p)); }
+    }));
+    const side = canvasEntry("wp-4", (ctx, W, H) => {
+        const s = Math.min(W, H) / 2 - 8;
+        const X = (x) => W / 2 + x * s, Y = (z) => H / 2 + s * 0.5 - z * s;
+        const arc = [];
+        for (let i = 0; i <= 60; i++) { const a = Math.PI * i / 60; arc.push([X(Math.cos(a)), Y(Math.sin(a))]); }
+        line(ctx, arc, C.rule, 1);
+        line(ctx, [[X(-1), Y(0)], [X(1), Y(0)]], C.muted, 1.2);
+        for (const p of src) { const [x, y] = concentric(p); const z = Math.sqrt(Math.max(0, 1 - x * x - y * y)); dot(ctx, X(x), Y(z), 1.5, color(p)); }
+        label(ctx, "pdf = cos θ ⁄ π", W / 2, H - 10, C.muted, "center", 10);
+    });
+    updaters.push(() => { ens.forEach(paint); paint(side); });
+})();
+
+/* ================================================================
+    12 · visible wavelengths
+    ================================================================ */
+(() => {
+    const en = canvasEntry("wl-cv", draw);
+    const lam = (u) => 538 - 138.888889 * Math.atanh(0.85691062 - 1.82750197 * u);
+    const pdf = (l) => (l < 360 || l > 830) ? 0 : 0.0039398042 / Math.cosh(0.0072 * (l - 538)) ** 2;
+    const g = (x, mu, s1, s2) => { const t = (x - mu) / (x < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+    const xyz = (l) => [
+        1.056 * g(l, 599.8, 37.9, 31.0) + 0.362 * g(l, 442.0, 16.0, 26.7) - 0.065 * g(l, 501.1, 20.4, 26.2),
+        0.821 * g(l, 568.8, 46.9, 40.5) + 0.286 * g(l, 530.9, 16.3, 31.1),
+        1.217 * g(l, 437.0, 11.8, 36.0) + 0.681 * g(l, 459.0, 26.0, 13.8),
+    ];
+    const lin = ([X, Y, Z]) => [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.2040 * Y + 1.0570 * Z].map((c) => Math.max(0, c));
+    let peak = 0;
+    for (let l = 360; l <= 830; l++) peak = Math.max(peak, ...lin(xyz(l)));
+    const enc = (c) => { c = Math.min(1, c / peak * 1.25); return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)); };
+    const rgb = (l) => { const c = lin(xyz(l)); return `rgb(${enc(c[0])},${enc(c[1])},${enc(c[2])})`; };
+    let ls = [];
+    const sync = bindRange("wl-u", (u) => u.toFixed(3), update);
+    function update() {
+        const u = num("wl-u");
+        const us = [0, 1, 2, 3].map((i) => { let up = u + i / 4; if (up > 1) up -= 1; return up; });
+        ls = us.map(lam);
+        const sub = "₀₁₂₃";
+        setHTML("wl-t", "<thead><tr><th>i</th><th>uᵢ</th><th>λᵢ</th><th>p(λᵢ)</th><th>colour</th></tr></thead><tbody>" +
+            ls.map((l, i) => `<tr><td>λ${sub[i]}</td><td>${us[i].toFixed(3)}</td><td>${l.toFixed(1)} nm</td><td>${pdf(l).toExponential(3)}</td><td><span class="swatch" style="background:${rgb(l)}"></span></td></tr>`).join("") + "</tbody>");
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        const pl = 14, pr = 14, pt = 18, strip = 22, pb = 22;
+        const X = (l) => pl + (l - 360) / 470 * (W - pl - pr);
+        const top = pt, bot = H - pb - strip - 8;
+        const pmax = pdf(538);
+        const Y = (v) => bot - v * (bot - top);
+        for (let l = 360; l <= 830; l += 1) { ctx.fillStyle = rgb(l); ctx.fillRect(X(l), H - pb - strip, Math.ceil(X(l + 1) - X(l)) + 0.5, strip); }
+        for (let l = 400; l <= 800; l += 50) { line(ctx, [[X(l), top], [X(l), bot]], C.grid, 1); label(ctx, String(l), X(l), H - 9, C.muted, "center", 10); }
+        label(ctx, "nm", W - pr, H - 9, C.muted, "right", 10);
+        const yb = [], pp = [];
+        let ymax = 0;
+        for (let l = 360; l <= 830; l += 2) ymax = Math.max(ymax, xyz(l)[1]);
+        for (let l = 360; l <= 830; l += 2) { yb.push([X(l), Y(xyz(l)[1] / ymax)]); pp.push([X(l), Y(pdf(l) / pmax)]); }
+        line(ctx, yb, C.muted, 1.4, [5, 4]);
+        ctx.beginPath(); pp.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.lineTo(X(830), bot); ctx.lineTo(X(360), bot); ctx.closePath(); ctx.fillStyle = alpha(C.accent, 0.12); ctx.fill();
+        line(ctx, pp, C.accent, 2);
+        ls.forEach((l, i) => {
+            const x = X(l), y = Y(pdf(l) / pmax);
+            line(ctx, [[x, y], [x, H - pb - strip]], C.ink, 1.2);
+            dot(ctx, x, y, 5, rgb(l)); dot(ctx, x, y, 5.5, C.ink, true);
+            label(ctx, `λ${"₀₁₂₃"[i]}`, x, y - 13, C.ink, "center", 11);
+        });
+    }
+    sync(); update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    13 · Trowbridge–Reitz
+    ================================================================ */
+(() => {
+    const en = canvasEntry("mf-cv", draw);
+    const D = (t, a) => {
+        const c = Math.cos(t), c2 = c * c, t2 = (1 - c2) / c2;
+        return 1 / (Math.PI * a * a * c2 * c2 * (1 + t2 / (a * a)) ** 2);
+    };
+    let A = 0.3;
+    const sync = bindRange("mf-a", (a) => a.toFixed(2), update);
+    function update() {
+        A = num("mf-a");
+        const n = 4000, h = (Math.PI / 2) / n;
+        const fn = (t) => t >= Math.PI / 2 ? 0 : D(t, A) * Math.cos(t) * Math.sin(t) * 2 * Math.PI;
+        let s = fn(0) + fn(Math.PI / 2);
+        for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * fn(i * h);
+        s *= h / 3;
+        setText("mf-d0", D(0, A).toPrecision(5));
+        setText("mf-half", `θ = atan α = ${deg(Math.atan(A)).toFixed(1)}°`);
+        setText("mf-int", s.toFixed(6));
+        paint(en);
+    }
+    function draw(ctx, W, H) {
+        const cx = W / 2, cy = H - 18, R = Math.min(W / 2 - 16, H - 30);
+        line(ctx, [[16, cy], [W - 16, cy]], C.muted, 1.5);
+        const arc = [];
+        for (let i = 0; i <= 90; i++) { const t = Math.PI * i / 90; arc.push([cx + R * Math.cos(t), cy - R * Math.sin(t)]); }
+        line(ctx, arc, C.grid, 1);
+        [30, 60].forEach((d) => {
+            [-1, 1].forEach((sg) => line(ctx, [[cx, cy], [cx + sg * R * Math.sin(rad(d)), cy - R * Math.cos(rad(d))]], C.grid, 1));
+            label(ctx, `${d}°`, cx + R * Math.sin(rad(d)) + 4, cy - R * Math.cos(rad(d)) - 6, C.muted, "left", 10);
+        });
+        const peak = D(0, A);
+        const pts = [];
+        for (let i = -400; i <= 400; i++) {
+            const t = (Math.PI / 2) * i / 400 * 0.999;
+            const r = D(Math.abs(t), A) * Math.cos(t) / peak;
+            pts.push([cx + R * r * Math.sin(t), cy - R * r * Math.cos(t)]);
+        }
+        ctx.beginPath(); ctx.moveTo(cx, cy); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.closePath();
+        ctx.fillStyle = alpha(C.accent, 0.16); ctx.fill();
+        line(ctx, pts, C.accent, 2);
+        arrow(ctx, cx, cy, cx, cy - R * 1.02, C.muted, 1.2);
+        label(ctx, "n", cx + 8, cy - R + 4, C.muted, "left", 11);
+        label(ctx, "macro surface", 18, cy - 9, C.muted, "left", 10);
+    }
+    sync(); update();
+    updaters.push(() => paint(en));
+})();
+
+/* ================================================================
+    14 · MIS weights
+    ================================================================ */
+(() => {
+    const en = canvasEntry("mi-cv", draw);
+    const syncs = [bindRange("mi-l", (v) => `${v}°`, () => paint(en)), bindRange("mi-r", (v) => `${v}°`, () => paint(en))];
+    $("mi-h").addEventListener("input", () => paint(en));
+    const LC = 35;
+    function draw(ctx, W, H) {
+        const size = num("mi-l"), sig = num("mi-r") / 2, power = $("mi-h").value === "power";
+        const pl = 16, pr = 16;
+        const X = (t) => pl + (t + 90) / 180 * (W - pl - pr);
+        const topH = H * 0.58, bandTop = topH + 26, bandBot = H - 22;
+        const pL = (t) => Math.abs(t - LC) <= size / 2 ? 1 / size : 0;
+        let Z = 0;
+        for (let t = -90; t <= 90; t += 0.1) Z += Math.exp(-0.5 * (t / sig) ** 2) * 0.1;
+        const pB = (t) => Math.exp(-0.5 * (t / sig) ** 2) / Z;
+        let m = 0;
+        for (let t = -90; t <= 90; t += 0.5) m = Math.max(m, pL(t), pB(t));
+        const Y = (v) => topH - v / m * (topH - 14);
+        for (let d = -90; d <= 90; d += 30) { line(ctx, [[X(d), 10], [X(d), bandBot]], C.grid, 1); label(ctx, `${d}°`, X(d), H - 8, C.muted, "center", 10); }
+        const curve = (fn, col) => {
+            const pts = [];
+            for (let t = -90; t <= 90; t += 0.25) pts.push([X(t), Y(fn(t))]);
+            ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+            ctx.lineTo(X(90), Y(0)); ctx.lineTo(X(-90), Y(0)); ctx.closePath(); ctx.fillStyle = alpha(col, 0.14); ctx.fill();
+            line(ctx, pts, col, 2);
+        };
+        curve(pB, C.sign); curve(pL, C.sig);
+        line(ctx, [[pl, Y(0)], [W - pr, Y(0)]], C.muted, 1);
+        ctx.fillStyle = alpha(C.muted, 0.1); ctx.fillRect(pl, bandTop, W - pl - pr, bandBot - bandTop);
+        const BY = (w) => bandBot - w * (bandBot - bandTop);
+        const wpts = [];
+        for (let t = -90; t <= 90; t += 0.25) {
+            const a = pL(t), b = pB(t);
+            const w = a + b === 0 ? 0 : power ? a * a / (a * a + b * b) : a / (a + b);
+            wpts.push([X(t), BY(w)]);
+        }
+        ctx.beginPath(); ctx.moveTo(X(-90), BY(0)); wpts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(X(90), BY(0)); ctx.closePath();
+        ctx.fillStyle = alpha(C.accent, 0.35); ctx.fill();
+        line(ctx, wpts, C.accent, 1.6);
+        label(ctx, "w_light", pl + 4, bandTop - 9, C.accent, "left", 10);
+        label(ctx, "pdf over direction", pl + 4, 12, C.muted, "left", 10);
+        const a = pL(LC), b = pB(LC);
+        const wc = power ? a * a / (a * a + b * b) : a / (a + b);
+        label(ctx, `at the light's centre: w_light = ${wc.toFixed(3)}, w_bsdf = ${(1 - wc).toFixed(3)}`, W - pr, bandTop - 9, C.ink, "right", 10);
+    }
+    syncs.forEach((s) => s());
+    updaters.push(() => paint(en));
+})();
+
+/* ---------- start ---------- */
+entries.forEach((en) => { ro.observe(en.cv); paint(en); });
+const refresh = () => { readTheme(); updaters.forEach((u) => u()); };
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
+new MutationObserver(refresh).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(refresh);
+})();
+</script>
+</body>
+</html>
