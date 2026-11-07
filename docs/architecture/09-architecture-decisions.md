@@ -26,27 +26,4 @@ Hard-to-reverse decisions are recorded as ADRs in [`docs/adr/`](../adr/), one fi
 | [0020](../adr/0020-bit-identical-exr-final-image.md)                                | A bit-identical EXR final image carrying its Reproduction Record              | Accepted                           | §8.15        |
 | [0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)                     | Plug-and-play Workers in a named Cluster                                      | Accepted                           | §7.3, §8.13  |
 
-How the ADRs build on one another:
-
-```mermaid
-flowchart LR
-    A1["0001 Numeric model"] --> A2["0002 Bit-identical results"] --> A4["0004 Deterministic Film"]
-    A4 --> A9["0009 Scheduling"]
-    A4 --> A11["0011 Pixel Traces"]
-    A9 --> A10["0010 QUIC"] --> A16["0016 Wire protocol"]
-    A6["0006 Enum dispatch"] --> A14["0014 no_std core"]
-    A8["0008 Arenas"] --> A14
-    A14 --> A15["0015 Workspace"]
-    A3["0003 Scene Files"] --> A13["0013 Validation"] --> A19["0019 Milestones"]
-    A5["0005 Container image"] --> A12["0012 Per-CPU binaries"] --> A18["0018 Session launch"] --> A21["0021 Plug-and-play Workers"]
-    A12 --> A16
-    A8 --> A17["0017 Worker per NUMA node"]
-    A3 --> A18
-    A4 --> A20["0020 EXR final image"]
-    A11 --> A20
-    A18 --> A20
-    A16 --> A21
-    A17 --> A21
-```
-
-Arrows point from a decision to one that depends on it, amends it or refines it. Decisions that needed no ADR, because they are easy to reverse, are recorded only in their issue and in section 8.
+Decisions that needed no ADR, because they are easy to reverse, are recorded only in their issue and in section 8.
