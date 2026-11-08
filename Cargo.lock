@@ -275,6 +275,7 @@ dependencies = [
 name = "umbra-sampling"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "serde",
  "umbra-math",
 ]
