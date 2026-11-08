@@ -313,15 +313,15 @@ Pushing the `vX.Y.Z` tag on `main` runs
 [`Dockerfile`](Dockerfile) once per Linux Worker CPU, with the `TARGET_CPU`
 build argument, and publishes one image per CPU to `ghcr.io/sergioffpc/umbra`:
 `X.Y.Z-znver2` (Lenovo P620) and `X.Y.Z-broadwell` (Dell R630). There is no
-`X.Y`, `latest` or CPU-less tag. Each image gets its own provenance, SBOM and
-attestation, and none is pushed until the images for every CPU have been built
-and smoke-tested. The job fails if the tag is not on `main` or does not match
-`version` in `Cargo.toml`, so bump the crate version on the `release/X.Y.Z`
-branch. Push `main` before the tag (or both with `git push --follow-tags`).
-Design notes: [ADR 0005](docs/adr/0005-chiseled-release-container-image.md)
-and [ADR 0012](docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md). A
-machine with a new CPU needs its CPU added to both job matrices of the
-workflow.
+`X.Y`, `latest` or CPU-less tag. Each CPU's image is built, smoke-tested and
+pushed by its own job, with its own provenance, SBOM and attestation; if one
+job fails, re-run it to complete the release. The job fails if the tag is not
+on `main` or does not match `version` in `Cargo.toml`, so bump the crate
+version on the `release/X.Y.Z` branch. Push `main` before the tag (or both
+with `git push --follow-tags`). Design notes:
+[ADR 0005](docs/adr/0005-chiseled-release-container-image.md) and
+[ADR 0012](docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md). A machine
+with a new CPU needs its CPU added to the workflow's matrix.
 
 To build and run the image locally (Docker or Podman), name the target CPU:
 
@@ -332,10 +332,11 @@ docker run --rm umbra:znver2
 
 On `linux/amd64` the build fails without `TARGET_CPU`: there is no generic
 x86-64 image. On Apple silicon it builds a native `linux/arm64` image with a
-generic CPU for testing; the published images are `linux/amd64` only. The build context is limited by
-[`.dockerignore`](.dockerignore): add new crate sources (`build.rs`, workspace
-members) there. A dependency on a system library needs its Chisel slice added
-in the `Dockerfile`.
+generic CPU for testing; the published images are `linux/amd64` only.
+
+The build context is limited by [`.dockerignore`](.dockerignore): add new
+crate sources (`build.rs`, workspace members) there. A dependency on a system
+library needs its Chisel slice added in the `Dockerfile`.
 
 ## pbrt-v4 reference
 
