@@ -4,11 +4,14 @@
 # shell, no package manager, non-root) holding only the `umbra` binary and the
 # glibc and libgcc slices it links against. Built and published to
 # ghcr.io/sergioffpc/umbra by .github/workflows/release-image.yml on every
-# vX.Y.Z tag; see docs/adr/0005-chiseled-release-container-image.md.
+# vX.Y.Z tag, once per Linux target CPU (X.Y.Z-znver2, X.Y.Z-broadwell); see
+# docs/adr/0005-chiseled-release-container-image.md and
+# docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md.
 #
-# The published image is linux/amd64 only. Build it locally with:
-#   docker build -t umbra .
-# On Apple silicon this builds a native linux/arm64 image (generic CPU), for
+# The published images are linux/amd64 only. Build one locally with:
+#   docker build --build-arg TARGET_CPU=znver2 -t umbra:znver2 .
+# On amd64, TARGET_CPU is required. On Apple silicon the build is a native
+# linux/arm64 image with a generic CPU unless TARGET_CPU is given, for
 # testing; emulated linux/amd64 builds crash rustc under QEMU.
 
 # ---------------------------------------------------------------------------
@@ -42,25 +45,28 @@ WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install && rustc --version
 
-# CPU baseline. On amd64 (the published image) it is x86-64-v3, the Linux
-# Workers' common set (Zen 2 and Broadwell-EP: AVX2 and FMA, no AVX-512), see
-# docs/architecture/07-deployment-view.md. Other architectures (local builds on
-# Apple silicon) use the target's generic CPU. RUSTFLAGS replaces the
+# Target CPU, passed to rustc as `-C target-cpu=${TARGET_CPU}`: one image per
+# Linux Worker CPU (znver2 for the P620, broadwell for the R630), see
+# docs/architecture/07-deployment-view.md. There is no generic x86-64 image, so
+# on amd64 the build fails without it. Other architectures (local builds on
+# Apple silicon) default to the target's generic CPU. RUSTFLAGS replaces the
 # `target-cpu=native` set in .cargo/config.toml, which .dockerignore also
-# keeps out of the build context. Pass --build-arg RUSTFLAGS=... to override.
+# keeps out of the build context. An x86-64 CPU must include x86-64-v3 (FMA,
+# SSE4.1, AVX2), or umbra-math stops the build (ADR 0002).
 ARG TARGETARCH
-ARG RUSTFLAGS=""
+ARG TARGET_CPU=""
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    if [ -z "${RUSTFLAGS:-}" ]; then \
+    cpu="${TARGET_CPU}"; \
+    if [ -z "${cpu}" ]; then \
         case "${TARGETARCH:-amd64}" in \
-            amd64) RUSTFLAGS="-C target-cpu=x86-64-v3" ;; \
-            *) RUSTFLAGS="-C target-cpu=generic" ;; \
+            amd64) echo "error: pass --build-arg TARGET_CPU=<cpu> (znver2 or broadwell)" >&2; exit 1 ;; \
+            *) cpu=generic ;; \
         esac; \
     fi \
-    && export RUSTFLAGS \
+    && export RUSTFLAGS="-C target-cpu=${cpu}" \
     && echo "RUSTFLAGS=${RUSTFLAGS}" \
     && cargo build --release --locked \
     && install -D -m 0755 target/release/umbra /out/usr/bin/umbra

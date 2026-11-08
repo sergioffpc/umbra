@@ -40,7 +40,7 @@ Each machine runs a binary compiled for its own CPU ([ADR 0012](../adr/0012-per-
 | Dell R630      | `broadwell` | `ghcr.io/sergioffpc/umbra:X.Y.Z-broadwell` (container) | `cargo build` on the host |
 | MacBook Pro M2 | `apple-m2`  | `cargo build --release` from the tag, native           | `cargo build` on the host |
 
-- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) once per Linux CPU (`TARGET_CPU` build argument) and publish one image per CPU, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `latest` or generic image. This is the target of ADR 0012: until TD-1 (§11.2) is repaid, the pipeline still publishes one `x86-64-v3` image.
+- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) once per Linux CPU (`TARGET_CPU` build argument) and publish one image per CPU, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `latest` or generic image.
 - **Development**: every host builds the ref under test itself, with the toolchain pinned in `rust-toolchain.toml` and `target-cpu=native` from `.cargo/config.toml`. There is no cross-compilation.
 - **Build Identity**: every binary embeds its git commit, whether its tree was dirty, and its target CPU. A container build receives the commit as a build argument.
 
