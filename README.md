@@ -119,25 +119,34 @@ the Worker on every machine, or pull and restart the release image.
 
 ## Container image
 
-Every release publishes a minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
-image to the GitHub Container Registry: no shell, no package manager, running
-as the non-root user `umbra` (uid 10001) in `/work`. It is built for
-`linux/amd64` with the `x86-64-v3` baseline (AVX2 and FMA: Intel Haswell, AMD Zen
-or newer).
+Every release publishes minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
+images to the GitHub Container Registry: no shell, no package manager, running
+as the non-root user `umbra` (uid 10001) in `/work`. There is one
+`linux/amd64` image per Linux Worker CPU, each binary compiled for that CPU
+alone:
+
+| Tag               | Target CPU  | Machine                        |
+| ----------------- | ----------- | ------------------------------ |
+| `X.Y.Z-znver2`    | `znver2`    | Lenovo P620 (AMD Zen 2)        |
+| `X.Y.Z-broadwell` | `broadwell` | Dell R630 (Intel Broadwell-EP) |
+
+Pull the tag for the machine's CPU and the release you want:
 
 ```sh
-docker pull ghcr.io/sergioffpc/umbra:latest
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/sergioffpc/umbra:latest
+docker pull ghcr.io/sergioffpc/umbra:X.Y.Z-znver2
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z-znver2
 ```
 
 `--user` lets `umbra` write its output into the mounted directory with your
 own ownership.
 
-Tags: `X.Y.Z` for a release, `X.Y` for the latest patch of a minor version,
-`latest` for the newest release. Verify an image's build provenance with:
+There is no `latest`, `X.Y` or CPU-less tag: every machine runs a binary built
+for its own CPU, and every machine in a Render Job runs the same release
+(see [Keep every machine on the same commit](#keep-every-machine-on-the-same-commit)).
+On other machines, build from source. Verify an image's build provenance with:
 
 ```sh
-gh attestation verify oci://ghcr.io/sergioffpc/umbra:latest -R sergioffpc/umbra
+gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z-znver2 -R sergioffpc/umbra
 ```
 
 ## Documentation
