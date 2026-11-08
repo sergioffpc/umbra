@@ -1,6 +1,6 @@
 # The pinned pbrt-v4 references and the Reference Scenes (ADR 0013, ADR 0019,
 # arc42 §8.4 and §8.11). Read by `scripts/pbrt_reference.py`, which publishes
-# the release `pbrt-v4-reference-<pbrt-v4 commit>`, and by the tools that
+# the release `pbrt-v4-reference/<pbrt-v4 commit>`, and by the tools that
 # benchmark and validate Umbra against it.
 #
 # Moving either commit is an explicit decision that publishes a new reference

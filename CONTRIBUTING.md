@@ -351,7 +351,7 @@ makes the Film write 32-bit floats (`savefp16`, recorded in the manifest), rende
 every Reference Scene with seeds 0–15 at its validation settings and its
 Reference Image at 64 × its benchmark Pixel Samples per pixel, and publishes
 the per-pixel mean and variance EXRs, the Reference Image and a manifest with
-their SHA-256 as assets of the release `pbrt-v4-reference-<pbrt-v4 commit>`.
+their SHA-256 as assets of the release `pbrt-v4-reference/<pbrt-v4 commit>`.
 
 Only whoever moves a pin or adds a Reference Scene runs it, by hand on a target
 machine; CI only runs its unit tests. It needs Python 3.11 or later, git,
@@ -367,6 +367,13 @@ Rerunning it skips every Reference Scene already published from the same
 inputs. A published reference is immutable: if a Reference Scene's pins,
 settings or edit change, the script refuses it until its assets are deleted
 from the release.
+
+Keep GitHub's release immutability off for this repository (Settings →
+General → Releases). Each milestone adds its Reference Scenes to the existing
+release, and an immutable release accepts no new assets once published. A tag
+name once used by an immutable release can never be reused: that is why the
+tag is `pbrt-v4-reference/<commit>` and not the earlier
+`pbrt-v4-reference-<commit>`.
 
 ## License
 

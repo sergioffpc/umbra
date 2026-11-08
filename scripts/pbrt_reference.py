@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds the pinned pbrt-v4, renders the reference statistics of every
 Reference Scene and publishes them as the GitHub release
-`pbrt-v4-reference-<commit>` (ADR 0013, arc42 §8.11).
+`pbrt-v4-reference/<commit>` (ADR 0013, arc42 §8.11).
 
 Run by hand on a target machine, never in CI. Needs Python >= 3.11, git,
 cmake, a C++17 compiler and an authenticated `gh`.
@@ -392,7 +392,7 @@ def stdout_of(*command: str | Path, cwd: Path | None = None) -> str:
 
 
 def release_tag(refs: ReferenceList) -> str:
-    return f"pbrt-v4-reference-{refs.pbrt_v4.commit}"
+    return f"pbrt-v4-reference/{refs.pbrt_v4.commit}"
 
 
 class Assets(NamedTuple):
@@ -415,7 +415,7 @@ class Assets(NamedTuple):
 
 
 class Release:
-    """The release `pbrt-v4-reference-<commit>` of this repository, through gh."""
+    """The release `pbrt-v4-reference/<commit>` of this repository, through gh."""
 
     def __init__(self, tag: str) -> None:
         self.tag = tag
@@ -628,7 +628,7 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
         description=(
             "Build the pinned pbrt-v4, render the reference statistics of the "
             "Reference Scenes and publish them as the release "
-            "pbrt-v4-reference-<commit>. Scenes already published with the same "
+            "pbrt-v4-reference/<commit>. Scenes already published with the same "
             "inputs are skipped."
         )
     )
