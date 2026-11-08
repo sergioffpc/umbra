@@ -60,7 +60,9 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       # `--no-tests=warn` until the first test lands. nextest does not run
-      # doctests, so they run separately.
+      # doctests, so they run separately. The tests include the hash of the
+      # RGB-to-spectrum table the `umbra-spectrum` build script generates, so
+      # each target checks that it computes the same table (ADR 0002).
       - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
       - run: cargo test --doc --all-features --locked
       # Micro-benchmarks only have to build on a shared runner (§8.4).

@@ -262,6 +262,11 @@ first.
 | `profiling` | `cargo build --profile profiling` | Release speed with full debug info for profilers                                         |
 | `checked`   | `cargo build --profile checked`   | Release speed with debug assertions and overflow checks, for long renders                |
 
+Build scripts are optimised in `dev` and `release`: the one of
+`umbra-spectrum` computes the sRGB RGB-to-spectrum table, about a CPU-minute
+optimised
+([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)).
+
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
 (`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
 other machines. On x86-64, an override must keep at least
