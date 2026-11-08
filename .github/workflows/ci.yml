@@ -204,6 +204,10 @@ jobs:
         run: git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
       - name: markdownlint-cli2
         run: git ls-files -z '*.md' | xargs -0 markdownlint-cli2
+      # The unit tests of the pbrt-v4 reference script. The script itself
+      # runs by hand on a target machine and never here (ADR 0013).
+      - name: pbrt-v4 reference script tests
+        run: python3 -m unittest discover -s scripts
 
   shear:
     name: unused dependencies

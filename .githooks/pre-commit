@@ -90,6 +90,12 @@ if have shellcheck; then
     git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
 fi
 
+# The pbrt-v4 reference script and the reference list it reads.
+echo "pre-commit: pbrt-v4 reference script tests"
+if have python3 && staged 'scripts/*.py' reference-scenes.toml; then
+    python3 -m unittest discover -s scripts
+fi
+
 # GitHub Actions workflows (YAML, expressions, and shellcheck on `run:`).
 echo "pre-commit: actionlint"
 if have actionlint && staged '.github/workflows/*'; then
