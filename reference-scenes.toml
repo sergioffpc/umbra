@@ -1,0 +1,57 @@
+# The pinned pbrt-v4 references and the Reference Scenes (ADR 0013, ADR 0019,
+# arc42 §8.4 and §8.11). Read by `scripts/pbrt_reference.py`, which publishes
+# the release `pbrt-v4-reference-<pbrt-v4 commit>`, and by the tools that
+# benchmark and validate Umbra against it.
+#
+# Moving either commit is an explicit decision that publishes a new reference
+# release. A Reference Scene, once listed, is never removed. Changing its
+# validation or benchmark settings changes its published reference: the script
+# refuses to mix them, so the release assets of that scene must be deleted and
+# published again.
+
+[pbrt-v4]
+repository = "https://github.com/mmp/pbrt-v4"
+commit = "b0bdf461ba5dd6504b70ebf0932acc0fe7aa744f"
+
+[pbrt-v4-scenes]
+repository = "https://github.com/mmp/pbrt-v4-scenes"
+commit = "30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572"
+
+# Each Reference Scene fixes resolution, Pixel Samples per pixel, seed and Tile
+# size for each use:
+#
+# - `benchmark`: `umbra bench`, sized for 10–60 s per target machine. The
+#   Reference Image of QS-1 is rendered at 64 × its Pixel Samples per pixel.
+# - `validation`: `umbra validate` and the published statistics, always with
+#   seeds 0–15.
+# - `golden`: the Golden Film Hashes checked in CI on arm64 and x86-64.
+#
+# pbrt-v4 has no resolution override, so the benchmark and validation
+# resolution must be the one the Scene File (with its edit) declares; the
+# reference script checks it.
+#
+# A Reference Scene Variant is an entry with an `edit` table: `find` must occur
+# exactly once in its Scene File and is replaced by `replace` before anything
+# renders it, pbrt-v4 and Umbra alike.
+
+[[reference-scene]]
+name = "killeroo-simple"
+scene-file = "killeroos/killeroo-simple.pbrt"
+milestone = "v0.1.0"
+
+[reference-scene.benchmark]
+resolution = [700, 700]
+pixel-samples = 64
+seed = 0
+tile-size = 32
+
+[reference-scene.validation]
+resolution = [700, 700]
+pixel-samples = 64
+tile-size = 32
+
+[reference-scene.golden]
+resolution = [32, 32]
+pixel-samples = 4
+seed = 0
+tile-size = 16
