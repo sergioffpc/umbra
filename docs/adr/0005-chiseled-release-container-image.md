@@ -1,6 +1,6 @@
 # Chiseled Ubuntu container image, published on every release tag
 
-> **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is to be published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, not as a single `x86-64-v3` image, and the `X.Y` and `latest` tags are dropped. The pipeline now builds that way: each image keeps the chiseled runtime, tag trigger, smoke test and attestations described here, and the bullets on `x86-64-v3` and on tags below are superseded. The rest of this ADR still applies.
+> **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, not as a single `x86-64-v3` image. There are no `X.Y` or `latest` tags. The rest of this ADR still applies.
 
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 

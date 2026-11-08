@@ -22,22 +22,29 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 # Every action, first-party included, is pinned to a commit SHA (tags can be
-# moved), since this workflow can publish; Dependabot updates the SHA and the
+# moved), since this job can publish; Dependabot updates the SHA and the
 # version comment together.
 #
-# Both jobs run once per Linux Worker CPU (docs/architecture/07-deployment-view.md).
-# Adding a machine with a new CPU means adding it to both matrices. `publish`
-# needs every `build`, so no image of a release is pushed until the images for
-# all CPUs have been built and smoke-tested.
+# The job runs once per Linux Worker CPU (docs/architecture/07-deployment-view.md);
+# a machine with a new CPU adds its CPU to the matrix. Each leg builds,
+# smoke-tests and pushes its own image in one job, so the image pushed is the
+# one tested. The legs do not cancel each other: a failed leg leaves the other
+# CPU's image published, and re-running the failed job completes the release.
 jobs:
-  build:
-    name: build (${{ matrix.target-cpu }})
+  image:
+    name: container image (${{ matrix.target-cpu }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target-cpu: [znver2, broadwell]
     permissions:
       contents: read
+      # Push to GHCR.
+      packages: write
+      # Sign and store the build provenance attestation.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -57,52 +64,6 @@ jobs:
             echo "::error::$GITHUB_REF_NAME does not match the crate version $crate in Cargo.toml."
             exit 1
           fi
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      # Build into the local image store and smoke-test it, so a broken image
-      # is never published. The layers go to the GitHub Actions cache, one
-      # scope per CPU, for the `publish` job to reuse. The smoke test runs the
-      # binary on the runner's CPU, which must support the target CPU's
-      # instructions.
-      - name: Build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64
-          build-args: TARGET_CPU=${{ matrix.target-cpu }}
-          load: true
-          tags: umbra:smoke
-          cache-from: type=gha,scope=${{ matrix.target-cpu }}
-          cache-to: type=gha,scope=${{ matrix.target-cpu }},mode=max
-
-      - name: Smoke test
-        run: |
-          docker run --rm umbra:smoke --version
-          test "$(docker image inspect umbra:smoke --format '{{.Config.User}}')" = "10001:10001"
-          if docker run --rm --entrypoint /bin/sh umbra:smoke -c true 2>/dev/null; then
-            echo "::error::the image has a shell"
-            exit 1
-          fi
-
-  publish:
-    name: publish (${{ matrix.target-cpu }})
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target-cpu: [znver2, broadwell]
-    permissions:
-      contents: read
-      # Push to GHCR.
-      packages: write
-      # Sign and store the build provenance attestation.
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -126,13 +87,48 @@ jobs:
             org.opencontainers.image.title=umbra
             org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, target-cpu=${{ matrix.target-cpu }})
 
+      # Build into the local image store first and smoke-test it, so a broken
+      # image is never published. The push below reuses the cached layers.
+      # The GitHub Actions cache has one scope per CPU.
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: TARGET_CPU=${{ matrix.target-cpu }}
+          load: true
+          tags: umbra:smoke
+          cache-from: type=gha,scope=${{ matrix.target-cpu }}
+          cache-to: type=gha,scope=${{ matrix.target-cpu }},mode=max
+
+      # The start-up check runs the binary on the runner's CPU, which may lack
+      # instructions of the target CPU (an Intel runner has no SSE4a for
+      # znver2). Exit status 132 (SIGILL) only skips that check, with a
+      # warning; the user and no-shell checks always run.
+      - name: Smoke test
+        env:
+          TARGET_CPU: ${{ matrix.target-cpu }}
+        run: |
+          status=0
+          docker run --rm umbra:smoke --version || status=$?
+          if [ "$status" -eq 132 ]; then
+            echo "::warning::this runner's CPU cannot run target-cpu=$TARGET_CPU; the start-up check was skipped"
+          elif [ "$status" -ne 0 ]; then
+            echo "::error::umbra --version exited with status $status"
+            exit 1
+          fi
+          test "$(docker image inspect umbra:smoke --format '{{.Config.User}}')" = "10001:10001"
+          if docker run --rm --entrypoint /bin/sh umbra:smoke -c true 2>/dev/null; then
+            echo "::error::the image has a shell"
+            exit 1
+          fi
+
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Rebuilds from the layers the `build` job cached for this CPU.
       # BuildKit attaches an SLSA provenance and an SPDX SBOM to the image.
       - id: push
         name: Push
