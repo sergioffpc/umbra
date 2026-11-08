@@ -293,6 +293,7 @@ git ls-files -z '*.toml' | xargs -0 taplo fmt --check
 git ls-files -z '*.toml' | xargs -0 taplo lint
 git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
 git ls-files -z '*.md' | xargs -0 markdownlint-cli2
+python3 -m unittest discover -s scripts
 ```
 
 CI runs the build, lint and test checks on Linux and macOS, and a coverage
@@ -336,6 +337,37 @@ generic CPU for testing; the published images are `linux/amd64` only.
 The build context is limited by [`.dockerignore`](.dockerignore): add new
 crate sources (`build.rs`, workspace members) there. A dependency on a system
 library needs its Chisel slice added in the `Dockerfile`.
+
+## pbrt-v4 reference
+
+[`reference-scenes.toml`](reference-scenes.toml) holds the pinned `mmp/pbrt-v4`
+and `mmp/pbrt-v4-scenes` commits and the Reference Scenes, each with its
+benchmark, validation and golden settings.
+[`scripts/pbrt_reference.py`](scripts/pbrt_reference.py) turns them into the
+reference that `umbra validate` judges against
+([ADR 0013](docs/adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)):
+it builds pbrt-v4 (CPU) at the pinned commit, fetches only the needed
+directories of the scenes, applies each Reference Scene Variant's edit and
+makes the Film write 32-bit floats (`savefp16`, recorded in the manifest), renders
+every Reference Scene with seeds 0–15 at its validation settings and its
+Reference Image at 64 × its benchmark Pixel Samples per pixel, and publishes
+the per-pixel mean and variance EXRs, the Reference Image and a manifest with
+their SHA-256 as assets of the release `pbrt-v4-reference-<pbrt-v4 commit>`.
+
+Only whoever moves a pin or adds a Reference Scene runs it, by hand on a target
+machine; CI only runs its unit tests. It needs Python 3.11 or later, git,
+CMake, a C++17 compiler and an authenticated `gh`:
+
+```sh
+scripts/pbrt_reference.py                 # every Reference Scene not yet published
+scripts/pbrt_reference.py --no-publish    # render into target/pbrt-reference/out only
+scripts/pbrt_reference.py --scene killeroo-simple
+```
+
+Rerunning it skips every Reference Scene already published from the same
+inputs. A published reference is immutable: if a Reference Scene's pins,
+settings or edit change, the script refuses it until its assets are deleted
+from the release.
 
 ## License
 
