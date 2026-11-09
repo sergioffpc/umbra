@@ -15,4 +15,4 @@ rustflags = ["-C", "target-cpu=native"]
 [alias]
 # Test coverage with cargo-llvm-cov and nextest. Add `--open` to view the HTML
 # report, or `--lcov --output-path lcov.info` for editor gutters.
-cov = "llvm-cov nextest --all-features --locked --no-tests=warn"
+cov = "llvm-cov nextest --all-features --locked"

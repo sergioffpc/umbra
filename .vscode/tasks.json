@@ -1,7 +1,6 @@
 {
-  // Cargo tasks. The "ci:" tasks run the same commands as the pre-commit
-  // hook and .github/workflows/ci.yml; "ci: all checks" runs them in order,
-  // like "Before opening a pull request" in CONTRIBUTING.md.
+  // Cargo tasks. The "check:" tasks run scripts/check.sh, the checks CI runs;
+  // "check: all" is "Before opening a pull request" in CONTRIBUTING.md.
   //
   // Ctrl/Cmd+Shift+B runs the default build task, and "Tasks: Run Test
   // Task" the default test task.
@@ -76,7 +75,7 @@
       "detail": "cargo nextest run",
       "type": "process",
       "command": "cargo",
-      "args": ["nextest", "run", "--all-features", "--locked", "--no-tests=warn"],
+      "args": ["nextest", "run", "--all-features", "--locked"],
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": ["$rustc", "$rust-panic"]
     },
@@ -107,88 +106,37 @@
       "problemMatcher": []
     },
 
-    // ------------------------------------------------------------- CI checks
+    // ------------------------------------------------------------- Checks
     {
-      "label": "ci: fmt",
+      "label": "check: rust",
+      "detail": "scripts/check.sh rust: fmt, clippy, doc, nextest, doctests",
       "type": "process",
-      "command": "cargo",
-      "args": ["fmt", "--all", "--", "--check"],
-      "problemMatcher": []
-    },
-    {
-      "label": "ci: clippy",
-      "type": "process",
-      "command": "cargo",
-      "args": ["clippy", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"],
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "ci: doc",
-      "type": "process",
-      "command": "cargo",
-      "args": ["doc", "--no-deps", "--document-private-items", "--all-features", "--locked"],
-      "options": {
-        "env": { "RUSTDOCFLAGS": "-D warnings" }
-      },
-      "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "ci: test",
-      "type": "process",
-      "command": "cargo",
-      "args": [
-        "nextest",
-        "run",
-        "--all-features",
-        "--locked",
-        "--profile",
-        "ci",
-        "--no-tests=warn"
-      ],
+      "command": "scripts/check.sh",
+      "args": ["rust"],
       "problemMatcher": ["$rustc", "$rust-panic"]
     },
     {
-      "label": "ci: deny",
+      "label": "check: lint",
+      "detail": "scripts/check.sh lint: typos, unused dependencies and the linters, on every tracked file",
       "type": "process",
-      "command": "cargo",
-      "args": ["deny", "check"],
+      "command": "scripts/check.sh",
+      "args": ["lint"],
       "problemMatcher": []
     },
     {
-      "label": "ci: shear",
+      "label": "check: deny",
+      "detail": "scripts/check.sh deny: advisories, bans, licenses and sources",
       "type": "process",
-      "command": "cargo",
-      "args": ["shear"],
+      "command": "scripts/check.sh",
+      "args": ["deny"],
       "problemMatcher": []
     },
     {
-      "label": "ci: typos",
+      "label": "check: all",
+      "detail": "scripts/check.sh: everything CI runs but Miri (stops at the first failure)",
       "type": "process",
-      "command": "typos",
-      "problemMatcher": []
-    },
-    {
-      "label": "ci: lint",
-      "detail": "shellcheck, actionlint, editorconfig-checker, prettier, taplo, yamllint and markdownlint-cli2 on every tracked file",
-      "type": "shell",
-      "command": "git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck && actionlint && git ls-files -z | xargs -0 editorconfig-checker && git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check && git ls-files -z '*.toml' | xargs -0 taplo fmt --check && git ls-files -z '*.toml' | xargs -0 taplo lint && git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict && git ls-files -z '*.md' | xargs -0 markdownlint-cli2",
-      "problemMatcher": []
-    },
-    {
-      "label": "ci: all checks",
-      "detail": "fmt, clippy, doc, test, deny, shear, typos, lint (stops at the first failure)",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "ci: fmt",
-        "ci: clippy",
-        "ci: doc",
-        "ci: test",
-        "ci: deny",
-        "ci: shear",
-        "ci: typos",
-        "ci: lint"
-      ],
-      "problemMatcher": []
+      "command": "scripts/check.sh",
+      "problemMatcher": ["$rustc", "$rust-panic"]
     },
 
     // ------------------------------------------------------------- Docs

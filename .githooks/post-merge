@@ -1,7 +1,0 @@
-#!/usr/bin/env sh
-# Git LFS: post-merge hook.
-command -v git-lfs >/dev/null 2>&1 || {
-    echo "post-merge: git-lfs is not installed; see CONTRIBUTING.md" >&2
-    exit 2
-}
-git lfs post-merge "$@"

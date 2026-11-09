@@ -2,15 +2,15 @@
 # R630 Worker, with the toolchain pinned in rust-toolchain.toml and every tool
 # the git hooks and CI use. Built by .devcontainer/devcontainer.json with the
 # repository root as context; Dockerfile.dockerignore limits that context to
-# the files copied below.
+# the files copied below. x86-64 only (ADR 0023).
 FROM mcr.microsoft.com/devcontainers/rust:1-trixie
 
-# Native packages: Git LFS (images and meshes, required by the git hooks),
-# shellcheck (shell scripts) and yamllint (YAML), both run by the pre-commit
-# hook. The base image already has build-essential, git, curl and lldb.
+# Native packages: shellcheck (shell scripts), run by the pre-commit hook and
+# scripts/check.sh. The base image already has build-essential, git, curl and
+# lldb.
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -y --no-install-recommends git-lfs shellcheck yamllint \
+    && apt-get install -y --no-install-recommends shellcheck \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,41 +27,11 @@ RUN cd /tmp/umbra \
     && rustup default "$(rustup show active-toolchain | cut -d' ' -f1)" \
     && rm -rf /tmp/umbra
 
-# Cargo tools used by the hooks, CI and CONTRIBUTING.md, installed as
-# prebuilt binaries with cargo-binstall. Bump the versions here.
-ARG BINSTALL_VERSION=1.26.2
-ARG NEXTEST_VERSION=0.9.151
-ARG LLVM_COV_VERSION=0.9.1
-ARG DENY_VERSION=0.20.2
-ARG SHEAR_VERSION=1.14.0
-ARG TYPOS_VERSION=1.52.0
-ARG GIT_CLIFF_VERSION=2.14.2
-RUN curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-$(uname -m)-unknown-linux-musl.tgz" \
-        | tar -xz -C "${CARGO_HOME}/bin" cargo-binstall \
-    && cargo binstall --no-confirm --locked --disable-telemetry \
-        "cargo-nextest@${NEXTEST_VERSION}" \
-        "cargo-llvm-cov@${LLVM_COV_VERSION}" \
-        "cargo-deny@${DENY_VERSION}" \
-        "cargo-shear@${SHEAR_VERSION}" \
-        "typos-cli@${TYPOS_VERSION}" \
-        "git-cliff@${GIT_CLIFF_VERSION}" \
-    && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
-
-# Linters run by the pre-commit hook that are not cargo crates: prebuilt
-# release binaries for the container's architecture (amd64 or arm64).
-# Keep the versions in sync with the `lint` job in .github/workflows/ci.yml.
-ARG ACTIONLINT_VERSION=1.7.12
-ARG EDITORCONFIG_CHECKER_VERSION=4.0.2
-ARG TAPLO_VERSION=0.10.0
-RUN arch="$(dpkg --print-architecture)" \
-    && curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-$(uname -m).gz" \
-        | gunzip > "${CARGO_HOME}/bin/taplo" \
-    && chmod +x "${CARGO_HOME}/bin/taplo" \
-    && curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz" \
-        | tar -xz -C "${CARGO_HOME}/bin" actionlint \
-    && curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-${arch}.tar.gz" \
-        | tar -xz -C "${CARGO_HOME}/bin" editorconfig-checker
+# The tools the hooks, CI and CONTRIBUTING.md use, at the versions pinned in
+# scripts/install-tools.sh. Prettier and markdownlint-cli2 need npm, which the
+# Node.js feature installs after this Dockerfile, so post-create.sh installs
+# them with the same script.
+COPY --chown=vscode:vscode scripts/install-tools.sh /tmp/umbra/install-tools.sh
+RUN /tmp/umbra/install-tools.sh cargo-nextest cargo-llvm-cov cargo-deny cargo-shear \
+        typos git-cliff actionlint editorconfig-checker taplo \
+    && rm -rf /tmp/umbra "${CARGO_HOME}/registry" "${CARGO_HOME}/git"

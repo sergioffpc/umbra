@@ -5,6 +5,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One pull request per ecosystem and week, not one per dependency.
+    groups:
+      all:
+        patterns: ["*"]
     commit-message:
       prefix: build
       include: scope
@@ -13,6 +17,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One pull request per ecosystem and week, not one per dependency.
+    groups:
+      all:
+        patterns: ["*"]
     commit-message:
       prefix: ci
   # Release image: the Ubuntu base digest in the root Dockerfile. The Chisel
@@ -22,6 +30,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One pull request per ecosystem and week, not one per dependency.
+    groups:
+      all:
+        patterns: ["*"]
     commit-message:
       prefix: build
   # Dev container: the base image and features (.devcontainer/).
@@ -30,6 +42,10 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One pull request per ecosystem and week, not one per dependency.
+    groups:
+      all:
+        patterns: ["*"]
     commit-message:
       prefix: build
   - package-ecosystem: devcontainers
@@ -37,5 +53,9 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # One pull request per ecosystem and week, not one per dependency.
+    groups:
+      all:
+        patterns: ["*"]
     commit-message:
       prefix: build
