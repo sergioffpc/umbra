@@ -164,4 +164,5 @@ To report a security issue, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-Umbra is licensed under the [MIT License](LICENSE).
+Umbra is licensed under the [MIT License](LICENSE). It includes code and data
+ported from pbrt-v4, under the Apache License 2.0: see [NOTICE](NOTICE).

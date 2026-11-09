@@ -300,7 +300,9 @@ dependencies = [
 name = "umbra-spectrum"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "serde",
+ "umbra-math",
  "umbra-sampling",
 ]
 

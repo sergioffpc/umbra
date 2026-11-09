@@ -1,0 +1,35 @@
+Umbra
+Copyright (c) Sérgio Carvalho
+
+Umbra is licensed under the MIT License (see LICENSE). It includes code and
+data from the following work, under its own license.
+
+--------------------------------------------------------------------------
+
+pbrt-v4
+https://github.com/mmp/pbrt-v4, at the commit pinned in reference-scenes.toml
+
+pbrt is Copyright (c) 1998-2020 Matt Pharr, Wenzel Jakob, and Greg Humphreys.
+The pbrt source code is licensed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+
+The rendering core ports pbrt-v4's routines to Rust, following its source
+operation for operation (PBR 4e, Pharr, Jakob and Humphreys). In particular,
+these files are derived from it:
+
+-   crates/umbra-spectrum/src/spectra/data.rs: the CIE 1931 colour-matching
+    functions and the CIE D65 illuminant, from src/pbrt/util/spectrum.cpp.
+-   crates/umbra-spectrum/build/cie_5nm.rs: the CIE 1931 colour-matching
+    functions, the D65 illuminant and the sRGB matrices at 5 nm, from
+    src/pbrt/cmd/rgb2spec_opt.cpp.
+-   crates/umbra-spectrum/build/rgb2spec.rs: the RGB-to-spectrum optimiser of
+    Jakob and Hanika, "A Low-Dimensional Function Space for Efficient Spectral
+    Upsampling" (Computer Graphics Forum 38(2), 2019), from
+    src/pbrt/cmd/rgb2spec_opt.cpp, and the table it generates at build time.
+-   crates/umbra-spectrum/tests/umbra_spectrum/pbrt_v4/: tests ported from
+    src/pbrt/util/spectrum_test.cpp and color_test.cpp, and a program that
+    links pbrt-v4 to compute the values the tests compare with.
+
+The Rust ports of pbrt-v4's routines in the other core crates
+(umbra-math, umbra-sampling) and their tests under tests/*/pbrt_v4/ are
+derived from pbrt-v4 likewise.
