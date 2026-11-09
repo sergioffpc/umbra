@@ -1,5 +1,0 @@
-# Build context for .devcontainer/Dockerfile is the repository root; send only
-# what the Dockerfile copies, not target/.
-*
-!rust-toolchain.toml
-!scripts/install-tools.sh

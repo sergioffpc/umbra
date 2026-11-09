@@ -3,6 +3,11 @@
 # so target/, .git/ and local scenes and images never reach the builder.
 # Add new crate sources here (build.rs, workspace members, ...).
 #
+# The dev container (.devcontainer/Dockerfile) shares this file: its features
+# make the devcontainer CLI build a generated copy of that Dockerfile from
+# /tmp, so a Dockerfile.dockerignore beside it is never read. It needs
+# rust-toolchain.toml and scripts/install-tools.sh.
+#
 # .cargo/ stays out on purpose: its config.toml sets target-cpu=native, which
 # would tie the image to the CI runner's CPU. The Dockerfile sets RUSTFLAGS.
 *
@@ -10,3 +15,4 @@
 !Cargo.lock
 !rust-toolchain.toml
 !crates/
+!scripts/install-tools.sh

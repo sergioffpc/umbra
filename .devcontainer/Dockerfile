@@ -1,8 +1,10 @@
 # Dev container image for umbra: Debian 13 (trixie), the same release as the
 # R630 Worker, with the toolchain pinned in rust-toolchain.toml and every tool
 # the git hooks and CI use. Built by .devcontainer/devcontainer.json with the
-# repository root as context; Dockerfile.dockerignore limits that context to
-# the files copied below. x86-64 only (ADR 0023).
+# repository root as context; the root .dockerignore limits that context to
+# the files copied below (the features build a generated copy of this
+# Dockerfile, so a Dockerfile.dockerignore beside it would be ignored).
+# x86-64 only (ADR 0023).
 FROM mcr.microsoft.com/devcontainers/rust:1-trixie
 
 # Native packages: shellcheck (shell scripts), run by the pre-commit hook and
