@@ -1,7 +1,4 @@
-//! `Ray`, `Bounds`, interactions, Shapes and `ShapeKind`, BVH node layout and traversal.
-//!
-//! A core crate (ADR 0014, ADR 0015): `#![no_std]` without `alloc`.
-
+#![doc = include_str!("../README.md")]
 #![no_std]
 
 // Dependency edges of arc42 §5.1, used once the crate has code.
