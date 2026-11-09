@@ -1,14 +1,4 @@
-//! Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers.
-//!
-//! A core crate (ADR 0014, ADR 0015): `#![no_std]` without `alloc`. Everything
-//! here is `f32` (ADR 0001) and follows the numeric rules of ADR 0022:
-//! transcendentals come from the `libm` crate or, where Umbra's own kernel is
-//! faster, from that kernel within a stated error bound ([`sin_cos`],
-//! [`atan2`], [`erf`], [`Vec4::exp`], [`Vec4::pow`]); FMA is explicit
-//! ([`fma`]); and every other operation of the [`Vec4`] SIMD facade computes
-//! exactly what its scalar reference computes. Names follow pbrt-v4, in snake
-//! case.
-
+#![doc = include_str!("../README.md")]
 #![no_std]
 
 // The x86-64 CPU baseline (ADR 0023): every target machine has FMA, and the
