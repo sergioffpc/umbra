@@ -1,6 +1,8 @@
 # Statistical validation against a published pbrt-v4 reference
 
 > **Amended by [ADR 0019](0019-milestones-defined-by-the-reference-scenes-they-unlock.md).** A feature no Reference Scene uses is validated on a Reference Scene Variant, a Reference Scene with one declared edit that pbrt-v4 renders too.
+>
+> **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md).** CI's golden Film hashes are single-Pass renders on x86-64 only. The statistical test is now also the only comparison between machines.
 
 Umbra is correct when its images are statistically indistinguishable from pbrt-v4's on the Reference Scenes. Decided in [Correctness validation strategy](https://github.com/sergioffpc/umbra/issues/29). A bit-exact comparison with pbrt-v4 is impossible: Umbra uses the pure-Rust `libm`, explicit FMA and no flush-to-zero ([ADR 0002](0002-bit-identical-results-across-architectures.md)), while pbrt-v4 uses the platform libm and whatever FMA contraction its compiler picks, so paths diverge after a few bounces. The comparison is therefore a hypothesis test that tells bias from noise.
 

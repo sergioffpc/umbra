@@ -7,8 +7,9 @@ Umbra is a physically based ray tracer written in Rust, inspired by
 [pbrt-v4](https://github.com/mmp/pbrt-v4) and the book
 [_Physically Based Rendering: From Theory to Implementation_](https://pbr-book.org/).
 
-It is designed to render on CPUs only, use every core of a machine, and spread
-the work of one image over the machines of a LAN.
+It is designed to render on x86-64 CPUs, with a GPU backend planned after the
+CPU milestones, use every core of a machine, and spread the work of one image
+over the machines of a LAN.
 
 > **Status:** early development. Nothing renders yet.
 
@@ -62,7 +63,7 @@ docker run -d --name umbra-worker --restart unless-stopped --network host \
 `--network host` lets the Worker see multicast DNS. `--restart unless-stopped`
 brings the Worker back after a crash or a reboot.
 
-From source, on Linux or macOS:
+From source:
 
 ```sh
 git checkout <ref>
@@ -114,8 +115,7 @@ the Worker on every machine, or pull and restart the release image.
 
 - Every machine: allow mDNS, UDP port 5353, from the LAN.
 - Every machine you run `umbra render` on: also allow UDP port 7470, the
-  Coordinator's port. On macOS, allow incoming connections for `umbra` in the
-  Application Firewall.
+  Coordinator's port.
 
 ## Container image
 

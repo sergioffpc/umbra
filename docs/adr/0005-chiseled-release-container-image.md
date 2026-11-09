@@ -1,6 +1,8 @@
 # Chiseled Ubuntu container image, published on every release tag
 
 > **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, not as a single `x86-64-v3` image. There are no `X.Y` or `latest` tags. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0023](0023-x86-64-only.md).** arm64 is dropped altogether, so `linux/amd64` is the only platform there will be.
 
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 
@@ -8,7 +10,7 @@ Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux 
 - **Chiseled Ubuntu 26.04 LTS runtime.** The final stage is `FROM scratch` plus a root filesystem cut with [Chisel](https://github.com/canonical/chisel) from the slices `umbra` needs: `base-files` (skeleton, `os-release`, the Chisel manifest for SBOM tools), `base-passwd`, `libc6_libs` and `libgcc-s1_libs`. There is no shell and no package manager, and the binary runs as the unprivileged user `umbra` (10001) in `/work`. The image is about 6.5 MB. A new dependency on a system library means adding its slice in the `Dockerfile`.
 - **glibc, not a static musl binary.** The Workers render on 56–64 threads, and musl's allocator serialises multi-threaded allocation; working around it means a custom global allocator and a second target to test. glibc costs about 3 MB of slices. It does not threaten [bit-identical results](0002-bit-identical-results-across-architectures.md): transcendentals come from the pure-Rust `libm` crate, never from the C library. The builder runs on the same Ubuntu 26.04 image as the Chisel stage, so the binary never needs a newer glibc than the runtime ships.
 - **The pinned toolchain, release profile, `x86-64-v3`.** The builder installs the toolchain from `rust-toolchain.toml` and runs `cargo build --release --locked` with `RUSTFLAGS="-C target-cpu=x86-64-v3"`, the common set of the Zen 2 and Broadwell-EP Workers ([deployment view](../architecture/07-deployment-view.md)). `target-cpu=native` from `.cargo/config.toml` must not leak into the image, since it would tie the binary to the CI runner's CPU; `RUSTFLAGS` replaces it and `.dockerignore` keeps `.cargo/` out of the build context.
-- **linux/amd64 only.** The only arm64 machine is the MacBook, which runs `umbra` natively on macOS. An arm64 image would double the release build (QEMU emulation crashes `rustc`, so it needs cross-compilation or an arm64 runner) for no machine that would pull it. The `Dockerfile` still builds natively on arm64, with a generic CPU, for local testing on Apple silicon.
+- **linux/amd64 only.** No target machine runs Linux on arm64. An arm64 image would double the release build (QEMU emulation crashes `rustc`, so it needs cross-compilation or an arm64 runner) for no machine that would pull it.
 - **Tags, labels and attestations.** Each release pushes `X.Y.Z`, `X.Y` and `latest`, with OCI labels and annotations from `docker/metadata-action`. BuildKit attaches an SLSA provenance (`mode=max`) and an SPDX SBOM to the image, and `actions/attest-build-provenance` records a GitHub artifact attestation. The image is smoke-tested (it starts, runs as 10001, has no `/bin/sh`) before anything is pushed.
 
 ## Considered options

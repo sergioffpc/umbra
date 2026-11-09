@@ -1,5 +1,7 @@
 # Plug-and-play Workers in a named Cluster
 
+> **Amended by [ADR 0023](0023-x86-64-only.md).** `umbra render` runs on a target machine: the P620, the operator's workstation, or the R630.
+
 Workers run permanently and find Coordinators on their own. A Coordinator that has a Render Job announces it on the LAN with DNS-SD, and every idle Worker of its Cluster joins. There is no launch script. Decided with the owner on 2026-11-07. This supersedes [ADR 0018](0018-sessions-launched-from-the-operators-machine.md), whose `scripts/workers up` built, started and restarted the Workers of each Session. It also amends [ADR 0003](0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md), [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md), [ADR 0016](0016-one-render-job-per-quic-connection.md) and [ADR 0017](0017-one-worker-per-numa-node.md), which relied on that script.
 
 With the script, every Render Job paid for SSH, a build or pull on every host, and a host list the operator had to maintain. Plug and play turns this around. The operator starts one Worker per NUMA node on each host and leaves it running, and `umbra render` on any machine uses whichever Workers of its Cluster are up.
@@ -19,16 +21,16 @@ With the script, every Render Job paid for SSH, a build or pull on every host, a
 
 - **The launch script of ADR 0018**: superseded. It rebuilt or pulled on every host and restarted Workers by exit code. But every Render Job paid that cost, and a Worker could not join a Session it had not been started with.
 - **Workers announce themselves and the Coordinator connects to them**: rejected. Each Worker would become a QUIC server, so every Worker host would have to open UDP ports in its firewall, two on the R630. The stream ownership of [arc42 §8.13](../architecture/08-crosscutting-concepts.md#813-wire-protocol) would also invert. When the Coordinator announces, only the machines that run Coordinators open a port, as before.
-- **A fixed Coordinator address given to each Worker, with retries**: rejected. The Coordinator runs on whichever machine the operator is using, the P620 or the MacBook, so every Worker would need every possible address.
+- **A fixed Coordinator address given to each Worker, with retries**: rejected. The Coordinator runs on whichever machine the operator is using, so every Worker would need every possible address.
 - **A secret cookie checked by a challenge in the handshake, as in Erlang**: rejected. It would authenticate nodes, but hostile nodes are out of scope and the TLS certificate is not verified either ([ADR 0016](0016-one-render-job-per-quic-connection.md)). A name is enough to keep honest Clusters apart.
-- **A custom UDP broadcast beacon**: rejected. DNS-SD does the same job, and standard tools show what is announced: `dns-sd -B _umbra._udp` on macOS, `avahi-browse -r _umbra._udp` on Linux.
+- **A custom UDP broadcast beacon**: rejected. DNS-SD does the same job, and standard tools show what is announced, such as `avahi-browse -r _umbra._udp`.
 - **Filtering Workers by commit at discovery**: rejected. Under this rule, a Worker on another commit stays away silently. Instead it joins and the handshake refuses it, so the operator sees the refusal on the Coordinator's terminal, with the Worker's host and commit.
 
 ## Consequences
 
 - Building is no longer automated. After changing commit, the operator rebuilds and restarts the Worker on every host, or pulls and restarts the release image. Until then the Coordinator refuses those Workers with `CommitMismatch` and logs which hosts are behind.
 - Every machine must let mDNS through: UDP 5353 from the LAN, multicast group 224.0.0.251. The R630's nftables, which admits only SSH, gains that rule. Machines that run Coordinators still open UDP 7470. Containers run with `--network host`.
-- Discovery depends on multicast reaching every host, Wi-Fi included. If a network ever filters it, the fallback is a fixed `--coordinator` address on the Worker, to be decided then.
+- Discovery depends on multicast reaching every host. If a network ever filters it, the fallback is a fixed `--coordinator` address on the Worker, to be decided then.
 - A Worker holds no Scene between Render Jobs, so an idle Worker uses almost no memory. Every Render Job still sends the whole Scene to every Worker ([ADR 0016](0016-one-render-job-per-quic-connection.md)).
 - `umbra worker` no longer exits at the end of a Render Job. It exits 0 when stopped with Ctrl-C or `SIGTERM`. Exit codes are no longer a contract with a script.
 - The Session identifier, the readiness line on stderr and the host list are gone. `Hello` carries the Cluster Name and the Worker's NUMA node. The Render Job Report counts the Workers and the refusals of each Worker Slot.

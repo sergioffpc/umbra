@@ -1,5 +1,7 @@
 # A bit-identical EXR final image carrying its Reproduction Record
 
+> **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md).** The file is a pure function of the Film, but the Film is bit-identical across renders only when each Tile has one Pass, so the file-hash test renders a single Pass.
+
 The final image of a Render Job is an OpenEXR file whose bytes are a pure function of the Render Job, and it carries its Reproduction Record as one header attribute. Decided in [Image output](https://github.com/sergioffpc/umbra/issues/65).
 
 - **EXR only.** The image format follows the extension of pbrt-v4's Film `filename`, or of the `--outfile` override, as in pbrt-v4. Only `.exr` is accepted. `.png`, `.pfm` and `.qoi` are rejected by Scene validation, before any Work Unit ([ADR 0003](0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Other formats join a later milestone only if a Reference Scene needs them, and only with somewhere to keep the Reproduction Record.
