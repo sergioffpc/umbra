@@ -41,7 +41,7 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
-| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE/FMA on x86-64, NEON on arm64)                                                                                                                                                                                                                                       |
+| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1 and FMA on x86-64)                                                                                                                                                                                                                                               |
 
 Everything is re-exported at the crate root, so `use umbra_math::{…}` is all
 you need.
@@ -83,38 +83,42 @@ Where Umbra departs from pbrt-v4, the doc comment says so:
 
 The core computes in `f32` (ADR 0001); there is no `Float` alias and no `f64`
 build. The crate is `#![no_std]` without `alloc` (ADR 0014, ADR 0015), so it
-can never allocate, and CI builds it for `aarch64-unknown-none` to prove it.
+can never allocate.
 All types are `Copy`. There is no recursion; pbrt-v4's variadic recursive
 helpers (`InnerProduct`, `SumSquares`, `EvaluatePolynomial`) are folds over
 const-generic arrays here.
 
-### Bit-identical across architectures
+### Deterministic on one machine, x86-64 only
 
-The same input must give the same bits on arm64 (macOS) and x86-64 (Linux)
-(ADR 0002). Hence:
+A computation gives the same bits every time it runs on one machine with one
+binary; across machines, results only have to be statistically equal
+(ADR 0022). The crate supports x86-64 only (ADR 0023). Hence:
 
 - **Transcendentals come from `libm`**, never from the platform's math
-  library or `std`'s float methods (which `clippy.toml` bans).
-- **x86-64 requires `x86-64-v3`** (FMA, SSE4.1, AVX2), which every target
+  library or `std`'s float methods (which `clippy.toml` bans). A faster
+  kernel of Umbra's own may replace one when it states an error bound and is
+  tested against it (ADR 0022).
+- **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
   machine has: without it the crate stops the build with a `compile_error!`,
-  so there is no software-FMA path to keep identical. Build with
-  `target-cpu=native` (the local default) or `-C target-cpu=x86-64-v3`.
-- **Two architectures only**: x86-64 with `x86-64-v3` and arm64 with NEON,
-  the target machines (ADR 0014). Any other target stops the build; a GPU
-  or other port adds its own backend.
-- **`fma`, `sqrt`, `floor` and `ceil` are the hardware instruction** on both. `fma` and `sqrt` are correctly rounded and `floor`/`ceil` are
-  exact, so every build computes the same bits; the hardware forms are
-  inlined, where `libm`'s `fmaf` is an indirect call through a runtime CPU
-  check and its `sqrtf` opaque inline assembly.
-- **FMA is explicit**: `umbra_math::fma` exactly where pbrt-v4 uses `FMA`, and
-  nowhere else. Rust never contracts `a * b + c` on its own.
+  so there is no software-FMA path. Build with `target-cpu=native` (the
+  local default) or `-C target-cpu=x86-64-v3`. Any other architecture stops
+  the build too; a GPU port adds its own backend (ADR 0024).
+- **`fma`, `sqrt`, `floor` and `ceil` are the hardware instruction**. `fma`
+  and `sqrt` are correctly rounded and `floor`/`ceil` are exact, so they
+  compute the bits of `libm`; the hardware forms are inlined, where `libm`'s
+  `fmaf` is an indirect call through a runtime CPU check and its `sqrtf`
+  opaque inline assembly.
+- **FMA is explicit**: `umbra_math::fma` wherever pbrt-v4 uses `FMA`, and
+  elsewhere where it is faster or more accurate, except in code whose error
+  bounds assume pbrt-v4's exact operations. Rust never contracts `a * b + c`
+  on its own.
 - **`min` and `max` have C++ `std::min`/`std::max` semantics**: `min(a, b)` is
   `if b < a { b } else { a }`. With a NaN the comparison is false and `a` is
   returned. This is not `f32::min`, which prefers the non-NaN operand; use
   `umbra_math::min`/`max` (and the tuple and `Vec4` methods built on them)
   wherever pbrt-v4 calls `std::min`/`std::max`.
-- **No approximate instructions** (`rcpps`, `rsqrtps`, …) and no change of
-  the floating-point environment.
+- **No approximate instructions** (`rcpps`, `rsqrtps`, …), whose bits differ
+  between CPU vendors, and no change of the floating-point environment.
 
 ### Generic tuples, one `Real` trait
 
@@ -147,24 +151,22 @@ epsilons.
 
 ### `Vec4`/`Mask4`: SIMD that computes what scalar code computes
 
-`Vec4` is four `f32` lanes in one SSE/NEON register, the width of
+`Vec4` is four `f32` lanes in one SSE register, the width of
 `SampledSpectrum` (N = 4 wavelengths). The lanes are stored as a
 16-byte-aligned `[f32; 4]`, so `new`, `splat` and `ZERO` are `const`; each
 operation moves them through one `core::arch` intrinsic, chosen so that every
 lane computes what the scalar operation computes:
 
 - `min`/`max` have `std::min`/`std::max` semantics: `minps`/`maxps` with the
-  operands swapped on x86-64 (`minps(b, a)` returns `b` when `b < a` and `a`
-  otherwise, so `a` for a NaN in either), a compare and a `bsl` select on
-  arm64, never `fmin`/`fminnm`, whose NaN rules differ. So `t0.max(t_near)`
+  operands swapped (`minps(b, a)` returns `b` when `b < a` and `a`
+  otherwise, so `a` for a NaN in either). So `t0.max(t_near)`
   ignores a NaN slab bound, as pbrt-v4's ray–box test does.
-- `mul_add` is always fused: `vfmaddps` on x86-64, `fmla` on arm64, never
-  a multiply and an add.
+- `mul_add` is always fused (`vfmaddps`), never a multiply and an add.
 - Horizontal reductions (`reduce_add`, `reduce_min`, `reduce_max`) fold left
   to right, like a scalar loop.
 
-There are two backends under one facade, `x86_64` (SSE with `blendvps` and
-`vfmaddps`) and `aarch64` (NEON), each compiled only for its architecture.
+There is one backend under the facade, `x86_64` (SSE with `blendvps` and
+`vfmaddps`).
 The scalar operation is the oracle of the facade
 (`tests/umbra_math/simd_test.rs`), lane by lane, over random bit patterns and
 the special values. The one thing outside the

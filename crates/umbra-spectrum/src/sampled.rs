@@ -4,7 +4,7 @@
 //! Both live in [`Vec4`] lanes, one wavelength per lane. Every lane-wise
 //! operation computes the bits of pbrt-v4's loop over the samples, and the
 //! reductions (`Average`, `MinComponentValue`, `MaxComponentValue`) keep its
-//! order (ADR 0002).
+//! order (ADR 0001).
 
 use core::ops::{
     Add, AddAssign, Div, DivAssign, Index, Mul, MulAssign, Neg, Range, Sub, SubAssign,

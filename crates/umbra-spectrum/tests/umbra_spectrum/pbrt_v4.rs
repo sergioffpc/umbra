@@ -16,7 +16,7 @@ mod spectrum_test;
 /// bits are the matching entry of `expected`.
 ///
 /// pbrt-v4's values come from the platform libm, Umbra's from the `libm`
-/// crate (ADR 0002), so a result computed through a transcendental can
+/// crate (ADR 0022), so a result computed through a transcendental can
 /// differ in its last bits; arithmetic alone is compared with `max_ulps` 0.
 #[track_caller]
 pub(crate) fn assert_ulps<const N: usize>(

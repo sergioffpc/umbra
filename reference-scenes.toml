@@ -24,7 +24,8 @@ commit = "30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572"
 #   Reference Image of QS-1 is rendered at 64 × its Pixel Samples per pixel.
 # - `validation`: `umbra validate` and the published statistics, always with
 #   seeds 0–15.
-# - `golden`: the Golden Film Hashes checked in CI on arm64 and x86-64.
+# - `golden`: the Golden Film Hashes checked in CI on x86-64, rendered in a
+#   single Pass (ADR 0022).
 #
 # pbrt-v4 has no resolution override, so the benchmark and validation
 # resolution must be the one the Scene File (with its edit) declares; the

@@ -3,7 +3,7 @@
 //! (PBR 4e §4.6.6, Jakob and Hanika 2019).
 //!
 //! The build script optimises them with pbrt-v4's `rgb2spec_opt`
-//! (`build/rgb2spec.rs`, ADR 0002) and writes them as little-endian `f32`,
+//! (`build/rgb2spec.rs`, ADR 0022) and writes them as little-endian `f32`,
 //! included here as bytes and read with `f32::from_le_bytes`.
 
 use umbra_math::{find_interval, lerp};

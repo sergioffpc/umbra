@@ -65,7 +65,7 @@ sequenceDiagram
         W->>C: RequestWork (count)
         C->>W: Assign (Tile, Pass), Pass-major, raster order
         W-->>C: heartbeat: cumulative Pixel Samples per Work Unit
-        W-->>C: Work Result stream: header (hash, Anomalous Pixel Samples) + f64 sums
+        W-->>C: Work Result stream: header (Anomalous Pixel Samples) + f64 sums
         C->>F: accept: Merged, or Buffered until the previous Pass of that Tile
         W->>C: RequestWork (1)
     end
@@ -80,8 +80,8 @@ sequenceDiagram
 
 1. The Coordinator reads the Scene File and its assets from the operator's local disk and parses them once ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Only then does it open its UDP port and announce the Render Job ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). A file with any error exits with Diagnostics before anything is announced, so no Worker ever joins it and no close code is needed.
 2. `umbra-cluster`'s `coordinate` starts the optional local Worker, announces the Render Job in its Cluster and accepts remote Workers (§6.1). It does not wait for Workers: the Render Job starts with the first `RequestWork`, local or remote. A Worker that starts or becomes idle later joins the Render Job in progress.
-3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order, and Pass p of a Tile waits until Pass p − 2 of that Tile is merged. A Worker keeps about two Work Units in flight per eight threads, and returns one credit per Work Result.
-4. The Coordinator checks each Work Result's hash on receipt. The Film merges each Tile's Work Results in Pass order and holds the one early arrival per Tile that scheduling allows (ADR 0004).
+3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order. A Worker keeps about two Work Units in flight per eight threads, and returns one credit per Work Result.
+4. The Film merges each Work Result as soon as it arrives, in any order (ADR 0022).
 5. The status line on the Coordinator's stderr (§8.10) shows the current Pass, the percentage of Pixel Samples merged or in flight, each Worker's state and the ETA throughout.
 6. After the last merge, the Coordinator withdraws its announcement, and `JobFinished` then releases every Worker, which drops the Scene and is idle again. The image and its Render Job Report are written next to each other on the operator's machine. The image only exists once every Pass has been rendered.
 7. A Worker that fails while the Render Job runs rejoins it as a new Worker (§6.3). The Coordinator refuses a Worker Slot whose Workers have failed three times in a row (§8.13). When no Worker is alive and there is no local Worker, the status line shows `waiting: no Workers` until a Worker joins or the operator presses Ctrl-C (§6.6).
@@ -105,15 +105,15 @@ sequenceDiagram
     Note over C: (Tile 4, Pass 1), (Tile 5, Pass 1)<br/>go to the front of the queue
     A->>C: RequestWork (2)
     C->>A: Assign (Tile 4, Pass 1), (Tile 5, Pass 1)
-    A-->>C: Work Result (Tile 4, Pass 1), hash h
+    A-->>C: Work Result (Tile 4, Pass 1)
     C->>F: accept: Merged
     A-->>C: Work Result (Tile 5, Pass 1)
     C->>F: accept: Merged
 ```
 
 1. A Worker is dead when its connection closes, when it sends `Fatal`, or after 5 s without a heartbeat. There is no per-Work-Unit timeout. A Worker dead by heartbeat has its connection closed with `WORKER_TIMED_OUT`, so a dead Worker is always a closed connection, and a Work Result it was still sending is lost. Since the QUIC idle timeout equals the death time, this matters only when other traffic kept the connection alive.
-2. Its Work Units in flight go to the front of the queue, because they are the ones holding back ordered merges.
-3. The first Work Result for a Work Unit is merged. Any later one, from a speculative copy (§6.4) or from a reassigned Work Unit whose stream had already ended, is compared by hash and discarded. Equal hashes are the expected outcome (`Duplicate`). Different hashes (`Conflict`) are a bug in determinism and are logged as an error naming both Workers. The Film keeps the first.
+2. Its Work Units in flight go to the front of the queue, because they are the oldest work still missing.
+3. The first Work Result for a Work Unit is merged. Any later one, from a speculative copy (§6.4) or from a reassigned Work Unit whose stream had already ended, is a `Duplicate` and is discarded unread. The Cluster is assumed healthy, so the two are not compared (ADR 0022).
 4. If Worker B is still running, it rejoins the Render Job after 2 s as a new Worker (§6.1). If its process died, its supervisor restarts it, and the new process joins the same way. Each failure counts against Worker B's Worker Slot (§8.13). With no Workers left, the Render Job waits.
 
 A Worker whose connection merely went quiet but whose render pool is still progressing is not dead: it keeps sending heartbeats. If its Pixel Sample count stops growing for 30 s, the status line shows it as `stalled` and nothing is reassigned. The speculative tail (§6.4) covers it at the end.
@@ -142,15 +142,13 @@ sequenceDiagram
         B->>C: RequestWork (1), the cancelled credit
     else B's Work Result arrived first
         B-->>C: Work Result (Tile 3, Pass 7)
-        C->>F: accept: Duplicate, hash compared
+        C->>F: accept: Duplicate, discarded
     end
 ```
 
 1. When the queue is empty and a Worker has pending demand, the Coordinator assigns it a copy of the oldest Work Unit still in flight. Each Work Unit gets at most one copy.
-2. The first Work Result wins. The other copy is cancelled, or, if it arrives anyway, compared by hash and discarded as in §6.3.
+2. The first Work Result wins. The other copy is cancelled, or, if it arrives anyway, discarded unread as in §6.3.
 3. A cancelled Work Unit gives its credit back, so the Worker can take another copy while any remain.
-
-Copies happen in every Render Job, so the hash comparison of ADR 0004 runs routinely, not only after failures.
 
 ## 6.5 A rejected Worker
 

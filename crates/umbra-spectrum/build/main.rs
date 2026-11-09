@@ -1,4 +1,4 @@
-//! Generates the sRGB RGB-to-spectrum table (ADR 0002, arc42 §8.1).
+//! Generates the sRGB RGB-to-spectrum table (ADR 0022, arc42 §8.1).
 //!
 //! The Jakob–Hanika coefficient table is about 2.4 MB of `f32`, so it is
 //! computed here rather than committed: [`rgb2spec`] ports pbrt-v4's

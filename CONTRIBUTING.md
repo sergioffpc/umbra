@@ -115,8 +115,7 @@ Optional tools used by the hook and CI:
 
 ## Git setup and hooks
 
-Install [Git LFS](https://git-lfs.com) first (`brew install git-lfs` on
-macOS). Images (`.exr`, `.hdr`, `.pfm`, `.png`, `.jpg`, `.tga`) and meshes
+Install [Git LFS](https://git-lfs.com) first. Images (`.exr`, `.hdr`, `.pfm`, `.png`, `.jpg`, `.tga`) and meshes
 (`.ply`, `.obj`) are stored in LFS; see [`.gitattributes`](.gitattributes).
 
 Then run the setup script once per clone. It enables the hooks, the commit
@@ -179,11 +178,8 @@ it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
 container.
 
 - `target/` and the cargo download cache are Docker volumes, not bind mounts:
-  builds stay fast on macOS and survive container rebuilds. The container's
+  builds stay fast and survive container rebuilds. The container's
   `target/` is separate from the host's.
-- On Apple silicon the container is `aarch64-unknown-linux-gnu`, a platform no
-  Worker runs; use it for development, and the host or CI for anything that
-  depends on the target platform.
 - Tool versions are `ARG`s in the [`Dockerfile`](.devcontainer/Dockerfile);
   Dependabot updates the base image and features.
 - A git worktree cannot be opened in the container: its `.git` file points
@@ -223,10 +219,10 @@ container.
 - No `_` arm in a `match` on an enum: list the variants, so adding one breaks
   the build wherever it is not handled. On a `#[non_exhaustive]` enum from
   another crate, a `_` arm is allowed after the known variants.
-- Bit-identical floats ([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)):
+- Numerics ([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)):
   `std`'s transcendental float methods (`sin`, `exp`, `powf`, …) are banned in
-  favour of the `libm` crate, as are approximate reciprocal intrinsics and
-  flush-to-zero. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
+  favour of the `libm` crate, as are vendor-dependent approximate reciprocal
+  intrinsics and flush-to-zero. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
 - No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
@@ -246,10 +242,9 @@ first.
   ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
-  `std`. Check with
-  `RUSTFLAGS="-D warnings" cargo build --target aarch64-unknown-none -p umbra-math`
-  (and the other six). Setting `RUSTFLAGS` drops `target-cpu=native`, which
-  does not apply to that target.
+  `std`. Nothing checks this automatically
+  ([ADR 0023](docs/adr/0023-x86-64-only.md)): keep `std` and `alloc` out of
+  the core in review, including through dependency features.
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
 
@@ -265,14 +260,13 @@ first.
 Build scripts are optimised in `dev` and `release`: the one of
 `umbra-spectrum` computes the sRGB RGB-to-spectrum table, about a CPU-minute
 optimised
-([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)).
+([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
 (`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
-other machines. On x86-64, an override must keep at least
-`-C target-cpu=x86-64-v3`: `umbra-math` requires FMA, SSE4.1 and AVX2 and
-stops the build without them
-([ADR 0002](docs/adr/0002-bit-identical-results-across-architectures.md)).
+other machines. An override must keep at least `-C target-cpu=x86-64-v3`:
+`umbra-math` requires FMA, SSE4.1 and AVX2 and stops the build without them
+([ADR 0023](docs/adr/0023-x86-64-only.md)).
 
 ## Before opening a pull request
 
@@ -284,9 +278,6 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
 cargo nextest run --all-features --locked
 cargo test --doc --all-features --locked
-RUSTFLAGS="-D warnings" cargo build --locked --target aarch64-unknown-none \
-  -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry \
-  -p umbra-shading -p umbra-camera -p umbra-integrators
 cargo deny check
 cargo shear
 typos
@@ -301,7 +292,7 @@ git ls-files -z '*.md' | xargs -0 markdownlint-cli2
 python3 -m unittest discover -s scripts
 ```
 
-CI runs the build, lint and test checks on Linux and macOS, and a coverage
+CI runs the build, lint and test checks on Linux x86-64, and a coverage
 report on Linux (in the run summary, with the HTML report as an artifact).
 
 Then:
@@ -336,8 +327,7 @@ docker run --rm umbra:znver2
 ```
 
 On `linux/amd64` the build fails without `TARGET_CPU`: there is no generic
-x86-64 image. On Apple silicon it builds a native `linux/arm64` image with a
-generic CPU for testing; the published images are `linux/amd64` only.
+x86-64 image. The published images are `linux/amd64` only.
 
 The build context is limited by [`.dockerignore`](.dockerignore): add new
 crate sources (`build.rs`, workspace members) there. A dependency on a system

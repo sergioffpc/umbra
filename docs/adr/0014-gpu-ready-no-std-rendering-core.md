@@ -1,6 +1,8 @@
 # A GPU-ready `no_std` rendering core
 
 > **Amended by [ADR 0015](0015-layered-workspace-with-a-seven-crate-no-std-core.md).** The core is seven `#![no_std]` crates without `alloc`, not one crate. Every rule below applies to each of them. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md), [ADR 0023](0023-x86-64-only.md) and [ADR 0024](0024-a-gpu-backend-on-the-roadmap.md).** The GPU is on the roadmap, and a GPU backend only has to be statistically equal to the CPU. `umbra-math` has an x86-64 backend only, and the `no_std` core is no longer built for `aarch64-unknown-none`: the rule holds by review.
 
 Umbra has no GPU backend, but its CPU code is written so that a later port does not mean a rewrite. Several of the rules that make this possible are already decided: `f32` only ([ADR 0001](0001-numeric-model.md)), closed enum dispatch with no `dyn` on the per-ray path ([ADR 0006](0006-closed-enum-dispatch-for-rendering-interfaces.md)), and `u32` index handles with no per-sample allocation ([ADR 0008](0008-index-handle-arenas-and-allocation-free-rendering.md)). This ADR adds the rest. The rules are chosen for the most restrictive Rust GPU toolchain (rust-gpu: no allocation, no recursion, no dynamic dispatch, no unwinding), so that every toolchain stays open ([pbrt-v4 CPU/GPU shared-code architecture](https://github.com/sergioffpc/umbra/issues/15)).
 

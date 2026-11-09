@@ -65,7 +65,8 @@ flowchart LR
 
 Ruled out of this architecture, so no section of this document plans for them:
 
-- A GPU backend (CUDA, Vulkan, Metal). Only the readiness rules of §8.12 are in scope.
+- A GPU backend before the CPU milestones are done: it is on the roadmap after them (§4.1, [ADR 0024](../adr/0024-a-gpu-backend-on-the-roadmap.md)). Until then only the readiness rules of §8.12 apply.
+- arm64 ([ADR 0023](../adr/0023-x86-64-only.md)).
 - Cloud deployment, autoscaling, Workers outside the LAN.
 - Out-of-core Scenes: every Worker holds the whole Scene.
 - Hostile nodes: the TLS certificate is not verified, and the Cluster Name and Build Identity guard only against mistakes of operation (§6.5).

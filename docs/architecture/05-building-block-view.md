@@ -64,7 +64,7 @@ Inside a core crate, each pbrt-v4 chapter or section is a module, for example `u
 
 Per-sample code receives a `SceneView<'_>` of borrowed arena slices, never `&Scene` (ADR 0014).
 
-Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. CI builds all seven crates for `aarch64-unknown-none` with the feature off.
+Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. The seven crates build with the feature off in `cargo build` and on in CI's `--all-features` runs.
 
 ## 5.3 Level 2: interfaces outside the core
 
@@ -102,14 +102,14 @@ impl<'s> Renderer<'s> {
 }
 impl Film {
     pub fn new(options: &RenderJobOptions) -> Self;
-    pub fn accept(&mut self, result: WorkResult) -> Acceptance;   // Merged | Buffered | Duplicate | Conflict
+    pub fn accept(&mut self, result: WorkResult) -> Acceptance;   // Merged | Duplicate
     pub fn finish(self, record: ReproductionRecord) -> Image;
 }
 ```
 
 - `Renderer` hides everything between a Work Unit and its Work Result: the `dyn Integrator`, per-thread buffers, `par_iter` over rows, Anomalous Pixel Sample collection and the choice of `Recorder`. `render` may be called concurrently for several Work Units (§8.8). Cancellation is cooperative, checked between rows, and serves the speculative tail.
 - `trace` re-runs Pixel Samples through the same code path as `render`, with a `TraceRecorder`. That shared path is what the bit-identical oracle tests (§8.9).
-- `Film` owns the merge order. It accepts Work Results in any order, buffers early arrivals, and merges each Tile's Passes in order (ADR 0004). It also compares duplicates by hash. The scheduler decides what to assign, never how results are merged.
+- `Film` merges each Work Result as it arrives, in any order (ADR 0022). A second Work Result for the same Work Unit is a `Duplicate` and is discarded unread. The scheduler decides what to assign, never how results are merged.
 
 ### `umbra-cluster`
 
@@ -142,6 +142,6 @@ The binary has `clap` derive subcommands: `render`, `worker`, `trace`, `bench` a
 | Layout      | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles.                                                                                                                                                                                         |
 | Inheritance | `[workspace.package]` (version, edition, `rust-version`, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`.                                                                                                                          |
 | Versioning  | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)).                                                                                                                                                                         |
-| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. CI builds them for `aarch64-unknown-none`.                                                                                                                                                                                                             |
+| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. Held by review: nothing checks it automatically ([ADR 0023](../adr/0023-x86-64-only.md)).                                                                                                                                                              |
 | Tests       | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)) live in the crate that owns the sampling routine. Cross-crate tests (golden Film hashes, the trace oracle, the counting allocator) live in `crates/umbra/tests/`. |
 | Benchmarks  | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4).                                                                                                                                                                                                                                 |

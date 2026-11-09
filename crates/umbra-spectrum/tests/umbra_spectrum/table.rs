@@ -1,6 +1,6 @@
 //! The hash of the sRGB RGB-to-spectrum table the build script generates
-//! (ADR 0002): CI runs this on arm64 and x86-64, so a table that differs
-//! between them, or changes with the generator, fails here.
+//! (ADR 0022): a table that changes with the generator, the toolchain or
+//! `libm` fails here.
 
 use umbra_sampling::murmur_hash_64a;
 

@@ -111,7 +111,7 @@ The detailed record of how one Pixel Sample was computed, from camera sample to 
 _Avoid_: Path log, debug ray, pixel dump
 
 **Reproduction Record**:
-What the final image carries so that any of its Pixel Samples can be computed again exactly: the Scene File path with a content hash of it, its includes and its assets, the seed, every Render Job option except the output path, and the Build Identity of the Umbra that rendered it.
+What the final image carries so that any of its Pixel Samples can be computed again, exactly on the machine that rendered it: the Scene File path with a content hash of it, its includes and its assets, the seed, every Render Job option except the output path, and the Build Identity of the Umbra that rendered it.
 _Avoid_: Job manifest, render metadata, provenance
 
 **Anomalous Pixel Sample**:
@@ -125,5 +125,5 @@ A change made only for speed that departs from the readable, book-faithful imple
 _Avoid_: Optimisation (unqualified), fast path, hack
 
 **Golden Film Hash**:
-The committed hash of the Film a Reference Scene produces at minimal settings; a change to it means a change in rendered pixels.
+The committed hash of the Film a Reference Scene produces at minimal settings, in a single Pass; a change to it means a change in rendered pixels.
 _Avoid_: Golden image, snapshot, expected output
