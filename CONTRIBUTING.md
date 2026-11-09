@@ -352,7 +352,7 @@ library needs its Chisel slice added in the `Dockerfile`.
 
 ## pbrt-v4 reference
 
-[`reference-scenes.toml`](reference-scenes.toml) holds the pinned `mmp/pbrt-v4`
+[`reference/scenes.toml`](reference/scenes.toml) holds the pinned `mmp/pbrt-v4`
 and `mmp/pbrt-v4-scenes` commits and the Reference Scenes, each with its
 benchmark, validation and golden settings.
 [`scripts/pbrt_reference.py`](scripts/pbrt_reference.py) turns them into the
