@@ -1,7 +1,5 @@
 # Build output
 target/
-# Copied from the root by scripts/check-no-std.sh
-/ci/no-std-check/Cargo.lock
 
 # Profiling and debugging output
 *.profraw

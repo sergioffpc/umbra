@@ -48,6 +48,8 @@ jobs:
       - run: cargo doc --no-deps --document-private-items --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
+      # The `no-std-check` member fails clippy and the tests if a core crate
+      # links `std` or `alloc` (ADR 0014, ADR 0023).
       # `--no-tests=warn` until the first test lands. nextest does not run
       # doctests, so they run separately. The tests include the hash of the
       # RGB-to-spectrum table the `umbra-spectrum` build script generates
@@ -56,21 +58,6 @@ jobs:
       - run: cargo test --doc --all-features --locked
       # Micro-benchmarks only have to build on a shared runner (§8.4).
       - run: cargo bench --no-run --all-features --locked
-
-  # The seven core crates without `std` or `alloc` (ADR 0014, ADR 0023),
-  # linked into the `no_std` `staticlib` of `ci/no-std-check/`, with the
-  # `serde` feature off (as the Scene arenas are used on a Worker) and on (as
-  # `umbra-scene` turns it on).
-  core:
-    name: core (no_std)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Installs the toolchain pinned in rust-toolchain.toml.
-      - name: Toolchain
-        run: rustup toolchain install && rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: scripts/check-no-std.sh
 
   # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on a
   # nightly pinned for this job only, with the `x86-64-v3` baseline the crate

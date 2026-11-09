@@ -242,8 +242,9 @@ first.
   ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
-  `std`. Check with `scripts/check-no-std.sh`, which links the seven crates
-  into the `no_std` `staticlib` of `ci/no-std-check/`
+  `std`. The workspace member `ci/no-std-check/` enforces both: it stops
+  compiling if anything links `std`, so every `cargo build`, `clippy` and
+  `test` checks it, and its test rejects `extern crate alloc`
   ([ADR 0023](docs/adr/0023-x86-64-only.md)).
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
@@ -278,7 +279,6 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
 cargo nextest run --all-features --locked
 cargo test --doc --all-features --locked
-scripts/check-no-std.sh
 cargo deny check
 cargo shear
 typos
