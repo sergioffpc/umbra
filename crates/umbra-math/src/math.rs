@@ -24,6 +24,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
 use core::ops::{Add, AddAssign, Mul, Sub};
 
 use crate::float::{exponent, floor, fma, significand, sqrt};
+use crate::transcendental::erf;
 
 /// π, from `core`.
 ///
@@ -226,7 +227,7 @@ pub fn gaussian(x: f32, mu: f32, sigma: f32) -> f32 {
 pub fn gaussian_integral(x0: f32, x1: f32, mu: f32, sigma: f32) -> f32 {
     debug_assert!(sigma > 0.0, "gaussian_integral: sigma = {sigma}");
     let sigma_root2 = sigma * SQRT_2;
-    0.5 * (libm::erff((mu - x0) / sigma_root2) - libm::erff((mu - x1) / sigma_root2))
+    0.5 * (erf((mu - x0) / sigma_root2) - erf((mu - x1) / sigma_root2))
 }
 
 /// The inverse error function, from Giles' single-precision approximation.

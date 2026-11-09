@@ -14,6 +14,7 @@ use core::ops::Mul;
 use crate::Vec4;
 use crate::math::radians;
 use crate::square_matrix::SquareMatrix;
+use crate::transcendental::sin_cos;
 use crate::vecmath::{Frame, Normal3f, Point3f, Point3fi, Vector3f, Vector3fi, cross, dot};
 
 /// A transformation and its inverse, as 4 × 4 matrices.
@@ -333,7 +334,7 @@ fn rotation(m: SquareMatrix<4>) -> Transform {
 
 /// The sine and cosine of `theta` degrees.
 fn sin_cos_degrees(theta: f32) -> (f32, f32) {
-    (libm::sinf(radians(theta)), libm::cosf(radians(theta)))
+    sin_cos(radians(theta))
 }
 
 /// A rotation by `theta` degrees about the x axis.

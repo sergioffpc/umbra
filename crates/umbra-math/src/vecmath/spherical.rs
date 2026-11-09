@@ -4,6 +4,7 @@
 use crate::PI;
 use crate::float::sqrt;
 use crate::math::{clamp, max, safe_acos, sqr};
+use crate::transcendental::{atan2, sin_cos};
 use crate::vecmath::vector::{Vector3f, angle_between, cross, dot};
 
 /// The area of the spherical triangle with unit-vector vertices `a`, `b`,
@@ -12,7 +13,7 @@ use crate::vecmath::vector::{Vector3f, angle_between, cross, dot};
 /// PBR 4e §3.8.1, pbrt-v4 `SphericalTriangleArea`.
 #[must_use]
 pub fn spherical_triangle_area(a: Vector3f, b: Vector3f, c: Vector3f) -> f32 {
-    (2.0 * libm::atan2f(dot(a, cross(b, c)), 1.0 + dot(a, b) + dot(a, c) + dot(b, c))).abs()
+    (2.0 * atan2(dot(a, cross(b, c)), 1.0 + dot(a, b) + dot(a, c) + dot(b, c))).abs()
 }
 
 /// The area of the spherical quadrilateral with unit-vector vertices `a`,
@@ -48,9 +49,10 @@ pub fn spherical_direction(sin_theta: f32, cos_theta: f32, phi: f32) -> Vector3f
         "cos θ = {cos_theta}"
     );
     let sin_theta = clamp(sin_theta, -1.0, 1.0);
+    let (sin_phi, cos_phi) = sin_cos(phi);
     Vector3f::new(
-        sin_theta * libm::cosf(phi),
-        sin_theta * libm::sinf(phi),
+        sin_theta * cos_phi,
+        sin_theta * sin_phi,
         clamp(cos_theta, -1.0, 1.0),
     )
 }
@@ -68,7 +70,7 @@ pub fn spherical_theta(v: Vector3f) -> f32 {
 /// PBR 4e §3.8.2, pbrt-v4 `SphericalPhi`.
 #[must_use]
 pub fn spherical_phi(v: Vector3f) -> f32 {
-    let p = libm::atan2f(v.y, v.x);
+    let p = atan2(v.y, v.x);
     if p < 0.0 { p + 2.0 * PI } else { p }
 }
 

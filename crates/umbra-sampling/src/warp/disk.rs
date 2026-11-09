@@ -1,6 +1,6 @@
 //! Uniform samples of the unit disk.
 
-use umbra_math::{PI, PI_OVER_2, PI_OVER_4, Point2f, Vector2f, sqr, sqrt};
+use umbra_math::{PI, PI_OVER_2, PI_OVER_4, Point2f, Vector2f, atan2, sin_cos, sqr, sqrt};
 
 /// A uniformly distributed point of the unit disk, by the polar map
 /// `r = √u₀, θ = 2πu₁`, which distorts areas near the centre.
@@ -9,8 +9,8 @@ use umbra_math::{PI, PI_OVER_2, PI_OVER_4, Point2f, Vector2f, sqr, sqrt};
 #[must_use]
 pub fn sample_uniform_disk_polar(u: Point2f) -> Point2f {
     let r = sqrt(u.x);
-    let theta = 2.0 * PI * u.y;
-    Point2f::new(r * libm::cosf(theta), r * libm::sinf(theta))
+    let (sin, cos) = sin_cos(2.0 * PI * u.y);
+    Point2f::new(r * cos, r * sin)
 }
 
 /// The `u` that [`sample_uniform_disk_polar`] maps to `p`.
@@ -18,7 +18,7 @@ pub fn sample_uniform_disk_polar(u: Point2f) -> Point2f {
 /// pbrt-v4 `InvertUniformDiskPolarSample`.
 #[must_use]
 pub fn invert_uniform_disk_polar_sample(p: Point2f) -> Point2f {
-    let mut phi = libm::atan2f(p.y, p.x);
+    let mut phi = atan2(p.y, p.x);
     if phi < 0.0 {
         phi += 2.0 * PI;
     }
@@ -43,7 +43,8 @@ pub fn sample_uniform_disk_concentric(u: Point2f) -> Point2f {
             PI_OVER_2 - PI_OVER_4 * (u_offset.x / u_offset.y),
         )
     };
-    r * Point2f::new(libm::cosf(theta), libm::sinf(theta))
+    let (sin, cos) = sin_cos(theta);
+    r * Point2f::new(cos, sin)
 }
 
 /// The `u` that [`sample_uniform_disk_concentric`] maps to `p`.
@@ -51,7 +52,7 @@ pub fn sample_uniform_disk_concentric(u: Point2f) -> Point2f {
 /// pbrt-v4 `InvertUniformDiskConcentricSample`.
 #[must_use]
 pub fn invert_uniform_disk_concentric_sample(p: Point2f) -> Point2f {
-    let theta = libm::atan2f(p.y, p.x);
+    let theta = atan2(p.y, p.x);
     let r = sqrt(sqr(p.x) + sqr(p.y));
     // The comparisons are pbrt-v4's, so a NaN takes the same branch.
     let uo = if theta.abs() < PI_OVER_4 || theta.abs() > 3.0 * PI_OVER_4 {

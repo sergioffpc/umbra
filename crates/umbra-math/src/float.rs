@@ -14,6 +14,8 @@
 
 mod arch;
 
+pub(crate) use arch::fma_f64;
+
 /// Half the distance between 1 and the next `f32`: the bound on the relative
 /// error of one correctly rounded operation.
 ///
