@@ -4,7 +4,9 @@
 //! Both live in [`Vec4`] lanes, one wavelength per lane. Every lane-wise
 //! operation computes the bits of pbrt-v4's loop over the samples, and the
 //! reductions (`Average`, `MinComponentValue`, `MaxComponentValue`) keep its
-//! order (ADR 0001).
+//! order (ADR 0001). The exceptions are [`SampledSpectrum::exp`] and
+//! [`SampledSpectrum::pow`], `umbra-math`'s four-lane kernels, which are
+//! within 1 ULP of the correctly rounded result (ADR 0022).
 
 use core::ops::{
     Add, AddAssign, Div, DivAssign, Index, Mul, MulAssign, Neg, Range, Sub, SubAssign,
@@ -179,22 +181,22 @@ impl SampledSpectrum {
         ret
     }
 
-    /// Each value raised to `e`.
+    /// Each value raised to `e`, within 1 ULP, by [`Vec4::pow`].
     ///
     /// pbrt-v4 `Pow(SampledSpectrum, Float)`.
     #[inline]
     #[must_use]
     pub fn pow(self, e: f32) -> Self {
-        self.map(|v| libm::powf(v, e))
+        Self(self.0.pow(e))
     }
 
-    /// `e` raised to each value.
+    /// `e` raised to each value, within 1 ULP, by [`Vec4::exp`].
     ///
     /// pbrt-v4 `Exp(SampledSpectrum)`.
     #[inline]
     #[must_use]
     pub fn exp(self) -> Self {
-        let ret = self.map(libm::expf);
+        let ret = Self(self.0.exp());
         debug_assert!(!ret.has_nans(), "exp: {ret:?} has NaNs");
         ret
     }

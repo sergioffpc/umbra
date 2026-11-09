@@ -2,25 +2,29 @@
 //! `src/pbrt/util/transform.h`). Transforming a `Ray` or `Bounds3f` belongs
 //! with those types, in `umbra-geometry`.
 //!
-//! Applying a transform runs as a [`Vec4`](crate::Vec4) kernel
-//! ([`kernels`]) with the four rows of the matrix in the lanes; each computes
-//! the bits of its scalar form in `tests/umbra_math/reference/transform.rs`
-//! (ADR 0007).
+//! Applying a transform runs as a [`Vec4`] kernel ([`kernels`]) with the
+//! four rows of the matrix in the lanes; each computes the bits of its scalar
+//! form in `tests/umbra_math/reference/transform.rs` (ADR 0007).
 
 mod kernels;
 
+use core::fmt;
 use core::ops::Mul;
 
+use crate::Vec4;
 use crate::math::radians;
 use crate::square_matrix::SquareMatrix;
-use crate::vecmath::{
-    Frame, Normal3f, Point3f, Point3fi, Vector3, Vector3f, Vector3fi, cross, dot,
-};
+use crate::transcendental::sin_cos;
+use crate::vecmath::{Frame, Normal3f, Point3f, Point3fi, Vector3f, Vector3fi, cross, dot};
 
 /// A transformation and its inverse, as 4 × 4 matrices.
 ///
+/// Each matrix is also kept by its columns, the layout the point kernels
+/// read, so applying a transform never transposes: 256 bytes where the two
+/// matrices alone are 128 (ADR 0007).
+///
 /// PBR 4e §3.9, pbrt-v4 `Transform`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -29,6 +33,27 @@ use crate::vecmath::{
 pub struct Transform {
     m: SquareMatrix<4>,
     m_inv: SquareMatrix<4>,
+    /// The columns of `m`.
+    m_columns: [Vec4; 4],
+    /// The columns of `m_inv`.
+    m_inv_columns: [Vec4; 4],
+}
+
+impl fmt::Debug for Transform {
+    /// The two matrices; the columns are the same numbers again.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Transform")
+            .field("m", &self.m)
+            .field("m_inv", &self.m_inv)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for Transform {
+    /// The identity.
+    fn default() -> Self {
+        Self::new(SquareMatrix::default(), SquareMatrix::default())
+    }
 }
 
 /// The serialised form of a [`Transform`]: both matrices, by rows.
@@ -68,7 +93,7 @@ impl From<SquareMatrix<4>> for Transform {
         let m_inv = m
             .inverse()
             .unwrap_or_else(|| SquareMatrix::new([[f32::NAN; 4]; 4]));
-        Self { m, m_inv }
+        Self::new(m, m_inv)
     }
 }
 
@@ -92,10 +117,7 @@ impl Mul for Transform {
     ///
     /// pbrt-v4 `Transform::operator*`.
     fn mul(self, t2: Self) -> Self {
-        Self {
-            m: self.m * t2.m,
-            m_inv: t2.m_inv * self.m_inv,
-        }
+        Self::new(self.m * t2.m, t2.m_inv * self.m_inv)
     }
 }
 
@@ -103,7 +125,12 @@ impl Transform {
     /// The transform with matrix `m` and the given inverse.
     #[must_use]
     pub const fn new(m: SquareMatrix<4>, m_inv: SquareMatrix<4>) -> Self {
-        Self { m, m_inv }
+        Self {
+            m_columns: kernels::columns(m.rows()),
+            m_inv_columns: kernels::columns(m_inv.rows()),
+            m,
+            m_inv,
+        }
     }
 
     /// pbrt-v4 `Transform::GetMatrix`.
@@ -124,16 +151,15 @@ impl Transform {
         Self {
             m: self.m_inv,
             m_inv: self.m,
+            m_columns: self.m_inv_columns,
+            m_inv_columns: self.m_columns,
         }
     }
 
     /// pbrt-v4 `Transpose(Transform)`.
     #[must_use]
     pub fn transpose(&self) -> Self {
-        Self {
-            m: self.m.transpose(),
-            m_inv: self.m_inv.transpose(),
-        }
+        Self::new(self.m.transpose(), self.m_inv.transpose())
     }
 
     /// pbrt-v4 `Transform::IsIdentity`.
@@ -205,32 +231,26 @@ impl Transformable for Point3f {
     /// Sums each row left to right; divides by `w` unless it is exactly 1.
     #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        kernels::point_left_to_right(t.m.rows(), self)
+        kernels::point_left_to_right(&t.m_columns, self)
     }
 
     /// Sums each row in pairs, as pbrt-v4's `ApplyInverse` does.
     #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        kernels::point_pairwise(t.m_inv.rows(), self)
+        kernels::point_pairwise(&t.m_inv_columns, self)
     }
 }
 
-/// `m` (the upper 3 × 3 part) times `(x, y, z)`: three dot products of
-/// three terms, which a [`Vec4`](crate::Vec4) kernel did not speed up.
-fn mul_vector(m: &[[f32; 4]; 4], Vector3 { x, y, z }: Vector3f) -> Vector3f {
-    let row = |i: usize| m[i][0] * x + m[i][1] * y + m[i][2] * z;
-    Vector3f::new(row(0), row(1), row(2))
-}
-
 impl Transformable for Vector3f {
+    /// The upper 3 × 3 part, each row summed left to right.
     #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        mul_vector(t.m.rows(), self)
+        kernels::vector(&t.m_columns, self)
     }
 
     #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        mul_vector(t.m_inv.rows(), self)
+        kernels::vector(&t.m_inv_columns, self)
     }
 }
 
@@ -252,7 +272,7 @@ impl Transformable for Point3fi {
     /// carried along (PBR 4e §6.8.5).
     #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        kernels::point3fi(t.m.rows(), self)
+        kernels::point3fi(&t.m_columns, self)
     }
 
     /// The same rule with the inverse matrix. pbrt-v4's
@@ -261,7 +281,7 @@ impl Transformable for Point3fi {
     /// the conservative one.
     #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        kernels::point3fi(t.m_inv.rows(), self)
+        kernels::point3fi(&t.m_inv_columns, self)
     }
 }
 
@@ -269,14 +289,14 @@ impl Transformable for Vector3fi {
     /// pbrt-v4 `Transform::operator()(Vector3fi)`.
     #[inline]
     fn transformed(self, t: &Transform) -> Self {
-        kernels::vector3fi(t.m.rows(), self)
+        kernels::vector3fi(&t.m_columns, self)
     }
 
     /// pbrt-v4 has no inverse overload; the same rule with the inverse
     /// matrix.
     #[inline]
     fn inverse_transformed(self, t: &Transform) -> Self {
-        kernels::vector3fi(t.m_inv.rows(), self)
+        kernels::vector3fi(&t.m_inv_columns, self)
     }
 }
 
@@ -314,7 +334,7 @@ fn rotation(m: SquareMatrix<4>) -> Transform {
 
 /// The sine and cosine of `theta` degrees.
 fn sin_cos_degrees(theta: f32) -> (f32, f32) {
-    (libm::sinf(radians(theta)), libm::cosf(radians(theta)))
+    sin_cos(radians(theta))
 }
 
 /// A rotation by `theta` degrees about the x axis.

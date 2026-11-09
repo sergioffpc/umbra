@@ -3,7 +3,7 @@
 
 use umbra_math::{
     PI, Point2f, Point3f, Vector3f, angle_between, clamp, cross, difference_of_products, dot,
-    gram_schmidt, lerp, safe_sqrt, sqr, sum_of_products,
+    gram_schmidt, lerp, safe_sqrt, sin_cos, sqr, sum_of_products,
 };
 
 /// Barycentrics `(b₀, b₁, b₂)` of a uniformly distributed point of a
@@ -93,11 +93,8 @@ impl SphericalTriangle {
     /// sub-triangle `(a, b, c′)` whose area plus π is `sampled_area_plus_pi`
     /// (Arvo).
     fn cos_b_prime(&self, sampled_area_plus_pi: f32) -> f32 {
-        let (cos_alpha, sin_alpha) = (libm::cosf(self.alpha), libm::sinf(self.alpha));
-        let (sin_area, cos_area) = (
-            libm::sinf(sampled_area_plus_pi),
-            libm::cosf(sampled_area_plus_pi),
-        );
+        let (sin_alpha, cos_alpha) = sin_cos(self.alpha);
+        let (sin_area, cos_area) = sin_cos(sampled_area_plus_pi);
         let sin_phi = sin_area * cos_alpha - cos_area * sin_alpha;
         let cos_phi = cos_area * cos_alpha + sin_area * sin_alpha;
         let k1 = cos_phi + cos_alpha;

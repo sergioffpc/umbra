@@ -19,8 +19,8 @@ mod rng;
 use divan::counter::ItemsCount;
 use divan::{Bencher, black_box};
 use umbra_math::{
-    Interval, Normal3f, Point3f, Point3fi, SquareMatrix, Transform, Vector3f, Vector3fi, look_at,
-    perspective, rotate, translate,
+    Interval, Normal3f, Point3f, Point3fi, SquareMatrix, Transform, Vec4, Vector3f, Vector3fi,
+    look_at, perspective, rotate, translate,
 };
 
 use crate::rng::Rng;
@@ -56,9 +56,15 @@ trait Kernels {
     fn matrix4_inverse(m: &SquareMatrix<4>) -> Option<SquareMatrix<4>>;
     fn apply_point(t: &Transform, p: Point3f) -> Point3f;
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f;
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f;
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f;
     fn apply_point3fi(t: &Transform, p: Point3fi) -> Point3fi;
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi;
+    fn exp4(v: Vec4) -> Vec4;
+    fn pow4(v: Vec4, e: f32) -> Vec4;
+    fn sin_cos(x: f32) -> (f32, f32);
+    fn atan2(y: f32, x: f32) -> f32;
+    fn erf(x: f32) -> f32;
 }
 
 /// The safe references of `tests/umbra_math/reference/`: pbrt-v4's scalar
@@ -125,6 +131,9 @@ impl Kernels for Reference {
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f {
         reference::transform::apply_inverse_point(t, p)
     }
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f {
+        reference::transform::apply_vector(t, v)
+    }
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f {
         reference::transform::apply_normal(t, n)
     }
@@ -133,6 +142,22 @@ impl Kernels for Reference {
     }
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi {
         reference::transform::apply_vector3fi(t, v)
+    }
+    // The transcendentals' references are the `libm` routines they replace.
+    fn exp4(v: Vec4) -> Vec4 {
+        Vec4::from(v.to_array().map(libm::expf))
+    }
+    fn pow4(v: Vec4, e: f32) -> Vec4 {
+        Vec4::from(v.to_array().map(|x| libm::powf(x, e)))
+    }
+    fn sin_cos(x: f32) -> (f32, f32) {
+        (libm::sinf(x), libm::cosf(x))
+    }
+    fn atan2(y: f32, x: f32) -> f32 {
+        libm::atan2f(y, x)
+    }
+    fn erf(x: f32) -> f32 {
+        libm::erff(x)
     }
 }
 
@@ -193,6 +218,9 @@ impl Kernels for Optimised {
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f {
         t.apply_inverse(p)
     }
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f {
+        t.apply(v)
+    }
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f {
         t.apply(n)
     }
@@ -201,6 +229,21 @@ impl Kernels for Optimised {
     }
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi {
         t.apply(v)
+    }
+    fn exp4(v: Vec4) -> Vec4 {
+        v.exp()
+    }
+    fn pow4(v: Vec4, e: f32) -> Vec4 {
+        v.pow(e)
+    }
+    fn sin_cos(x: f32) -> (f32, f32) {
+        umbra_math::sin_cos(x)
+    }
+    fn atan2(y: f32, x: f32) -> f32 {
+        umbra_math::atan2(y, x)
+    }
+    fn erf(x: f32) -> f32 {
+        umbra_math::erf(x)
     }
 }
 
@@ -407,6 +450,14 @@ fn apply_inverse_point<K: Kernels>(bencher: Bencher<'_, '_>) {
 }
 
 #[divan::bench(types = [Reference, Optimised])]
+fn apply_vector<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let (t, p) = (transforms(39), points(40));
+    let data: Vec<(Transform, Vector3f)> =
+        (0..BATCH).map(|i| (t[i], Vector3f::from(p[i]))).collect();
+    batch(bencher, &data, |(t, v)| K::apply_vector(t, *v));
+}
+
+#[divan::bench(types = [Reference, Optimised])]
 fn apply_normal<K: Kernels>(bencher: Bencher<'_, '_>) {
     let (t, p) = (transforms(41), points(42));
     let data: Vec<(Transform, Normal3f)> = (0..BATCH)
@@ -441,4 +492,63 @@ fn apply_vector3fi<K: Kernels>(bencher: Bencher<'_, '_>) {
         })
         .collect();
     batch(bencher, &data, |(t, v)| K::apply_vector3fi(t, *v));
+}
+
+/// `BATCH` values uniform in `[low, high)`.
+fn uniform(seed: u64, low: f32, high: f32) -> Vec<f32> {
+    let mut rng = Rng::new(seed);
+    (0..BATCH)
+        .map(|_| low + (high - low) * rng.uniform_f32())
+        .collect()
+}
+
+/// `BATCH` spectra of four lanes uniform in `[low, high)`.
+fn spectra(seed: u64, low: f32, high: f32) -> Vec<Vec4> {
+    let v = uniform(seed, low, high);
+    (0..BATCH)
+        .map(|i| {
+            Vec4::new(
+                v[i],
+                v[(i + 1) % BATCH],
+                v[(i + 2) % BATCH],
+                v[(i + 3) % BATCH],
+            )
+        })
+        .collect()
+}
+
+/// `SampledSpectrum::exp` of optical depths, as transmittance takes it.
+#[divan::bench(types = [Reference, Optimised])]
+fn exp4<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = spectra(47, -20.0, 2.0);
+    batch(bencher, &data, |&v| K::exp4(v));
+}
+
+/// `SampledSpectrum::pow` of reflectances with a gamma exponent.
+#[divan::bench(types = [Reference, Optimised])]
+fn pow4<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = spectra(48, 0.0, 4.0);
+    batch(bencher, &data, |&v| K::pow4(v, 2.2));
+}
+
+/// Angles of a full turn and a bit, as the warps and `spherical_direction`
+/// take them.
+#[divan::bench(types = [Reference, Optimised])]
+fn sin_cos<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = uniform(49, -7.0, 7.0);
+    batch(bencher, &data, |&x| K::sin_cos(x));
+}
+
+#[divan::bench(types = [Reference, Optimised])]
+fn atan2<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let (y, x) = (values(50), values(51));
+    let data: Vec<(f32, f32)> = (0..BATCH).map(|i| (y[i], x[i])).collect();
+    batch(bencher, &data, |&(y, x)| K::atan2(y, x));
+}
+
+/// Over the range where `erf` is not yet ±1.
+#[divan::bench(types = [Reference, Optimised])]
+fn erf<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = uniform(52, -4.0, 4.0);
+    batch(bencher, &data, |&x| K::erf(x));
 }

@@ -2,9 +2,12 @@
 //!
 //! A core crate (ADR 0014, ADR 0015): `#![no_std]` without `alloc`. Everything
 //! here is `f32` (ADR 0001) and follows the numeric rules of ADR 0022:
-//! transcendentals come from the `libm` crate, FMA is explicit ([`fma`]), and
-//! the [`Vec4`] SIMD facade computes exactly what its scalar reference
-//! computes. Names follow pbrt-v4, in snake case.
+//! transcendentals come from the `libm` crate or, where Umbra's own kernel is
+//! faster, from that kernel within a stated error bound ([`sin_cos`],
+//! [`atan2`], [`erf`], [`Vec4::exp`], [`Vec4::pow`]); FMA is explicit
+//! ([`fma`]); and every other operation of the [`Vec4`] SIMD facade computes
+//! exactly what its scalar reference computes. Names follow pbrt-v4, in snake
+//! case.
 
 #![no_std]
 
@@ -37,6 +40,7 @@ mod interval;
 mod math;
 mod simd;
 mod square_matrix;
+mod transcendental;
 mod transform;
 mod vecmath;
 
@@ -56,6 +60,7 @@ pub use math::{
 };
 pub use simd::{Mask4, Vec4};
 pub use square_matrix::SquareMatrix;
+pub use transcendental::{atan2, erf, sin_cos};
 pub use transform::{
     Transform, Transformable, look_at, orthographic, perspective, rotate, rotate_from_to,
     rotate_sin_cos, rotate_x, rotate_y, rotate_z, scale, translate,

@@ -3,7 +3,7 @@
 //! around `+z`.
 
 use umbra_math::{
-    INV_2_PI, INV_4_PI, INV_PI, PI, Point2f, Vector3f, safe_sqrt, spherical_direction,
+    INV_2_PI, INV_4_PI, INV_PI, PI, Point2f, Vector3f, safe_sqrt, sin_cos, spherical_direction,
     spherical_phi, sqr,
 };
 
@@ -16,8 +16,8 @@ use super::disk::{invert_uniform_disk_concentric_sample, sample_uniform_disk_con
 pub fn sample_uniform_sphere(u: Point2f) -> Vector3f {
     let z = 1.0 - 2.0 * u.x;
     let r = safe_sqrt(1.0 - sqr(z));
-    let phi = 2.0 * PI * u.y;
-    Vector3f::new(r * libm::cosf(phi), r * libm::sinf(phi), z)
+    let (sin_phi, cos_phi) = sin_cos(2.0 * PI * u.y);
+    Vector3f::new(r * cos_phi, r * sin_phi, z)
 }
 
 /// The PDF of [`sample_uniform_sphere`], `1 / 4π`, with respect to solid
@@ -44,8 +44,8 @@ pub fn invert_uniform_sphere_sample(w: Vector3f) -> Point2f {
 pub fn sample_uniform_hemisphere(u: Point2f) -> Vector3f {
     let z = u.x;
     let r = safe_sqrt(1.0 - sqr(z));
-    let phi = 2.0 * PI * u.y;
-    Vector3f::new(r * libm::cosf(phi), r * libm::sinf(phi), z)
+    let (sin_phi, cos_phi) = sin_cos(2.0 * PI * u.y);
+    Vector3f::new(r * cos_phi, r * sin_phi, z)
 }
 
 /// The PDF of [`sample_uniform_hemisphere`], `1 / 2π`, with respect to solid
