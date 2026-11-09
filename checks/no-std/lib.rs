@@ -2,9 +2,9 @@
 //!
 //! A `#![no_std]` library with its own panic handler that uses the seven core
 //! crates. If any of them, or any of their dependencies, links `std`, this
-//! crate stops compiling with a duplicate `panic_impl` lang item (E0152), so
-//! every `cargo check`, `cargo clippy`, `cargo build` and `cargo test` of the
-//! workspace runs the check. `alloc` is caught by `tests/no_alloc.rs`.
+//! crate stops compiling with a duplicate `panic_impl` lang item (E0152). Its
+//! build script rejects `extern crate alloc` in the core crates. Both run in
+//! every `cargo check`, `clippy`, `build` and `test` of the workspace.
 
 #![no_std]
 

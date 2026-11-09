@@ -1,5 +1,5 @@
 # The `no_std` check of the rendering core (ADR 0014, ADR 0023): see
-# `lib.rs`. A workspace member outside `crates/`, because it is a check, not
+# `lib.rs`. A workspace member under `checks/`, because it is a check, not
 # one of the twelve crates of ADR 0015. Its library has no unit tests or
 # doctests: a test harness links `std`, which is what the check rejects.
 [package]
@@ -8,6 +8,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+build = "build/main.rs"
 
 [lib]
 path = "lib.rs"

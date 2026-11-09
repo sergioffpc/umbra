@@ -48,8 +48,6 @@ jobs:
       - run: cargo doc --no-deps --document-private-items --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
-      # The `no-std-check` member fails clippy and the tests if a core crate
-      # links `std` or `alloc` (ADR 0014, ADR 0023).
       # `--no-tests=warn` until the first test lands. nextest does not run
       # doctests, so they run separately. The tests include the hash of the
       # RGB-to-spectrum table the `umbra-spectrum` build script generates

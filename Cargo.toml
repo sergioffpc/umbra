@@ -1,10 +1,11 @@
 # The workspace of arc42 §5.1 (ADR 0015): seven `#![no_std]` core crates
 # without `alloc` and five `std` crates around them, all in `crates/<name>/`,
-# plus the `no_std` check of the core in `checks/no-std/` (ADR 0023).
+# plus the checks in `checks/<name>/`, which every cargo command at the root
+# builds, such as the `no_std` check of the core (ADR 0023).
 # Every crate inherits the package metadata, lints and dependencies below
 # (arc42 §5.4).
 [workspace]
-members = ["crates/*", "checks/no-std"]
+members = ["crates/*", "checks/*"]
 resolver = "3"
 
 # One version for the whole workspace; the Build Identity is the commit
