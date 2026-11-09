@@ -7,6 +7,9 @@
 //!   NaN in either), which is exactly C++ `std::min(a, b)`.
 //! - `mul_add` is `vfmaddps`, always fused.
 //! - `select` is `blendvps`.
+//! - `exp` and `pow_positive` are the AVX2 kernels of [`transcendental`],
+//!   evaluated in `f64` and within 1 ULP of the correctly rounded result
+//!   (ADR 0022).
 //!
 //! `__m128` and `[f32; 4]` have the same size, and every bit pattern is a
 //! valid value of both, so the two are converted by `transmute`, which
@@ -22,6 +25,8 @@ use core::arch::x86_64::{
 };
 
 use super::{F4, M4};
+
+mod transcendental;
 
 /// The lanes as a register.
 #[inline]
@@ -178,6 +183,39 @@ pub(crate) fn mul_add(x: F4, y: F4, z: F4) -> F4 {
 pub(crate) fn sqrt(x: F4) -> F4 {
     // SAFETY: SSE2 is in the x86-64 baseline; the intrinsic takes values only.
     a(unsafe { _mm_sqrt_ps(f(x)) })
+}
+
+/// `eˣ` per lane, by the `f64` kernel [`transcendental::exp`].
+#[inline]
+#[expect(
+    unsafe_code,
+    reason = "aggressive optimisation (ADR 0007): an AVX2 and FMA kernel"
+)]
+pub(crate) fn exp(x: F4) -> F4 {
+    // SAFETY: the kernel is compiled for `avx2` and `fma`, and the crate
+    // requires `x86-64-v3` on x86-64 (`lib.rs`), which includes both, so
+    // every CPU this binary runs on has them.
+    a(unsafe { transcendental::exp(f(x)) })
+}
+
+/// `xᵉ` per lane for finite positive `x` and finite `e`, by the `f64` kernel
+/// [`transcendental::pow_positive`]; other lanes are garbage.
+#[inline]
+#[expect(
+    unsafe_code,
+    reason = "aggressive optimisation (ADR 0007): an AVX2 and FMA kernel"
+)]
+pub(crate) fn pow_positive(x: F4, e: f32) -> F4 {
+    // SAFETY: the kernel is compiled for `avx2` and `fma`, and the crate
+    // requires `x86-64-v3` on x86-64 (`lib.rs`), which includes both, so
+    // every CPU this binary runs on has them.
+    a(unsafe { transcendental::pow_positive(f(x), e) })
+}
+
+/// The magnitude of `x` with the sign bit of `s`.
+#[inline]
+pub(crate) fn copy_sign(x: F4, s: F4) -> F4 {
+    a(or(f(abs(x)), and(f(s), f([-0.0; 4]))))
 }
 
 /// `minps(y, x)`: `y` where `y < x`, else `x`, which is `std::min(x, y)`.

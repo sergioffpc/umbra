@@ -4,9 +4,10 @@
 //! here is `f32` (ADR 0001) and follows the numeric rules of ADR 0022:
 //! transcendentals come from the `libm` crate or, where Umbra's own kernel is
 //! faster, from that kernel within a stated error bound ([`sin_cos`],
-//! [`atan2`], [`erf`]); FMA is explicit ([`fma`]); and the [`Vec4`] SIMD
-//! facade computes exactly what its scalar reference computes. Names follow
-//! pbrt-v4, in snake case.
+//! [`atan2`], [`erf`], [`Vec4::exp`], [`Vec4::pow`]); FMA is explicit
+//! ([`fma`]); and every other operation of the [`Vec4`] SIMD facade computes
+//! exactly what its scalar reference computes. Names follow pbrt-v4, in snake
+//! case.
 
 #![no_std]
 

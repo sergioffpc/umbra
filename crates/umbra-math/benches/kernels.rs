@@ -19,8 +19,8 @@ mod rng;
 use divan::counter::ItemsCount;
 use divan::{Bencher, black_box};
 use umbra_math::{
-    Interval, Normal3f, Point3f, Point3fi, SquareMatrix, Transform, Vector3f, Vector3fi, look_at,
-    perspective, rotate, translate,
+    Interval, Normal3f, Point3f, Point3fi, SquareMatrix, Transform, Vec4, Vector3f, Vector3fi,
+    look_at, perspective, rotate, translate,
 };
 
 use crate::rng::Rng;
@@ -60,6 +60,8 @@ trait Kernels {
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f;
     fn apply_point3fi(t: &Transform, p: Point3fi) -> Point3fi;
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi;
+    fn exp4(v: Vec4) -> Vec4;
+    fn pow4(v: Vec4, e: f32) -> Vec4;
     fn sin_cos(x: f32) -> (f32, f32);
     fn atan2(y: f32, x: f32) -> f32;
     fn erf(x: f32) -> f32;
@@ -142,6 +144,12 @@ impl Kernels for Reference {
         reference::transform::apply_vector3fi(t, v)
     }
     // The transcendentals' references are the `libm` routines they replace.
+    fn exp4(v: Vec4) -> Vec4 {
+        Vec4::from(v.to_array().map(libm::expf))
+    }
+    fn pow4(v: Vec4, e: f32) -> Vec4 {
+        Vec4::from(v.to_array().map(|x| libm::powf(x, e)))
+    }
     fn sin_cos(x: f32) -> (f32, f32) {
         (libm::sinf(x), libm::cosf(x))
     }
@@ -221,6 +229,12 @@ impl Kernels for Optimised {
     }
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi {
         t.apply(v)
+    }
+    fn exp4(v: Vec4) -> Vec4 {
+        v.exp()
+    }
+    fn pow4(v: Vec4, e: f32) -> Vec4 {
+        v.pow(e)
     }
     fn sin_cos(x: f32) -> (f32, f32) {
         umbra_math::sin_cos(x)
@@ -486,6 +500,35 @@ fn uniform(seed: u64, low: f32, high: f32) -> Vec<f32> {
     (0..BATCH)
         .map(|_| low + (high - low) * rng.uniform_f32())
         .collect()
+}
+
+/// `BATCH` spectra of four lanes uniform in `[low, high)`.
+fn spectra(seed: u64, low: f32, high: f32) -> Vec<Vec4> {
+    let v = uniform(seed, low, high);
+    (0..BATCH)
+        .map(|i| {
+            Vec4::new(
+                v[i],
+                v[(i + 1) % BATCH],
+                v[(i + 2) % BATCH],
+                v[(i + 3) % BATCH],
+            )
+        })
+        .collect()
+}
+
+/// `SampledSpectrum::exp` of optical depths, as transmittance takes it.
+#[divan::bench(types = [Reference, Optimised])]
+fn exp4<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = spectra(47, -20.0, 2.0);
+    batch(bencher, &data, |&v| K::exp4(v));
+}
+
+/// `SampledSpectrum::pow` of reflectances with a gamma exponent.
+#[divan::bench(types = [Reference, Optimised])]
+fn pow4<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let data = spectra(48, 0.0, 4.0);
+    batch(bencher, &data, |&v| K::pow4(v, 2.2));
 }
 
 /// Angles of a full turn and a bit, as the warps and `spherical_direction`

@@ -6,10 +6,11 @@
 //! The unary functions are swept over every [`SWEEP`]-th bit pattern on
 //! every run and over all 2³² on demand:
 //! `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`.
-//! The binary one (`atan2`) takes random pairs, dense sweeps of one
+//! The binary ones (`atan2`, `pow`) take random pairs, dense sweeps of one
 //! argument and every pair of special values.
 
 mod scalar;
+mod simd;
 
 use std::num::NonZero;
 use std::ops::Range;

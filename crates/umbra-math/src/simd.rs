@@ -13,6 +13,11 @@
 //! - There are no reciprocal or reciprocal-square-root estimates, whose bits
 //!   differ between CPU vendors (ADR 0022).
 //!
+//! The exceptions are [`Vec4::exp`] and [`Vec4::pow`], which have no IEEE
+//! operation to match: they are Umbra's own kernels, within 1 ULP of the
+//! correctly rounded result (ADR 0022), tested against `libm`'s `f64`
+//! routines in `tests/umbra_math/accuracy/`.
+//!
 //! NaN payloads produced by arithmetic on non-NaN inputs (the default NaN)
 //! differ between CPU vendors in the scalar code too; they are not part of
 //! the contract.
@@ -26,6 +31,7 @@ use core::ops::{
     SubAssign,
 };
 
+mod transcendental;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
@@ -115,6 +121,13 @@ impl Vec4 {
     #[must_use]
     pub fn abs(self) -> Self {
         Self(backend::abs(self.0))
+    }
+
+    /// The magnitude of each lane with the sign bit of `sign`'s lane.
+    #[inline]
+    #[must_use]
+    pub(crate) fn copy_sign(self, sign: Self) -> Self {
+        Self(backend::copy_sign(self.0, sign.0))
     }
 
     /// Per lane, `other` if `other < self`, else `self`: C++
