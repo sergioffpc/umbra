@@ -3,15 +3,23 @@
 //! point, and the error bound of a `Point3fi` comes out of the same lanes.
 //! Each lane performs the operations of `tests/umbra_math/reference/transform.rs` in
 //! the same order.
+//!
+//! The point kernels take the matrix by its [`columns`], which the
+//! `Transform` computes once when it is built: transposing the rows on every
+//! call cost as much as the arithmetic.
 
 use crate::float::gamma;
 use crate::interval::kernels::round_outward;
 use crate::{Interval, Mask4, Normal3f, Point3, Point3f, Point3fi, Vec4, Vector3f, Vector3fi};
 
+/// Column `j` of `m`: lane `i` is `m[i][j]`.
+const fn column(m: &[[f32; 4]; 4], j: usize) -> Vec4 {
+    Vec4::new(m[0][j], m[1][j], m[2][j], m[3][j])
+}
+
 /// The columns of `m`: lane `i` of column `j` is `m[i][j]`.
-#[inline]
-fn columns(m: &[[f32; 4]; 4]) -> [Vec4; 4] {
-    Vec4::transpose(m.map(Vec4::from))
+pub(super) const fn columns(m: &[[f32; 4]; 4]) -> [Vec4; 4] {
+    [column(m, 0), column(m, 1), column(m, 2), column(m, 3)]
 }
 
 /// The rows `0, 1, 2` of `m` and a zero row.
@@ -59,18 +67,28 @@ fn divide_by_w(r: Vec4) -> Vec4 {
     if affine { r } else { r / w }
 }
 
-/// pbrt-v4 `Transform::operator()(Point3f)`.
+/// pbrt-v4 `Transform::operator()(Point3f)`, from the [`columns`] of the
+/// matrix.
 #[inline]
-pub(super) fn point_left_to_right(m: &[[f32; 4]; 4], p: Point3f) -> Point3f {
-    point(divide_by_w(rows_left_to_right(&columns(m), p)))
+pub(super) fn point_left_to_right(col: &[Vec4; 4], p: Point3f) -> Point3f {
+    point(divide_by_w(rows_left_to_right(col, p)))
 }
 
-/// pbrt-v4 `Transform::ApplyInverse(Point3f)`.
+/// pbrt-v4 `Transform::ApplyInverse(Point3f)`, from the [`columns`] of the
+/// inverse.
 #[inline]
-pub(super) fn point_pairwise(m: &[[f32; 4]; 4], p: Point3f) -> Point3f {
-    let r = rows_pairwise(&columns(m), p);
+pub(super) fn point_pairwise(col: &[Vec4; 4], p: Point3f) -> Point3f {
+    let r = rows_pairwise(col, p);
     debug_assert!(r.lane::<3>() != 0.0, "apply_inverse: w = 0");
     point(divide_by_w(r))
+}
+
+/// pbrt-v4 `Transform::operator()(Vector3f)`, from the [`columns`] of the
+/// matrix: each row of the upper 3 × 3 part summed left to right.
+#[inline]
+pub(super) fn vector(col: &[Vec4; 4], v: Vector3f) -> Vector3f {
+    let r = rows_vector(col, v);
+    Vector3f::new(r.lane::<0>(), r.lane::<1>(), r.lane::<2>())
 }
 
 /// `mᵀ` (the upper 3 × 3 part) times `(x, y, z)`, the rule for normals:
@@ -142,15 +160,15 @@ fn three_intervals(v: Vec4, e: Vec4) -> (Interval, Interval, Interval) {
     (x, y, z)
 }
 
-/// pbrt-v4 `Transform::operator()(Point3fi)`: the rows summed in pairs, the
-/// error bound with the translation, then the divide by `w`.
+/// pbrt-v4 `Transform::operator()(Point3fi)`, from the [`columns`] of the
+/// matrix: the rows summed in pairs, the error bound with the translation,
+/// then the divide by `w`.
 #[inline]
-pub(super) fn point3fi(m: &[[f32; 4]; 4], p: Point3fi) -> Point3fi {
-    let col = columns(m);
+pub(super) fn point3fi(col: &[Vec4; 4], p: Point3fi) -> Point3fi {
     let c = Point3f::from(p);
-    let r = rows_pairwise(&col, c);
+    let r = rows_pairwise(col, c);
     let e = (!p.is_exact()).then(|| Vector3f::from(p.error()));
-    let error = transformed_error(&col, Vector3f::from(c), e, Translation::Included);
+    let error = transformed_error(col, Vector3f::from(c), e, Translation::Included);
     let (x, y, z) = three_intervals(r, error);
     let pi = Point3fi::new(x, y, z);
     let w = r.lane::<3>();
@@ -162,14 +180,14 @@ pub(super) fn point3fi(m: &[[f32; 4]; 4], p: Point3fi) -> Point3fi {
     if affine { pi } else { pi / w }
 }
 
-/// pbrt-v4 `Transform::operator()(Vector3fi)`: the rows of the upper
-/// 3 × 3 part and the error bound without the translation.
+/// pbrt-v4 `Transform::operator()(Vector3fi)`, from the [`columns`] of the
+/// matrix: the rows of the upper 3 × 3 part and the error bound without the
+/// translation.
 #[inline]
-pub(super) fn vector3fi(m: &[[f32; 4]; 4], v: Vector3fi) -> Vector3fi {
-    let col = columns(m);
+pub(super) fn vector3fi(col: &[Vec4; 4], v: Vector3fi) -> Vector3fi {
     let c = Vector3f::from(v);
     let e = (!v.is_exact()).then(|| v.error());
-    let error = transformed_error(&col, c, e, Translation::Excluded);
-    let (x, y, z) = three_intervals(rows_vector(&col, c), error);
+    let error = transformed_error(col, c, e, Translation::Excluded);
+    let (x, y, z) = three_intervals(rows_vector(col, c), error);
     Vector3fi::new(x, y, z)
 }

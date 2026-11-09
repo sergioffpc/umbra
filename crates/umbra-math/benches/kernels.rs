@@ -56,6 +56,7 @@ trait Kernels {
     fn matrix4_inverse(m: &SquareMatrix<4>) -> Option<SquareMatrix<4>>;
     fn apply_point(t: &Transform, p: Point3f) -> Point3f;
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f;
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f;
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f;
     fn apply_point3fi(t: &Transform, p: Point3fi) -> Point3fi;
     fn apply_vector3fi(t: &Transform, v: Vector3fi) -> Vector3fi;
@@ -125,6 +126,9 @@ impl Kernels for Reference {
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f {
         reference::transform::apply_inverse_point(t, p)
     }
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f {
+        reference::transform::apply_vector(t, v)
+    }
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f {
         reference::transform::apply_normal(t, n)
     }
@@ -192,6 +196,9 @@ impl Kernels for Optimised {
     }
     fn apply_inverse_point(t: &Transform, p: Point3f) -> Point3f {
         t.apply_inverse(p)
+    }
+    fn apply_vector(t: &Transform, v: Vector3f) -> Vector3f {
+        t.apply(v)
     }
     fn apply_normal(t: &Transform, n: Normal3f) -> Normal3f {
         t.apply(n)
@@ -404,6 +411,14 @@ fn apply_inverse_point<K: Kernels>(bencher: Bencher<'_, '_>) {
     let (t, p) = (transforms(37), points(38));
     let data: Vec<(Transform, Point3f)> = (0..BATCH).map(|i| (t[i], p[i])).collect();
     batch(bencher, &data, |(t, p)| K::apply_inverse_point(t, *p));
+}
+
+#[divan::bench(types = [Reference, Optimised])]
+fn apply_vector<K: Kernels>(bencher: Bencher<'_, '_>) {
+    let (t, p) = (transforms(39), points(40));
+    let data: Vec<(Transform, Vector3f)> =
+        (0..BATCH).map(|i| (t[i], Vector3f::from(p[i]))).collect();
+    batch(bencher, &data, |(t, v)| K::apply_vector(t, *v));
 }
 
 #[divan::bench(types = [Reference, Optimised])]
