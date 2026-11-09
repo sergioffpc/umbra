@@ -245,6 +245,38 @@ first.
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
 
+### Crate READMEs
+
+Every crate has a `README.md`: the guide to the crate from the inside, as it
+is built. Arc42 §5 describes how the crates fit together; the README describes
+what is in one of them and why, and refers to arc42 and the ADRs by name
+rather than repeating them. It is also the crate's rustdoc documentation: the
+crate root starts with `#![doc = include_str!("../README.md")]`, and its
+examples run as doctests. So it uses no relative links (they break in
+rustdoc) and no intra-doc links (they show as text on GitHub): ADRs and arc42
+sections are cited by name ("ADR 0007", "arc42 §5.1"), issues by their full
+URL.
+
+Each README has these sections, in this order:
+
+- `# <crate>`: what the crate is, where it sits in the graph of arc42 §5.1,
+  whether it is a core crate, the PBR 4e chapters it covers if any, and a
+  short example.
+- `## What is in it`: each module with its pbrt-v4 source and contents, then
+  what looks as if it belongs here but lives elsewhere, or comes later.
+- `## Design decisions`: the crate's own decisions and the reasons for them.
+- `## Things to know when using it`: contracts and traps the signatures do not
+  show.
+- `## Performance`: only in crates with benchmarks.
+- `## Tests`: what is tested, and against what.
+
+A crate with no code yet has only the first section, without the example, and
+a status line naming the issue that brings its first code. That issue's pull
+request writes the other sections and removes the status line.
+The `readmes` group of [`scripts/check.sh`](scripts/check.sh), part of `lint`
+and run by the pre-commit hook, checks that every crate has its README and
+includes it; review checks that the README is current.
+
 ## Build profiles
 
 | Profile     | Command                           | Use                                                                                      |
@@ -283,6 +315,8 @@ Then:
 - Make sure the commit headers read as changelog entries (see
   [Changelog](#changelog)); do not edit CHANGELOG.md.
 - Add or update tests for the behaviour you changed.
+- Update the README of every crate whose modules, decisions or contracts you
+  changed (see [Crate READMEs](#crate-readmes)).
 - Keep each pull request focused on one change.
 
 ## Release container image

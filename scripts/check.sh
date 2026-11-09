@@ -6,9 +6,10 @@
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy, doc, nextest, doctests
-#   lint  typos, unused dependencies, shell, workflows, EditorConfig, JSON,
-#         YAML, Markdown and TOML
+#   lint  typos, unused dependencies, crate READMEs, shell, workflows,
+#         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
+#   readmes  crate READMEs only (part of lint; the pre-commit hook runs it)
 #
 # The tools are installed by scripts/install-tools.sh. Stops at the first
 # failure.
@@ -51,6 +52,7 @@ rust() {
 lint() {
     step typos
     step cargo shear
+    readmes
     tracked '.githooks/*' '*.sh' -- shellcheck
     step actionlint
     tracked . -- editorconfig-checker
@@ -64,14 +66,40 @@ deny() {
     step cargo deny check
 }
 
+# Every crate has a README.md, declares it in its manifest and makes it its
+# rustdoc documentation (CONTRIBUTING.md, Crate READMEs). Whether the README
+# is up to date is for review to judge.
+readmes() {
+    echo "check: crate READMEs"
+    missing=0
+    for dir in crates/*/; do
+        crate=${dir%/}
+        root=$crate/src/lib.rs
+        [ -f "$root" ] || root=$crate/src/main.rs
+        if [ ! -f "$crate/README.md" ]; then
+            echo "check: $crate has no README.md" >&2
+            missing=1
+        fi
+        if ! grep -qxF 'readme = "README.md"' "$crate/Cargo.toml"; then
+            echo "check: $crate/Cargo.toml does not set readme = \"README.md\"" >&2
+            missing=1
+        fi
+        if ! grep -qxF '#![doc = include_str!("../README.md")]' "$root"; then
+            echo "check: $root does not include README.md as its documentation" >&2
+            missing=1
+        fi
+    done
+    [ "$missing" -eq 0 ]
+}
+
 if [ "$#" -eq 0 ]; then
     set -- rust lint deny
 fi
 for group in "$@"; do
     case "$group" in
-        rust | lint | deny) "$group" ;;
+        rust | lint | deny | readmes) "$group" ;;
         *)
-            echo "check: unknown group '$group'; known: rust lint deny" >&2
+            echo "check: unknown group '$group'; known: rust lint deny readmes" >&2
             exit 1
             ;;
     esac
