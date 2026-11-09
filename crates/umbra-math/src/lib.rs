@@ -1,14 +1,14 @@
 //! Vectors, points, normals, frames, transforms, `Interval` and floating-point error bounds, `libm` wrappers.
 //!
 //! A core crate (ADR 0014, ADR 0015): `#![no_std]` without `alloc`. Everything
-//! here is `f32` (ADR 0001) and follows the portable bit-identical rules of
-//! ADR 0002: transcendentals come from the `libm` crate, FMA is explicit
-//! ([`fma`]), and the [`Vec4`] SIMD facade computes exactly what its scalar
-//! reference computes. Names follow pbrt-v4, in snake case.
+//! here is `f32` (ADR 0001) and follows the numeric rules of ADR 0022:
+//! transcendentals come from the `libm` crate, FMA is explicit ([`fma`]), and
+//! the [`Vec4`] SIMD facade computes exactly what its scalar reference
+//! computes. Names follow pbrt-v4, in snake case.
 
 #![no_std]
 
-// The x86-64 CPU baseline (ADR 0002): every target machine has FMA, and the
+// The x86-64 CPU baseline (ADR 0023): every target machine has FMA, and the
 // kernels use it, SSE4.1 and AVX2 unconditionally. Without them the build
 // stops here rather than run a slower, differently compiled path. Rustdoc
 // generates no code and does not see RUSTFLAGS, so `cargo doc` is exempt.
@@ -22,18 +22,15 @@
     ))
 ))]
 compile_error!(concat!(
-    "umbra-math needs x86-64-v3 (FMA, SSE4.1, AVX2) on x86-64 (ADR 0002): ",
+    "umbra-math needs x86-64-v3 (FMA, SSE4.1, AVX2) on x86-64 (ADR 0023): ",
     "build with `-C target-cpu=x86-64-v3`, or `target-cpu=native` on a CPU that has it"
 ));
 
-// The supported architectures (ADR 0002, ADR 0014): the target machines are
-// x86-64 and arm64 with NEON, and the SIMD facade and the scalar primitives
-// have a backend for those two only. A GPU or other port adds its own.
-#[cfg(not(any(
-    target_arch = "x86_64",
-    all(target_arch = "aarch64", target_feature = "neon")
-)))]
-compile_error!("umbra-math supports x86-64 (x86-64-v3) and arm64 with NEON only (ADR 0014)");
+// The one supported architecture (ADR 0023): the target machines are x86-64,
+// and the SIMD facade and the scalar primitives have a backend for it only. A
+// GPU port adds its own (ADR 0024).
+#[cfg(not(target_arch = "x86_64"))]
+compile_error!("umbra-math supports x86-64 (x86-64-v3) only (ADR 0023)");
 
 mod float;
 mod interval;

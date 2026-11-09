@@ -15,10 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Jobs that build for x86-64 set `-C target-cpu=x86-64-v3` on top of this:
-  # `umbra-math` requires that baseline (ADR 0002). The arm64 and bare-metal
-  # builds use their targets' defaults, which include NEON.
-  RUSTFLAGS: -D warnings
+  # `umbra-math` requires the `x86-64-v3` baseline (ADR 0023), and the CI
+  # runners are generic x86-64.
+  RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
 
 # Job names (including matrix values) are required status checks in the
 # "Require CI checks" repository ruleset: when renaming or adding a job,
@@ -28,18 +27,8 @@ env:
 # Dependabot updates the SHA and the version comment together.
 jobs:
   check:
-    name: fmt, clippy, doc, test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # Linux x86-64 and macOS on Apple silicon: catches floating-point and
-        # SIMD differences between AVX and NEON code paths.
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      RUSTFLAGS: >-
-        ${{ matrix.os == 'ubuntu-latest'
-        && '-D warnings -C target-cpu=x86-64-v3' || '-D warnings' }}
+    name: fmt, clippy, doc, test
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,7 +41,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Whitespace
-        if: github.event_name == 'pull_request' && runner.os == 'Linux'
+        if: github.event_name == 'pull_request'
         run: git diff --check origin/${{ github.base_ref }}...HEAD
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
@@ -61,47 +50,27 @@ jobs:
           RUSTDOCFLAGS: -D warnings
       # `--no-tests=warn` until the first test lands. nextest does not run
       # doctests, so they run separately. The tests include the hash of the
-      # RGB-to-spectrum table the `umbra-spectrum` build script generates, so
-      # each target checks that it computes the same table (ADR 0002).
+      # RGB-to-spectrum table the `umbra-spectrum` build script generates
+      # (ADR 0022).
       - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
       - run: cargo test --doc --all-features --locked
       # Micro-benchmarks only have to build on a shared runner (§8.4).
       - run: cargo bench --no-run --all-features --locked
 
-  # The seven core crates on a target with no `std` (ADR 0014, ADR 0015): a
-  # dependency on `std` breaks the build. The target's sysroot ships `alloc`,
-  # so a separate step rejects `extern crate alloc`. Built with the `serde`
-  # feature off (as the Scene arenas are used on a Worker) and on (as
+  # The seven core crates without `std` or `alloc` (ADR 0014, ADR 0023),
+  # linked into the `no_std` `staticlib` of `ci/no-std-check/`, with the
+  # `serde` feature off (as the Scene arenas are used on a Worker) and on (as
   # `umbra-scene` turns it on).
   core:
-    name: core (aarch64-unknown-none)
+    name: core (no_std)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Installs the toolchain and the aarch64-unknown-none target pinned in
-      # rust-toolchain.toml.
+      # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Toolchain
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Build without serde
-        run: >-
-          cargo build --locked --target aarch64-unknown-none
-          -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry
-          -p umbra-shading -p umbra-camera -p umbra-integrators
-      - name: Build with serde
-        run: >-
-          cargo build --locked --target aarch64-unknown-none --all-features
-          -p umbra-math -p umbra-sampling -p umbra-spectrum -p umbra-geometry
-          -p umbra-shading -p umbra-camera -p umbra-integrators
-      - name: No alloc
-        run: |
-          if git grep -nE 'extern[[:space:]]+crate[[:space:]]+alloc' -- \
-            'crates/umbra-math' 'crates/umbra-sampling' 'crates/umbra-spectrum' \
-            'crates/umbra-geometry' 'crates/umbra-shading' 'crates/umbra-camera' \
-            'crates/umbra-integrators'; then
-            echo "::error::a core crate links alloc (ADR 0014)"
-            exit 1
-          fi
+      - run: scripts/check-no-std.sh
 
   # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on a
   # nightly pinned for this job only, with the `x86-64-v3` baseline the crate
@@ -115,7 +84,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIRI_TOOLCHAIN: nightly-2026-11-05
-      RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -226,8 +194,6 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain

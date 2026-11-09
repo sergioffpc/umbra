@@ -10,9 +10,7 @@
 #
 # The published images are linux/amd64 only. Build one locally with:
 #   docker build --build-arg TARGET_CPU=znver2 -t umbra:znver2 .
-# On amd64, TARGET_CPU is required. On Apple silicon the build is a native
-# linux/arm64 image with a generic CPU unless TARGET_CPU is given, for
-# testing; emulated linux/amd64 builds crash rustc under QEMU.
+# TARGET_CPU is required, and only linux/amd64 builds (ADR 0023).
 
 # ---------------------------------------------------------------------------
 # Builder: the toolchain pinned in rust-toolchain.toml, `cargo build --release`.
@@ -48,25 +46,23 @@ RUN rustup toolchain install && rustc --version
 # Target CPU, passed to rustc as `-C target-cpu=${TARGET_CPU}`: one image per
 # Linux Worker CPU (znver2 for the P620, broadwell for the R630), see
 # docs/architecture/07-deployment-view.md. There is no generic x86-64 image, so
-# on amd64 the build fails without it. Other architectures (local builds on
-# Apple silicon) default to the target's generic CPU. RUSTFLAGS replaces the
-# `target-cpu=native` set in .cargo/config.toml, which .dockerignore also
-# keeps out of the build context. An x86-64 CPU must include x86-64-v3 (FMA,
-# SSE4.1, AVX2), or umbra-math stops the build (ADR 0002).
+# the build fails without it, and Umbra builds for linux/amd64 only (ADR 0023).
+# RUSTFLAGS replaces the `target-cpu=native` set in .cargo/config.toml, which
+# .dockerignore also keeps out of the build context. The CPU must include
+# x86-64-v3 (FMA, SSE4.1, AVX2), or umbra-math stops the build (ADR 0023).
 ARG TARGETARCH
 ARG TARGET_CPU=""
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cpu="${TARGET_CPU}"; \
-    if [ -z "${cpu}" ]; then \
-        case "${TARGETARCH:-amd64}" in \
-            amd64) echo "error: pass --build-arg TARGET_CPU=<cpu> (znver2 or broadwell)" >&2; exit 1 ;; \
-            *) cpu=generic ;; \
-        esac; \
+    if [ "${TARGETARCH:-amd64}" != amd64 ]; then \
+        echo "error: Umbra builds for linux/amd64 only (ADR 0023)" >&2; exit 1; \
+    fi; \
+    if [ -z "${TARGET_CPU}" ]; then \
+        echo "error: pass --build-arg TARGET_CPU=<cpu> (znver2 or broadwell)" >&2; exit 1; \
     fi \
-    && export RUSTFLAGS="-C target-cpu=${cpu}" \
+    && export RUSTFLAGS="-C target-cpu=${TARGET_CPU}" \
     && echo "RUSTFLAGS=${RUSTFLAGS}" \
     && cargo build --release --locked \
     && install -D -m 0755 target/release/umbra /out/usr/bin/umbra
@@ -78,11 +74,10 @@ FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Chisel is not packaged by Ubuntu; fetch the release binary and check it
-# against the SHA-384 published with it. Bump the version and both sums
+# against the SHA-384 published with it. Bump the version and the sum
 # together (Dependabot does not track these).
 ARG CHISEL_VERSION=v1.5.1
 ARG CHISEL_SHA384_AMD64=89612f46de83e850aae11fca26a32a22cc2964891f2cc538211b906787d2b83e4496fa203a5074e06a9932f1fbe84a73
-ARG CHISEL_SHA384_ARM64=5beb26c4ce29741493e7481139742b1af1b087eab043d102313d9a5caaf665169678db4c980a62098376841220f15577
 ARG TARGETARCH
 
 # hadolint ignore=DL3008
@@ -95,7 +90,6 @@ RUN apt-get update \
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
         amd64) sum="${CHISEL_SHA384_AMD64}"; arch=amd64 ;; \
-        arm64) sum="${CHISEL_SHA384_ARM64}"; arch=arm64 ;; \
         *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     tarball="chisel_${CHISEL_VERSION}_linux_${arch}.tar.gz"; \

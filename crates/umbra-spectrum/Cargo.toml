@@ -11,7 +11,7 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 publish.workspace = true
-# Generates the sRGB RGB-to-spectrum table (ADR 0002).
+# Generates the sRGB RGB-to-spectrum table (ADR 0022).
 build = "build/main.rs"
 
 [features]
@@ -25,7 +25,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 umbra-math = { workspace = true }
 umbra-sampling = { workspace = true }
 
-# The build script generates the RGB-to-spectrum table with `libm` (ADR 0002).
+# The build script generates the RGB-to-spectrum table with `libm` (ADR 0022).
 [build-dependencies]
 libm = { workspace = true }
 

@@ -1,10 +1,10 @@
-//! The `Vec4`/`Mask4` facade against its scalar reference (ADR 0002): every
+//! The `Vec4`/`Mask4` facade against its scalar reference (ADR 0007): every
 //! lane of every operation is bit-identical to the scalar operation on that
 //! lane, over random bit patterns (NaN, infinities, subnormals, signed zeros
 //! included).
 //!
 //! Arithmetic that produces a NaN from non-NaN inputs gives the CPU's default
-//! NaN, whose bits differ between x86-64 and arm64; there both results only
+//! NaN, whose bits differ between CPU vendors; there both results only
 //! have to be NaN. Everything that selects rather than computes (`min`,
 //! `max`, `select`, `abs`, negation) is compared bit for bit, NaN included.
 

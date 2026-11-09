@@ -6,6 +6,3 @@
 channel = "1.99.1"
 components = ["rustfmt", "clippy", "llvm-tools"]
 profile = "minimal"
-# Bare-metal target with no `std`: CI builds the seven core crates for it, so
-# a dependency on `std` breaks the build (ADR 0014, ADR 0015).
-targets = ["aarch64-unknown-none"]

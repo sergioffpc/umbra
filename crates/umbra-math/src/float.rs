@@ -3,7 +3,7 @@
 //!
 //! PBR 4e §6.8.1–§6.8.2. On the CPU, pbrt-v4 rounds up or down by stepping one
 //! ULP with `NextFloatUp`/`NextFloatDown` after the round-to-nearest result;
-//! Umbra does the same and never changes the rounding mode (ADR 0002).
+//! Umbra does the same and never changes the rounding mode (ADR 0001).
 //!
 //! [`fma`], [`sqrt`], [`floor`] and [`ceil`] are the hardware instruction,
 //! with the bits of the `libm` routines; the `libm` forms are the test oracle in `tests/umbra_math/reference/`
@@ -38,9 +38,11 @@ pub const fn gamma(n: u16) -> f32 {
 
 /// The fused multiply-add `a * b + c` with a single rounding.
 ///
-/// Umbra uses it exactly where pbrt-v4 uses `FMA` and nowhere else (ADR 0002).
-/// It is the hardware instruction (`vfmadd213ss` on x86-64, `fmadd` on arm64),
-/// which gives the bits of the correctly rounded `libm::fmaf`.
+/// Umbra uses it where pbrt-v4 uses `FMA`, and anywhere else it is faster or
+/// more accurate, except in code whose error bounds pbrt-v4 derives from its
+/// exact operations (ADR 0022). It is the hardware instruction
+/// (`vfmadd213ss`), which gives the bits of the correctly rounded
+/// `libm::fmaf`.
 ///
 /// pbrt-v4 `FMA`.
 #[inline]
@@ -59,8 +61,8 @@ pub fn sqrt(x: f32) -> f32 {
     arch::sqrt(x)
 }
 
-/// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`, NEON
-/// `frintm`). Exact, so the bits of `libm::floorf`.
+/// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
+/// the bits of `libm::floorf`.
 ///
 /// pbrt-v4 `std::floor`.
 #[inline]
@@ -69,8 +71,8 @@ pub fn floor(x: f32) -> f32 {
     arch::floor(x)
 }
 
-/// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`, NEON
-/// `frintp`). Exact, so the bits of `libm::ceilf`.
+/// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
+/// the bits of `libm::ceilf`.
 ///
 /// pbrt-v4 `std::ceil`.
 #[inline]

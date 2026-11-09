@@ -1,0 +1,54 @@
+# The `no_std` check of the rendering core (ADR 0014, ADR 0023). A `staticlib`
+# with its own panic handler that links the seven core crates: if any of them,
+# or any of their dependencies, links `std`, the build fails with a duplicate
+# `panic_impl` lang item (E0152); if any links `alloc`, it fails for lack of a
+# global allocator. Run it with `scripts/check-no-std.sh`.
+#
+# It is its own workspace, not a member of the root one, so the root keeps its
+# twelve crates (ADR 0015) and its profiles: this check needs `panic = "abort"`
+# in `dev`. Its `Cargo.lock` is a copy of the root one, made by the script and
+# ignored by git, so it builds the versions the root workspace locks.
+[workspace]
+
+[package]
+name = "no-std-check"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+path = "lib.rs"
+crate-type = ["staticlib"]
+test = false
+doctest = false
+bench = false
+
+[dependencies]
+umbra-math = { path = "../../crates/umbra-math" }
+umbra-sampling = { path = "../../crates/umbra-sampling" }
+umbra-spectrum = { path = "../../crates/umbra-spectrum" }
+umbra-geometry = { path = "../../crates/umbra-geometry" }
+umbra-shading = { path = "../../crates/umbra-shading" }
+umbra-camera = { path = "../../crates/umbra-camera" }
+umbra-integrators = { path = "../../crates/umbra-integrators" }
+
+[features]
+# The Scene arenas as `umbra-scene` builds them (arc42 §5.2).
+serde = [
+  "umbra-math/serde",
+  "umbra-sampling/serde",
+  "umbra-spectrum/serde",
+  "umbra-geometry/serde",
+  "umbra-shading/serde",
+  "umbra-camera/serde",
+  "umbra-integrators/serde",
+]
+
+[profile.dev]
+panic = "abort"
+
+# `umbra-spectrum`'s build script computes the RGB-to-spectrum table, about a
+# CPU-minute optimised and twenty unoptimised (as in the root `Cargo.toml`).
+[profile.dev.build-override]
+opt-level = 3

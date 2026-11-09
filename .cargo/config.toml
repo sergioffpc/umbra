@@ -1,15 +1,14 @@
 # Local build settings.
 #
 # target-cpu=native lets LLVM use every SIMD extension of the build machine
-# (AVX2/AVX-512 on x86-64, the full NEON/SVE set on Apple silicon), which
-# matters for a renderer. Binaries built this way may not run on older CPUs:
+# (AVX2 on the target machines, AVX-512 where a CPU has it), which matters for a renderer. Binaries built this way may not run on older CPUs:
 # to build for another machine, override it with that machine's CPU, e.g.
 #   RUSTFLAGS="-C target-cpu=broadwell" cargo build --release
 # (ADR 0012: one binary per target CPU, no generic x86-64-v3 release).
-# The RUSTFLAGS environment variable replaces this list. On x86-64 it must
-# keep at least `-C target-cpu=x86-64-v3`: umbra-math requires FMA, SSE4.1 and
-# AVX2 there and does not compile without them (ADR 0002), so CI sets
-# RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3" on its x86-64 jobs.
+# The RUSTFLAGS environment variable replaces this list. It must keep at
+# least `-C target-cpu=x86-64-v3`: umbra-math requires FMA, SSE4.1 and AVX2
+# and does not compile without them (ADR 0023), so CI sets
+# RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3".
 [build]
 rustflags = ["-C", "target-cpu=native"]
 

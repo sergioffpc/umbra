@@ -1,28 +1,24 @@
-//! The `Vec4`/`Mask4` SIMD facade (ADR 0002, ADR 0007).
+//! The `Vec4`/`Mask4` SIMD facade (ADR 0007, ADR 0023).
 //!
-//! Four `f32` lanes in one 128-bit register (SSE on x86-64, NEON on arm64),
-//! the width of `SampledSpectrum` (ADR 0001). Each operation computes, lane
-//! by lane, exactly what the scalar operation computes: the scalar code is
-//! its reference and test oracle (`tests/umbra_math/simd_test.rs`). There is
-//! one backend per supported architecture: `x86_64` (SSE, FMA) and `aarch64`
-//! (NEON). Where the hardware
-//! leaves a result platform-dependent, the facade pins it down:
+//! Four `f32` lanes in one 128-bit SSE register, the width of
+//! `SampledSpectrum` (ADR 0001). Each operation computes, lane by lane,
+//! exactly what the scalar operation computes: the scalar code is its
+//! reference and test oracle (`tests/umbra_math/simd_test.rs`). There is one
+//! backend, `x86_64` (SSE4.1, FMA); a GPU port adds its own (ADR 0024). Where
+//! the hardware leaves a result open, the facade pins it down:
 //!
 //! - `min`/`max` have C++ `std::min`/`std::max` semantics (see
-//!   [`crate::min`]): `minps`/`maxps` with swapped operands on x86-64, a
-//!   compare and a select on arm64, never `fmin`/`fminnm`, whose NaN rules
-//!   differ between the two.
-//! - `mul_add` is always fused: `vfmaddps` on x86-64, `fmla` on arm64,
-//!   never a multiply and an add.
-//! - There are no reciprocal or reciprocal-square-root estimates, and no
-//!   horizontal operations whose order depends on the platform.
+//!   [`crate::min`]): `minps`/`maxps` with swapped operands.
+//! - `mul_add` is always fused (`vfmaddps`), never a multiply and an add.
+//! - There are no reciprocal or reciprocal-square-root estimates, whose bits
+//!   differ between CPU vendors (ADR 0022).
 //!
 //! NaN payloads produced by arithmetic on non-NaN inputs (the default NaN)
 //! differ between CPU vendors in the scalar code too; they are not part of
 //! the contract.
 //!
 //! The lanes are stored as a 16-byte-aligned `[f32; 4]`, so constructors are
-//! `const` and the layout is explicit; each backend moves them into a
+//! `const` and the layout is explicit; the backend moves them into a
 //! register for the operation and back, which costs nothing once inlined.
 
 use core::ops::{
@@ -30,18 +26,13 @@ use core::ops::{
     SubAssign,
 };
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-mod aarch64;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 use x86_64 as backend;
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-use aarch64 as backend;
-
-/// Four `f32` lanes, as every backend takes and returns them.
+/// Four `f32` lanes, as the backend takes and returns them.
 type F4 = [f32; 4];
 /// Four lane masks: all bits set for true, all clear for false.
 type M4 = [u32; 4];

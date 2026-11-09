@@ -4,7 +4,7 @@
 //! and, where pbrt-v4 has them, their inverses.
 //!
 //! Each follows pbrt-v4's operations in their order, with no implicit FMA
-//! (ADR 0002), so it computes pbrt-v4's bits up to the last-bit differences
+//! (ADR 0001), so it computes pbrt-v4's bits up to the last-bit differences
 //! between the `libm` crate and a platform libm.
 
 mod bilinear;

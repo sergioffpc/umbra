@@ -8,7 +8,7 @@
 //! whose reflectance under the colour space's illuminant has that RGB,
 //! minimising the error in CIELAB (Jakob and Hanika 2019, PBR 4e §4.6.6).
 //!
-//! The result is a pure function of these sources (ADR 0002): IEEE `f64`
+//! The result is a pure function of these sources (ADR 0022): IEEE `f64`
 //! arithmetic, which Rust never contracts into FMAs, the correctly rounded
 //! hardware square root, and `libm`'s cube root. pbrt-v4's own table can
 //! differ in the last bits of some coefficients: its build takes the cube

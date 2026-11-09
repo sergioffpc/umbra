@@ -19,7 +19,7 @@ set_local commit.template .gitmessage
 # Git LFS: install only the smudge/clean filters. --skip-repo stops git lfs
 # from writing its own hooks; .githooks already calls git lfs where needed.
 if ! command -v git-lfs >/dev/null 2>&1; then
-    echo "error: git-lfs is not installed (macOS: brew install git-lfs)" >&2
+    echo "error: git-lfs is not installed (see https://git-lfs.com)" >&2
     exit 1
 fi
 git lfs install --local --skip-repo >/dev/null
