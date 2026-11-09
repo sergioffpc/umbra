@@ -2,9 +2,10 @@
 //!
 //! A `#![no_std]` library with its own panic handler that uses the seven core
 //! crates. If any of them, or any of their dependencies, links `std`, this
-//! crate stops compiling with a duplicate `panic_impl` lang item (E0152). Its
-//! build script rejects `extern crate alloc` in the core crates. Both run in
-//! every `cargo check`, `clippy`, `build` and `test` of the workspace.
+//! crate stops compiling with a duplicate `panic_impl` lang item (E0152), in
+//! every `cargo check`, `clippy`, `build` and `test` of the workspace. `alloc`
+//! is not checked: the rule holds by review (ADR 0014), and the
+//! counting-allocator test of ADR 0008 guards the per-Pixel-Sample path.
 
 #![no_std]
 
