@@ -1,11 +1,4 @@
-//! Sampling functions (warps), hashing and RNG, low-discrepancy sequences, `Sampler` and `SamplerKind`.
-//!
-//! A core crate (ADR 0014, ADR 0015): `#![no_std]` without `alloc`. The
-//! routines are pbrt-v4's (`src/pbrt/util/hash.h`, `rng.h`, `sampling.h`),
-//! ported faithfully so that a seed draws pbrt-v4's numbers (ADR 0004), in
-//! `f32` (ADR 0001) and over the `libm` crate (ADR 0022). Names follow
-//! pbrt-v4, in snake case.
-
+#![doc = include_str!("../README.md")]
 #![no_std]
 
 mod hash;
