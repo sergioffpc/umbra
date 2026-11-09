@@ -1,10 +1,11 @@
 # Documentation
 
-Umbra's design is written down in three places, each with one job:
+Umbra's design is written down in four places, each with one job:
 
 - [`GLOSSARY.md`](../GLOSSARY.md): the domain vocabulary. Every other document uses its terms.
-- [`architecture/`](architecture/): the architecture as it stands, in the twelve arc42 sections listed below.
+- [`architecture/`](architecture/): the architecture as it stands, in the twelve arc42 sections listed below. Section 5 describes how the crates fit together.
 - [`adr/`](adr/): the hard-to-reverse decisions, one file each, in the order they were taken. Section 9 indexes them.
+- `crates/<name>/README.md`: each crate from the inside, as it is built: its modules, its own design decisions, what to know when using it, its performance and its tests. It is also the crate's rustdoc documentation. See [Crate READMEs](../CONTRIBUTING.md#crate-readmes).
 
 When an ADR and an arc42 section disagree, the later ADR is the decision and the section is the error to fix.
 

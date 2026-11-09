@@ -15,7 +15,6 @@ rust-version = "1.99"
 authors = ["Sérgio Carvalho"]
 license = "MIT"
 repository = "https://github.com/sergioffpc/umbra"
-readme = "README.md"
 keywords = ["ray-tracing", "pbr", "rendering", "pbrt", "graphics"]
 categories = ["rendering", "graphics", "multimedia::images"]
 publish = false

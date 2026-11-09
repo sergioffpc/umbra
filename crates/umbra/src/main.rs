@@ -1,4 +1,4 @@
-//! umbra: a physically based ray tracer inspired by pbrt-v4.
+#![doc = include_str!("../README.md")]
 
 // Dependency edges of arc42 §5.1, used once the binary has subcommands.
 use umbra_cluster as _;

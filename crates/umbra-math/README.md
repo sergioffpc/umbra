@@ -4,8 +4,10 @@ The numeric foundation of Umbra's rendering core: vectors, points, normals,
 frames, transforms, interval arithmetic and floating-point error bounds, the
 scalar helpers pbrt-v4 relies on, and the `Vec4`/`Mask4` SIMD facade.
 
-It is the bottom of the core (arc42 §5.1): every other core crate depends on
-it, and it depends only on [`libm`](https://crates.io/crates/libm).
+It is a core crate, `#![no_std]` without `alloc` (ADR 0014, ADR 0015), and
+the bottom of the core (arc42 §5.1): every other core crate depends on it,
+and it depends only on [`libm`](https://crates.io/crates/libm). It covers
+PBR 4e chapter 3, §6.8 and §B.2.
 
 ```rust
 use umbra_math::{Point3f, Point3fi, Vector3f, cross, dot, look_at, perspective};

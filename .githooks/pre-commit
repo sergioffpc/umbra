@@ -45,6 +45,9 @@ if staged '*.rs' '*.toml' Cargo.lock; then
     cargo clippy --all-targets --all-features --locked -- -D warnings
 fi
 
+# Every crate has a README.md that is its rustdoc documentation.
+scripts/check.sh readmes
+
 echo "pre-commit: typos"
 if have typos; then
     typos
