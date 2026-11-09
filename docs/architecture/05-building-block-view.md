@@ -64,7 +64,7 @@ Inside a core crate, each pbrt-v4 chapter or section is a module, for example `u
 
 Per-sample code receives a `SceneView<'_>` of borrowed arena slices, never `&Scene` (ADR 0014).
 
-Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. The `no_std` check (§5.4) builds all seven crates with the feature off in `cargo build` and on in CI's `--all-features` runs.
+Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. The seven crates build with the feature off in `cargo build` and on in CI's `--all-features` runs.
 
 ## 5.3 Level 2: interfaces outside the core
 
@@ -142,6 +142,6 @@ The binary has `clap` derive subcommands: `render`, `worker`, `trace`, `bench` a
 | Layout      | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles.                                                                                                                                                                                         |
 | Inheritance | `[workspace.package]` (version, edition, `rust-version`, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`.                                                                                                                          |
 | Versioning  | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)).                                                                                                                                                                         |
-| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. The workspace member `checks/no-std/`, a `no_std` library with its own panic handler, stops compiling if anything links `std`, in every `cargo check` ([ADR 0023](../adr/0023-x86-64-only.md)); `alloc` is kept out by review.                         |
+| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. Held by review: nothing checks it automatically ([ADR 0023](../adr/0023-x86-64-only.md)).                                                                                                                                                              |
 | Tests       | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)) live in the crate that owns the sampling routine. Cross-crate tests (golden Film hashes, the trace oracle, the counting allocator) live in `crates/umbra/tests/`. |
 | Benchmarks  | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4).                                                                                                                                                                                                                                 |

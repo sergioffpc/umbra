@@ -242,11 +242,9 @@ first.
   ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
-  `std`. The workspace member `checks/no-std/` stops compiling if anything
-  links `std`, in every `cargo check`, `clippy`, `build` and `test` at the
-  root ([ADR 0023](docs/adr/0023-x86-64-only.md)). Every crate in `checks/`
-  is a workspace member, so a new check runs the same way. Nothing checks
-  `alloc` automatically: keep it out of the core in review.
+  `std`. Nothing checks this automatically
+  ([ADR 0023](docs/adr/0023-x86-64-only.md)): keep `std` and `alloc` out of
+  the core in review, including through dependency features.
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
 

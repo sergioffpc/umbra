@@ -83,8 +83,7 @@ Where Umbra departs from pbrt-v4, the doc comment says so:
 
 The core computes in `f32` (ADR 0001); there is no `Float` alias and no `f64`
 build. The crate is `#![no_std]` without `alloc` (ADR 0014, ADR 0015), so it
-can never allocate, and the `checks/no-std/` workspace member proves it
-(ADR 0023).
+can never allocate.
 All types are `Copy`. There is no recursion; pbrt-v4's variadic recursive
 helpers (`InnerProduct`, `SumSquares`, `EvaluatePolynomial`) are folds over
 const-generic arrays here.
