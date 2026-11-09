@@ -37,11 +37,12 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`, `sqrt`, `floor`, `ceil`                                                                                                                                                   |
 | `math` (`util/math.h`)                   | `lerp`, `clamp`, `sqr`, `safe_sqrt`/`asin`/`acos`, `evaluate_polynomial`, `difference_of_products`, `sum_of_products`, `two_prod`, `two_sum`, `inner_product`, `CompensatedSum`, `erf_inv`, `fast_exp`, `gaussian`, `gaussian_integral`, `find_interval`, `quadratic`, `log2_int`, `round_up_pow2`, `min`/`max`, π constants |
+| `transcendental`                         | `sin_cos`, `atan2`, `erf`: Umbra's own scalar transcendentals, within 1 ULP and faster than `libm`'s                                                                                                                                                                                                                         |
 | `interval` (`util/math.h`)               | `Interval`, a closed `[low, high]` that bounds the rounding error of the computation that produced it                                                                                                                                                                                                                        |
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
-| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1 and FMA on x86-64)                                                                                                                                                                                                                                               |
+| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1, AVX2 and FMA on x86-64), with `exp` and `pow` within 1 ULP                                                                                                                                                                                                      |
 
 Everything is re-exported at the crate root, so `use umbra_math::{…}` is all
 you need.
@@ -94,10 +95,12 @@ A computation gives the same bits every time it runs on one machine with one
 binary; across machines, results only have to be statistically equal
 (ADR 0022). The crate supports x86-64 only (ADR 0023). Hence:
 
-- **Transcendentals come from `libm`**, never from the platform's math
-  library or `std`'s float methods (which `clippy.toml` bans). A faster
-  kernel of Umbra's own may replace one when it states an error bound and is
-  tested against it (ADR 0022).
+- **Transcendentals come from `libm` or from Umbra's own kernels**, never
+  from the platform's math library or `std`'s float methods (which
+  `clippy.toml` bans). Umbra's own replace `libm` where they measured faster:
+  `sin_cos`, `atan2` and `erf`, and `Vec4::exp` and `Vec4::pow`. Each states
+  its error bound, 1 ULP, and is tested against `libm`'s `f64` routines
+  (ADR 0022).
 - **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
   machine has: without it the crate stops the build with a `compile_error!`,
   so there is no software-FMA path. Build with `target-cpu=native` (the
@@ -165,8 +168,12 @@ lane computes what the scalar operation computes:
 - Horizontal reductions (`reduce_add`, `reduce_min`, `reduce_max`) fold left
   to right, like a scalar loop.
 
-There is one backend under the facade, `x86_64` (SSE with `blendvps` and
-`vfmaddps`).
+`exp` and `pow` are the exception: no IEEE operation computes them, so they
+are within 1 ULP of the correctly rounded result rather than equal to a
+scalar routine (below).
+
+There is one backend under the facade, `x86_64`: SSE with `blendvps` and
+`vfmaddps`, and AVX2 `f64` kernels for `exp` and `pow`.
 The scalar operation is the oracle of the facade
 (`tests/umbra_math/simd_test.rs`), lane by lane, over random bit patterns and
 the special values. The one thing outside the
@@ -196,14 +203,34 @@ every result is the same bits:
   signs, as pbrt-v4's formulas do element by element.
 - **`Transform` application** (`src/transform/kernels.rs`): the four rows of
   the matrix in the lanes, so one chain of multiplies and adds transforms a
-  point, and the `gamma(3)` error bound of a `Point3fi` comes out of the same
-  lanes. Vectors stay scalar: three dot products of three terms, which a
-  kernel did not speed up.
+  point or a vector, and the `gamma(3)` error bound of a `Point3fi` comes out
+  of the same lanes. The lanes are the columns of the matrix, which a
+  `Transform` stores next to its two matrices when it is built: transposing
+  them on every call cost as much as the arithmetic. A `Transform` is
+  therefore 256 bytes instead of 128.
 - **Scalar primitives**: `fma`, `sqrt`, `floor` and `ceil` as the hardware
   instruction (above), and `round_up_pow2` by a count of leading zeros
   instead of pbrt-v4's five shift-or steps.
 
-The `unsafe` is confined to the three backends of `Vec4` and to
+The transcendentals cannot keep the bits of `libm`, so they keep an error
+bound instead (ADR 0022): every result is within 1 ULP of the correctly
+rounded one, with C's values at signed zeros, infinities and NaNs.
+
+- **`Vec4::exp` and `Vec4::pow`** (`src/simd/x86_64/transcendental.rs`), for
+  `SampledSpectrum::exp` and `pow`: the four lanes widened to `f64` in one
+  AVX register, which makes every `f32` subnormal normal, then
+  `2^(x log₂ e)` and `2^(e log₂ x)` from Taylor polynomials and exponent-bit
+  arithmetic, and one rounding back to `f32`. The facade
+  (`src/simd/transcendental.rs`) gives `pow` C's special values.
+- **`sin_cos`, `atan2` and `erf`** (`src/transcendental.rs`): scalar `f64`
+  code with the `f64` FMA. `sin_cos` shares one argument reduction (π/2 in
+  two parts, beyond ±2²⁰ `libm`'s), `atan2` reduces to `[0, tan(π/8)]` with
+  one division, and `erf` reads one of eight half-unit segments. Their
+  polynomials are interpolants of `libm`'s `f64` routines at Chebyshev
+  nodes, of the lowest degree whose error is below 2⁻³⁰. The quadrant,
+  octant and segment are picked by selects and bit operations, not branches.
+
+The `unsafe` is confined to the backend of `Vec4` and to
 `src/float/arch.rs`: one intrinsic per `unsafe` block, each with its
 `// SAFETY:` comment, under `#[expect(unsafe_code)]` on that function. The
 kernels and the facade are safe code.
@@ -219,14 +246,18 @@ of renderer magnitude; `benches/kernels.rs` times the two side by side.
 
 What was tried and did not win stays in its reference form: a branch-free
 `next_float_up`/`next_float_down` (the branch on infinity is perfectly
-predicted; the scalar form is 20 % faster) and a `Vec4` transform of a
-`Vector3f` (the transpose costs what the lanes save).
+predicted; the scalar form is 20 % faster). A `Vec4` transform of a
+`Vector3f` lost while it transposed the matrix, and wins now that the
+columns are stored. A `sin_cos` that picked its quadrant by a `match` was
+slower than `libm`'s `sinf` and `cosf` together on random angles, and Taylor
+polynomials for `sin`, `cos` and `atan` cost a third more than the
+Chebyshev ones.
 
 ## Things to know when using it
 
 - **Angle units follow pbrt-v4**: `rotate`, `rotate_x/y/z` and `perspective`
   take degrees (as scene files do); everything else (`spherical_direction`,
-  `angle_between`, `libm` trigonometry) works in radians. Convert with
+  `angle_between`, `sin_cos`, `atan2`, `libm` trigonometry) works in radians. Convert with
   `radians`/`degrees`.
 - **Division by a scalar divides each component**; it does not multiply by a
   reciprocal, so `v / 3.0` and `v * (1.0 / 3.0)` can differ in the last bit.
@@ -238,6 +269,9 @@ predicted; the scalar form is 20 % faster) and a `Vec4` transform of a
   pbrt-v4, for the NaN reason above.
 - **Use `umbra_math::sqrt`, `floor`, `ceil` and `fma`** rather than `libm`'s
   directly: the same bits, as one inlined instruction.
+- **Use `umbra_math::sin_cos`, `atan2` and `erf`** rather than `libm`'s
+  `sinf`/`cosf`, `atan2f` and `erff`, and `Vec4::exp`/`pow` rather than
+  `libm` per lane: within 1 ULP, but not the same bits.
 - **An `Interval` bound must not be NaN.** The outward rounding steps the bits
   of its operand, as pbrt-v4's `NextFloatUp`/`NextFloatDown` do; for a NaN
   that depends on its payload (a NaN whose payload is all ones steps to a
@@ -253,9 +287,9 @@ predicted; the scalar form is 20 % faster) and a `Vec4` transform of a
 Several choices cost cycles on purpose, for reproducibility and robustness:
 `difference_of_products` is three operations where `a*b − c*d` is two,
 `inner_product` (matrix products and the 4 × 4 inverse) is compensated, every
-`Interval` operation is several float operations plus ULP steps, and `libm`
-is somewhat slower than glibc. `fast_exp` is the one deliberate
-approximation, as in pbrt-v4, for the Gaussian filter.
+`Interval` operation is several float operations plus ULP steps, and the
+`libm` routines Umbra keeps are somewhat slower than glibc's. `fast_exp` is
+pbrt-v4's coarse approximation for the Gaussian filter, kept as it is.
 
 Within those choices, the kernels above take back most of the cost.
 `cargo bench -p umbra-math` runs `benches/kernels.rs` (`divan`): each bench
@@ -266,30 +300,41 @@ Ryzen Threadripper PRO 3975WX (Linux x86-64, `target-cpu=native`, Rust
 
 | Kernel                                 | Reference | Optimised | Speed-up |
 | -------------------------------------- | --------: | --------: | -------: |
-| `fma`                                  |      1.54 |      0.52 |    2.9 × |
-| `difference_of_products`               |      2.81 |      0.53 |    5.3 × |
-| `sqrt`                                 |      1.44 |      1.42 |    1.0 × |
-| `round_up_pow2`                        |      1.23 |      0.69 |    1.8 × |
-| `Interval + Interval`                  |      3.15 |      1.73 |    1.8 × |
-| `Interval − Interval`                  |      3.15 |      1.91 |    1.6 × |
-| `Interval × Interval`                  |      11.9 |      3.93 |    3.0 × |
-| `Interval ÷ Interval`                  |      12.7 |      5.20 |    2.4 × |
-| `Interval::fma`                        |      19.8 |      4.49 |    4.4 × |
-| `Interval::sqr`                        |      3.51 |      2.83 |    1.2 × |
-| `Interval::from_value_and_error`       |      3.44 |      1.51 |    2.3 × |
-| `difference_of_products` on `Interval` |      19.7 |      12.9 |    1.5 × |
-| `SquareMatrix<3> × SquareMatrix<3>`    |      41.0 |      9.91 |    4.1 × |
-| `SquareMatrix<4> × SquareMatrix<4>`    |      95.4 |      15.8 |    6.0 × |
-| `SquareMatrix<4>::inverse`             |       137 |      36.2 |    3.8 × |
-| `Transform::apply(Point3f)`            |      3.75 |      2.46 |    1.5 × |
-| `Transform::apply_inverse(Point3f)`    |      3.71 |      2.34 |    1.6 × |
-| `Transform::apply(Normal3f)`           |      1.68 |      1.13 |    1.5 × |
-| `Transform::apply(Point3fi)`           |      23.8 |      15.2 |    1.6 × |
-| `Transform::apply(Vector3fi)`          |      15.5 |      10.9 |    1.4 × |
+| `fma`                                  |      1.52 |     0.463 |    3.3 × |
+| `difference_of_products`               |      2.81 |     0.526 |    5.3 × |
+| `sqrt`                                 |      1.67 |      1.67 |    1.0 × |
+| `round_up_pow2`                        |      1.48 |     0.817 |    1.8 × |
+| `Interval + Interval`                  |      3.73 |      2.04 |    1.8 × |
+| `Interval − Interval`                  |      3.75 |      2.28 |    1.6 × |
+| `Interval × Interval`                  |      14.3 |      4.69 |    3.0 × |
+| `Interval ÷ Interval`                  |        15 |      6.22 |    2.4 × |
+| `Interval::fma`                        |      19.2 |      5.29 |    3.6 × |
+| `Interval::sqr`                        |      4.19 |      3.35 |    1.2 × |
+| `Interval::from_value_and_error`       |      4.02 |      1.79 |    2.2 × |
+| `difference_of_products` on `Interval` |      23.4 |      15.3 |    1.5 × |
+| `SquareMatrix<3> × SquareMatrix<3>`    |      49.2 |      11.8 |    4.2 × |
+| `SquareMatrix<4> × SquareMatrix<4>`    |       112 |      18.9 |    5.9 × |
+| `SquareMatrix<4>::inverse`             |       165 |      42.9 |    3.9 × |
+| `Transform::apply(Point3f)`            |      4.08 |      1.99 |    2.0 × |
+| `Transform::apply_inverse(Point3f)`    |      3.83 |      1.44 |    2.7 × |
+| `Transform::apply(Vector3f)`           |      1.71 |      1.31 |    1.3 × |
+| `Transform::apply(Normal3f)`           |      1.95 |      1.67 |    1.2 × |
+| `Transform::apply(Point3fi)`           |      25.4 |      14.5 |    1.8 × |
+| `Transform::apply(Vector3fi)`          |      16.1 |      9.98 |    1.6 × |
+| `Vec4::exp` (`libm::expf` per lane)    |        26 |      4.08 |    6.4 × |
+| `Vec4::pow` (`libm::powf` per lane)    |       204 |      18.2 |   11.2 × |
+| `sin_cos` (`libm::sinf` and `cosf`)    |      8.79 |      6.51 |    1.3 × |
+| `atan2` (`libm::atan2f`)               |      11.4 |      4.42 |    2.6 × |
+| `erf` (`libm::erff`)                   |      14.7 |      5.74 |    2.6 × |
 
 `sqrt` is the same instruction either way; the gain is that LLVM sees
 through the intrinsic and can fold, schedule and vectorise it, which it
-cannot do with `libm`'s inline assembly. Micro-benchmarks locate a gain but
+cannot do with `libm`'s inline assembly. The `Transform` benches use a
+different transform for each of the 1024 inputs, so they also time the
+cache traffic of the 256-byte `Transform`. That is why `apply(Normal3f)`,
+which reads the rows as before, measured 1.17 ns before the columns were
+stored and 1.67 ns after; with 16 transforms that stay in cache it measured
+1.42 ns both times, while `apply(Point3f)` went from 2.41 to 1.61 ns. Micro-benchmarks locate a gain but
 do not justify it on their own (arc42 §8.4): the end-to-end proof is
 `umbra bench` on the Reference Scenes, once there is a renderer to run it.
 
@@ -306,9 +351,16 @@ do not justify it on their own (arc42 §8.4): the end-to-end proof is
 - `simd_test.rs` checks `Vec4`/`Mask4` against the scalar reference.
 - `reference/*.rs` are the safe, book-faithful references of the optimised
   kernels, and `equivalence/*.rs` checks every kernel against its reference
-  bit for bit (ADR 0007). Two exhaustive sweeps of
-  every `u32` are `#[ignore]`d; run them with
-  `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`.
+  bit for bit (ADR 0007).
+- `accuracy/*.rs` checks Umbra's own transcendentals against `libm`'s `f64`
+  routines: within 1 ULP, with the reference's sign and NaNs (ADR 0022). The
+  unary ones (`sin_cos`, `erf`, `Vec4::exp`) are swept over every 251st
+  `f32` on every run; `atan2` and `Vec4::pow` over every 251st value of one
+  argument, random pairs and every pair of special values.
+- The exhaustive sweeps of every `u32` (two in `equivalence`, three in
+  `accuracy`) are `#[ignore]`d; run them with
+  `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`
+  (about 35 s on the 3975WX).
 
 Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
