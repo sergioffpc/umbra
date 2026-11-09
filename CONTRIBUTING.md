@@ -72,67 +72,65 @@ git cliff --tag vX.Y.Z -o CHANGELOG.md
 `rust-version` in [`Cargo.toml`](Cargo.toml) matches it. To upgrade, bump both
 in one `build:` commit and fix any new lints.
 
-Optional tools used by the hook and CI:
+Tools used by the hooks, CI and the checks below. Install them all, at the
+versions CI uses, with:
 
-- [`typos`](https://github.com/crate-ci/typos) (`brew install typos-cli` or
-  `cargo install typos-cli`): spell checker. Accept false positives in
-  [`_typos.toml`](_typos.toml).
-- [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny)
-  (`cargo install cargo-deny`): checks dependencies for security advisories,
-  licenses, banned crates and sources against [`deny.toml`](deny.toml).
-- [`cargo-nextest`](https://nexte.st) (`brew install cargo-nextest` or
-  `cargo install cargo-nextest`): test runner, configured in
+```sh
+scripts/install-tools.sh
+```
+
+[`scripts/install-tools.sh`](scripts/install-tools.sh) is the one place where
+their versions are pinned; CI and the dev container install them with it too.
+It needs `curl` and, for Prettier and markdownlint-cli2, `npm`. `shellcheck`
+comes from your system package manager.
+
+- [`cargo-nextest`](https://nexte.st): test runner, configured in
   [`.config/nextest.toml`](.config/nextest.toml).
-- [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov)
-  (`brew install cargo-llvm-cov` or `cargo install cargo-llvm-cov`): test
+- [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov): test
   coverage. `cargo cov --open` runs the tests under nextest and opens the HTML
-  report. Coverage is reported in CI but has no threshold: use it to find
-  untested code, not as a target.
-- [`cargo-shear`](https://github.com/Boshen/cargo-shear)
-  (`brew install cargo-shear` or `cargo install cargo-shear`): finds unused
+  report. CI reports coverage only on demand (the Coverage workflow), with no
+  threshold: use it to find untested code, not as a target.
+- [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny): checks
+  dependencies for security advisories, licenses, banned crates and sources
+  against [`deny.toml`](deny.toml).
+- [`cargo-shear`](https://github.com/Boshen/cargo-shear): finds unused
   dependencies; `cargo shear --fix` removes them.
-- [`git-cliff`](https://git-cliff.org) (`brew install git-cliff` or
-  `cargo install git-cliff`): generates the changelog (see
+- [`typos`](https://github.com/crate-ci/typos): spell checker. Accept false
+  positives in [`_typos.toml`](_typos.toml).
+- [`git-cliff`](https://git-cliff.org): generates the changelog (see
   [Changelog](#changelog)).
-- [`shellcheck`](https://www.shellcheck.net) (`brew install shellcheck`):
-  lints the shell scripts in `.githooks/`, `scripts/` and `.devcontainer/`.
-- [`actionlint`](https://github.com/rhysd/actionlint)
-  (`brew install actionlint`): lints the GitHub Actions workflows.
-- [`editorconfig-checker`](https://github.com/editorconfig-checker/editorconfig-checker)
-  (`brew install editorconfig-checker`): checks files against
-  [`.editorconfig`](.editorconfig).
+- [`shellcheck`](https://www.shellcheck.net): lints the shell scripts in
+  `.githooks/`, `scripts/` and `.devcontainer/`.
+- [`actionlint`](https://github.com/rhysd/actionlint): lints the GitHub
+  Actions workflows.
+- [`editorconfig-checker`](https://github.com/editorconfig-checker/editorconfig-checker):
+  checks files against [`.editorconfig`](.editorconfig).
 - [`prettier`](https://prettier.io) and
-  [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2)
-  (`npm install --global prettier markdownlint-cli2`): Prettier formats JSON,
-  YAML and Markdown ([`.prettierrc.yaml`](.prettierrc.yaml)), markdownlint
-  lints Markdown ([`.markdownlint-cli2.yaml`](.markdownlint-cli2.yaml)). Fix
-  formatting with `prettier --write <files>`.
-- [`taplo`](https://taplo.tamasfe.dev) (`brew install taplo`): formats and
-  checks TOML ([`.taplo.toml`](.taplo.toml)), the same engine as the Even
-  Better TOML extension. Fix formatting with `taplo fmt`.
-- [`yamllint`](https://github.com/adrienverge/yamllint)
-  (`brew install yamllint`): lints YAML ([`.yamllint.yaml`](.yamllint.yaml)).
+  [`markdownlint-cli2`](https://github.com/DavidAnson/markdownlint-cli2):
+  Prettier formats JSON, YAML and Markdown
+  ([`.prettierrc.yaml`](.prettierrc.yaml)), markdownlint lints Markdown
+  ([`.markdownlint-cli2.yaml`](.markdownlint-cli2.yaml)). Fix formatting with
+  `prettier --write <files>`.
+- [`taplo`](https://taplo.tamasfe.dev): formats and checks TOML
+  ([`.taplo.toml`](.taplo.toml)), the same engine as the Even Better TOML
+  extension. Fix formatting with `taplo fmt`.
 
 ## Git setup and hooks
 
-Install [Git LFS](https://git-lfs.com) first. Images (`.exr`, `.hdr`, `.pfm`, `.png`, `.jpg`, `.tga`) and meshes
-(`.ply`, `.obj`) are stored in LFS; see [`.gitattributes`](.gitattributes).
-
-Then run the setup script once per clone. It enables the hooks, the commit
-message template and the LFS filters, downloads LFS content, and applies
-recommended local git settings (rebase on pull, prune on fetch, `rerere`,
-`zdiff3` conflicts, histogram diffs):
+Run the setup script once per clone. It enables the hooks and the commit
+message template, and applies recommended local git settings (rebase on pull,
+prune on fetch, `rerere`, `zdiff3` conflicts, histogram diffs):
 
 ```sh
 scripts/setup-git.sh
 ```
 
-- `pre-commit` checks staged whitespace, `cargo fmt`, `cargo clippy`,
-  then runs the linters that replace editor extensions: `typos`,
-  `editorconfig-checker` on the staged files, `prettier`, `taplo`,
-  `yamllint` and `markdownlint-cli2` on the staged JSON, TOML, YAML and
-  Markdown files, `shellcheck` on the shell scripts, `actionlint` when a
-  workflow is staged, and `cargo deny check`
+- `pre-commit` checks staged whitespace and, when Rust code, a manifest or a
+  TOML configuration is staged, `cargo fmt` and `cargo clippy`. It then runs
+  the linters that replace editor extensions: `typos`, `editorconfig-checker`
+  on the staged files, `prettier`, `taplo` and `markdownlint-cli2` on the
+  staged JSON, TOML, YAML and Markdown files, `shellcheck` on the shell
+  scripts, `actionlint` when a workflow is staged, and `cargo deny check`
   when `Cargo.toml`, `Cargo.lock` or `deny.toml` is staged. Each linter is
   skipped with a warning if it is not installed.
 - `commit-msg` rejects messages that are not Conventional Commits (see
@@ -142,9 +140,7 @@ scripts/setup-git.sh
   Git-generated merge, revert, `fixup!` and `squash!` messages are allowed.
 - `pre-push` rejects branches and tags outside the git flow names above
   (`main`, `develop`, `feature/<name>`, `release/X.Y.Z`, `hotfix/X.Y.Z`,
-  tags `vX.Y.Z`), then uploads LFS objects.
-- `post-checkout`, `post-commit` and `post-merge` run the matching Git LFS
-  hooks. Every hook that uses LFS stops with an error if `git-lfs` is missing.
+  tags `vX.Y.Z`).
 
 ## Editor and dev container
 
@@ -160,8 +156,9 @@ repository ships its workspace configuration in [`.vscode/`](.vscode):
   flags as the hook and CI, rust-analyzer in its own target directory so it
   never blocks `cargo build`, commit message rulers at 72 characters.
 - `tasks.json`: builds for every profile (`Ctrl/Cmd+Shift+B` is the dev
-  build), tests with nextest, an HTML coverage report, and one `ci:` task per
-  CI check. `ci: all checks` runs them all in order.
+  build), tests with nextest, an HTML coverage report, and one `check:` task
+  per group of [`scripts/check.sh`](scripts/check.sh). `check: all` runs
+  everything CI runs but Miri.
 - `launch.json`: CodeLLDB configurations for the binary (dev and `profiling`
   profiles) and its unit tests.
 
@@ -171,7 +168,7 @@ files in `.vscode/` are ignored by git.
 ### Dev container
 
 [`.devcontainer/`](.devcontainer) defines a Debian 13 container with the
-pinned toolchain, `rust-src`, Git LFS, `gh`, Claude Code and every tool listed
+pinned toolchain, `rust-src`, `gh`, Claude Code and every tool listed
 under [Toolchain](#toolchain). With Docker running and the Dev Containers
 extension installed, run **Dev Containers: Reopen in Container**. On creation
 it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
@@ -180,7 +177,7 @@ container.
 - `target/` and the cargo download cache are Docker volumes, not bind mounts:
   builds stay fast and survive container rebuilds. The container's
   `target/` is separate from the host's.
-- Tool versions are `ARG`s in the [`Dockerfile`](.devcontainer/Dockerfile);
+- Tool versions come from [`scripts/install-tools.sh`](scripts/install-tools.sh);
   Dependabot updates the base image and features.
 - A git worktree cannot be opened in the container: its `.git` file points
   to a path on the host. Open the main clone instead.
@@ -270,30 +267,16 @@ other machines. An override must keep at least `-C target-cpu=x86-64-v3`:
 
 ## Before opening a pull request
 
-Run the same checks CI runs:
+Run the checks CI runs:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features --locked -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
-cargo nextest run --all-features --locked
-cargo test --doc --all-features --locked
-cargo deny check
-cargo shear
-typos
-git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
-actionlint
-git ls-files -z | xargs -0 editorconfig-checker
-git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check
-git ls-files -z '*.toml' | xargs -0 taplo fmt --check
-git ls-files -z '*.toml' | xargs -0 taplo lint
-git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
-git ls-files -z '*.md' | xargs -0 markdownlint-cli2
-python3 -m unittest discover -s scripts
+scripts/check.sh            # everything: rust, lint and deny
+scripts/check.sh rust       # or one group: fmt, clippy, doc, tests
 ```
 
-CI runs the build, lint and test checks on Linux x86-64, and a coverage
-report on Linux (in the run summary, with the HTML report as an artifact).
+[`scripts/check.sh`](scripts/check.sh) is the one list of these checks: each
+CI job runs one of its groups. Only Miri runs in CI alone, since it needs a
+nightly toolchain.
 
 Then:
 
@@ -350,7 +333,7 @@ the per-pixel mean and variance EXRs, the Reference Image and a manifest with
 their SHA-256 as assets of the release `pbrt-v4-reference/<pbrt-v4 commit>`.
 
 Only whoever moves a pin or adds a Reference Scene runs it, by hand on a target
-machine; CI only runs its unit tests. It needs Python 3.11 or later, git,
+machine, never in CI. It needs Python 3.11 or later, git,
 CMake, a C++17 compiler and an authenticated `gh`:
 
 ```sh

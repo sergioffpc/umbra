@@ -3,15 +3,8 @@
 # in CONTRIBUTING.md:
 #   main, develop, feature/<name>, release/X.Y.Z, hotfix/X.Y.Z, tags vX.Y.Z
 # <name> is lowercase letters, digits, '.', '_' and '-'.
-# Then hands the push to Git LFS so LFS objects are uploaded.
 set -eu
 
-command -v git-lfs >/dev/null 2>&1 || {
-    echo "pre-push: git-lfs is not installed; see CONTRIBUTING.md" >&2
-    exit 2
-}
-
-# stdin is read twice (here and by git lfs), so keep a copy.
 refs=$(cat)
 
 status=0
@@ -41,5 +34,3 @@ if [ "$status" -ne 0 ]; then
     echo "pre-push: allowed: main, develop, feature/<name>, release/X.Y.Z, hotfix/X.Y.Z, tags vX.Y.Z" >&2
     exit "$status"
 fi
-
-printf '%s\n' "$refs" | git lfs pre-push "$@"

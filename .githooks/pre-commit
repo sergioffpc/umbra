@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-# Blocks a commit unless formatting, lints and spelling pass.
+# Blocks a commit unless formatting, lints and spelling pass: the fast checks
+# of scripts/check.sh, on the staged files.
 # Enable once per clone with: git config core.hooksPath .githooks
 # Bypass in an emergency with: git commit --no-verify
 #
@@ -31,14 +32,18 @@ staged_files() {
 echo "pre-commit: checking whitespace in staged changes"
 git diff --cached --check
 
-echo "pre-commit: cargo fmt"
-if ! cargo fmt --all -- --check; then
-    echo "pre-commit: run 'cargo fmt --all' and stage the result" >&2
-    exit 1
-fi
+# Rust: only when Rust code or a manifest or lint configuration is staged, so
+# a commit of documentation alone does not wait for clippy.
+if staged '*.rs' '*.toml' Cargo.lock; then
+    echo "pre-commit: cargo fmt"
+    if ! cargo fmt --all -- --check; then
+        echo "pre-commit: run 'cargo fmt --all' and stage the result" >&2
+        exit 1
+    fi
 
-echo "pre-commit: cargo clippy"
-cargo clippy --all-targets --all-features --locked -- -D warnings
+    echo "pre-commit: cargo clippy"
+    cargo clippy --all-targets --all-features --locked -- -D warnings
+fi
 
 echo "pre-commit: typos"
 if have typos; then
@@ -71,12 +76,6 @@ if have taplo && staged '*.toml'; then
     staged_files '*.toml' | RUST_LOG=warn xargs -0 taplo lint
 fi
 
-# YAML conventions (.yamllint.yaml).
-echo "pre-commit: yamllint"
-if have yamllint && staged '*.yml' '*.yaml'; then
-    staged_files '*.yml' '*.yaml' | xargs -0 yamllint --strict
-fi
-
 # Markdown conventions (.markdownlint-cli2.yaml). Issues go to stderr; the
 # progress banner on stdout is dropped.
 echo "pre-commit: markdownlint-cli2"
@@ -88,12 +87,6 @@ fi
 echo "pre-commit: shellcheck"
 if have shellcheck; then
     git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
-fi
-
-# The pbrt-v4 reference script and the reference list it reads.
-echo "pre-commit: pbrt-v4 reference script tests"
-if have python3 && staged 'scripts/*.py' reference-scenes.toml; then
-    python3 -m unittest discover -s scripts
 fi
 
 # GitHub Actions workflows (YAML, expressions, and shellcheck on `run:`).

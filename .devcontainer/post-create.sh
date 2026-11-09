@@ -7,7 +7,7 @@ cd "$(git rev-parse --show-toplevel)"
 # Named volumes are created owned by root; hand them to the dev user.
 sudo chown -R "$(id -u):$(id -g)" target /usr/local/cargo/registry /usr/local/cargo/git
 
-# Same git setup as on the host: hooks, commit template, Git LFS, local
+# Same git setup as on the host: hooks, commit template, local
 # settings. It writes to this clone's .git/config, which the host shares.
 scripts/setup-git.sh
 
@@ -23,11 +23,8 @@ scripts/setup-git.sh
 
 # Prettier and markdownlint-cli2, run by the pre-commit hook. npm comes from
 # the Node.js feature, which is installed after the Dockerfile, so they cannot
-# go there. Keep the versions in sync with the `lint` job in
-# .github/workflows/ci.yml.
-npm install --global --no-fund --no-audit \
-    prettier@3.9.10 \
-    markdownlint-cli2@0.24.0
+# go there.
+scripts/install-tools.sh prettier markdownlint-cli2
 
 # Download dependencies now so the first build and rust-analyzer start fast.
 cargo fetch --locked

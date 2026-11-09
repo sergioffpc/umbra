@@ -1,0 +1,45 @@
+name: Coverage
+
+# Test coverage on demand (Actions, Coverage, Run workflow), with no threshold:
+# a report to find untested code, not a target. `cargo cov --open` gives the
+# same report locally. The HTML report and the lcov file are kept as a
+# workflow artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # `umbra-math` requires the `x86-64-v3` baseline (ADR 0023).
+  RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
+
+jobs:
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: scripts/install-tools.sh cargo-llvm-cov cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: cargo llvm-cov nextest --no-report --all-features --locked --profile ci
+      - name: Reports
+        run: |
+          cargo llvm-cov report --html
+          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
+          {
+            echo '## Coverage'
+            echo '```text'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: target/llvm-cov/
+          retention-days: 14

@@ -19,43 +19,30 @@ env:
   # runners are generic x86-64.
   RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
 
-# Job names (including matrix values) are required status checks in the
-# "Require CI checks" repository ruleset: when renaming or adding a job,
-# update the ruleset too, or merges into develop and main stay blocked.
+# Job names are required status checks in the "Require CI checks" repository
+# ruleset: when renaming or adding a job, update the ruleset too, or merges
+# into develop and main stay blocked.
 #
-# Third-party actions are pinned to a commit SHA (tags can be moved);
-# Dependabot updates the SHA and the version comment together.
+# The checks themselves live in scripts/check.sh, which contributors run
+# locally too, and the tool versions in scripts/install-tools.sh, which the
+# dev container uses too. Third-party actions are pinned to a commit SHA (tags
+# can be moved); Dependabot updates the SHA and the version comment together.
 jobs:
   check:
     name: fmt, clippy, doc, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Toolchain
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
-        with:
-          tool: cargo-nextest
-      - name: Whitespace
-        if: github.event_name == 'pull_request'
-        run: git diff --check origin/${{ github.base_ref }}...HEAD
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
-      - run: cargo doc --no-deps --document-private-items --all-features --locked
+      - run: scripts/install-tools.sh cargo-nextest
         env:
-          RUSTDOCFLAGS: -D warnings
-      # `--no-tests=warn` until the first test lands. nextest does not run
-      # doctests, so they run separately. The tests include the hash of the
-      # RGB-to-spectrum table the `umbra-spectrum` build script generates
-      # (ADR 0022).
-      - run: cargo nextest run --all-features --locked --profile ci --no-tests=warn
-      - run: cargo test --doc --all-features --locked
-      # Micro-benchmarks only have to build on a shared runner (§8.4).
-      - run: cargo bench --no-run --all-features --locked
+          GITHUB_TOKEN: ${{ github.token }}
+      # The tests include the hash of the RGB-to-spectrum table the
+      # `umbra-spectrum` build script generates (ADR 0022).
+      - run: scripts/check.sh rust
 
   # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on a
   # nightly pinned for this job only, with the `x86-64-v3` baseline the crate
@@ -78,14 +65,16 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: miri
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
-        with:
-          tool: cargo-nextest
+      - run: scripts/install-tools.sh cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: >-
           cargo +"$MIRI_TOOLCHAIN" miri nextest run -p umbra-math --all-features
-          --features libm/force-soft-floats --locked --no-tests=warn
+          --features libm/force-soft-floats --locked
           -E 'not test(/^pbrt_v4::/)'
 
+  # Advisories are split out so a new RustSec advisory shows as its own
+  # failing check, apart from the license and source policy.
   deny:
     name: cargo deny (${{ matrix.checks }})
     runs-on: ubuntu-latest
@@ -93,113 +82,24 @@ jobs:
       fail-fast: false
       matrix:
         checks: [advisories, bans licenses sources]
-    # Advisories are split out so a new RustSec advisory shows as its own
-    # failing check, apart from the license and source policy.
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        with:
-          command: check ${{ matrix.checks }}
+      - run: scripts/install-tools.sh cargo-deny
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: cargo deny check ${{ matrix.checks }}
 
-  typos:
-    name: typos
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: crate-ci/typos@4c8b7f51ca60df14e3c5ca82770dfbbe6c3dae85 # v1.52.0
-
-  # Same linters as the pre-commit hook, on every tracked file. Versions match
-  # the ARGs and apt packages in .devcontainer/Dockerfile and the npm packages
-  # in .devcontainer/post-create.sh; shellcheck comes with the runner.
-  # The job name is a required check (see above): it predates the JSON, TOML,
-  # YAML and Markdown linters, which run here too.
+  # Spelling, unused dependencies, and the linters of shell scripts, workflows,
+  # EditorConfig, JSON, YAML, Markdown and TOML, on every tracked file.
+  # shellcheck comes with the runner.
   lint:
-    name: shellcheck, actionlint, editorconfig
-    runs-on: ubuntu-latest
-    env:
-      ACTIONLINT_VERSION: 1.7.12
-      EDITORCONFIG_CHECKER_VERSION: 4.0.2
-      TAPLO_VERSION: 0.10.0
-      YAMLLINT_VERSION: 1.37.1
-      PRETTIER_VERSION: 3.9.10
-      MARKDOWNLINT_CLI2_VERSION: 0.24.0
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install linters
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz" \
-            | gunzip > "$RUNNER_TEMP/bin/taplo"
-          chmod +x "$RUNNER_TEMP/bin/taplo"
-          pipx install "yamllint==${YAMLLINT_VERSION}"
-          npm install --global --no-fund --no-audit \
-            "prettier@${PRETTIER_VERSION}" \
-            "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
-          curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C "$RUNNER_TEMP/bin" actionlint
-          curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-amd64.tar.gz" \
-            | tar -xz -C "$RUNNER_TEMP/bin" editorconfig-checker
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: shellcheck
-        run: git ls-files -z '.githooks/*' '*.sh' | xargs -0 shellcheck
-      - name: actionlint
-        run: actionlint
-      - name: editorconfig-checker
-        run: git ls-files -z | xargs -0 editorconfig-checker
-      - name: prettier
-        run: git ls-files -z '*.json' '*.yml' '*.yaml' '*.md' | xargs -0 prettier --check
-      - name: taplo
-        run: |
-          git ls-files -z '*.toml' | xargs -0 taplo fmt --check
-          git ls-files -z '*.toml' | xargs -0 taplo lint
-      - name: yamllint
-        run: git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint --strict
-      - name: markdownlint-cli2
-        run: git ls-files -z '*.md' | xargs -0 markdownlint-cli2
-      # The unit tests of the pbrt-v4 reference script. The script itself
-      # runs by hand on a target machine and never here (ADR 0013).
-      - name: pbrt-v4 reference script tests
-        run: python3 -m unittest discover -s scripts
-
-  shear:
-    name: unused dependencies
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
-        with:
-          tool: cargo-shear
-      - run: cargo shear
-
-  # Informational: reports coverage without a threshold and is not a required
-  # check. The HTML report and lcov file are kept as a workflow artifact.
-  coverage:
-    name: coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Toolchain
-        run: rustup toolchain install && rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
-        with:
-          tool: cargo-llvm-cov,cargo-nextest
-      - run: cargo llvm-cov nextest --no-report --all-features --locked --profile ci --no-tests=warn
-      - name: Reports
-        run: |
-          cargo llvm-cov report --html
-          cargo llvm-cov report --lcov --output-path target/llvm-cov/lcov.info
-          {
-            echo '## Coverage'
-            echo '```text'
-            cargo llvm-cov report --summary-only
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: target/llvm-cov/
-          retention-days: 14
+      - run: >-
+          scripts/install-tools.sh typos cargo-shear actionlint
+          editorconfig-checker taplo prettier markdownlint-cli2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh lint
