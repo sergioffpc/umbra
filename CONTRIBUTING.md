@@ -242,7 +242,7 @@ first.
   ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
-  `std`. The workspace member `ci/no-std-check/` enforces both: it stops
+  `std`. The workspace member `checks/no-std/` enforces both: it stops
   compiling if anything links `std`, so every `cargo build`, `clippy` and
   `test` checks it, and its test rejects `extern crate alloc`
   ([ADR 0023](docs/adr/0023-x86-64-only.md)).
