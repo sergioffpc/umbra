@@ -32,7 +32,7 @@ jobs:
     name: fmt, clippy, doc, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Toolchain
         run: rustup toolchain install && rustc --version
@@ -57,7 +57,7 @@ jobs:
     env:
       MIRI_TOOLCHAIN: nightly-2026-11-05
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Toolchain
         run: >-
           rustup toolchain install "$MIRI_TOOLCHAIN" --profile minimal
@@ -83,7 +83,7 @@ jobs:
       matrix:
         checks: [advisories, bans licenses sources]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: scripts/install-tools.sh cargo-deny
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -96,7 +96,7 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: >-
           scripts/install-tools.sh typos cargo-shear actionlint
           editorconfig-checker taplo prettier markdownlint-cli2
