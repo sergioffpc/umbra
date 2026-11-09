@@ -76,7 +76,7 @@ class ReferenceList:
 
 
 def load_reference_list(text: str) -> ReferenceList:
-    """Parses the reference list (`reference-scenes.toml`).
+    """Parses the reference list (`reference/scenes.toml`).
 
     Raises `ReferenceListError` on any malformed or missing entry. Keys the
     script does not use (Tile size, seeds, golden settings) are left to the
@@ -635,8 +635,8 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--list",
         type=Path,
-        default=REPOSITORY_ROOT / "reference-scenes.toml",
-        help="the reference list (default: reference-scenes.toml)",
+        default=REPOSITORY_ROOT / "reference" / "scenes.toml",
+        help="the reference list (default: reference/scenes.toml)",
     )
     parser.add_argument(
         "--work-dir",
