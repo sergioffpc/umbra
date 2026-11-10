@@ -325,7 +325,8 @@ Pushing the `vX.Y.Z` tag on `main` runs
 [`release-image.yml`](.github/workflows/release-image.yml), which builds the
 [`Dockerfile`](Dockerfile) once per Linux Worker CPU, with the `TARGET_CPU`
 build argument, and publishes one image per CPU to `ghcr.io/sergioffpc/umbra`:
-`X.Y.Z-znver2` (Lenovo P620) and `X.Y.Z-broadwell` (Dell R630). There is no
+`X.Y.Z-znver2` and `X.Y.Z-broadwell` (the machines behind each CPU are in the
+[deployment view](docs/architecture/07-deployment-view.md)). There is no
 `X.Y`, `latest` or CPU-less tag. Each CPU's image is built, smoke-tested and
 pushed by its own job, with its own provenance, SBOM and attestation; if one
 job fails, re-run it to complete the release. The job fails if the tag is not
