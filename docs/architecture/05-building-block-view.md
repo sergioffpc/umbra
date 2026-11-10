@@ -74,11 +74,11 @@ The signatures below are the contracts between crates. Error types and option st
 
 ```rust
 /// Reads a Scene File with its includes and assets, validates it strictly, builds the Scene.
-pub fn parse(scene_file: &Path) -> Result<Parsed, Diagnostics>;
+pub fn parse(scene_file: &Path) -> Result<Parsed, InvalidSceneFile>;
 pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub content_hash: ContentHash }
 ```
 
-`parse` is the only public function. `Diagnostics` lists every error with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
+`parse` is the only public function. `InvalidSceneFile` lists every reason with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
 
 ### `umbra-scene`
 
