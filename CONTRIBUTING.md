@@ -160,8 +160,9 @@ repository ships its workspace configuration in [`.vscode/`](.vscode):
   per group of [`scripts/check.sh`](scripts/check.sh). `check: all` runs
   everything CI runs but Miri.
 - `launch.json`: CodeLLDB configurations for the binary (dev, `profiling` and
-  `checked` profiles), its unit tests, and the unit tests of a library crate
-  chosen at launch.
+  `checked` profiles), `umbra render` and `umbra worker` alone or together in
+  a `debug` Cluster, attaching to a running `umbra`, the binary's unit tests,
+  and the unit tests of a library crate chosen at launch.
 
 Personal settings belong in your user settings, not in `.vscode/`; other
 files in `.vscode/` are ignored by git.

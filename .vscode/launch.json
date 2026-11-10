@@ -58,6 +58,44 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
+      // Coordinator with its local Worker, on a Scene File asked for at
+      // launch. UMBRA_CLUSTER keeps debug sessions apart from the Workers of
+      // the default Cluster on the LAN.
+      "name": "umbra render (pick scene)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": ["render", "${input:scene}"],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
+    },
+    {
+      // A Worker of the `debug` Cluster: it waits for "umbra render (pick
+      // scene)", started here or from another window.
+      "name": "umbra worker",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": ["worker"],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
+    },
+    {
+      // Attaches to a running `umbra`, such as a Worker left running. The
+      // process must come from a build with debug info (dev, profiling or
+      // checked).
+      "name": "umbra (attach)",
+      "type": "lldb",
+      "request": "attach",
+      "pid": "${command:pickMyProcess}"
+    },
+    {
       // Unit tests of one library crate, chosen when the session starts. Put
       // a test name filter in "args" to run fewer of them.
       "name": "library tests (pick crate)",
@@ -72,7 +110,22 @@
       "env": { "RUST_BACKTRACE": "1" }
     }
   ],
+  "compounds": [
+    {
+      // Both ends of the wire protocol in one debug session: the Worker
+      // first, then the Coordinator that gives it work.
+      "name": "cluster: worker + render",
+      "configurations": ["umbra worker", "umbra render (pick scene)"],
+      "stopAll": true
+    }
+  ],
   "inputs": [
+    {
+      "id": "scene",
+      "type": "promptString",
+      "description": "Scene File to render (pbrt-v4)",
+      "default": "scene.pbrt"
+    },
     {
       "id": "crate",
       "type": "pickString",
