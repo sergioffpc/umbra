@@ -32,6 +32,20 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
+      // Release speed with debug assertions and overflow checks on: for a
+      // panic that only a long render reaches.
+      "name": "umbra (checked)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra", "--profile=checked"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
       "name": "umbra (tests)",
       "type": "lldb",
       "request": "launch",
@@ -42,6 +56,40 @@
       "args": [],
       "cwd": "${workspaceFolder}",
       "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      // Unit tests of one library crate, chosen when the session starts. Put
+      // a test name filter in "args" to run fewer of them.
+      "name": "library tests (pick crate)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--lib", "--package=${input:crate}"],
+        "filter": { "kind": "lib" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "crate",
+      "type": "pickString",
+      "description": "Library crate whose unit tests to debug",
+      "options": [
+        "umbra-camera",
+        "umbra-cluster",
+        "umbra-geometry",
+        "umbra-integrators",
+        "umbra-math",
+        "umbra-parser",
+        "umbra-render",
+        "umbra-sampling",
+        "umbra-scene",
+        "umbra-shading",
+        "umbra-spectrum"
+      ]
     }
   ]
 }
