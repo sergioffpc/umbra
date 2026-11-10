@@ -1,6 +1,6 @@
 # 5. Building Block View
 
-Umbra is a Cargo workspace of twelve crates in `crates/<name>/` ([ADR 0015](../adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md), [Code organisation and module boundaries](https://github.com/sergioffpc/umbra/issues/30)). Seven `#![no_std]` crates without `alloc` hold all per-Pixel-Sample code, which [ADR 0014](../adr/0014-gpu-ready-no-std-rendering-core.md) calls the core. Five `std` crates around them build Scenes, run Render Jobs and distribute them.
+Umbra is a Cargo workspace of crates in `crates/<name>/` ([ADR 0015](../adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md), [Code organisation and module boundaries](https://github.com/sergioffpc/umbra/issues/30)). The `#![no_std]` crates without `alloc` hold all per-Pixel-Sample code, which [ADR 0014](../adr/0014-gpu-ready-no-std-rendering-core.md) calls the core. The `std` crates around them build Scenes, run Render Jobs and distribute them.
 
 ## 5.1 Level 1: the workspace
 
@@ -48,7 +48,7 @@ The final image is an EXR written by `umbra-render` with the `exr` crate, carryi
 
 ## 5.2 Level 2: the core
 
-The seven core crates follow pbrt-v4's dependency order. pbrt-v4's cycles are broken by IDs. An interaction in `umbra-geometry` names its Material, area Light and Medium by `u32` ID ([ADR 0008](../adr/0008-index-handle-arenas-and-allocation-free-rendering.md)), and turning it into a BSDF happens in `umbra-shading`. Camera and shading are parallel branches.
+The core crates follow pbrt-v4's dependency order. pbrt-v4's cycles are broken by IDs. An interaction in `umbra-geometry` names its Material, area Light and Medium by `u32` ID ([ADR 0008](../adr/0008-index-handle-arenas-and-allocation-free-rendering.md)), and turning it into a BSDF happens in `umbra-shading`. Camera and shading are parallel branches.
 
 Inside a core crate, each pbrt-v4 chapter or section is a module, for example `umbra_shading::bxdfs`. Interfaces keep pbrt-v4's names and are dispatched through closed `*Kind` enums ([ADR 0006](../adr/0006-closed-enum-dispatch-for-rendering-interfaces.md)).
 
@@ -64,7 +64,7 @@ Inside a core crate, each pbrt-v4 chapter or section is a module, for example `u
 
 Per-sample code receives a `SceneView<'_>` of borrowed arena slices, never `&Scene` (ADR 0014).
 
-Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. The seven crates build with the feature off in `cargo build` and on in CI's `--all-features` runs.
+Every core crate has a `serde` feature, off by default, that derives `Serialize` and `Deserialize` for its Scene arena types with `serde`'s `default-features = false`. `umbra-scene` turns it on. The core crates build with the feature off in `cargo build` and on in CI's `--all-features` runs.
 
 ## 5.3 Level 2: interfaces outside the core
 

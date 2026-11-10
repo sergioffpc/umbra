@@ -23,22 +23,22 @@ Two target machines on one LAN, inventoried on 2026-11-06 ([Hardware inventory o
 
 Consequences for later decisions:
 
-- **SIMD baseline**: no target machine has AVX-512, so kernels are written for `x86-64-v3` (AVX2 + FMA); an AVX-512 path has no machine to run or benchmark on. Binaries are still compiled per CPU (section 7.2).
+- **SIMD baseline**: no target machine has AVX-512, so kernels are written for `x86-64-v3` (AVX2 + FMA); an AVX-512 path has no machine to run or benchmark on. Release binaries target exactly that baseline (section 7.2).
 - **NUMA**: the R630 is the only multi-node machine, so it runs one Worker per node ([ADR 0017](../adr/0017-one-worker-per-numa-node.md)); the P620's L3 is split over 8 CCXs, so cache locality matters there too (section 8.14).
 - **SMT**: both machines run two threads per core.
 - **Bandwidth**: ~117 MB/s per link to the Coordinator bounds Scene replication and Work Result traffic.
 - **Firewall**: Workers only open outgoing QUIC connections, so only the Coordinator's UDP port needs opening, on every machine that runs a Coordinator. Discovery needs mDNS (UDP 5353) on every machine, so the R630's nftables, which admits only SSH, needs a rule for it (§7.3).
 
-## 7.2 Build per machine
+## 7.2 Builds
 
-Each machine runs a binary compiled for its own CPU ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)). Different targets are not promised to give the same bits, only statistically equal images ([ADR 0022](../adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
+Every machine runs the same release binary, built for `x86-64-v3` ([ADR 0025](../adr/0025-one-x86-64-v3-release-image.md)), and every machine in a Render Job runs the same commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)). Development builds use the host's own CPU, and different builds are not promised to give the same bits, only statistically equal images ([ADR 0022](../adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
-| Machine     | Target CPU  | Release artifact                                       | Development build         |
-| ----------- | ----------- | ------------------------------------------------------ | ------------------------- |
-| Lenovo P620 | `znver2`    | `ghcr.io/sergioffpc/umbra:X.Y.Z-znver2` (container)    | `cargo build` on the host |
-| Dell R630   | `broadwell` | `ghcr.io/sergioffpc/umbra:X.Y.Z-broadwell` (container) | `cargo build` on the host |
+| Build       | Target CPU  | Artifact                                     |
+| ----------- | ----------- | -------------------------------------------- |
+| Release     | `x86-64-v3` | `ghcr.io/sergioffpc/umbra:X.Y.Z` (container) |
+| Development | `native`    | `cargo build` on each host                   |
 
-- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) once per Linux CPU (`TARGET_CPU` build argument) and publish one image per CPU, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `latest` or generic image.
+- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) once and publish one image, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `X.Y` or `latest` tag.
 - **Development**: every host builds the ref under test itself, with the toolchain pinned in `rust-toolchain.toml` and `target-cpu=native` from `.cargo/config.toml`. There is no cross-compilation.
 - **Build Identity**: every binary embeds its git commit, whether its tree was dirty, and its target CPU. A container build receives the commit as a build argument.
 

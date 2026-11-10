@@ -228,7 +228,7 @@ container.
 
 ## Workspace layout
 
-The twelve crates of
+The crates of
 [arc42 §5.1](docs/architecture/05-building-block-view.md#51-level-1-the-workspace)
 live in `crates/<name>/`. The root [`Cargo.toml`](Cargo.toml) holds the
 package metadata, lints and dependencies they inherit, and the build profiles.
@@ -236,8 +236,9 @@ Every crate sets `lints.workspace = true` and takes its dependencies with
 `workspace = true`: declare a new dependency in `[workspace.dependencies]`
 first.
 
-- The seven core crates (`umbra-math` to `umbra-integrators`) are
-  `#![no_std]` and never `extern crate alloc`
+- The core crates of
+  [arc42 §5.2](docs/architecture/05-building-block-view.md#52-level-2-the-core)
+  are `#![no_std]` and never `extern crate alloc`
   ([ADR 0014](docs/adr/0014-gpu-ready-no-std-rendering-core.md),
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
@@ -325,29 +326,24 @@ Then:
 
 Pushing the `vX.Y.Z` tag on `main` runs
 [`release-image.yml`](.github/workflows/release-image.yml), which builds the
-[`Dockerfile`](Dockerfile) once per Linux Worker CPU, with the `TARGET_CPU`
-build argument, and publishes one image per CPU to `ghcr.io/sergioffpc/umbra`:
-`X.Y.Z-znver2` and `X.Y.Z-broadwell` (the machines behind each CPU are in the
-[deployment view](docs/architecture/07-deployment-view.md)). There is no
-`X.Y`, `latest` or CPU-less tag. Each CPU's image is built, smoke-tested and
-pushed by its own job, with its own provenance, SBOM and attestation; if one
-job fails, re-run it to complete the release. The job fails if the tag is not
+[`Dockerfile`](Dockerfile) for `x86-64-v3` and publishes one image to
+`ghcr.io/sergioffpc/umbra`, tagged `X.Y.Z`. There is no `X.Y` or `latest` tag.
+One job builds, smoke-tests and pushes the image, with its provenance, SBOM
+and attestation. The job fails if the tag is not
 on `main` or does not match `version` in `Cargo.toml`, so bump the crate
 version on the `release/X.Y.Z` branch. Push `main` before the tag (or both
 with `git push --follow-tags`). Design notes:
 [ADR 0005](docs/adr/0005-chiseled-release-container-image.md) and
-[ADR 0012](docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md). A machine
-with a new CPU needs its CPU added to the workflow's matrix.
+[ADR 0025](docs/adr/0025-one-x86-64-v3-release-image.md).
 
-To build and run the image locally (Docker or Podman), name the target CPU:
+To build and run the image locally (Docker or Podman):
 
 ```sh
-docker build --build-arg TARGET_CPU=znver2 -t umbra:znver2 .
-docker run --rm umbra:znver2
+docker build -t umbra .
+docker run --rm umbra
 ```
 
-On `linux/amd64` the build fails without `TARGET_CPU`: there is no generic
-x86-64 image. The published images are `linux/amd64` only.
+The image builds for `linux/amd64` only.
 
 The build context is limited by [`.dockerignore`](.dockerignore): add new
 crate sources (`build.rs`, workspace members) there. A dependency on a system

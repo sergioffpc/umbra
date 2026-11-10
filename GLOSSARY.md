@@ -1,6 +1,6 @@
 # Umbra
 
-Umbra is a CPU-only, multicore, LAN-distributed physically based renderer following pbrt-v4. This glossary fixes the words used for its rendering and distribution concepts.
+Umbra is a multicore, LAN-distributed physically based renderer following pbrt-v4. This glossary fixes the words used for its rendering and distribution concepts.
 
 Rendering terminology (Integrator, Sampler, Camera, Shape, Primitive, BSDF, Light, Medium, Spectrum, Texture, ...) follows _Physically Based Rendering: From Theory to Implementation_, 4th edition, unchanged. Only terms specific to Umbra, or pbrt-v4 terms whose meaning Umbra narrows or changes, are listed here.
 
