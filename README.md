@@ -52,12 +52,11 @@ password.
 
 ### 1. Start a Worker on each machine
 
-From a release image, on Linux. Choose the tag for the machine's CPU, such as
-`X.Y.Z-znver2` or `X.Y.Z-broadwell`:
+From a release image, on Linux:
 
 ```sh
 docker run -d --name umbra-worker --restart unless-stopped --network host \
-  ghcr.io/sergioffpc/umbra:X.Y.Z-znver2 worker
+  ghcr.io/sergioffpc/umbra:X.Y.Z worker
 ```
 
 `--network host` lets the Worker see multicast DNS. `--restart unless-stopped`
@@ -119,37 +118,27 @@ the Worker on every machine, or pull and restart the release image.
 
 ## Container image
 
-Every release publishes minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
-images to the GitHub Container Registry: no shell, no package manager, running
-as the non-root user `umbra` (uid 10001) in `/work`. There is one
-`linux/amd64` image per Linux Worker CPU, each binary compiled for that CPU
-alone:
+Every release publishes a minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
+image to the GitHub Container Registry: no shell, no package manager, running
+as the non-root user `umbra` (uid 10001) in `/work`. The image is
+`linux/amd64`, tagged `X.Y.Z`, and its binary is built for `x86-64-v3` (AVX2
+and FMA), so it runs on any x86-64 CPU from Intel Haswell or AMD Zen onwards.
 
-| Tag               | Target CPU  |
-| ----------------- | ----------- |
-| `X.Y.Z-znver2`    | `znver2`    |
-| `X.Y.Z-broadwell` | `broadwell` |
-
-The machines behind each target CPU are listed in the
-[deployment view](docs/architecture/07-deployment-view.md).
-
-Pull the tag for the machine's CPU and the release you want:
+Pull the release you want:
 
 ```sh
-docker pull ghcr.io/sergioffpc/umbra:X.Y.Z-znver2
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z-znver2
+docker pull ghcr.io/sergioffpc/umbra:X.Y.Z
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z
 ```
 
 `--user` lets `umbra` write its output into the mounted directory with your
 own ownership.
 
-There is no `latest`, `X.Y` or CPU-less tag: every machine runs a binary built
-for its own CPU, and every machine in a Render Job runs the same release
-(see [Keep every machine on the same commit](#keep-every-machine-on-the-same-commit)).
-On other machines, build from source. Verify an image's build provenance with:
+There is no `latest` or `X.Y` tag: every machine in a Render Job runs the same
+release (see [Keep every machine on the same commit](#keep-every-machine-on-the-same-commit)). Verify an image's build provenance with:
 
 ```sh
-gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z-znver2 -R sergioffpc/umbra
+gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z -R sergioffpc/umbra
 ```
 
 ## Documentation

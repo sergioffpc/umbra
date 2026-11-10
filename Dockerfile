@@ -4,13 +4,13 @@
 # shell, no package manager, non-root) holding only the `umbra` binary and the
 # glibc and libgcc slices it links against. Built and published to
 # ghcr.io/sergioffpc/umbra by .github/workflows/release-image.yml on every
-# vX.Y.Z tag, once per Linux target CPU (X.Y.Z-znver2, X.Y.Z-broadwell); see
+# vX.Y.Z tag, as one x86-64-v3 image (X.Y.Z); see
 # docs/adr/0005-chiseled-release-container-image.md and
-# docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md.
+# docs/adr/0025-one-x86-64-v3-release-image.md.
 #
-# The published images are linux/amd64 only. Build one locally with:
-#   docker build --build-arg TARGET_CPU=znver2 -t umbra:znver2 .
-# TARGET_CPU is required, and only linux/amd64 builds (ADR 0023).
+# The published image is linux/amd64 only. Build it locally with:
+#   docker build -t umbra .
+# Only linux/amd64 builds (ADR 0023).
 
 # ---------------------------------------------------------------------------
 # Builder: the toolchain pinned in rust-toolchain.toml, `cargo build --release`.
@@ -43,15 +43,11 @@ WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install && rustc --version
 
-# Target CPU, passed to rustc as `-C target-cpu=${TARGET_CPU}`: one image per
-# Linux Worker CPU, see docs/architecture/07-deployment-view.md for the
-# machines behind each one. There is no generic x86-64 image, so the build
-# fails without it, and Umbra builds for linux/amd64 only (ADR 0023).
-# RUSTFLAGS replaces the `target-cpu=native` set in .cargo/config.toml, which
-# .dockerignore also keeps out of the build context. The CPU must include
-# x86-64-v3 (FMA, SSE4.1, AVX2), or umbra-math stops the build (ADR 0023).
+# The binary targets the x86-64-v3 baseline (FMA, SSE4.1, AVX2), which
+# umbra-math requires and every Worker CPU has (ADR 0023, ADR 0025), so one
+# image runs on every Worker. RUSTFLAGS replaces the `target-cpu=native` set in
+# .cargo/config.toml, which .dockerignore also keeps out of the build context.
 ARG TARGETARCH
-ARG TARGET_CPU=""
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -59,10 +55,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     if [ "${TARGETARCH:-amd64}" != amd64 ]; then \
         echo "error: Umbra builds for linux/amd64 only (ADR 0023)" >&2; exit 1; \
     fi; \
-    if [ -z "${TARGET_CPU}" ]; then \
-        echo "error: pass --build-arg TARGET_CPU=<cpu> (znver2 or broadwell)" >&2; exit 1; \
-    fi \
-    && export RUSTFLAGS="-C target-cpu=${TARGET_CPU}" \
+    export RUSTFLAGS="-C target-cpu=x86-64-v3" \
     && echo "RUSTFLAGS=${RUSTFLAGS}" \
     && cargo build --release --locked \
     && install -D -m 0755 target/release/umbra /out/usr/bin/umbra

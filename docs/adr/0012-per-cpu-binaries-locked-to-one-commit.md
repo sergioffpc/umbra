@@ -5,6 +5,8 @@
 > **Amended by [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md).** There is no host list and no launch script. Each host's target CPU is chosen when its Worker is started, by the image variant it pulls or by `target-cpu=native`. A Worker on another commit is refused when it joins.
 >
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md).** There are two targets, `znver2` and `broadwell`, and no arm64 release. Different target CPUs are no longer promised to give the same results.
+>
+> **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** Releases are one `x86-64-v3` image, `X.Y.Z`, for every Worker. The per-CPU images and the `TARGET_CPU` build argument are gone. Development builds keep `target-cpu=native`, and the commit lock is unchanged.
 
 Each target machine runs a binary compiled for its own CPU, and the Coordinator accepts only Workers built from its own commit. Decided in [Per-machine build and deployment](https://github.com/sergioffpc/umbra/issues/27). This amends [ADR 0005](0005-chiseled-release-container-image.md), which published a single `x86-64-v3` image.
 

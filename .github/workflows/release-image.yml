@@ -1,12 +1,12 @@
 name: Release image
 
 # Builds the chiseled container image from the Dockerfile at the repository
-# root once per Linux target CPU and publishes the images to
+# root for the x86-64-v3 baseline and publishes it to
 # ghcr.io/sergioffpc/umbra at the end of every release: the push of a vX.Y.Z
 # tag on main (git flow, see CONTRIBUTING.md). Why a tag push rather than a
 # published GitHub Release, and why amd64 only:
-# docs/adr/0005-chiseled-release-container-image.md. Why one image per CPU and
-# no `latest` tag: docs/adr/0012-per-cpu-binaries-locked-to-one-commit.md.
+# docs/adr/0005-chiseled-release-container-image.md. Why one x86-64-v3 image
+# and no `latest` tag: docs/adr/0025-one-x86-64-v3-release-image.md.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -25,19 +25,12 @@ env:
 # moved), since this job can publish; Dependabot updates the SHA and the
 # version comment together.
 #
-# The job runs once per Linux Worker CPU (docs/architecture/07-deployment-view.md);
-# a machine with a new CPU adds its CPU to the matrix. Each leg builds,
-# smoke-tests and pushes its own image in one job, so the image pushed is the
-# one tested. The legs do not cancel each other: a failed leg leaves the other
-# CPU's image published, and re-running the failed job completes the release.
+# One job builds, smoke-tests and pushes the image, so the image pushed is the
+# one tested.
 jobs:
   image:
-    name: container image (${{ matrix.target-cpu }})
+    name: container image
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target-cpu: [znver2, broadwell]
     permissions:
       contents: read
       # Push to GHCR.
@@ -67,56 +60,41 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # The only tag is X.Y.Z-<cpu>: the release version names the commit and
-      # the suffix the CPU. No X.Y, `latest` or CPU-less tag, so no host can
-      # pull a binary built for another CPU. Also the OCI labels and
-      # annotations (source, revision, version, created, licenses, ...).
+      # The only tag is X.Y.Z: the release version names the commit. No X.Y or
+      # `latest`, which would move under a running Cluster and put its
+      # Workers on different commits. Also the OCI labels and annotations
+      # (source, revision, version, created, licenses, ...).
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
           flavor: |
             latest=false
-            suffix=-${{ matrix.target-cpu }}
           tags: |
             type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.title=umbra
-            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, target-cpu=${{ matrix.target-cpu }})
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
           annotations: |
             org.opencontainers.image.title=umbra
-            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, target-cpu=${{ matrix.target-cpu }})
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
 
       # Build into the local image store first and smoke-test it, so a broken
       # image is never published. The push below reuses the cached layers.
-      # The GitHub Actions cache has one scope per CPU.
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
-          build-args: TARGET_CPU=${{ matrix.target-cpu }}
           load: true
           tags: umbra:smoke
-          cache-from: type=gha,scope=${{ matrix.target-cpu }}
-          cache-to: type=gha,scope=${{ matrix.target-cpu }},mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      # The start-up check runs the binary on the runner's CPU, which may lack
-      # instructions of the target CPU (an Intel runner has no SSE4a for
-      # znver2). Exit status 132 (SIGILL) only skips that check, with a
-      # warning; the user and no-shell checks always run.
+      # GitHub's x86-64 runners have x86-64-v3, so the binary starts on them.
       - name: Smoke test
-        env:
-          TARGET_CPU: ${{ matrix.target-cpu }}
         run: |
-          status=0
-          docker run --rm umbra:smoke --version || status=$?
-          if [ "$status" -eq 132 ]; then
-            echo "::warning::this runner's CPU cannot run target-cpu=$TARGET_CPU; the start-up check was skipped"
-          elif [ "$status" -ne 0 ]; then
-            echo "::error::umbra --version exited with status $status"
-            exit 1
-          fi
+          docker run --rm umbra:smoke --version
           test "$(docker image inspect umbra:smoke --format '{{.Config.User}}')" = "10001:10001"
           if docker run --rm --entrypoint /bin/sh umbra:smoke -c true 2>/dev/null; then
             echo "::error::the image has a shell"
@@ -136,17 +114,16 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          build-args: TARGET_CPU=${{ matrix.target-cpu }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.target-cpu }}
+          cache-from: type=gha
 
       # GitHub artifact attestation, verifiable with
-      # `gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z-znver2 -R sergioffpc/umbra`.
+      # `gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z -R sergioffpc/umbra`.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
@@ -157,10 +134,9 @@ jobs:
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
-          TARGET_CPU: ${{ matrix.target-cpu }}
         run: |
           {
-            echo "## Container image ($TARGET_CPU)"
+            echo "## Container image"
             echo
             echo "Digest: \`$DIGEST\`"
             echo

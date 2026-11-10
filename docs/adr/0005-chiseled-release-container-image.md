@@ -3,6 +3,8 @@
 > **Amended by [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md).** The image is published once per Linux CPU (`X.Y.Z-znver2`, `X.Y.Z-broadwell`) from a `TARGET_CPU` build argument, not as a single `x86-64-v3` image. There are no `X.Y` or `latest` tags. The rest of this ADR still applies.
 >
 > **Amended by [ADR 0023](0023-x86-64-only.md).** arm64 is dropped altogether, so `linux/amd64` is the only platform there will be.
+>
+> **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** The image is published once again as a single `x86-64-v3` image, tagged `X.Y.Z` only. There are still no `X.Y` or `latest` tags.
 
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 
