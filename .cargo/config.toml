@@ -1,8 +1,9 @@
 # Local build settings.
 #
 # target-cpu=native lets LLVM use every SIMD extension of the build machine
-# (AVX2 on the target machines, AVX-512 where a CPU has it), which matters for a renderer. Binaries built this way may not run on older CPUs:
-# to build for another machine, override it with that machine's CPU, e.g.
+# (AVX2 on the target machines, AVX-512 where a CPU has it), which matters for a
+# renderer. Binaries built this way may not run on older CPUs: to build for
+# another machine, override it with that machine's CPU, e.g.
 #   RUSTFLAGS="-C target-cpu=broadwell" cargo build --release
 # (ADR 0012: one binary per target CPU, no generic x86-64-v3 release).
 # The RUSTFLAGS environment variable replaces this list. It must keep at
