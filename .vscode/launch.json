@@ -6,25 +6,20 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "umbra (dev)",
+      // Attaches to a running `umbra`, such as a Worker left running. The
+      // process must come from a build with debug info (dev, profiling or
+      // checked).
+      "name": "umbra (attach)",
       "type": "lldb",
-      "request": "launch",
-      "cargo": {
-        "args": ["build", "--bin=umbra", "--package=umbra"],
-        "filter": { "name": "umbra", "kind": "bin" }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "env": { "RUST_BACKTRACE": "1" }
+      "request": "attach",
+      "pid": "${command:pickMyProcess}"
     },
     {
-      // Release speed with full debug info: for bugs that only show up in
-      // long renders. Inlining makes stepping jumpier than in dev.
-      "name": "umbra (profiling)",
+      "name": "umbra (bin tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
-        "args": ["build", "--bin=umbra", "--package=umbra", "--profile=profiling"],
+        "args": ["test", "--no-run", "--bin=umbra", "--package=umbra"],
         "filter": { "name": "umbra", "kind": "bin" }
       },
       "args": [],
@@ -46,11 +41,39 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
-      "name": "umbra (bin tests)",
+      "name": "umbra (dev)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
-        "args": ["test", "--no-run", "--bin=umbra", "--package=umbra"],
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      // Unit tests of one library crate, chosen when the session starts. Put
+      // a test name filter in "args" to run fewer of them.
+      "name": "umbra (lib tests)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--lib", "--package=${input:crate}"],
+        "filter": { "kind": "lib" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      // Release speed with full debug info: for bugs that only show up in
+      // long renders. Inlining makes stepping jumpier than in dev.
+      "name": "umbra (profiling)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra", "--profile=profiling"],
         "filter": { "name": "umbra", "kind": "bin" }
       },
       "args": [],
@@ -85,29 +108,6 @@
       "args": ["worker"],
       "cwd": "${workspaceFolder}",
       "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
-    },
-    {
-      // Attaches to a running `umbra`, such as a Worker left running. The
-      // process must come from a build with debug info (dev, profiling or
-      // checked).
-      "name": "umbra (attach)",
-      "type": "lldb",
-      "request": "attach",
-      "pid": "${command:pickMyProcess}"
-    },
-    {
-      // Unit tests of one library crate, chosen when the session starts. Put
-      // a test name filter in "args" to run fewer of them.
-      "name": "umbra (lib tests)",
-      "type": "lldb",
-      "request": "launch",
-      "cargo": {
-        "args": ["test", "--no-run", "--lib", "--package=${input:crate}"],
-        "filter": { "kind": "lib" }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "env": { "RUST_BACKTRACE": "1" }
     }
   ],
   "compounds": [
@@ -120,12 +120,6 @@
     }
   ],
   "inputs": [
-    {
-      "id": "scene",
-      "type": "promptString",
-      "description": "Scene File to render (pbrt-v4)",
-      "default": "scene.pbrt"
-    },
     {
       "id": "crate",
       "type": "pickString",
@@ -143,6 +137,12 @@
         "umbra-shading",
         "umbra-spectrum"
       ]
+    },
+    {
+      "id": "scene",
+      "type": "promptString",
+      "description": "Scene File to render (pbrt-v4)",
+      "default": "scene.pbrt"
     }
   ]
 }
