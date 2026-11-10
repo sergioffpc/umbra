@@ -98,7 +98,7 @@
     {
       // Unit tests of one library crate, chosen when the session starts. Put
       // a test name filter in "args" to run fewer of them.
-      "name": "umbra (library tests)",
+      "name": "umbra (lib)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
