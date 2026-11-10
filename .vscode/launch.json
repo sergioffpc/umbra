@@ -32,7 +32,21 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
-      "name": "umbra (tests)",
+      // Release speed with debug assertions and overflow checks on: for a
+      // panic that only a long render reaches.
+      "name": "umbra (checked)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra", "--profile=checked"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      "name": "umbra (bin tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
@@ -42,6 +56,93 @@
       "args": [],
       "cwd": "${workspaceFolder}",
       "env": { "RUST_BACKTRACE": "1" }
+    },
+    {
+      // Coordinator with its local Worker, on a Scene File asked for at
+      // launch. UMBRA_CLUSTER keeps debug sessions apart from the Workers of
+      // the default Cluster on the LAN.
+      "name": "umbra (render)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": ["render", "${input:scene}"],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
+    },
+    {
+      // A Worker of the `debug` Cluster: it waits for "umbra (render)",
+      // started here or from another window.
+      "name": "umbra (worker)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=umbra", "--package=umbra"],
+        "filter": { "name": "umbra", "kind": "bin" }
+      },
+      "args": ["worker"],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
+    },
+    {
+      // Attaches to a running `umbra`, such as a Worker left running. The
+      // process must come from a build with debug info (dev, profiling or
+      // checked).
+      "name": "umbra (attach)",
+      "type": "lldb",
+      "request": "attach",
+      "pid": "${command:pickMyProcess}"
+    },
+    {
+      // Unit tests of one library crate, chosen when the session starts. Put
+      // a test name filter in "args" to run fewer of them.
+      "name": "umbra (lib tests)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--lib", "--package=${input:crate}"],
+        "filter": { "kind": "lib" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "RUST_BACKTRACE": "1" }
+    }
+  ],
+  "compounds": [
+    {
+      // Both ends of the wire protocol in one debug session: the Worker
+      // first, then the Coordinator that gives it work.
+      "name": "umbra (cluster)",
+      "configurations": ["umbra (worker)", "umbra (render)"],
+      "stopAll": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "scene",
+      "type": "promptString",
+      "description": "Scene File to render (pbrt-v4)",
+      "default": "scene.pbrt"
+    },
+    {
+      "id": "crate",
+      "type": "pickString",
+      "description": "Library crate whose unit tests to debug",
+      "options": [
+        "umbra-camera",
+        "umbra-cluster",
+        "umbra-geometry",
+        "umbra-integrators",
+        "umbra-math",
+        "umbra-parser",
+        "umbra-render",
+        "umbra-sampling",
+        "umbra-scene",
+        "umbra-shading",
+        "umbra-spectrum"
+      ]
     }
   ]
 }

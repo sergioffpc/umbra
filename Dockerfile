@@ -44,9 +44,9 @@ COPY rust-toolchain.toml ./
 RUN rustup toolchain install && rustc --version
 
 # Target CPU, passed to rustc as `-C target-cpu=${TARGET_CPU}`: one image per
-# Linux Worker CPU (znver2 for the P620, broadwell for the R630), see
-# docs/architecture/07-deployment-view.md. There is no generic x86-64 image, so
-# the build fails without it, and Umbra builds for linux/amd64 only (ADR 0023).
+# Linux Worker CPU, see docs/architecture/07-deployment-view.md for the
+# machines behind each one. There is no generic x86-64 image, so the build
+# fails without it, and Umbra builds for linux/amd64 only (ADR 0023).
 # RUSTFLAGS replaces the `target-cpu=native` set in .cargo/config.toml, which
 # .dockerignore also keeps out of the build context. The CPU must include
 # x86-64-v3 (FMA, SSE4.1, AVX2), or umbra-math stops the build (ADR 0023).

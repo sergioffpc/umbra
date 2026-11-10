@@ -125,10 +125,13 @@ as the non-root user `umbra` (uid 10001) in `/work`. There is one
 `linux/amd64` image per Linux Worker CPU, each binary compiled for that CPU
 alone:
 
-| Tag               | Target CPU  | Machine                        |
-| ----------------- | ----------- | ------------------------------ |
-| `X.Y.Z-znver2`    | `znver2`    | Lenovo P620 (AMD Zen 2)        |
-| `X.Y.Z-broadwell` | `broadwell` | Dell R630 (Intel Broadwell-EP) |
+| Tag               | Target CPU  |
+| ----------------- | ----------- |
+| `X.Y.Z-znver2`    | `znver2`    |
+| `X.Y.Z-broadwell` | `broadwell` |
+
+The machines behind each target CPU are listed in the
+[deployment view](docs/architecture/07-deployment-view.md).
 
 Pull the tag for the machine's CPU and the release you want:
 
