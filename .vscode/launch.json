@@ -46,7 +46,7 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
-      "name": "umbra (tests)",
+      "name": "umbra (bin tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
@@ -98,7 +98,7 @@
     {
       // Unit tests of one library crate, chosen when the session starts. Put
       // a test name filter in "args" to run fewer of them.
-      "name": "umbra (lib)",
+      "name": "umbra (lib tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
