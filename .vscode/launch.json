@@ -61,7 +61,7 @@
       // Coordinator with its local Worker, on a Scene File asked for at
       // launch. UMBRA_CLUSTER keeps debug sessions apart from the Workers of
       // the default Cluster on the LAN.
-      "name": "umbra render (pick scene)",
+      "name": "umbra (render)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
@@ -73,9 +73,9 @@
       "env": { "RUST_BACKTRACE": "1", "UMBRA_CLUSTER": "debug" }
     },
     {
-      // A Worker of the `debug` Cluster: it waits for "umbra render (pick
-      // scene)", started here or from another window.
-      "name": "umbra worker",
+      // A Worker of the `debug` Cluster: it waits for "umbra (render)",
+      // started here or from another window.
+      "name": "umbra (worker)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
@@ -98,7 +98,7 @@
     {
       // Unit tests of one library crate, chosen when the session starts. Put
       // a test name filter in "args" to run fewer of them.
-      "name": "library tests (pick crate)",
+      "name": "umbra (library tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
@@ -114,8 +114,8 @@
     {
       // Both ends of the wire protocol in one debug session: the Worker
       // first, then the Coordinator that gives it work.
-      "name": "cluster: worker + render",
-      "configurations": ["umbra worker", "umbra render (pick scene)"],
+      "name": "umbra (cluster)",
+      "configurations": ["umbra (worker)", "umbra (render)"],
       "stopAll": true
     }
   ],
