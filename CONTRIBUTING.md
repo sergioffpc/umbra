@@ -397,9 +397,8 @@ library needs its Chisel slice added in the `Dockerfile`.
 
 [`reference/scenes.toml`](reference/scenes.toml) holds the pinned `mmp/pbrt-v4`
 and `mmp/pbrt-v4-scenes` commits and the Reference Scenes, each with its
-benchmark settings and, for a Reference Scene Variant, its edit. `umbra bench`
-measures them, and the benchmark measurement issue of each milestone renders
-them with pbrt-v4 for QS-5 (arc42 §8.4).
+benchmark settings and, for a Reference Scene Variant, its edit. How they are
+measured is arc42 §8.4.
 
 Umbra does not compare its images with pbrt-v4's or with committed hashes
 ([ADR 0031](docs/adr/0031-renders-checked-by-eye.md)). The owner checks the
