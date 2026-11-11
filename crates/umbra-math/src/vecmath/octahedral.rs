@@ -10,10 +10,30 @@ use crate::vecmath::vector::Vector3f;
 /// PBR 4e §3.8.4, pbrt-v4 `OctahedralVector`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct OctahedralVector {
     x: u16,
     y: u16,
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<OctahedralVector>() == 4,
+        "`OctahedralVector` is 4 bytes, with no padding"
+    );
+    assert!(
+        offset_of!(OctahedralVector, x) == 0,
+        "`OctahedralVector::x` is at byte 0"
+    );
+    assert!(
+        offset_of!(OctahedralVector, y) == 2,
+        "`OctahedralVector::y` is at byte 2"
+    );
+};
 
 /// `±1` with the sign of `v`.
 fn sign(v: f32) -> f32 {

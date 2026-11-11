@@ -13,6 +13,7 @@ use crate::{PI, dot, safe_asin};
 /// PBR 4e §3.5, pbrt-v4 `Normal3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Normal3<T> {
     /// The x component.
     pub x: T,
@@ -24,6 +25,20 @@ pub struct Normal3<T> {
 
 /// pbrt-v4 `Normal3f`.
 pub type Normal3f = Normal3<f32>;
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<Normal3f>() == 12,
+        "`Normal3f` is 12 bytes, with no padding"
+    );
+    assert!(offset_of!(Normal3f, x) == 0, "`Normal3f::x` is at byte 0");
+    assert!(offset_of!(Normal3f, y) == 4, "`Normal3f::y` is at byte 4");
+    assert!(offset_of!(Normal3f, z) == 8, "`Normal3f::z` is at byte 8");
+};
 
 impl_tuple3!(Normal3);
 impl_add_sub!(Normal3 + Normal3 = Normal3, x, y, z);

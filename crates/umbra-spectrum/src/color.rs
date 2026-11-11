@@ -206,6 +206,7 @@ macro_rules! tristimulus_ops {
 )]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct RGB {
     /// Red.
     pub r: f32,
@@ -242,6 +243,7 @@ tristimulus_ops!(RGB { r, g, b });
 )]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct XYZ {
     /// X.
     pub x: f32,
@@ -291,11 +293,43 @@ tristimulus_ops!(XYZ { x, y, z });
 /// PBR 4e §4.6.6, pbrt-v4 `RGBSigmoidPolynomial`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct RGBSigmoidPolynomial {
     c0: f32,
     c1: f32,
     c2: f32,
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(size_of::<RGB>() == 12, "`RGB` is 12 bytes, with no padding");
+    assert!(offset_of!(RGB, r) == 0, "`RGB::r` is at byte 0");
+    assert!(offset_of!(RGB, g) == 4, "`RGB::g` is at byte 4");
+    assert!(offset_of!(RGB, b) == 8, "`RGB::b` is at byte 8");
+    assert!(size_of::<XYZ>() == 12, "`XYZ` is 12 bytes, with no padding");
+    assert!(offset_of!(XYZ, x) == 0, "`XYZ::x` is at byte 0");
+    assert!(offset_of!(XYZ, y) == 4, "`XYZ::y` is at byte 4");
+    assert!(offset_of!(XYZ, z) == 8, "`XYZ::z` is at byte 8");
+    assert!(
+        size_of::<RGBSigmoidPolynomial>() == 12,
+        "`RGBSigmoidPolynomial` is 12 bytes, with no padding"
+    );
+    assert!(
+        offset_of!(RGBSigmoidPolynomial, c0) == 0,
+        "`RGBSigmoidPolynomial::c0` is at byte 0"
+    );
+    assert!(
+        offset_of!(RGBSigmoidPolynomial, c1) == 4,
+        "`RGBSigmoidPolynomial::c1` is at byte 4"
+    );
+    assert!(
+        offset_of!(RGBSigmoidPolynomial, c2) == 8,
+        "`RGBSigmoidPolynomial::c2` is at byte 8"
+    );
+};
 
 impl RGBSigmoidPolynomial {
     /// The sigmoid of `c0 λ² + c1 λ + c2`.

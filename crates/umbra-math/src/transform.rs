@@ -31,6 +31,7 @@ use crate::vecmath::{Frame, Normal3f, Point3f, Point3fi, Vector3f, Vector3fi, cr
     feature = "serde",
     serde(from = "TransformData", into = "TransformData")
 )]
+#[repr(C)]
 pub struct Transform {
     m: SquareMatrix<4>,
     m_inv: SquareMatrix<4>,
@@ -39,6 +40,34 @@ pub struct Transform {
     /// The columns of `m_inv`.
     m_inv_columns: [Vec4; 4],
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<Transform>() == 256,
+        "`Transform` is 256 bytes, with no padding"
+    );
+    assert!(
+        align_of::<Transform>() == 16,
+        "`Transform` is 16-byte aligned"
+    );
+    assert!(offset_of!(Transform, m) == 0, "`Transform::m` is at byte 0");
+    assert!(
+        offset_of!(Transform, m_inv) == 64,
+        "`Transform::m_inv` is at byte 64"
+    );
+    assert!(
+        offset_of!(Transform, m_columns) == 128,
+        "`Transform::m_columns` is at byte 128"
+    );
+    assert!(
+        offset_of!(Transform, m_inv_columns) == 192,
+        "`Transform::m_inv_columns` is at byte 192"
+    );
+};
 
 impl fmt::Debug for Transform {
     /// The two matrices; the columns are the same numbers again.

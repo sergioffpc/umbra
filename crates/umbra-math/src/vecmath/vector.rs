@@ -9,6 +9,7 @@ use crate::{Interval, PI};
 /// PBR 4e §3.3, pbrt-v4 `Vector2`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Vector2<T> {
     /// The x component.
     pub x: T,
@@ -21,6 +22,7 @@ pub struct Vector2<T> {
 /// PBR 4e §3.3, pbrt-v4 `Vector3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Vector3<T> {
     /// The x component.
     pub x: T,
@@ -42,6 +44,26 @@ pub type Vector3i = Vector3<i32>;
 ///
 /// PBR 4e §6.8.4, pbrt-v4 `Vector3fi`.
 pub type Vector3fi = Vector3<Interval>;
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<Vector2f>() == 8,
+        "`Vector2f` is 8 bytes, with no padding"
+    );
+    assert!(offset_of!(Vector2f, x) == 0, "`Vector2f::x` is at byte 0");
+    assert!(offset_of!(Vector2f, y) == 4, "`Vector2f::y` is at byte 4");
+    assert!(
+        size_of::<Vector3f>() == 12,
+        "`Vector3f` is 12 bytes, with no padding"
+    );
+    assert!(offset_of!(Vector3f, x) == 0, "`Vector3f::x` is at byte 0");
+    assert!(offset_of!(Vector3f, y) == 4, "`Vector3f::y` is at byte 4");
+    assert!(offset_of!(Vector3f, z) == 8, "`Vector3f::z` is at byte 8");
+};
 
 impl_tuple2!(Vector2);
 impl_tuple3!(Vector3);

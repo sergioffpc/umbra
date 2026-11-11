@@ -36,6 +36,7 @@ pub trait Spectrum {
 /// PBR 4e §4.5.1, pbrt-v4 `ConstantSpectrum`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct ConstantSpectrum {
     c: f32,
 }
@@ -139,6 +140,7 @@ impl Spectrum for DenselySampledSpectrum<'_> {
 /// PBR 4e §4.6.6, pbrt-v4 `RGBAlbedoSpectrum`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct RGBAlbedoSpectrum {
     rsp: RGBSigmoidPolynomial,
 }
@@ -197,6 +199,7 @@ fn scaled_coeffs(cs: &RGBColorSpace, rgb: RGB) -> (f32, RGBSigmoidPolynomial) {
 /// PBR 4e §4.6.6, pbrt-v4 `RGBUnboundedSpectrum`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct RGBUnboundedSpectrum {
     scale: f32,
     rsp: RGBSigmoidPolynomial,
@@ -233,6 +236,7 @@ impl Spectrum for RGBUnboundedSpectrum {
 /// PBR 4e §4.6.6, pbrt-v4 `RGBIlluminantSpectrum`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct RGBIlluminantSpectrum {
     scale: f32,
     rsp: RGBSigmoidPolynomial,
@@ -277,6 +281,49 @@ impl Spectrum for RGBIlluminantSpectrum {
         s * self.illuminant().sample(lambda)
     }
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<ConstantSpectrum>() == 4,
+        "`ConstantSpectrum` is 4 bytes, with no padding"
+    );
+    assert!(
+        size_of::<RGBAlbedoSpectrum>() == 12,
+        "`RGBAlbedoSpectrum` is 12 bytes, with no padding"
+    );
+    assert!(
+        size_of::<RGBUnboundedSpectrum>() == 16,
+        "`RGBUnboundedSpectrum` is 16 bytes, with no padding"
+    );
+    assert!(
+        offset_of!(RGBUnboundedSpectrum, scale) == 0,
+        "`RGBUnboundedSpectrum::scale` is at byte 0"
+    );
+    assert!(
+        offset_of!(RGBUnboundedSpectrum, rsp) == 4,
+        "`RGBUnboundedSpectrum::rsp` is at byte 4"
+    );
+    assert!(
+        size_of::<RGBIlluminantSpectrum>() == 20,
+        "`RGBIlluminantSpectrum` is 20 bytes, with no padding"
+    );
+    assert!(
+        offset_of!(RGBIlluminantSpectrum, scale) == 0,
+        "`RGBIlluminantSpectrum::scale` is at byte 0"
+    );
+    assert!(
+        offset_of!(RGBIlluminantSpectrum, rsp) == 4,
+        "`RGBIlluminantSpectrum::rsp` is at byte 4"
+    );
+    assert!(
+        offset_of!(RGBIlluminantSpectrum, illuminant) == 16,
+        "`RGBIlluminantSpectrum::illuminant` is at byte 16"
+    );
+};
 
 /// Every spectrum type, dispatched by `match` (ADR 0006).
 ///

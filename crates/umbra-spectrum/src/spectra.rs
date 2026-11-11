@@ -62,10 +62,20 @@ pub static STD_ILLUM_D65: DenselySampledSpectrum<'static> =
 /// pbrt-v4 names these `"stdillum-…"` in `GetNamedSpectrum`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(u32)]
 pub enum StdIlluminant {
     /// CIE D65, [`STD_ILLUM_D65`].
     D65,
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    assert!(
+        size_of::<StdIlluminant>() == 4,
+        "`StdIlluminant` is 4 bytes, with no padding"
+    );
+};
 
 impl StdIlluminant {
     /// The illuminant's spectrum.
