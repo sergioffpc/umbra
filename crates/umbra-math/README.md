@@ -294,7 +294,7 @@ Several choices cost cycles on purpose, for reproducibility and robustness:
 pbrt-v4's coarse approximation for the Gaussian filter, kept as it is.
 
 Within those choices, the kernels above take back most of the cost.
-`cargo bench -p umbra-math` runs `benches/kernels.rs` (`divan`): each bench
+`cargo bench -p umbra-math --bench kernels` runs `benches/kernels.rs` (`divan`): each bench
 runs a kernel over a batch of 1024 inputs of renderer magnitude, once with the
 reference and once with the optimised implementation. Medians on an AMD
 Ryzen Threadripper PRO 3975WX (Linux x86-64, `target-cpu=native`, Rust
@@ -329,6 +329,9 @@ Ryzen Threadripper PRO 3975WX (Linux x86-64, `target-cpu=native`, Rust
 | `atan2` (`libm::atan2f`)               |      11.4 |      4.42 |    2.6 × |
 | `erf` (`libm::erff`)                   |      14.7 |      5.74 |    2.6 × |
 
+The last five rows were measured when `benches/kernels.rs` still timed the
+transcendentals; they now have their own target, below.
+
 `sqrt` is the same instruction either way; the gain is that LLVM sees
 through the intrinsic and can fold, schedule and vectorise it, which it
 cannot do with `libm`'s inline assembly. The `Transform` benches use a
@@ -339,6 +342,98 @@ stored and 1.67 ns after; with 16 transforms that stay in cache it measured
 1.42 ns both times, while `apply(Point3f)` went from 2.41 to 1.61 ns. Micro-benchmarks locate a gain but
 do not justify it on their own (arc42 §8.4): the end-to-end proof is
 `umbra bench` on the Reference Scenes, once there is a renderer to run it.
+
+### Transcendentals against glibc
+
+`benches/transcendentals.rs` times each transcendental Umbra uses, from
+every implementation available, for
+[#138 Benchmark glibc and libmvec transcendentals](https://github.com/sergioffpc/umbra/issues/138):
+should the x86-64 backend take some of them from glibc? Each bench (`sin_cos`, `atan2`, `erf`, `exp4`
+for `Vec4::exp`, `pow4` for `Vec4::pow`) prints one line per implementation:
+
+- `LibmCrate`: the `libm` crate, one call per element (per lane for `Vec4`);
+- `Umbra`: the crate's own functions;
+- `GlibcScalar`: glibc's `libm.so` through FFI (`sincosf`, `atan2f`, `erff`,
+  `expf`, `powf`), one call per element (per lane for `Vec4`);
+- `Libmvec4` and `Libmvec8`: glibc's `libmvec`, 4 lanes per call for SSE
+  (`_ZGVbN4…`) and 8 for AVX2 (`_ZGVdN8…`). `sin_cos` calls the vector
+  `sinf` and `cosf`.
+
+The glibc lines exist only on `linux-gnu`, and not under Miri. The bench
+and its test link glibc; the library does not. Every implementation sees
+the same inputs, those of the `kernels` benches. Divan prints the time per
+batch of 1024; divide the median by 1024 for the time per element, or per
+`Vec4` for `exp4` and `pow4`, where one 8-lane call does two.
+
+To compare the P620 and the R630 on the instruction set of the release
+image (ADR 0025), build the bench on each machine:
+
+```sh
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench -p umbra-math \
+  --bench transcendentals --no-run
+```
+
+The bench calls whatever glibc it runs on, and glibc's speed changes
+between versions (below), so run the executable Cargo prints in the Ubuntu
+image that the root `Dockerfile`'s `FROM` lines pin, which has the release
+image's glibc:
+
+```sh
+docker run --rm -v "$PWD/target:/target:ro" ubuntu:26.04@sha256:<digest> \
+  /<path printed by Cargo> --bench | tee bench-$(hostname).txt
+```
+
+Build it in the dev container (glibc 2.41) or elsewhere on a glibc no newer
+than the image's. In the dev container, `target/` is a volume: copy the
+executable out with `docker cp`.
+
+`accuracy/implementations.rs` checks every implementation on the bench's
+inputs, against `libm`'s `f64` routines rounded to `f32`: within Umbra's
+bound of 1 ULP, and `libmvec` within the 4 ULPs that glibc's manual states
+for its vector functions. The largest errors there, in ULPs, are the same
+on glibc 2.41, 2.43 and 2.44:
+
+| Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
+| ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
+| `sin_cos`   |            0 |     0 |            1 |                  1 |                  1 |
+| `atan2`     |            1 |     1 |            0 |                  2 |                  2 |
+| `erf`       |            1 |     1 |            0 |                  1 |                  1 |
+| `Vec4::exp` |            1 |     1 |            0 |                  2 |                  2 |
+| `Vec4::pow` |            1 |     1 |            0 |                  1 |                  1 |
+
+Medians in nanoseconds per element (per `Vec4` for `Vec4::exp` and
+`Vec4::pow`), at `target-cpu=x86-64-v3`:
+
+**P620**: AMD Ryzen Threadripper PRO 3975WX, glibc 2.43 (the release image)
+
+| Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
+| ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
+| `sin_cos`   |         7.96 |  5.72 |         27.3 |               2.72 |               1.15 |
+| `atan2`     |         10.9 |  4.61 |         12.8 |               1.80 |              0.741 |
+| `erf`       |         15.1 |  5.73 |         5.86 |              0.978 |              0.614 |
+| `Vec4::exp` |         23.3 |  4.45 |         10.8 |               4.47 |               1.89 |
+| `Vec4::pow` |          172 |  16.0 |         25.4 |               16.7 |               13.0 |
+
+The same executable on the P620's other glibcs: on 2.44 (Ubuntu 26.10) every
+line is within 10 % of these. On 2.41 (the dev container), scalar `sincosf`
+takes 6.12 ns, not 27.3, and `libmvec`'s 8-lane `sin_cos` and `atan2` take
+3.37 and 1.11 ns, slower than at 4 lanes for `sin_cos`.
+
+**R630**: 2 × Intel Xeon E5-2690 v4, glibc 2.43 (the release image), on
+the CPUs and memory of NUMA node 0
+
+| Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
+| ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
+| `sin_cos`   |         14.7 |  13.1 |         11.9 |               4.66 |               1.92 |
+| `atan2`     |         18.0 |  8.92 |         22.5 |               3.20 |               1.85 |
+| `erf`       |         24.9 |  11.1 |         11.2 |               1.71 |               1.37 |
+| `Vec4::exp` |         37.3 |  7.88 |         21.9 |               7.72 |               3.67 |
+| `Vec4::pow` |          270 |  26.4 |         47.8 |               33.0 |               19.4 |
+
+The same executables as on the P620, with the same largest errors. Scalar
+`sincosf` is the one line that ranks differently on the two machines: on
+the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
+13.4 in two reruns), where on the P620 it is 4.8 times slower.
 
 ## Tests
 
@@ -363,6 +458,11 @@ do not justify it on their own (arc42 §8.4): the end-to-end proof is
   `accuracy`) are `#[ignore]`d; run them with
   `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`
   (about 35 s on the 3975WX).
+- `accuracy/implementations.rs` checks every implementation that
+  `benches/transcendentals.rs` times, glibc's included, on the bench's
+  inputs, which it shares through `transcendentals.rs`: Umbra's bound of
+  1 ULP, and glibc's 4 for `libmvec`. It catches a wrong FFI signature or
+  lane order, and runs only where glibc is linked (not under Miri).
 
 Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
