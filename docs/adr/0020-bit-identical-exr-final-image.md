@@ -1,6 +1,8 @@
 # A bit-identical EXR final image carrying its Reproduction Record
 
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md).** The file is a pure function of the Film, but the Film is bit-identical across renders only when each Tile has one Pass, so the file-hash test renders a single Pass.
+>
+> **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** Nothing computes relMSE against a Reference Image, and the `exr` crate reads images for `umbra trace` only. The whole-file test compares two renders made in one test run, so a change to the `exr` crate's compressor has no committed hash to update.
 
 The final image of a Render Job is an OpenEXR file whose bytes are a pure function of the Render Job, and it carries its Reproduction Record as one header attribute. Decided in [Image output](https://github.com/sergioffpc/umbra/issues/65).
 

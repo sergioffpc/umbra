@@ -393,43 +393,17 @@ The build context is limited by [`.dockerignore`](.dockerignore): add new
 crate sources (`build.rs`, workspace members) there. A dependency on a system
 library needs its Chisel slice added in the `Dockerfile`.
 
-## pbrt-v4 reference
+## Reference Scenes
 
 [`reference/scenes.toml`](reference/scenes.toml) holds the pinned `mmp/pbrt-v4`
 and `mmp/pbrt-v4-scenes` commits and the Reference Scenes, each with its
-benchmark, validation and golden settings.
-[`scripts/pbrt_reference.py`](scripts/pbrt_reference.py) turns them into the
-reference that `umbra validate` judges against
-([ADR 0013](docs/adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)):
-it builds pbrt-v4 (CPU) at the pinned commit, fetches only the needed
-directories of the scenes, applies each Reference Scene Variant's edit and
-makes the Film write 32-bit floats (`savefp16`, recorded in the manifest), renders
-every Reference Scene with seeds 0–15 at its validation settings and its
-Reference Image at 64 × its benchmark Pixel Samples per pixel, and publishes
-the per-pixel mean and variance EXRs, the Reference Image and a manifest with
-their SHA-256 as assets of the release `pbrt-v4-reference/<pbrt-v4 commit>`.
+benchmark settings and, for a Reference Scene Variant, its edit. `umbra bench`
+measures them, and the benchmark measurement issue of each milestone renders
+them with pbrt-v4 for QS-5 (arc42 §8.4).
 
-Only whoever moves a pin or adds a Reference Scene runs it, by hand on a target
-machine, never in CI. It needs Python 3.11 or later, git,
-CMake, a C++17 compiler and an authenticated `gh`:
-
-```sh
-scripts/pbrt_reference.py                 # every Reference Scene not yet published
-scripts/pbrt_reference.py --no-publish    # render into target/pbrt-reference/out only
-scripts/pbrt_reference.py --scene killeroo-simple
-```
-
-Rerunning it skips every Reference Scene already published from the same
-inputs. A published reference is immutable: if a Reference Scene's pins,
-settings or edit change, the script refuses it until its assets are deleted
-from the release.
-
-Keep GitHub's release immutability off for this repository (Settings →
-General → Releases). Each milestone adds its Reference Scenes to the existing
-release, and an immutable release accepts no new assets once published. A tag
-name once used by an immutable release can never be reused: that is why the
-tag is `pbrt-v4-reference/<commit>` and not the earlier
-`pbrt-v4-reference-<commit>`.
+Umbra does not compare its images with pbrt-v4's or with committed hashes
+([ADR 0031](docs/adr/0031-renders-checked-by-eye.md)). The owner checks the
+renders of the Reference Scenes by eye when a milestone closes.
 
 ## License
 

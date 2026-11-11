@@ -13,8 +13,8 @@ FROM mcr.microsoft.com/devcontainers/base:3-ubuntu26.04
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Native packages: the C toolchain and linker, lldb (debugger), python3
-# (scripts/) and shellcheck (shell scripts, run by the pre-commit hook and
-# scripts/check.sh).
+# (extracts libdevice below) and shellcheck (shell scripts, run by the
+# pre-commit hook and scripts/check.sh).
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y --no-install-recommends build-essential lldb python3 shellcheck \

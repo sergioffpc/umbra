@@ -8,8 +8,8 @@
 #
 # Cargo tools and the linter binaries go to $CARGO_HOME/bin (~/.cargo/bin by
 # default), which rustup puts on PATH; prettier and markdownlint-cli2 are
-# global npm packages. x86-64 Linux only (ADR 0023). shellcheck and python3
-# come from the system.
+# global npm packages. x86-64 Linux only (ADR 0023). shellcheck comes from
+# the system.
 set -eu
 
 BINSTALL_VERSION=1.26.2

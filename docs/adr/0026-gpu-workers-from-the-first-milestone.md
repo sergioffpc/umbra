@@ -6,6 +6,8 @@
 > - **`NVIDIA_DRIVER_CAPABILITIES`.** A GPU Worker's container needs `compute,graphics`: OptiX's libraries are among the NVIDIA Container Toolkit's `graphics` ones (arc42 §7).
 >
 > The GPU test script of Testing below, which other ADRs also cite, is a nextest profile rather than a script: the GPU tests are the test binaries named `gpu`, which every other profile leaves out, and `cargo nextest run --profile gpu` runs them.
+>
+> **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** A milestone's Reference Scenes are checked by eye on both Render Devices, not validated against pbrt-v4, and the GPU tests no longer run `umbra validate`.
 
 The GPU joins Umbra from `v0.1.0`, not after `v1.0.0`. Every milestone delivers its features on the CPU and on the GPU, and validates its Reference Scenes on both. Decided with the owner on 2026-11-11. This supersedes [ADR 0024](0024-a-gpu-backend-on-the-roadmap.md). It amends [ADR 0005](0005-chiseled-release-container-image.md), [ADR 0009](0009-pull-based-pass-major-scheduling.md), [ADR 0010](0010-quic-transport-between-coordinator-and-workers.md), [ADR 0014](0014-gpu-ready-no-std-rendering-core.md), [ADR 0017](0017-one-worker-per-numa-node.md) and [ADR 0019](0019-milestones-defined-by-the-reference-scenes-they-unlock.md).
 
