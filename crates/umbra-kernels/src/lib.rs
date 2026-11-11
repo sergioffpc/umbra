@@ -65,7 +65,8 @@ pub extern "ptx-kernel" fn __raygen__trace() {
         origin: ray.o,
         direction: ray.d,
         tmin: 0.0,
-        tmax: f32::INFINITY,
+        // `optixTrace` rejects a ray whose `tmax` is not finite.
+        tmax: f32::MAX,
     };
     let [t, kind] = optix::trace(params.handle, trace_ray, [0, HitKind::Miss as u32]);
     write_hit(

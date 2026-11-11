@@ -98,7 +98,11 @@ pub(crate) fn ray_tmax() -> f32 {
     let t: f32;
     // SAFETY: the built-in reads the current ray's state and writes only `t`.
     unsafe {
-        asm!("call ({t}), _optix_get_ray_tmax, ();", t = out(reg32) t, options(nostack));
+        asm!(
+            "{{ .reg .f32 %t; call (%t), _optix_get_ray_tmax, (); mov.b32 {t}, %t; }}",
+            t = out(reg32) t,
+            options(nostack)
+        );
     }
     t
 }
@@ -135,7 +139,11 @@ macro_rules! ray_component {
             // SAFETY: the built-in reads the current ray's state and writes
             // only `value`.
             unsafe {
-                asm!(concat!("call ({v}), ", $builtin, ", ();"), v = out(reg32) value, options(nostack));
+                asm!(
+                    concat!("{{ .reg .f32 %v; call (%v), ", $builtin, ", (); mov.b32 {v}, %v; }}"),
+                    v = out(reg32) value,
+                    options(nostack)
+                );
             }
             value
         }
@@ -198,7 +206,7 @@ pub(crate) fn report_intersection(t: f32) {
     // the user hit kind 0, and writes only its unused result register.
     unsafe {
         asm!(
-            "call ({a}), _optix_report_intersection_0, ({t}, {k});",
+            "{{ .reg .f32 %t; mov.b32 %t, {t}; call ({a}), _optix_report_intersection_0, (%t, {k}); }}",
             a = out(reg32) _,
             t = in(reg32) t,
             k = in(reg32) 0u32,
@@ -243,9 +251,13 @@ pub(crate) fn trace(handle: u64, ray: TraceRay, payload: [u32; 2]) -> [u32; 2] {
     // pipeline, whose shader binding table has a hit group record 0.
     unsafe {
         asm!(
+            "{{ .reg .f32 %rf<9>;",
+            "mov.b32 %rf0, {ox}; mov.b32 %rf1, {oy}; mov.b32 %rf2, {oz};",
+            "mov.b32 %rf3, {dx}; mov.b32 %rf4, {dy}; mov.b32 %rf5, {dz};",
+            "mov.b32 %rf6, {tmin}; mov.b32 %rf7, {tmax}; mov.b32 %rf8, {time};",
             "call ({p0},{p1},{p2},{p3},{p4},{p5},{p6},{p7},{p8},{p9},{p10},{p11},{p12},{p13},{p14},{p15},{p16},{p17},{p18},{p19},{p20},{p21},{p22},{p23},{p24},{p25},{p26},{p27},{p28},{p29},{p30},{p31}),",
             "_optix_trace_typed_32,",
-            "({ty},{handle},{ox},{oy},{oz},{dx},{dy},{dz},{tmin},{tmax},{time},{mask},{flags},{sbt_offset},{sbt_stride},{miss},{size},{p0},{p1},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero});",
+            "({ty},{handle},%rf0,%rf1,%rf2,%rf3,%rf4,%rf5,%rf6,%rf7,%rf8,{mask},{flags},{sbt_offset},{sbt_stride},{miss},{size},{p0},{p1},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero}); }}",
             ty = in(reg32) 0u32,
             handle = in(reg64) handle,
             ox = in(reg32) ox,
