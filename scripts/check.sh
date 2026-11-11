@@ -10,7 +10,7 @@
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
 #   readmes  crate READMEs only (part of lint; the pre-commit hook runs it)
-#   features  unstable features outside umbra-kernels (part of lint)
+#   unstable  unstable features outside umbra-kernels (part of lint)
 #
 # The tools are installed by scripts/install-tools.sh. Stops at the first
 # failure.
@@ -54,7 +54,7 @@ lint() {
     step typos
     step cargo shear
     readmes
-    features
+    unstable
     tracked '.githooks/*' '*.sh' -- shellcheck
     step actionlint
     tracked . -- editorconfig-checker
@@ -96,10 +96,10 @@ readmes() {
 
 # The toolchain is a nightly, but only `umbra-kernels` enables unstable
 # features (ADR 0027): every other crate builds on stable features alone.
-features() {
+unstable() {
     echo "check: unstable features outside umbra-kernels"
-    if git grep -nE '^[[:space:]]*#!\[feature\(' -- 'crates/*.rs' \
-        ':!crates/umbra-kernels/' >&2; then
+    if git grep -nE '^[[:space:]]*#!\[(cfg_attr\(.*[(, ])?feature\(' \
+        -- 'crates/*.rs' ':!crates/umbra-kernels/' >&2; then
         echo "check: only umbra-kernels may enable #![feature(...)] (ADR 0027)" >&2
         return 1
     fi
@@ -110,9 +110,9 @@ if [ "$#" -eq 0 ]; then
 fi
 for group in "$@"; do
     case "$group" in
-        rust | lint | deny | readmes | features) "$group" ;;
+        rust | lint | deny | readmes | unstable) "$group" ;;
         *)
-            echo "check: unknown group '$group'; known: rust lint deny readmes features" >&2
+            echo "check: unknown group '$group'; known: rust lint deny readmes unstable" >&2
             exit 1
             ;;
     esac
