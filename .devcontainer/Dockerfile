@@ -21,6 +21,22 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# CUDA's libdevice.10.bc, the one file of CUDA that building the GPU kernels
+# to run needs (umbra-gpu's build.rs, scripts/gpu-test): NVIDIA's C math in
+# LLVM bitcode. It is taken from NVIDIA's nvidia-cuda-nvcc-cu12 wheel on PyPI,
+# checked against the SHA-256 PyPI publishes, instead of installing the CUDA
+# toolkit, and goes where the build script looks by default. The driver and
+# OptiX come from the host, mounted by the NVIDIA Container Toolkit. Bump the
+# URL and the sum together.
+ARG LIBDEVICE_WHEEL_URL=https://files.pythonhosted.org/packages/25/48/b54a06168a2190572a312bfe4ce443687773eb61367ced31e064953dd2f7/nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl
+ARG LIBDEVICE_WHEEL_SHA256=5d6a0d32fdc7ea39917c20065614ae93add6f577d840233237ff08e9a38f58f0
+RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/nvcc.whl "${LIBDEVICE_WHEEL_URL}" \
+    && echo "${LIBDEVICE_WHEEL_SHA256}  /tmp/nvcc.whl" | sha256sum -c - \
+    && install -d /usr/local/cuda/nvvm/libdevice \
+    && python3 -I -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("nvidia/cuda_nvcc/nvvm/libdevice/libdevice.10.bc"))' \
+        /tmp/nvcc.whl > /usr/local/cuda/nvvm/libdevice/libdevice.10.bc \
+    && rm /tmp/nvcc.whl
+
 # Same layout as the root Dockerfile and the former Rust image: the cargo
 # cache volumes in devcontainer.json mount under /usr/local/cargo.
 ENV RUSTUP_HOME=/usr/local/rustup \
