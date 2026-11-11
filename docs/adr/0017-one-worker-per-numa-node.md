@@ -1,6 +1,8 @@
 # One Worker per NUMA node
 
 > **Amended by [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md).** No script starts the Workers and there is no host list. The operator starts one Worker per NUMA node on each host and leaves it running, bound with `numactl --cpunodebind=N --membind=N` or, in a container, with `--cpuset-cpus` and `--cpuset-mems`. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** A machine runs one Worker per Render Device: one per NUMA node, plus one per GPU. On a machine with a GPU, the CPU Worker leaves one core for the GPU Worker's host process. The rest of this ADR still applies.
 
 A machine runs one Worker per NUMA node, each bound to its node's cores and memory. In practice the R630 runs two Workers and every other target machine runs one. Decided in [Per-architecture tuning plan](https://github.com/sergioffpc/umbra/issues/48). This supersedes the rejection of "a Worker process per NUMA node" in [ADR 0008](0008-index-handle-arenas-and-allocation-free-rendering.md).
 

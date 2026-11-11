@@ -5,6 +5,8 @@
 > **Amended by [ADR 0023](0023-x86-64-only.md).** arm64 is dropped altogether, so `linux/amd64` is the only platform there will be.
 >
 > **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** The image is published once again as a single `x86-64-v3` image, tagged `X.Y.Z` only. There are still no `X.Y` or `latest` tags.
+>
+> **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** A GPU Worker runs from the same image with `docker run --gpus device=N` and the NVIDIA Container Toolkit, which mounts the host driver's libraries. The image ships nothing from NVIDIA. The rest of this ADR still applies.
 
 Every release ships a container image, `ghcr.io/sergioffpc/umbra`, so the Linux Workers (P620 and R630) can run a release without a Rust toolchain. The image is built by [`release-image.yml`](../../.github/workflows/release-image.yml) from the [`Dockerfile`](../../Dockerfile) at the repository root.
 

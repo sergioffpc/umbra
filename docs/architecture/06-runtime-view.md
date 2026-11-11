@@ -40,7 +40,7 @@ sequenceDiagram
 5. The heartbeat starts at `Welcome`, from a task independent of loading, so the 5 s death rule covers a loading Worker. While loading, it carries the Scene bytes received and the phase (`receiving`, `building BVH`). If loading stops progressing for 30 s, the Worker is shown as `stalled`, never dead: it holds no Work Units, so it blocks nothing.
 6. However the connection closes, the Worker drops the Scene and is idle again (§8.13).
 
-The in-process local Worker skips the network. It receives the same typed messages through the in-memory transport, and shares the Coordinator's Scene.
+The CPU Local Worker skips the network. It receives the same typed messages through the in-memory transport, and shares the Coordinator's Scene. A GPU Local Worker runs in a child process that the Coordinator starts with its address, so it connects over QUIC on loopback without discovery and joins like a remote Worker, receiving the Scene ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
 
 ## 6.2 A Render Job from submission to image
 
@@ -79,8 +79,8 @@ sequenceDiagram
 ```
 
 1. The Coordinator reads the Scene File and its assets from the operator's local disk and parses them once ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Only then does it open its UDP port and announce the Render Job ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). On an Invalid Scene File the Coordinator exits before anything is announced, so no Worker ever joins and no close code is needed.
-2. `umbra-cluster`'s `coordinate` starts the optional local Worker, announces the Render Job in its Cluster and accepts remote Workers (§6.1). It does not wait for Workers: the Render Job starts with the first `RequestWork`, local or remote. A Worker that starts or becomes idle later joins the Render Job in progress.
-3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order. A Worker keeps about two Work Units in flight per eight threads, and returns one credit per Work Result.
+2. `umbra-cluster`'s `coordinate` starts a Local Worker per Render Device of its machine (§7.3), announces the Render Job in its Cluster and accepts remote Workers (§6.1). It does not wait for Workers: the Render Job starts with the first `RequestWork`, local or remote. A Worker that starts or becomes idle later joins the Render Job in progress.
+3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order. A Worker keeps as many Work Units in flight as its Render Device declares (about two per eight threads on a CPU, about 16 on a GPU), and returns one credit per Work Result.
 4. The Film merges each Work Result as soon as it arrives, in any order (ADR 0022).
 5. The status line on the Coordinator's stderr (§8.10) shows the current Pass, the percentage of Pixel Samples merged or in flight, each Worker's state and the ETA throughout.
 6. After the last merge, the Coordinator withdraws its announcement, and `JobFinished` then releases every Worker, which drops the Scene and is idle again. The image and its Render Job Report are written next to each other on the operator's machine. The image only exists once every Pass has been rendered.
