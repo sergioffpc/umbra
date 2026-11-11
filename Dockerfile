@@ -58,8 +58,9 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# The checkout is mounted at /src and owned by the host user, not root.
-RUN git config --system --add safe.directory '*'
+# The checkout is mounted at /src, the only mount scripts/in-ci-image.sh
+# makes, locally and in CI, and is owned by the host user, not root.
+RUN git config --system --add safe.directory /src
 
 # Miri builds its sysroot here once, not on every job.
 RUN rustup component add miri rust-src && cargo miri setup
