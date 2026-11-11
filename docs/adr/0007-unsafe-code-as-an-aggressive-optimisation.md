@@ -1,6 +1,8 @@
 # `unsafe` code as an aggressive optimisation
 
 > **Amended by [ADR 0027](0027-a-pinned-nightly-toolchain.md).** Miri runs on the nightly the whole workspace pins, not on one pinned for its job only.
+>
+> **Amended on 2026-11-11 by [#142](https://github.com/sergioffpc/umbra/issues/142).** FFI to the C math library (glibc on x86-64, `libdevice` on `nvptx64`) is an `unsafe` exception of its own, without a benchmark or a safe reference. On x86-64 it is verified by Miri with `-Zmiri-native-lib`, native tests and AddressSanitizer; on `nvptx64`, by the GPU test script.
 
 Umbra code is safe Rust by default. `unsafe_code = "deny"` applies to every crate of the workspace. SIMD, byte casts, thread pinning and allocators come from crates with safe APIs (`wide` behind the `Vec4`/`Mask4` facade, `bytemuck`, …), so the expected amount of `unsafe` in Umbra itself is zero.
 
@@ -8,7 +10,14 @@ An `unsafe` exception is treated as an **aggressive optimisation** and has to me
 
 - **Narrowest scope.** The exception is a `#[expect(unsafe_code, reason = "...")]` on the narrowest item possible, never on a module or crate. The lint stays at `deny` and never at `forbid`, because `forbid` cannot be overridden locally.
 - **Documented.** Every `unsafe` block has a `// SAFETY:` comment stating why its preconditions hold, and holds only one unsafe operation. Every `unsafe fn` has a `# Safety` section. `SAFETY` comments appear only on `unsafe` code. All of this is enforced by lints.
-- **Verified by tools.** The first exception brings a CI job that runs the tests of every `unsafe` item under Miri, on a nightly toolchain pinned for that job only. Where Miri cannot execute the code (unsupported `std::arch` intrinsics, FFI), those tests run under AddressSanitizer on Linux nightly. The tests include the equivalence tests against the safe reference. ThreadSanitizer is not required, because parallelism comes from crates with safe APIs.
+- **Verified by tools.** The first exception brings a CI job that runs the tests of every `unsafe` item under Miri, on a nightly toolchain pinned for that job only. Where Miri cannot execute the code (unsupported `std::arch` intrinsics, FFI other than the C math below), those tests run under AddressSanitizer on Linux nightly. The tests include the equivalence tests against the safe reference. ThreadSanitizer is not required, because parallelism comes from crates with safe APIs.
+
+**FFI to the C math library** is an exception of another kind. `umbra-math` declares the glibc functions it calls on x86-64, and the `libdevice` functions it calls on `nvptx64`, in `extern "C"` blocks ([ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md), [ADR 0028](0028-one-core-for-cpu-and-gpu.md)). It replaces the `libm` crate rather than optimising Umbra's code, so it needs no benchmark and has no safe reference beside it. The other rules hold:
+
+- **A safe wrapper per function.** Each C function has exactly one safe wrapper in `umbra-math`, and nothing else calls the declaration. The wrapper holds one call per `unsafe` block, with a `// SAFETY:` comment on each.
+- **Verified by Miri and by native tests.** On x86-64, the tests that call glibc run under Miri with `-Zmiri-native-lib=/lib/x86_64-linux-gnu/libm.so.6`. Miri checks the Rust side of each call, the pointers that `sincosf` writes through included, but it trusts the `extern` declaration. Native tests compare each wrapper with known values, which catches a wrong signature.
+- **AddressSanitizer** covers what Miri cannot see inside glibc: those tests also run under AddressSanitizer on the pinned nightly.
+- **On `nvptx64`**, where neither Miri nor AddressSanitizer runs, the GPU test script checks each `libdevice` wrapper against glibc within its documented bound ([ADR 0026](0026-gpu-workers-from-the-first-milestone.md)).
 
 There is no fixed list of modules allowed to contain `unsafe`. Each exception is justified on its own, wherever it lives.
 
@@ -20,7 +29,7 @@ There is no fixed list of modules allowed to contain `unsafe`. Each exception is
 
 ## Consequences
 
-- An `unsafe` PR carries more weight than any other optimisation: benchmark report, safe reference, equivalence tests, Miri or ASan job.
+- An `unsafe` PR carries more weight than any other optimisation: benchmark report, safe reference, equivalence tests, Miri or ASan job. A C math wrapper needs no benchmark or safe reference, but the same verification.
 - Reviewers can find every exception with a search for `expect(unsafe_code`.
 
 ## Status
