@@ -366,37 +366,60 @@ batch of 1024; divide the median by 1024 for the time per element, or per
 `Vec4` for `exp4` and `pow4`, where one 8-lane call does two.
 
 To compare the P620 and the R630 on the instruction set of the release
-image (ADR 0025), run on each machine:
+image (ADR 0025), build the bench on each machine:
 
 ```sh
 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench -p umbra-math \
-  --bench transcendentals | tee bench-$(hostname)-x86-64-v3.txt
+  --bench transcendentals --no-run
 ```
 
-and optionally the same without `RUSTFLAGS`, for the local
-`target-cpu=native` (`znver2` on the P620, `broadwell` on the R630), into
-`bench-$(hostname)-native.txt`. The bench calls the host's glibc, not the
-image's, so record `ldd --version` with the output.
+The bench calls whatever glibc it runs on, and glibc's speed changes
+between versions (below), so run the executable Cargo prints in the Ubuntu
+image that the root `Dockerfile`'s `FROM` lines pin, which has the release
+image's glibc:
+
+```sh
+docker run --rm -v "$PWD/target:/target:ro" ubuntu:26.04@sha256:<digest> \
+  /<path printed by Cargo> --bench | tee bench-$(hostname).txt
+```
+
+Build it in the dev container (glibc 2.41) or elsewhere on a glibc no newer
+than the image's. In the dev container, `target/` is a volume: copy the
+executable out with `docker cp`.
 
 `accuracy/implementations.rs` checks every implementation on the bench's
-inputs. On glibc 2.41, glibc's scalar functions are within Umbra's bound of
-1 ULP there, and `libmvec`'s `atan2f` and `expf` reach 2 ULPs (glibc's
-manual bounds its vector functions at 4).
+inputs, against `libm`'s `f64` routines rounded to `f32`: within Umbra's
+bound of 1 ULP, and `libmvec` within the 4 ULPs that glibc's manual states
+for its vector functions. The largest errors there, in ULPs, are the same
+on glibc 2.41, 2.43 and 2.44:
+
+| Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
+| ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
+| `sin_cos`   |            0 |     0 |            1 |                  1 |                  1 |
+| `atan2`     |            1 |     1 |            0 |                  2 |                  2 |
+| `erf`       |            1 |     1 |            0 |                  1 |                  1 |
+| `Vec4::exp` |            1 |     1 |            0 |                  2 |                  2 |
+| `Vec4::pow` |            1 |     1 |            0 |                  1 |                  1 |
 
 Medians in nanoseconds per element (per `Vec4` for `Vec4::exp` and
 `Vec4::pow`), at `target-cpu=x86-64-v3`:
 
-**P620**: AMD Ryzen Threadripper PRO 3975WX, glibc —
+**P620**: AMD Ryzen Threadripper PRO 3975WX, glibc 2.43 (the release image)
 
 | Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
 | ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
-| `sin_cos`   |            — |     — |            — |                  — |                  — |
-| `atan2`     |            — |     — |            — |                  — |                  — |
-| `erf`       |            — |     — |            — |                  — |                  — |
-| `Vec4::exp` |            — |     — |            — |                  — |                  — |
-| `Vec4::pow` |            — |     — |            — |                  — |                  — |
+| `sin_cos`   |         7.96 |  5.72 |         27.3 |               2.72 |               1.15 |
+| `atan2`     |         10.9 |  4.61 |         12.8 |               1.80 |              0.741 |
+| `erf`       |         15.1 |  5.73 |         5.86 |              0.978 |              0.614 |
+| `Vec4::exp` |         23.3 |  4.45 |         10.8 |               4.47 |               1.89 |
+| `Vec4::pow` |          172 |  16.0 |         25.4 |               16.7 |               13.0 |
 
-**R630**: 2 × Intel Xeon E5-2690 v4, glibc —
+The same executable on the P620's other glibcs: on 2.44 (Ubuntu 26.10) every
+line is within 10 % of these. On 2.41 (the dev container), scalar `sincosf`
+takes 6.12 ns, not 27.3, and `libmvec`'s 8-lane `sin_cos` and `atan2` take
+3.37 and 1.11 ns, slower than at 4 lanes for `sin_cos`.
+
+**R630**: 2 × Intel Xeon E5-2690 v4, glibc 2.43 (the release image)
 
 | Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
 | ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
