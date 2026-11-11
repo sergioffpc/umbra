@@ -1,6 +1,8 @@
 # Wire protocol: one Render Job per QUIC connection, unverified TLS
 
 > **Amended by [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md).** Workers are long-running: a Worker serves one Render Job per connection, one connection after another, and drops the Scene when each one closes. It finds the Coordinator by DNS-SD instead of being given its address, and `Hello` carries the Cluster Name instead of a Session identifier. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0029](0029-the-coordinators-port-and-interface.md).** The Coordinator listens on an ephemeral UDP port unless `--port` or `UMBRA_PORT` sets one, and on every interface unless `--interface` or `UMBRA_INTERFACE` names one.
 
 The Coordinator and a Worker exchange exactly one Render Job over one QUIC connection, with no protocol version, no asset cache and no TLS certificate verification ([Wire protocol between Coordinator and Workers](https://github.com/sergioffpc/umbra/issues/47)). Workers are started per Session by `scripts/workers up` and exit when it ends ([arc42 §7.3](../architecture/07-deployment-view.md#73-deployment-and-launch)), every binary in a Render Job is built from the same commit ([ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md)), and hostile nodes are out of scope. Within those limits each of these choices removes a mechanism the protocol would otherwise need. The message set and the stream mapping are in [arc42 §8.13](../architecture/08-crosscutting-concepts.md#813-wire-protocol).
 
