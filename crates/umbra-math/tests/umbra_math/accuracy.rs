@@ -9,6 +9,7 @@
 //! The binary ones (`atan2`, `pow`) take random pairs, dense sweeps of one
 //! argument and every pair of special values.
 
+mod implementations;
 mod scalar;
 mod simd;
 

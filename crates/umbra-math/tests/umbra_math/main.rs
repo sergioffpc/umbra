@@ -9,3 +9,4 @@ mod reference;
 mod rng;
 mod sampling;
 mod simd_test;
+mod transcendentals;

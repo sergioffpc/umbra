@@ -27,5 +27,11 @@ divan = { workspace = true }
 name = "kernels"
 harness = false
 
+# The transcendentals from the `libm` crate, Umbra and glibc (issue #138).
+# glibc is linked by this target and its tests only, never by the library.
+[[bench]]
+name = "transcendentals"
+harness = false
+
 [lints]
 workspace = true
