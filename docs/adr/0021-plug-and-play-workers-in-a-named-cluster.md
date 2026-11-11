@@ -3,6 +3,8 @@
 > **Amended by [ADR 0023](0023-x86-64-only.md).** `umbra render` runs on a target machine: the P620, the operator's workstation, or the R630.
 >
 > **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** A release Worker pulls the one `X.Y.Z` image; there is no image variant per CPU to choose.
+>
+> **Amended by [ADR 0029](0029-the-coordinators-port-and-interface.md).** The Coordinator listens on an ephemeral UDP port unless `--port` or `UMBRA_PORT` sets one, so a machine that runs a Coordinator opens a port only when its firewall requires it. `--interface` or `UMBRA_INTERFACE` restricts the port and the announcement to one interface.
 
 Workers run permanently and find Coordinators on their own. A Coordinator that has a Render Job announces it on the LAN with DNS-SD, and every idle Worker of its Cluster joins. There is no launch script. Decided with the owner on 2026-11-07. This supersedes [ADR 0018](0018-sessions-launched-from-the-operators-machine.md), whose `scripts/workers up` built, started and restarted the Workers of each Session. It also amends [ADR 0003](0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md), [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md), [ADR 0016](0016-one-render-job-per-quic-connection.md) and [ADR 0017](0017-one-worker-per-numa-node.md), which relied on that script.
 
