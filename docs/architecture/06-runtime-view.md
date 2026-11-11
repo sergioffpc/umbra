@@ -54,7 +54,7 @@ sequenceDiagram
     participant W as Workers (idle, same Cluster)
     O->>C: umbra render: Scene File, options, Cluster Name
     Note over C: parse the Scene File (umbra-parser),<br/>apply overrides, build the Scene<br/>and the Reproduction Record
-    alt Invalid Scene File
+    alt invalid Scene File
         C->>O: every reason (file, line, column), exit 3
         Note over C: nothing announced, no Worker ever joins
     end
@@ -78,7 +78,7 @@ sequenceDiagram
     C->>O: exit 0, image and Render Job Report on the local disk
 ```
 
-1. The Coordinator reads the Scene File and its assets from the operator's local disk and parses them once ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Only then does it open its UDP port and announce the Render Job ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). On an Invalid Scene File the Coordinator exits before anything is announced, so no Worker ever joins and no close code is needed.
+1. The Coordinator reads the Scene File and its assets from the operator's local disk and parses them once ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Only then does it open its UDP port and announce the Render Job ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). On an invalid Scene File the Coordinator exits before anything is announced, so no Worker ever joins and no close code is needed.
 2. `umbra-cluster`'s `coordinate` starts a Local Worker per Render Device of its machine (§7.3), announces the Render Job in its Cluster and accepts remote Workers (§6.1). It does not wait for Workers: the Render Job starts with the first `RequestWork`, local or remote. A Worker that starts or becomes idle later joins the Render Job in progress.
 3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order. A Worker keeps as many Work Units in flight as its Render Device declares (about two per eight threads on a CPU, about 16 on a GPU), and returns one credit per Work Result.
 4. The Film merges each Work Result as soon as it arrives, in any order (ADR 0022).

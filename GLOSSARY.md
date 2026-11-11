@@ -24,10 +24,6 @@ _Avoid_: World, model
 The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator builds a Scene.
 _Avoid_: Scene description, input file, scene source
 
-**Invalid Scene File**:
-A Scene File that cannot be rendered, together with the complete list of reasons why, each located in its file. A Render Job whose Scene File is an Invalid Scene File is refused before any Work Unit exists.
-_Avoid_: Diagnostics, parse errors, validation errors, warnings
-
 **Reference Scene**:
 A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed (seeds 0–15 for validation) and Tile size for each use. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
