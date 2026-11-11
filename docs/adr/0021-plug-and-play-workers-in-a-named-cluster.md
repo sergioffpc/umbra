@@ -1,5 +1,7 @@
 # Plug-and-play Workers in a named Cluster
 
+> **Amended by [ADR 0030](0030-a-bounded-asset-cache-on-each-worker-host.md).** A Worker keeps the assets it receives in a bounded Asset Cache on disk between Render Jobs, so a Render Job sends a Worker only the assets it lacks. It still holds no Scene in memory between Render Jobs.
+>
 > **Amended by [ADR 0023](0023-x86-64-only.md).** `umbra render` runs on a target machine: the P620, the operator's workstation, or the R630.
 >
 > **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** A release Worker pulls the one `X.Y.Z` image; there is no image variant per CPU to choose.

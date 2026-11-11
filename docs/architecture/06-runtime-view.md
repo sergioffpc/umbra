@@ -1,6 +1,6 @@
 # 6. Runtime View
 
-The scenarios a Render Job runs through, from the decisions in [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) (deterministic merge), [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) (scheduling), [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md) (Build Identity), [ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md) (discovery, joining and rejoining), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) and [§8.13](08-crosscutting-concepts.md#813-wire-protocol) (wire protocol). The messages are those of §8.13. The rules behind each step, and the values they use, are defined in §8.8 and §8.13. A scenario repeats a value only where a step needs it, and §8.13 wins if the two ever disagree.
+The scenarios a Render Job runs through, from the decisions in [ADR 0004](../adr/0004-deterministic-film-for-a-fixed-render-job.md) (deterministic merge), [ADR 0009](../adr/0009-pull-based-pass-major-scheduling.md) (scheduling), [ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md) (Build Identity), [ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md) (discovery, joining and rejoining), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md), [ADR 0030](../adr/0030-a-bounded-asset-cache-on-each-worker-host.md) (Asset Cache) and [§8.13](08-crosscutting-concepts.md#813-wire-protocol) (wire protocol). The messages are those of §8.13. The rules behind each step, and the values they use, are defined in §8.8 and §8.13. A scenario repeats a value only where a step needs it, and §8.13 wins if the two ever disagree.
 
 How a Render Job starts and who may join it was first settled in [Session start-up and Worker joining](https://github.com/sergioffpc/umbra/issues/59), then replaced by plug-and-play Workers in a named Cluster (ADR 0021). How connections close when a Worker is declared dead or a Render Job is cancelled was settled in [Closing connections: dead Workers and cancellation](https://github.com/sergioffpc/umbra/issues/60).
 
@@ -22,9 +22,12 @@ sequenceDiagram
     W-->>C: heartbeat stream, one per second from here on<br/>(loading: bytes received, phase)
     C-->>W: Scene stream: Render Job options
     C-->>W: Scene stream: Scene structure (arenas, no BVH)
-    loop every asset
-        C-->>W: asset bytes + content hash
-        Note over W: check the hash
+    C-->>W: Scene stream: asset manifest (hash, size of every asset)
+    Note over W: look each hash up in the Asset Cache,<br/>load and check the cached ones
+    W->>C: control: NeedAssets (hashes it lacks)
+    loop every asset asked for
+        C-->>W: asset bytes
+        Note over W: check the hash, write it to the Asset Cache
     end
     Note over W: end of Scene stream
     Note over W: build the Scene and its BVH<br/>(deterministic, ADR 0004)
@@ -35,12 +38,12 @@ sequenceDiagram
 
 1. The Worker is the QUIC client. It learns the Coordinator's address and port from the DNS-SD announcement (§8.13). It accepts the Coordinator's self-signed certificate without checking it, because admission rests on the handshake instead. If the connection fails, the Worker retries for as long as the Render Job is announced: after 2 s, then 10 s, then every 30 s.
 2. `Hello` carries the Cluster Name, the Build Identity and the Worker Slot (host and NUMA node). A mismatch ends the join here (§6.5).
-3. The Scene stream carries only what a Worker needs: the Render Job options (seed, Tile size, Pixel Samples per Pass, total Pixel Samples per pixel), the Scene structure, and every asset. There is no asset cache, so every connection receives everything. An asset whose hash does not match ends the Worker's connection with `Fatal` (§6.3).
+3. The Scene stream carries only what a Worker needs: the Render Job options (seed, Tile size, Pixel Samples per Pass, total Pixel Samples per pixel), the Scene structure, the asset manifest, and the assets the Worker asked for with `NeedAssets` because its Asset Cache lacks them (ADR 0030). A Worker with `--cache-size 0`, or whose cache cannot be used, asks for every asset. A received asset whose hash does not match ends the Worker's connection with `Fatal` (§6.3). A cached file whose hash does not match is deleted and asked for like a missing one.
 4. Each Worker builds its own BVH from the Scene. Its first `RequestWork` is the readiness signal, and the Coordinator assigns nothing before it. The time from `Welcome` to that request is the Worker's loading phase in the Render Job Report.
-5. The heartbeat starts at `Welcome`, from a task independent of loading, so the 5 s death rule covers a loading Worker. While loading, it carries the Scene bytes received and the phase (`receiving`, `building BVH`). If loading stops progressing for 30 s, the Worker is shown as `stalled`, never dead: it holds no Work Units, so it blocks nothing.
+5. The heartbeat starts at `Welcome`, from a task independent of loading, so the 5 s death rule covers a loading Worker. While loading, it carries the Scene bytes received, the Scene bytes read from the Asset Cache, and the phase (`receiving`, `building BVH`). If loading stops progressing for 30 s, the Worker is shown as `stalled`, never dead: it holds no Work Units, so it blocks nothing.
 6. However the connection closes, the Worker drops the Scene and is idle again (§8.13).
 
-The CPU Local Worker skips the network. It receives the same typed messages through the in-memory transport, and shares the Coordinator's Scene. A GPU Local Worker runs in a child process that the Coordinator starts with its address, so it connects over QUIC on loopback without discovery and joins like a remote Worker, receiving the Scene ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
+The CPU Local Worker skips the network. It receives the same typed messages through the in-memory transport, and shares the Coordinator's Scene, so it has no Asset Cache. A GPU Local Worker runs in a child process that the Coordinator starts with its address, so it connects over QUIC on loopback without discovery and joins like a remote Worker, receiving the Scene and using its host's Asset Cache ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
 
 ## 6.2 A Render Job from submission to image
 
