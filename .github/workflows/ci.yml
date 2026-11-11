@@ -28,8 +28,42 @@ env:
 # dev container uses too. Third-party actions are pinned to a commit SHA (tags
 # can be moved); Dependabot updates the SHA and the version comment together.
 jobs:
+  # Whether the change touches anything the Rust jobs read: the crates (their
+  # READMEs are their rustdoc, with doctests), the workspace and toolchain
+  # configuration, the check scripts or the workflows. A pull request that
+  # touches none of it, such as one with documentation only, skips `check`
+  # and `miri`, and a skipped job passes as a required status check. On a pull
+  # request the checkout is the merge commit, whose first parent is the base
+  # branch, so `HEAD^1` to `HEAD` is exactly what the pull request changes. A
+  # push to develop or main runs everything.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          RUST_PATHS: >-
+            ^(crates/|scripts/|\.cargo/|\.config/|\.github/workflows/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|clippy\.toml$|rustfmt\.toml$)
+        run: |
+          if [ "$EVENT" != pull_request ] ||
+            git diff --name-only HEAD^1 HEAD | grep -qE "$RUST_PATHS"; then
+            echo rust=true >>"$GITHUB_OUTPUT"
+          else
+            echo rust=false >>"$GITHUB_OUTPUT"
+          fi
+
+  # `check` and `miri` run unless `changes` succeeded and found nothing for
+  # them, so a failure of `changes` runs them rather than skipping them.
   check:
     name: fmt, clippy, doc, test
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,6 +87,8 @@ jobs:
   # hours under Miri, and the equivalence tests cover every `unsafe` item.
   miri:
     name: miri
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-latest
     env:
       MIRI_TOOLCHAIN: nightly-2026-11-05
