@@ -76,6 +76,10 @@ _Avoid_: Master, server, leader, scheduler
 A long-running process that joins the Render Jobs of its Cluster one at a time. While it is in a Render Job, it holds a replica of the Scene and renders the Work Units assigned to it on its Render Device. Between Render Jobs it holds no Scene. A machine runs one Worker per Render Device: one per NUMA node, plus one per GPU.
 _Avoid_: Node, slave, client, agent, render thread
 
+**Asset Cache**:
+The directory on a Worker's host where Workers keep the assets they have received, each named by its content hash and bounded in size, so that a later Render Job sends a Worker only the assets it lacks. It holds asset bytes, never a Scene.
+_Avoid_: Scene cache, local store, asset store
+
 **Render Device**:
 The hardware one Worker renders on: either all the cores of one NUMA node, or one GPU.
 _Avoid_: Backend, accelerator, compute unit
