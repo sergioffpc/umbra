@@ -139,7 +139,7 @@ get_unwrap = "warn"
 # Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy, taken from
 # `umbra-math`'s C math wrappers: the `std` methods are in `disallowed-methods` in
 # clippy.toml (ADR 0022), which `all` enables. The sibling
-# `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow libm
+# `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow C math
 # call on targets built without FMA.
 imprecise_flops = "warn"
 if_then_some_else_none = "warn"
