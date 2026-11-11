@@ -9,6 +9,7 @@ use crate::vecmath::vector::{Vector3f, coordinate_system, cross, dot};
 /// PBR 4e §3.3.3, pbrt-v4 `Frame`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Frame {
     /// The first axis.
     pub x: Vector3f,
@@ -17,6 +18,20 @@ pub struct Frame {
     /// The third axis.
     pub z: Vector3f,
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<Frame>() == 36,
+        "`Frame` is 36 bytes, with no padding"
+    );
+    assert!(offset_of!(Frame, x) == 0, "`Frame::x` is at byte 0");
+    assert!(offset_of!(Frame, y) == 12, "`Frame::y` is at byte 12");
+    assert!(offset_of!(Frame, z) == 24, "`Frame::z` is at byte 24");
+};
 
 impl Default for Frame {
     /// The standard basis.

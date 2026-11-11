@@ -10,6 +10,7 @@ use crate::vecmath::vector::{Vector2, Vector3};
 /// PBR 4e §3.4, pbrt-v4 `Point2`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Point2<T> {
     /// The x coordinate.
     pub x: T,
@@ -22,6 +23,7 @@ pub struct Point2<T> {
 /// PBR 4e §3.4, pbrt-v4 `Point3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C)]
 pub struct Point3<T> {
     /// The x coordinate.
     pub x: T,
@@ -46,6 +48,26 @@ pub type Point3i = Point3<i32>;
 pub type Point3fi = Point3<Interval>;
 
 impl_tuple2!(Point2);
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<Point2f>() == 8,
+        "`Point2f` is 8 bytes, with no padding"
+    );
+    assert!(offset_of!(Point2f, x) == 0, "`Point2f::x` is at byte 0");
+    assert!(offset_of!(Point2f, y) == 4, "`Point2f::y` is at byte 4");
+    assert!(
+        size_of::<Point3f>() == 12,
+        "`Point3f` is 12 bytes, with no padding"
+    );
+    assert!(offset_of!(Point3f, x) == 0, "`Point3f::x` is at byte 0");
+    assert!(offset_of!(Point3f, y) == 4, "`Point3f::y` is at byte 4");
+    assert!(offset_of!(Point3f, z) == 8, "`Point3f::z` is at byte 8");
+};
+
 impl_tuple3!(Point3);
 // A point plus a vector, or a weighted sum of points, is a point; the
 // difference of two points is a vector.

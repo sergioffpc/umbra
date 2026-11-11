@@ -17,9 +17,19 @@ use crate::vecmath::{Vector2f, Vector3f};
 ///
 /// PBR 4e §B.2.12, pbrt-v4 `SquareMatrix`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct SquareMatrix<const N: usize> {
     m: [[f32; N]; N],
 }
+
+// The host copies arena slices of these into GPU buffers byte for byte
+// (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    assert!(
+        size_of::<SquareMatrix<4>>() == 64,
+        "`SquareMatrix<4>` is 64 bytes, with no padding"
+    );
+};
 
 impl<const N: usize> Default for SquareMatrix<N> {
     /// The identity, as pbrt-v4's default constructor.
