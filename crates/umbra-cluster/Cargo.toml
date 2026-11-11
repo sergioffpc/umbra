@@ -3,7 +3,6 @@ name = "umbra-cluster"
 description = "Coordinator and Worker: wire protocol, scheduling, local Worker, status line, Render Job Report"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

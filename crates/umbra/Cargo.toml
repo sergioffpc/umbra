@@ -3,7 +3,6 @@ name = "umbra"
 description = "A physically based ray tracer inspired by pbrt-v4, written in Rust"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

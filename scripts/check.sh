@@ -2,7 +2,7 @@
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
 # (.github/workflows/ci.yml) runs one group per job; locally, run them all
 # before opening a pull request. The pre-commit hook runs the fast ones on the
-# staged files only. Miri runs in CI only (it needs a nightly toolchain).
+# staged files only. Miri runs in CI only (its own job in ci.yml).
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy, doc, nextest, doctests
@@ -10,6 +10,7 @@
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
 #   readmes  crate READMEs only (part of lint; the pre-commit hook runs it)
+#   features  unstable features outside umbra-kernels (part of lint)
 #
 # The tools are installed by scripts/install-tools.sh. Stops at the first
 # failure.
@@ -53,6 +54,7 @@ lint() {
     step typos
     step cargo shear
     readmes
+    features
     tracked '.githooks/*' '*.sh' -- shellcheck
     step actionlint
     tracked . -- editorconfig-checker
@@ -92,14 +94,25 @@ readmes() {
     [ "$missing" -eq 0 ]
 }
 
+# The toolchain is a nightly, but only `umbra-kernels` enables unstable
+# features (ADR 0027): every other crate builds on stable features alone.
+features() {
+    echo "check: unstable features outside umbra-kernels"
+    if git grep -nE '^[[:space:]]*#!\[feature\(' -- 'crates/*.rs' \
+        ':!crates/umbra-kernels/' >&2; then
+        echo "check: only umbra-kernels may enable #![feature(...)] (ADR 0027)" >&2
+        return 1
+    fi
+}
+
 if [ "$#" -eq 0 ]; then
     set -- rust lint deny
 fi
 for group in "$@"; do
     case "$group" in
-        rust | lint | deny | readmes) "$group" ;;
+        rust | lint | deny | readmes | features) "$group" ;;
         *)
-            echo "check: unknown group '$group'; known: rust lint deny readmes" >&2
+            echo "check: unknown group '$group'; known: rust lint deny readmes features" >&2
             exit 1
             ;;
     esac

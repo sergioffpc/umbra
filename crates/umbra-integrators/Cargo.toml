@@ -3,7 +3,6 @@ name = "umbra-integrators"
 description = "SceneView, the per-Pixel-Sample body of each integrator, the Recorder trait"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
