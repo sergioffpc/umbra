@@ -8,6 +8,10 @@
     clippy::unreadable_literal,
     reason = "pbrt-v4's literals, digit for digit"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "const data, rounded to f32 at compile time: no f64 at run time (ADR 0028)"
+)]
 
 /// The number of 1 nm samples from 360 to 830 nm.
 pub(super) const CIE_SAMPLES: usize = 471;

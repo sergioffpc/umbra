@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+// No `f64` in the core (ADR 0028): `clippy.toml` lists it.
+#![warn(clippy::disallowed_types)]
 
 mod color;
 mod color_space;
@@ -21,6 +23,10 @@ pub use spectrum::{
 
 /// `values` rounded to `f32`, as C++ rounds the `double` literals of
 /// pbrt-v4's `float` tables and constants.
+#[expect(
+    clippy::disallowed_types,
+    reason = "const evaluation only: no f64 at run time (ADR 0028)"
+)]
 const fn narrow_all<const N: usize>(values: [f64; N]) -> [f32; N] {
     let mut out = [0.0; N];
     let mut i = 0;
@@ -35,7 +41,8 @@ const fn narrow_all<const N: usize>(values: [f64; N]) -> [f32; N] {
 /// `double` literal to `float`.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "the rounding C++ applies to pbrt-v4's literals"
+    clippy::disallowed_types,
+    reason = "the rounding C++ applies to pbrt-v4's literals, in const evaluation only (ADR 0028)"
 )]
 const fn narrow(v: f64) -> f32 {
     v as f32

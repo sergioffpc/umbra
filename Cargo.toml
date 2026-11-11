@@ -121,6 +121,10 @@ cargo = { level = "warn", priority = -1 }
 many_single_char_names = "allow"
 # Transitive duplicates are outside our control.
 multiple_crate_versions = "allow"
+# `f64` is banned in the core only (ADR 0028): `clippy.toml` lists it, and the
+# seven core crates turn the lint on in their `lib.rs`. Lint levels cannot
+# differ between crates that inherit `[lints]`, hence the attribute there.
+disallowed_types = "allow"
 # One thing per function: thresholds are set in clippy.toml. `too_many_lines`,
 # `too_many_arguments` and `fn_params_excessive_bools` come from the groups above.
 cognitive_complexity = "warn"

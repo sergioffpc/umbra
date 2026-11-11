@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+// No `f64` in the core (ADR 0028): `clippy.toml` lists it.
+#![warn(clippy::disallowed_types)]
 
 mod hash;
 mod piecewise;

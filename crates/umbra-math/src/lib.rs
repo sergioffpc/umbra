@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+// No `f64` in the core (ADR 0028): `clippy.toml` lists it.
+#![warn(clippy::disallowed_types)]
 
 // The x86-64 CPU baseline (ADR 0023): every target machine has FMA, and the
 // kernels use it, SSE4.1 and AVX2 unconditionally. Without them the build
@@ -19,14 +21,17 @@ compile_error!(concat!(
     "build with `-C target-cpu=x86-64-v3`, or `target-cpu=native` on a CPU that has it"
 ));
 
-// The one supported architecture (ADR 0023): the target machines are x86-64,
-// and the SIMD facade and the scalar primitives have a backend for it only. A
-// GPU port adds its own (ADR 0024).
-#[cfg(not(target_arch = "x86_64"))]
-compile_error!("umbra-math supports x86-64 (x86-64-v3) only (ADR 0023)");
+// The two supported architectures: the CPUs of the target machines are
+// x86-64 (ADR 0023) and their GPUs run the core as `nvptx64` (ADR 0028). The
+// SIMD facade, the scalar primitives and the transcendentals have a backend
+// for each and no fallback.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "nvptx64")))]
+compile_error!("umbra-math supports x86-64 (x86-64-v3) and nvptx64 only (ADR 0023, ADR 0028)");
 
 mod float;
 mod interval;
+#[cfg(target_arch = "nvptx64")]
+mod libdevice;
 mod math;
 mod simd;
 mod square_matrix;
