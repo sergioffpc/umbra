@@ -25,6 +25,7 @@ compile_error!(concat!(
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("umbra-math supports x86-64 (x86-64-v3) only (ADR 0023)");
 
+pub mod cmath;
 mod float;
 mod interval;
 mod math;
