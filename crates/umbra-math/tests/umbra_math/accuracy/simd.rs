@@ -51,13 +51,21 @@ fn exp_within_bound_exhaustive() {
 }
 
 /// The reference `xᵉ`. A signalling NaN exponent gives a NaN even for
-/// `x = 1`, as in glibc's `powf` (IEEE 754-2019 §9.2.1); widening it to
-/// `f64` would quieten it, and `pow(1, NaN)` is 1, so it is handled first.
+/// `x = 1`, as in glibc's `powf` (IEEE 754-2019 §9.2.1), where
+/// `pow(1, NaN)` is 1, so it is handled first. Otherwise both arguments
+/// reach `pow` quiet: whether widening keeps a NaN signalling differs between
+/// the hardware (it quietens) and Miri, and `pow(sNaN, 0)` is a NaN where
+/// `pow(NaN, 0)` is 1.
 fn pow_reference(x: f32, e: f32) -> f32 {
     if is_signalling(e) {
         return f32::NAN;
     }
-    narrow(cmath::pow(f64::from(x), f64::from(e)))
+    narrow(cmath::pow(widen_quiet(x), widen_quiet(e)))
+}
+
+/// `v` as an `f64`, a quiet NaN for any NaN.
+fn widen_quiet(v: f32) -> f64 {
+    if v.is_nan() { f64::NAN } else { f64::from(v) }
 }
 
 /// Whether `v` is a signalling NaN: a NaN whose quiet bit is clear.
