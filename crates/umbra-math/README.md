@@ -468,10 +468,21 @@ Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
 the local CPU. The `unsafe` backends run under Miri in CI (ADR 0007), with
 `libm` in software (Miri cannot run its inline assembly) and without the
-pbrt-v4 ports (too slow interpreted). Miri runs on the pinned toolchain once
-`rustup component add miri rust-src` has added it:
+pbrt-v4 ports (too slow interpreted). Miri calls glibc's scalar math
+natively, through `-Zmiri-native-lib=/lib/x86_64-linux-gnu/libm.so.6`, and
+AddressSanitizer runs the tests that call glibc, where Miri cannot see. The
+`miri` and `asan` groups of `scripts/check.sh` hold the exact commands; Miri
+runs on the pinned toolchain once `rustup component add miri rust-src` has
+added it:
 
 ```sh
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo miri nextest run -p umbra-math \
-  --all-features --features libm/force-soft-floats -E 'not test(/^pbrt_v4::/)'
+scripts/check.sh miri asan
+```
+
+CI runs these tests in the `ci` stage of the repository's `Dockerfile`, on
+the glibc the release image ships, so the oracles and the bits they check are
+the release's. To run them in that same image (Docker or Podman):
+
+```sh
+scripts/in-ci-image.sh scripts/check.sh rust miri asan
 ```

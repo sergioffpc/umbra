@@ -25,9 +25,9 @@ Open pull requests against `develop`. A `release/X.Y.Z` or `hotfix/X.Y.Z`
 branch gets two pull requests, one into `main` and one into `develop`. Repository rulesets block merges into `develop` and `main` unless
 every CI job in [`ci.yml`](.github/workflows/ci.yml) passes and CodeQL code
 scanning reports no open alert on the pull request. A pull request that
-touches no crate, workspace or toolchain configuration, check script or
-workflow, such as one with documentation only, skips the Rust and Miri jobs
-and runs only `lint` and `cargo deny`.
+touches no crate, workspace or toolchain configuration, check script, CI
+image or workflow, such as one with documentation only, skips the Rust, Miri
+and AddressSanitizer jobs and runs only `lint` and `cargo deny`.
 
 ## Commit messages
 
@@ -167,7 +167,7 @@ repository ships its workspace configuration in [`.vscode/`](.vscode):
 - `tasks.json`: builds for every profile (`Ctrl/Cmd+Shift+B` is the dev
   build), tests with nextest, an HTML coverage report, and one `check:` task
   per group of [`scripts/check.sh`](scripts/check.sh). `check: all` runs
-  everything CI runs but Miri.
+  everything CI runs but Miri and AddressSanitizer.
 - `launch.json`: CodeLLDB configurations for the binary (dev, `profiling` and
   `checked` profiles), `umbra render` and `umbra worker` alone or together in
   a `debug` Cluster, attaching to a running `umbra`, the binary's unit tests,
@@ -320,13 +320,30 @@ Run the checks CI runs:
 ```sh
 scripts/check.sh            # everything: rust, lint and deny
 scripts/check.sh rust       # or one group: fmt, clippy, doc, tests
+scripts/check.sh miri asan  # umbra-math under Miri and AddressSanitizer
 ```
 
 [`scripts/check.sh`](scripts/check.sh) is the one list of these checks: each
-CI job runs one of its groups. Only Miri runs in CI alone; to run it locally,
-add it to the pinned toolchain with `rustup component add miri rust-src` and
-use the command in the `miri` job of
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI job runs one of its groups. `miri` and `asan` are not in the default run
+(Miri takes minutes); `miri` needs the `miri` and `rust-src` components, added
+to the pinned toolchain with `rustup component add miri rust-src`.
+
+CI runs the Rust groups (`rust`, `miri`, `asan`) in the `ci` stage of the
+[`Dockerfile`](Dockerfile): the Ubuntu digest and toolchain the release image
+is built with, so the tests, oracles and hashes see the glibc the release
+ships, not the runner's. To run a group in that same image (Docker or
+Podman):
+
+```sh
+scripts/in-ci-image.sh scripts/check.sh rust
+scripts/in-ci-image.sh scripts/check.sh miri asan
+```
+
+[`scripts/in-ci-image.sh`](scripts/in-ci-image.sh) builds the image, mounts
+the checkout at `/src` and keeps the image's target directory and cargo
+registry in Docker volumes. Run it from a clone, not a git worktree, whose
+`.git` points outside the mount. The dev container is on the same Ubuntu
+release but not the same digest, so a glibc point release can still differ.
 
 Then:
 

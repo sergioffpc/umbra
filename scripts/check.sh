@@ -2,10 +2,15 @@
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
 # (.github/workflows/ci.yml) runs one group per job; locally, run them all
 # before opening a pull request. The pre-commit hook runs the fast ones on the
-# staged files only. Miri runs in CI only (its own job in ci.yml).
+# staged files only. CI runs the Rust groups in the `ci` stage of the
+# Dockerfile, on the glibc the release ships; scripts/in-ci-image.sh runs them
+# there locally too.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy, doc, nextest, doctests
+#   miri  umbra-math's tests under Miri, calling glibc's libm natively (slow;
+#         not in the default run)
+#   asan  umbra-math's tests under AddressSanitizer (not in the default run)
 #   lint  typos, unused dependencies, crate READMEs, shell, workflows,
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
@@ -48,6 +53,30 @@ rust() {
     step cargo nextest run --all-features --locked --profile ci
     # nextest does not run doctests.
     step cargo test --doc --all-features --locked
+}
+
+# The `unsafe` code of `umbra-math` under Miri (ADR 0007), with the
+# `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set. Miri runs
+# the FFI calls to glibc's scalar math in the native libm.so.6. It cannot run
+# the inline assembly `libm` uses for its runtime CPU check, so `libm` is
+# built with `force-soft-floats` (the same, correctly rounded bits). The
+# pbrt-v4 test ports are left out: their long loops take hours under Miri, and
+# the equivalence tests cover every `unsafe` item. Needs the `miri` and
+# `rust-src` components.
+miri() {
+    step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3}" \
+        MIRIFLAGS="-Zmiri-native-lib=/lib/x86_64-linux-gnu/libm.so.6" \
+        cargo miri nextest run -p umbra-math --all-features \
+        --features libm/force-soft-floats --locked -E 'not test(/^pbrt_v4::/)'
+}
+
+# The tests of `umbra-math`, which call glibc, under AddressSanitizer, which
+# sees inside glibc where Miri cannot (ADR 0007). The explicit `--target`
+# keeps build scripts and proc macros uninstrumented.
+asan() {
+    step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3} -Zsanitizer=address" \
+        cargo nextest run -p umbra-math --all-features --locked \
+        --target x86_64-unknown-linux-gnu --profile ci
 }
 
 lint() {
@@ -110,9 +139,9 @@ if [ "$#" -eq 0 ]; then
 fi
 for group in "$@"; do
     case "$group" in
-        rust | lint | deny | readmes | unstable) "$group" ;;
+        rust | miri | asan | lint | deny | readmes | unstable) "$group" ;;
         *)
-            echo "check: unknown group '$group'; known: rust lint deny readmes unstable" >&2
+            echo "check: unknown group '$group'; known: rust miri asan lint deny readmes unstable" >&2
             exit 1
             ;;
     esac
