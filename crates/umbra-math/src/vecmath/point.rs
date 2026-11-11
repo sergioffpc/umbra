@@ -47,7 +47,6 @@ pub type Point3i = Point3<i32>;
 /// PBR 4e §6.8.4, pbrt-v4 `Point3fi`.
 pub type Point3fi = Point3<Interval>;
 
-impl_tuple2!(Point2);
 // The host copies arena slices of these into GPU buffers byte for byte
 // (ADR 0028, arc42 §8.12): their layout is the same on `x86_64` and `nvptx64`.
 const _: () = {
@@ -68,6 +67,7 @@ const _: () = {
     assert!(offset_of!(Point3f, z) == 8, "`Point3f::z` is at byte 8");
 };
 
+impl_tuple2!(Point2);
 impl_tuple3!(Point3);
 // A point plus a vector, or a weighted sum of points, is a point; the
 // difference of two points is a vector.
