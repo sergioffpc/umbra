@@ -1,7 +1,7 @@
 //! The optimised kernels against their safe references, side by side
 //! (arc42 §8.4, ADR 0007): every bench is generic over [`Kernels`], run once
 //! for [`Reference`] (`tests/umbra_math/reference/`, pbrt-v4's scalar code
-//! over `libm`) and once for [`Optimised`] (the crate's public interface).
+//! over glibc) and once for [`Optimised`] (the crate's public interface).
 //!
 //! Each iteration runs a kernel over a batch of inputs of the magnitudes a
 //! renderer meets, generated once with the PCG32 of the tests; the
@@ -67,7 +67,7 @@ trait Kernels {
 }
 
 /// The safe references of `tests/umbra_math/reference/`: pbrt-v4's scalar
-/// code over `libm`.
+/// code over glibc.
 struct Reference;
 
 /// The crate's public interface: the optimised kernels.

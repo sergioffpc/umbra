@@ -8,6 +8,19 @@
 //! it. A test checks its hash on every CI target.
 
 mod cie_5nm;
+// glibc's C math through `umbra-math`'s own wrappers (ADR 0007),
+// compiled here from their source rather than taken from the crate: a
+// build-dependency on `umbra-math` would need its x86-64-v3 baseline on the
+// host, and builds with `--target` (the `asan` group of `scripts/check.sh`)
+// compile build scripts without RUSTFLAGS. The file depends on `core` only.
+// The script calls `cbrt` alone, and the wrappers are `pub` for the crate.
+#[path = "../../umbra-math/src/platform/x86_64.rs"]
+#[expect(
+    dead_code,
+    unreachable_pub,
+    reason = "the wrappers of umbra-math's public interface, of which the script calls one"
+)]
+mod glibc;
 mod rgb2spec;
 
 use std::env;
@@ -33,6 +46,7 @@ fn to_le_bytes(table: &Table) -> Vec<u8> {
 )]
 fn main() {
     println!("cargo::rerun-if-changed=build");
+    println!("cargo::rerun-if-changed=../umbra-math/src/platform/x86_64.rs");
 
     let srgb = Gamut {
         illuminant: CIE_D65.map(|v| v / CIE_D65_NORMALIZATION),

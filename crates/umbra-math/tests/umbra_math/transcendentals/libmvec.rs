@@ -1,7 +1,7 @@
-//! glibc's transcendentals, through FFI: the scalar functions of `libm.so`
-//! and the vector variants of `libmvec`, 4 lanes for SSE (`_ZGVbN4…`) and
-//! 8 for AVX2 (`_ZGVdN8…`). Only on `linux-gnu`, and never under Miri,
-//! which cannot call foreign code.
+//! glibc's vector transcendentals, through FFI: the variants of `libmvec`,
+//! 4 lanes for SSE (`_ZGVbN4…`) and 8 for AVX2 (`_ZGVdN8…`). Only on
+//! `linux-gnu`, and never under Miri, which cannot pass `__m128` arguments.
+//! glibc's scalar functions come through `umbra_math`'s wrappers instead.
 //!
 //! The `unsafe` follows ADR 0007: one FFI call or one lane conversion per
 //! function, each under its own `#[expect(unsafe_code)]`. The safe wrappers
@@ -13,19 +13,6 @@ use core::mem::transmute;
 use umbra_math::Vec4;
 
 use super::{Transcendentals, map, map_pair, map_vec4, map2};
-
-#[link(name = "m")]
-#[expect(
-    unsafe_code,
-    reason = "glibc's scalar functions, for the benchmark (ADR 0007)"
-)]
-unsafe extern "C" {
-    fn sincosf(x: f32, sin: *mut f32, cos: *mut f32);
-    fn atan2f(y: f32, x: f32) -> f32;
-    fn erff(x: f32) -> f32;
-    fn expf(x: f32) -> f32;
-    fn powf(x: f32, y: f32) -> f32;
-}
 
 // The vector functions are declared without their signatures: SIMD types in
 // an `extern` block need the unstable `simd_ffi` (ADR 0027 keeps unstable
@@ -90,11 +77,6 @@ libmvec!(erf_8 = _ZGVdN8v_erff(x): [f32; 8] as __m256, to_m256, from_m256);
 libmvec!(exp_8 = _ZGVdN8v_expf(x): [f32; 8] as __m256, to_m256, from_m256);
 libmvec!(pow_8 = _ZGVdN8vv_powf(x, y): [f32; 8] as __m256, to_m256, from_m256);
 
-/// glibc's scalar `libm.so`, one call per element (per lane for `Vec4`):
-/// `sincosf`, `atan2f`, `erff`, `expf`, `powf`.
-#[derive(Debug)]
-pub(crate) struct GlibcScalar;
-
 /// glibc's `libmvec` for SSE, four lanes per call: `sinf` and `cosf`
 /// (`sincosf`'s vector variant writes through vectors of pointers),
 /// `atan2f`, `erff`, `expf`, `powf`.
@@ -104,27 +86,6 @@ pub(crate) struct Libmvec4;
 /// glibc's `libmvec` for AVX2, eight lanes per call, so two `Vec4`s.
 #[derive(Debug)]
 pub(crate) struct Libmvec8;
-
-impl Transcendentals for GlibcScalar {
-    fn sin_cos(x: &[f32], sin: &mut [f32], cos: &mut [f32]) {
-        map_pair(x, sin, cos, |[x]| {
-            let (s, c) = sin_cos(x);
-            ([s], [c])
-        });
-    }
-    fn atan2(y: &[f32], x: &[f32], out: &mut [f32]) {
-        map2(y, x, out, |[y], [x]| [atan2(y, x)]);
-    }
-    fn erf(x: &[f32], out: &mut [f32]) {
-        map(x, out, |[x]| [erf(x)]);
-    }
-    fn exp4(v: &[Vec4], out: &mut [Vec4]) {
-        map_vec4(v, out, |[v]| [Vec4::from(v.to_array().map(exp))]);
-    }
-    fn pow4(v: &[Vec4], e: f32, out: &mut [Vec4]) {
-        map_vec4(v, out, |[v]| [Vec4::from(v.to_array().map(|x| pow(x, e)))]);
-    }
-}
 
 impl Transcendentals for Libmvec4 {
     fn sin_cos(x: &[f32], sin: &mut [f32], cos: &mut [f32]) {
@@ -197,52 +158,4 @@ fn to_m256(x: [f32; 8]) -> __m256 {
 fn from_m256(x: __m256) -> [f32; 8] {
     // SAFETY: as in `to_m256`, the other way round.
     unsafe { transmute::<__m256, [f32; 8]>(x) }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "a call into glibc, for the benchmark (ADR 0007)"
-)]
-fn sin_cos(x: f32) -> (f32, f32) {
-    let (mut s, mut c) = (0.0, 0.0);
-    // SAFETY: `sincosf` writes one `f32` through each pointer, and both
-    // point to live locals of this frame.
-    unsafe { sincosf(x, &raw mut s, &raw mut c) };
-    (s, c)
-}
-
-#[expect(
-    unsafe_code,
-    reason = "a call into glibc, for the benchmark (ADR 0007)"
-)]
-fn atan2(y: f32, x: f32) -> f32 {
-    // SAFETY: `atan2f` is a pure function of its arguments.
-    unsafe { atan2f(y, x) }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "a call into glibc, for the benchmark (ADR 0007)"
-)]
-fn erf(x: f32) -> f32 {
-    // SAFETY: `erff` is a pure function of its argument.
-    unsafe { erff(x) }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "a call into glibc, for the benchmark (ADR 0007)"
-)]
-fn exp(x: f32) -> f32 {
-    // SAFETY: `expf` is a pure function of its argument.
-    unsafe { expf(x) }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "a call into glibc, for the benchmark (ADR 0007)"
-)]
-fn pow(x: f32, y: f32) -> f32 {
-    // SAFETY: `powf` is a pure function of its arguments.
-    unsafe { powf(x, y) }
 }

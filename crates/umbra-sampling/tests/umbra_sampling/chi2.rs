@@ -7,6 +7,8 @@
 
 use core::ops::Range;
 
+use umbra_math::double;
+
 /// The significance level of the suite as a whole.
 const SIGNIFICANCE: f64 = 0.01;
 /// The number of χ² tests in the suite, for the Šidák correction.
@@ -182,7 +184,7 @@ pub(crate) fn assert_chi2_counts(what: &str, observed: &[f64], expected: &[f64])
     assert!(dof > 0, "{what}: too few cells for a χ² test");
 
     let p_value = 1.0 - regularized_gamma_p(f64::from(dof) / 2.0, chi2 / 2.0);
-    let alpha = 1.0 - libm::pow(1.0 - SIGNIFICANCE, 1.0 / f64::from(TEST_COUNT));
+    let alpha = 1.0 - double::pow(1.0 - SIGNIFICANCE, 1.0 / f64::from(TEST_COUNT));
     assert!(
         p_value >= alpha,
         "{what}: χ² = {chi2:.1} with {dof} degrees of freedom, p = {p_value:e} < {alpha:e}"
@@ -195,7 +197,7 @@ fn regularized_gamma_p(a: f64, x: f64) -> f64 {
     if x <= 0.0 {
         return 0.0;
     }
-    let prefactor = libm::exp(a * libm::log(x) - x - libm::lgamma(a));
+    let prefactor = double::exp(a * double::log(x) - x - double::lgamma(a));
     if x < a + 1.0 {
         prefactor * gamma_series(a, x)
     } else {

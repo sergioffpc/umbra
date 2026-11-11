@@ -9,3 +9,10 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [profile.ci]
 fail-fast = false
 failure-output = "immediate-final"
+
+# Miri (`scripts/check.sh miri`): interpreted tests are one to two orders of
+# magnitude slower, and the longest equivalence tests take over 3 min on
+# 64 cores and past 5 min on a 4-core CI runner. Kill a test after 20 min.
+[profile.miri]
+slow-timeout = { period = "120s", terminate-after = 10 }
+fail-fast = false

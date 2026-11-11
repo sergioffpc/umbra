@@ -11,6 +11,7 @@
 
 use core::f64::consts::PI;
 
+use umbra_math::double;
 use umbra_math::{Point2f, Point3f, Vector3f};
 use umbra_sampling::{
     PiecewiseConstant1D, PiecewiseConstant2D, Rng, bilinear_pdf, cosine_hemisphere_pdf,
@@ -25,8 +26,17 @@ use umbra_sampling::{
 use crate::chi2::{Grid, assert_chi2, assert_chi2_counts, integrate, integrate_2d};
 use crate::generators::{uniform_1d, uniform_2d};
 
-/// Samples per χ² test.
-const SAMPLE_COUNT: usize = 1 << 20;
+// Miri interprets every sample, so it runs on fewer: enough to reach every C
+// math call the tests make, which is what it checks (ADR 0007).
+
+/// Samples per χ² test; under Miri, still 16 per cell of the largest grid.
+const SAMPLE_COUNT: usize = if cfg!(miri) { 1 << 12 } else { 1 << 20 };
+/// Points per agreement check of a warp with its PDF.
+const INTERIOR_POINT_COUNT: usize = if cfg!(miri) { 100 } else { 1000 };
+/// Sub-intervals per axis of the integral of a direction PDF over `(θ, φ)`;
+/// under Miri, few enough to be quick that still integrate every one to 1
+/// within 1e-5.
+const NORMALISATION_INTERVALS: u32 = if cfg!(miri) { 24 } else { 64 };
 /// The step of the central differences that estimate a warp's Jacobian.
 const H: f32 = 1e-3;
 /// How far `pdf(T(u)) · |det ∂T/∂u|` may be from 1: the finite differences
@@ -36,7 +46,8 @@ const AGREEMENT_TOLERANCE: f64 = 2e-3;
 /// `u` drawn from sequence `sequence_index`, squeezed into `[0.05, 0.95]²`
 /// so that the finite differences stay away from the edges of the domain.
 fn interior_points(sequence_index: u64) -> impl Iterator<Item = Point2f> {
-    uniform_2d(1000, sequence_index).map(|u| Point2f::new(0.05 + 0.9 * u.x, 0.05 + 0.9 * u.y))
+    uniform_2d(INTERIOR_POINT_COUNT, sequence_index)
+        .map(|u| Point2f::new(0.05 + 0.9 * u.x, 0.05 + 0.9 * u.y))
 }
 
 /// Whether `u` is within a finite-difference step of a seam of the
@@ -95,19 +106,19 @@ fn assert_normalised(what: &str, integral: f64, tolerance: f64) {
 /// The polar angle and azimuth of the direction `w`, φ in `[0, 2π)`.
 fn theta_phi(w: Vector3f) -> [f64; 2] {
     let [x, y, z] = f64x3(w);
-    let phi = libm::atan2(y, x);
-    let theta = libm::acos(z.clamp(-1.0, 1.0));
+    let phi = double::atan2(y, x);
+    let theta = double::acos(z.clamp(-1.0, 1.0));
     [theta, if phi < 0.0 { phi + 2.0 * PI } else { phi }]
 }
 
 /// The direction with polar angle `theta` and azimuth `phi`, in `f32`.
 #[expect(clippy::cast_possible_truncation, reason = "the PDFs take f32")]
 fn direction(theta: f64, phi: f64) -> Vector3f {
-    let s = libm::sin(theta);
+    let s = double::sin(theta);
     Vector3f::new(
-        (s * libm::cos(phi)) as f32,
-        (s * libm::sin(phi)) as f32,
-        libm::cos(theta) as f32,
+        (s * double::cos(phi)) as f32,
+        (s * double::sin(phi)) as f32,
+        double::cos(theta) as f32,
     )
 }
 
@@ -123,7 +134,7 @@ struct DirectionWarp<W, P> {
 impl<W: Fn(Point2f) -> Vector3f, P: Fn(Vector3f) -> f32> DirectionWarp<W, P> {
     /// The PDF with respect to `(θ, φ)`.
     fn pdf_theta_phi(&self, theta: f64, phi: f64) -> f64 {
-        f64::from((self.pdf)(direction(theta, phi))) * libm::sin(theta)
+        f64::from((self.pdf)(direction(theta, phi))) * double::sin(theta)
     }
 
     /// χ² over a 10 × 20 grid of `[0, θmax] × [0, 2π)`.
@@ -155,7 +166,7 @@ impl<W: Fn(Point2f) -> Vector3f, P: Fn(Vector3f) -> f32> DirectionWarp<W, P> {
             |t, p| self.pdf_theta_phi(t, p),
             &(0.0..self.theta_max),
             &(0.0..2.0 * PI),
-            64,
+            NORMALISATION_INTERVALS,
         );
         assert_normalised(self.name, integral, 1e-5);
     }
@@ -214,7 +225,7 @@ fn uniform_cone() {
             name: "uniform cone",
             sample: |u| sample_uniform_cone(u, cos_theta_max),
             pdf: |_| uniform_cone_pdf(cos_theta_max),
-            theta_max: libm::acos(f64::from(cos_theta_max)),
+            theta_max: double::acos(f64::from(cos_theta_max)),
         }
         .assert_all(sequence_index, |_| false);
     }
@@ -253,9 +264,9 @@ fn henyey_greenstein_phase() {
 fn assert_uniform_disk(name: &str, sample: impl Fn(Point2f) -> Point2f, sequence_index: u64) {
     let polar = |p: Point2f| {
         let (x, y) = (f64::from(p.x), f64::from(p.y));
-        let phi = libm::atan2(y, x);
+        let phi = double::atan2(y, x);
         [
-            libm::hypot(x, y),
+            double::hypot(x, y),
             if phi < 0.0 { phi + 2.0 * PI } else { phi },
         ]
     };
@@ -361,7 +372,7 @@ impl SphericalTriangleCase {
         let n = cross3(f64x3(v[1] - v[0]), f64x3(v[2] - v[0]));
         let [a, b, c] = v.map(|vi| unit(f64x3(vi - p)));
         let solid_angle = (2.0
-            * libm::atan2(
+            * double::atan2(
                 dot3(a, cross3(b, c)),
                 1.0 + dot3(a, b) + dot3(a, c) + dot3(b, c),
             ))

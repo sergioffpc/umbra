@@ -15,9 +15,9 @@ mod spectrum_test;
 /// Asserts that each of `actual` is within `max_ulps` of the float whose
 /// bits are the matching entry of `expected`.
 ///
-/// pbrt-v4's values come from the platform libm, Umbra's from the `libm`
-/// crate (ADR 0022), so a result computed through a transcendental can
-/// differ in its last bits; arithmetic alone is compared with `max_ulps` 0.
+/// pbrt-v4's values come from the libm it was built with, Umbra's from its
+/// own kernels or glibc (ADR 0022), so a result computed through a
+/// transcendental can differ in its last bits; arithmetic alone is compared with `max_ulps` 0.
 #[track_caller]
 pub(crate) fn assert_ulps<const N: usize>(
     actual: [f32; N],

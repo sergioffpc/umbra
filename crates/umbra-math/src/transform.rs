@@ -14,6 +14,7 @@ use core::ops::Mul;
 use crate::Vec4;
 use crate::math::radians;
 use crate::square_matrix::SquareMatrix;
+use crate::tanf;
 use crate::transcendental::sin_cos;
 use crate::vecmath::{Frame, Normal3f, Point3f, Point3fi, Vector3f, Vector3fi, cross, dot};
 
@@ -487,6 +488,6 @@ pub fn perspective(fov: f32, n: f32, f: f32) -> Transform {
         [0.0, 0.0, f / (f - n), -f * n / (f - n)],
         [0.0, 0.0, 1.0, 0.0],
     ]);
-    let inv_tan_ang = 1.0 / libm::tanf(radians(fov) / 2.0);
+    let inv_tan_ang = 1.0 / tanf(radians(fov) / 2.0);
     scale(inv_tan_ang, inv_tan_ang, 1.0) * Transform::from(persp)
 }

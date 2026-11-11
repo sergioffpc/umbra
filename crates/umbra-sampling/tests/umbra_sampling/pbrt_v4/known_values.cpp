@@ -25,8 +25,8 @@
 //
 // `-ffp-contract=off` keeps the compiler from fusing multiplies and adds,
 // which Umbra never does implicitly (ADR 0002). Transcendentals come from the
-// platform libm (glibc), not Umbra's `libm` crate, so values computed through
-// them can differ in the last bits; the tests say how many ulps they allow.
+// platform libm (glibc), not Umbra's own kernels or the glibc of its image,
+// so values computed through them can differ in the last bits; the tests say how many ulps they allow.
 
 #include <pbrt/util/hash.h>
 #include <pbrt/util/rng.h>

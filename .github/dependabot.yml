@@ -12,8 +12,9 @@ updates:
     commit-message:
       prefix: build
       include: scope
+  # The workflows and the composite actions under .github/actions/.
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/*"]
     target-branch: develop
     schedule:
       interval: weekly
@@ -23,8 +24,8 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: ci
-  # Release image: the Ubuntu base digest in the root Dockerfile. The Chisel
-  # version and checksums there are bumped by hand.
+  # Release and CI image: the Ubuntu base digest in the root Dockerfile. The
+  # Chisel version and checksums there are bumped by hand.
   - package-ecosystem: docker
     directory: /
     target-branch: develop
