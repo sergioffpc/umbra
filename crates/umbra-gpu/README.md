@@ -102,5 +102,7 @@ thread that created them.
 `tests/umbra_gpu/optix.rs` traces fixed rays through OptiX: against the
 triangle, whose hits are worked by hand, and against the sphere, a few
 chosen rays and a fan of 1024, each compared with the core's
-`Sphere::intersect` on the CPU. They need a GPU, so they are `#[ignore]`d;
-`scripts/gpu-test` runs them on the P620.
+`Sphere::intersect` on the CPU. They need a GPU, so they are the test binary
+`gpu`, which is their label: nextest's `default` and `ci` profiles leave out
+every binary of that name, and `cargo nextest run --profile gpu` runs them
+alone, on the P620 (`.config/nextest.toml`).

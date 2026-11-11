@@ -4,6 +4,18 @@
 [profile.default]
 # Render tests can be slow: report a test after 60 s, kill it after 5 min.
 slow-timeout = { period = "60s", terminate-after = 5 }
+# The GPU tests are every test binary named `gpu` (`tests/gpu/main.rs` of a
+# crate): they need an NVIDIA GPU, which CI does not have, so every profile
+# that inherits from this one leaves them out. The `gpu` profile runs them.
+default-filter = "not binary(=gpu)"
+
+# The GPU tests alone, on the P620 (ADR 0026), each milestone's validation
+# issue among others: `cargo nextest run --profile gpu`. They need an NVIDIA
+# driver for OptiX 9.0, and the kernels need CUDA's `libdevice.10.bc` to run
+# (`umbra-gpu`'s README); the dev container has both on the P620.
+[profile.gpu]
+default-filter = "binary(=gpu)"
+fail-fast = false
 
 # CI: run every test even after a failure and repeat failures at the end.
 [profile.ci]

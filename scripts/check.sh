@@ -7,8 +7,8 @@
 # too.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
-#   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests; the GPU
-#         tests, which need a GPU, are scripts/gpu-test's
+#   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests; not the
+#         GPU tests, which need a GPU: `cargo nextest run --profile gpu`
 #   miri  the tests that call glibc's libm (umbra-math, umbra-sampling,
 #         umbra-spectrum) under Miri, calling it natively (slow; not in the
 #         default run)
@@ -111,7 +111,7 @@ lint() {
     step cargo shear
     readmes
     unstable
-    tracked '.githooks/*' '*.sh' scripts/gpu-test -- shellcheck
+    tracked '.githooks/*' '*.sh' -- shellcheck
     step actionlint
     tracked . -- editorconfig-checker
     tracked '*.json' '*.yml' '*.yaml' '*.md' -- prettier --check

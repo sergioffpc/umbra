@@ -22,7 +22,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA's libdevice.10.bc, the one file of CUDA that building the GPU kernels
-# to run needs (umbra-gpu's build.rs, scripts/gpu-test): NVIDIA's C math in
+# to run needs (umbra-gpu's build.rs, the GPU tests): NVIDIA's C math in
 # LLVM bitcode. It is taken from NVIDIA's nvidia-cuda-nvcc-cu12 wheel on PyPI,
 # checked against the SHA-256 PyPI publishes, instead of installing the CUDA
 # toolkit, and goes where the build script looks by default. The driver and

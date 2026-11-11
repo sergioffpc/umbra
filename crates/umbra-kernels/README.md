@@ -79,5 +79,5 @@ launch, and the host sees a CUDA error.
 ## Tests
 
 None run on the host. `umbra-gpu`'s tests run these programs on the P620
-(`scripts/gpu-test`), and `scripts/check.sh` builds the crate for `nvptx64`
+(`cargo nextest run --profile gpu`), and `scripts/check.sh` builds the crate for `nvptx64`
 and runs clippy on it.

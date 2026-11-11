@@ -14,12 +14,12 @@
 //! `cvt.rmi.f32.f32` and [`ceil`] `cvt.rpi.f32.f32`. `libdevice` picks the
 //! `.ftz` variants when `__nvvm_reflect("__CUDA_FTZ")` is 1; LLVM's
 //! `NVVMReflect` pass makes it 0 unless the module sets `nvvm-reflect-ftz`,
-//! which Umbra's build does not, so subnormals are kept; the GPU test script
+//! which Umbra's build does not, so subnormals are kept; the GPU tests
 //! checks it on subnormal inputs (#146).
 //!
 //! The transcendentals carry the maximum errors of the CUDA Math API, in
 //! ULPs of the correctly rounded result over the whole range, which the GPU
-//! test script checks against glibc (#126, #146). Internally they use
+//! tests check against glibc (#126, #146). Internally they use
 //! approximate instructions that flush subnormals to zero (`ex2.approx.ftz`,
 //! `rcp.approx.ftz`, found by the spike of #142): a result in the subnormal
 //! range may come back as zero. The GPU promises statistical equality only

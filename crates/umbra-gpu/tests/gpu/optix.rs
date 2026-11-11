@@ -39,7 +39,6 @@ fn close(a: f32, b: f32) -> bool {
 }
 
 #[test]
-#[ignore = "needs an NVIDIA GPU with OptiX 9.0: run by scripts/gpu-test"]
 fn rays_hit_the_triangle_where_its_plane_is() {
     let tracer = tracer();
     // Every direction has `d.z = ±1`, so a hit on the plane `z = 5` is at
@@ -73,7 +72,6 @@ fn rays_hit_the_triangle_where_its_plane_is() {
 }
 
 #[test]
-#[ignore = "needs an NVIDIA GPU with OptiX 9.0: run by scripts/gpu-test"]
 fn rays_hit_the_sphere_where_the_core_says() {
     let tracer = tracer();
     let sphere = sphere();

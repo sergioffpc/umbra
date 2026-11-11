@@ -74,4 +74,4 @@ its radius and tail padding. `Ray` is a per-sample value and keeps
 `Sphere::bounds` on worked examples: a hit on the near side, a miss, a ray
 from inside, a `t_max` that stops short, and a moved and a rotated sphere.
 The GPU's intersection is checked against `Sphere::intersect` by
-`umbra-gpu`'s tests, on the P620 (`scripts/gpu-test`).
+`umbra-gpu`'s GPU tests, on the P620 (`cargo nextest run --profile gpu`).
