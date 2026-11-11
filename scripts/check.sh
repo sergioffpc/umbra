@@ -7,7 +7,8 @@
 # too.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
-#   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests
+#   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests; the GPU
+#         tests, which need a GPU, are scripts/gpu-test's
 #   miri  the tests that call glibc's libm (umbra-math, umbra-sampling,
 #         umbra-spectrum) under Miri, calling it natively (slow; not in the
 #         default run)
@@ -51,11 +52,13 @@ tracked() {
 rust() {
     step cargo fmt --all -- --check
     step cargo clippy --all-targets --all-features --locked -- -D warnings
-    # umbra-math's nvptx64 backend (ADR 0028), which no CI runner can run:
-    # it must build and pass clippy. RUSTFLAGS drops the x86-64 CPU that CI
-    # sets, which the GPU target does not have.
-    step env RUSTFLAGS="-D warnings" cargo clippy -p umbra-math \
-        --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
+    # The GPU's code (ADR 0028), which no CI runner can run: umbra-math's
+    # nvptx64 backend, umbra-geometry and umbra-kernels must build and pass
+    # clippy for the GPU. The build of umbra-gpu above already compiled the
+    # kernels to PTX, which checks that no core crate pulls `std`. RUSTFLAGS
+    # drops the x86-64 CPU that CI sets, which the GPU target does not have.
+    step env RUSTFLAGS="-D warnings" cargo clippy -p umbra-math -p umbra-geometry \
+        -p umbra-kernels --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
     step env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
     step cargo nextest run --all-features --locked --profile ci
     # nextest does not run doctests.
@@ -108,7 +111,7 @@ lint() {
     step cargo shear
     readmes
     unstable
-    tracked '.githooks/*' '*.sh' -- shellcheck
+    tracked '.githooks/*' '*.sh' scripts/gpu-test -- shellcheck
     step actionlint
     tracked . -- editorconfig-checker
     tracked '*.json' '*.yml' '*.yaml' '*.md' -- prettier --check

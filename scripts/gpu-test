@@ -1,0 +1,49 @@
+#!/usr/bin/env sh
+# Runs the GPU checks, which CI cannot run: it has no GPU (ADR 0026). Run it
+# on the P620, whose RTX 5070 Ti is the GPU every GPU test runs on
+# (arc42 §7), before closing each milestone: its closing validation issue
+# runs it and records the result.
+#
+# Usage: scripts/gpu-test [nextest argument...]
+#
+# It runs the `#[ignore]`d tests of `umbra-gpu`, every test that needs the
+# GPU:
+#   - OptiX intersection: rays traced through OptiX hit the triangle and the
+#     sphere where the core says they do (#126);
+#   - the accuracy of `umbra-math`'s `nvptx64` backend against glibc, as
+#     tests of the same crate when they land (#146).
+#
+# Needs, on the host:
+#   - the NVIDIA driver, new enough for OptiX 9.0 (ABI 105), which ships
+#     `libcuda.so.1` and `libnvoptix.so.1`;
+#   - CUDA's `libdevice.10.bc`, found as `umbra-gpu`'s build script finds it:
+#     UMBRA_LIBDEVICE, else `nvvm/libdevice/libdevice.10.bc` under CUDA_PATH,
+#     CUDA_HOME or /usr/local/cuda. Only that file is used, at build time;
+#   - rustup and cargo-nextest (scripts/install-tools.sh cargo-nextest).
+#
+# In a container, run it with `docker run --gpus all` and
+# NVIDIA_DRIVER_CAPABILITIES=compute,graphics: `graphics` is the capability
+# that mounts OptiX (arc42 §7).
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+libdevice=${UMBRA_LIBDEVICE:-}
+if [ -z "$libdevice" ]; then
+    for root in "${CUDA_PATH:-}" "${CUDA_HOME:-}" /usr/local/cuda; do
+        if [ -n "$root" ] && [ -f "$root/nvvm/libdevice/libdevice.10.bc" ]; then
+            libdevice=$root/nvvm/libdevice/libdevice.10.bc
+            break
+        fi
+    done
+fi
+if [ -z "$libdevice" ] || [ ! -f "$libdevice" ]; then
+    echo "gpu-test: libdevice.10.bc not found: set UMBRA_LIBDEVICE or CUDA_PATH" >&2
+    exit 1
+fi
+echo "gpu-test: libdevice at $libdevice"
+
+export UMBRA_LIBDEVICE="$libdevice"
+echo "gpu-test: cargo nextest run -p umbra-gpu --run-ignored only $*"
+exec cargo nextest run -p umbra-gpu --all-features --locked --profile ci \
+    --run-ignored only "$@"
