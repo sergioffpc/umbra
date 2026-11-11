@@ -72,11 +72,13 @@ rust() {
 #   (Henyey–Greenstein, uniform cone, spherical triangle); the others, on
 #   fewer samples under `cfg(miri)`, call every C math wrapper they do;
 # - `umbra-spectrum`'s hash of its generated table, which calls no C math.
+# Its nextest profile (`.config/nextest.toml`) allows each test 20 min.
 # Needs the `miri` and `rust-src` components.
 miri() {
     step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3}" \
         MIRIFLAGS="-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6" \
-        cargo miri nextest run -p umbra-math -p umbra-sampling -p umbra-spectrum \
+        cargo miri nextest run --profile miri \
+        -p umbra-math -p umbra-sampling -p umbra-spectrum \
         --all-features --locked -E "$miri_tests"
 }
 
