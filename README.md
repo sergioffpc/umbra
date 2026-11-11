@@ -1,6 +1,8 @@
 # Umbra
 
-[![CI](https://github.com/sergioffpc/umbra/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/sergioffpc/umbra/actions/workflows/ci.yml)
+[![Rust](https://github.com/sergioffpc/umbra/actions/workflows/rust.yml/badge.svg?branch=develop)](https://github.com/sergioffpc/umbra/actions/workflows/rust.yml)
+[![Dependencies](https://github.com/sergioffpc/umbra/actions/workflows/dependencies.yml/badge.svg?branch=develop)](https://github.com/sergioffpc/umbra/actions/workflows/dependencies.yml)
+[![Lint](https://github.com/sergioffpc/umbra/actions/workflows/lint.yml/badge.svg?branch=develop)](https://github.com/sergioffpc/umbra/actions/workflows/lint.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Umbra is a physically based ray tracer written in Rust, inspired by

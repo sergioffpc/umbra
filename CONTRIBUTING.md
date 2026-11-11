@@ -23,9 +23,12 @@ Umbra uses [git flow](https://nvie.com/posts/a-successful-git-branching-model/):
 
 Open pull requests against `develop`. A `release/X.Y.Z` or `hotfix/X.Y.Z`
 branch gets two pull requests, one into `main` and one into `develop`. Repository rulesets block merges into `develop` and `main` unless
-every CI job in [`ci.yml`](.github/workflows/ci.yml) passes and CodeQL code
-scanning reports no open alert on the pull request. A pull request that
-touches no crate, workspace or toolchain configuration, check script, CI
+every CI job passes and CodeQL code scanning reports no open alert on the
+pull request. The CI jobs are grouped into three workflows:
+[`rust.yml`](.github/workflows/rust.yml) (fmt, clippy, doc, test, Miri and
+AddressSanitizer), [`dependencies.yml`](.github/workflows/dependencies.yml)
+(`cargo deny`) and [`lint.yml`](.github/workflows/lint.yml). A pull request
+that touches no crate, workspace or toolchain configuration, check script, CI
 image or workflow, such as one with documentation only, skips the Rust, Miri
 and AddressSanitizer jobs and runs only `lint` and `cargo deny`.
 

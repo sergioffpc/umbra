@@ -2,7 +2,7 @@
 # Runs a command in the CI image: the `ci` stage of the Dockerfile, on the
 # Ubuntu digest and toolchain the release image is built with, so tests,
 # oracles and hashes see the glibc the release ships (ADR 0005, ADR 0025).
-# CI's Rust jobs (.github/workflows/ci.yml) run their scripts/check.sh group
+# CI's Rust jobs (.github/workflows/rust.yml) run their scripts/check.sh group
 # with it; run it locally the same way:
 #
 #   scripts/in-ci-image.sh scripts/check.sh rust

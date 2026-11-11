@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
-# (.github/workflows/ci.yml) runs one group per job; locally, run them all
-# before opening a pull request. The pre-commit hook runs the fast ones on the
-# staged files only. CI runs the Rust groups in the `ci` stage of the
-# Dockerfile, on the glibc the release ships; scripts/in-ci-image.sh runs them
-# there locally too.
+# (.github/workflows/) runs one group per job; locally, run them all before
+# opening a pull request. The pre-commit hook runs the fast ones on the staged
+# files only. CI runs the Rust groups in the `ci` stage of the Dockerfile, on
+# the glibc the release ships; scripts/in-ci-image.sh runs them there locally
+# too.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests

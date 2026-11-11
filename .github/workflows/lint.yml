@@ -1,0 +1,36 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Job names are required status checks in the "Require CI checks" repository
+# ruleset; see rust.yml. The checks are the `lint` group of scripts/check.sh,
+# the tool versions in scripts/install-tools.sh.
+jobs:
+  # Spelling, unused dependencies, and the linters of shell scripts, workflows,
+  # EditorConfig, JSON, YAML, Markdown and TOML, on every tracked file.
+  # shellcheck comes with the runner.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: >-
+          scripts/install-tools.sh typos cargo-shear actionlint
+          editorconfig-checker taplo prettier markdownlint-cli2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh lint
