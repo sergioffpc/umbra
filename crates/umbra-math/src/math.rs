@@ -23,6 +23,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
 
 use core::ops::{Add, AddAssign, Mul, Sub};
 
+use crate::cmath;
 use crate::float::{exponent, floor, fma, significand, sqrt};
 use crate::transcendental::erf;
 
@@ -144,7 +145,7 @@ pub fn safe_asin(x: f32) -> f32 {
         (-1.0001..=1.0001).contains(&x),
         "safe_asin: {x} out of range"
     );
-    libm::asinf(clamp(x, -1.0, 1.0))
+    cmath::asinf(clamp(x, -1.0, 1.0))
 }
 
 /// `acos` with the argument clamped to `[−1, 1]`.
@@ -157,7 +158,7 @@ pub fn safe_acos(x: f32) -> f32 {
         (-1.0001..=1.0001).contains(&x),
         "safe_acos: {x} out of range"
     );
-    libm::acosf(clamp(x, -1.0, 1.0))
+    cmath::acosf(clamp(x, -1.0, 1.0))
 }
 
 /// `sin(x) / x`, exactly 1 where `1 − x²` rounds to 1.
@@ -169,7 +170,7 @@ pub fn sin_x_over_x(x: f32) -> f32 {
     if 1.0 - x * x == 1.0 {
         return 1.0;
     }
-    libm::sinf(x) / x
+    cmath::sinf(x) / x
 }
 
 /// The polynomial `c[0] + c[1]·t + c[2]·t² + …`, by Horner's rule with FMA.
@@ -258,7 +259,7 @@ pub fn erf_inv(a: f32) -> f32 {
         1.432_860_6e-7,
         5.438_778_3e-9,
     ];
-    let t = libm::logf(max(fma(a, -a, 1.0), f32::MIN_POSITIVE));
+    let t = cmath::logf(max(fma(a, -a, 1.0), f32::MIN_POSITIVE));
     debug_assert!(t.is_finite(), "erf_inv: log term {t} for {a}");
     let p = if t.abs() > 6.125 {
         evaluate_polynomial(t, TAIL)

@@ -6,8 +6,8 @@
 //! Umbra does the same and never changes the rounding mode (ADR 0001).
 //!
 //! [`fma`], [`sqrt`], [`floor`] and [`ceil`] are the hardware instruction,
-//! with the bits of the `libm` routines; the `libm` forms are the test oracle in `tests/umbra_math/reference/`
-//! (ADR 0007). [`next_float_up`] and [`next_float_down`] keep pbrt-v4's
+//! with the bits of glibc's routines; the [`cmath`](crate::cmath) wrappers of
+//! those are the test oracle in `tests/umbra_math/reference/` (ADR 0007). [`next_float_up`] and [`next_float_down`] keep pbrt-v4's
 //! branches: a branch-free form measured slower, since the branch on
 //! infinity is perfectly predicted, and the `Interval` kernels step four
 //! lanes at once instead.
@@ -44,7 +44,7 @@ pub const fn gamma(n: u16) -> f32 {
 /// more accurate, except in code whose error bounds pbrt-v4 derives from its
 /// exact operations (ADR 0022). It is the hardware instruction
 /// (`vfmadd213ss`), which gives the bits of the correctly rounded
-/// `libm::fmaf`.
+/// [`cmath::fmaf`](crate::cmath::fmaf).
 ///
 /// pbrt-v4 `FMA`.
 #[inline]
@@ -54,7 +54,7 @@ pub fn fma(a: f32, b: f32, c: f32) -> f32 {
 }
 
 /// `√x`, correctly rounded: the hardware square root, with the bits of
-/// `libm::sqrtf`.
+/// [`cmath::sqrtf`](crate::cmath::sqrtf).
 ///
 /// pbrt-v4 `std::sqrt`.
 #[inline]
@@ -64,7 +64,7 @@ pub fn sqrt(x: f32) -> f32 {
 }
 
 /// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of `libm::floorf`.
+/// the bits of [`cmath::floorf`](crate::cmath::floorf).
 ///
 /// pbrt-v4 `std::floor`.
 #[inline]
@@ -74,7 +74,7 @@ pub fn floor(x: f32) -> f32 {
 }
 
 /// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of `libm::ceilf`.
+/// the bits of [`cmath::ceilf`](crate::cmath::ceilf).
 ///
 /// pbrt-v4 `std::ceil`.
 #[inline]

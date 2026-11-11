@@ -1,4 +1,4 @@
-//! Umbra's own transcendentals against `libm`'s `f64` routines (ADR 0022):
+//! Umbra's own transcendentals against glibc's `f64` routines (ADR 0022):
 //! each result must be within its documented bound, [`BOUND`] ULPs, of the
 //! `f64` reference rounded to `f32`, with the reference's sign, and a NaN
 //! exactly where the reference has one.
@@ -20,8 +20,8 @@ use std::thread;
 pub(crate) use crate::equivalence::{COUNT, SPECIAL, STRIDE, samples};
 
 /// The stride of the sweeps over every `f32`: [`STRIDE`] natively; under
-/// Miri, which is there for the `unsafe` code rather than the accuracy and
-/// interprets `libm`'s software floats too, a few hundred values.
+/// Miri, which is there for the `unsafe` code rather than the accuracy, a
+/// few hundred values.
 pub(crate) const SWEEP: u32 = if cfg!(miri) { 1 << 24 } else { STRIDE };
 
 /// The error bound of every kernel here, in ULPs.

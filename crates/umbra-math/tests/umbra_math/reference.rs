@@ -1,7 +1,7 @@
 //! The safe, book-faithful reference implementations of every operation that
 //! the crate also provides as an aggressively optimised kernel (ADR 0007):
-//! pbrt-v4's code, in plain scalar Rust over `libm`, with no `unsafe` and no
-//! SIMD.
+//! pbrt-v4's code, in plain scalar Rust over glibc's routines (through
+//! `umbra_math::cmath`), with no `unsafe` and no SIMD.
 //!
 //! The optimised version in `umbra_math` is the one the renderer uses; it
 //! must compute, for every input, exactly the bits the function here

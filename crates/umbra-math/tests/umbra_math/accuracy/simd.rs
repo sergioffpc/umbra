@@ -1,8 +1,9 @@
-//! [`Vec4::exp`] and [`Vec4::pow`] against `libm::exp` and `libm::pow` in
+//! [`Vec4::exp`] and [`Vec4::pow`] against `cmath::exp` and `cmath::pow` in
 //! `f64`, lane by lane. Each lane gets a different argument, so a lane
 //! mixed up by the widening to `f64` and back shows.
 
 use umbra_math::Vec4;
+use umbra_math::cmath;
 
 use super::{BOUND, COUNT, SPECIAL, SWEEP, assert_within, narrow, samples, ulps, worst_over_f32};
 
@@ -28,7 +29,7 @@ fn worst_lane(x: [f32; 4], ours: Vec4, reference: impl Fn(f32) -> f32) -> u32 {
 
 /// The reference `eˣ`.
 fn exp_reference(x: f32) -> f32 {
-    narrow(libm::exp(f64::from(x)))
+    narrow(cmath::exp(f64::from(x)))
 }
 
 /// The error of `exp` on the lanes derived from `x`.
@@ -49,9 +50,19 @@ fn exp_within_bound_exhaustive() {
     assert_within(worst_over_f32(1, exp_error), "Vec4::exp");
 }
 
-/// The reference `xᵉ`.
+/// The reference `xᵉ`. A signalling NaN exponent gives a NaN even for
+/// `x = 1`, as in glibc's `powf` (IEEE 754-2019 §9.2.1); widening it to
+/// `f64` would quieten it, and `pow(1, NaN)` is 1, so it is handled first.
 fn pow_reference(x: f32, e: f32) -> f32 {
-    narrow(libm::pow(f64::from(x), f64::from(e)))
+    if is_signalling(e) {
+        return f32::NAN;
+    }
+    narrow(cmath::pow(f64::from(x), f64::from(e)))
+}
+
+/// Whether `v` is a signalling NaN: a NaN whose quiet bit is clear.
+fn is_signalling(v: f32) -> bool {
+    v.is_nan() && v.to_bits() & 0x0040_0000 == 0
 }
 
 /// The error of `pow(·, e)` on the lanes derived from `x`.

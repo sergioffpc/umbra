@@ -1,29 +1,31 @@
-//! The reference of `umbra_math`'s `float` module: pbrt-v4's `NextFloatUp`/`NextFloatDown` with
-//! their branches, and the `libm` routines for `fma`, `sqrt`, `floor` and
-//! `ceil`.
+//! The reference of `umbra_math`'s `float` module: pbrt-v4's
+//! `NextFloatUp`/`NextFloatDown` with their branches, and glibc's routines
+//! for `fma`, `sqrt`, `floor` and `ceil`.
 
-/// pbrt-v4 `FMA`, through `libm::fmaf`.
+use umbra_math::cmath;
+
+/// pbrt-v4 `FMA`, through glibc's `fmaf`.
 #[must_use]
 pub(crate) fn fma(a: f32, b: f32, c: f32) -> f32 {
-    libm::fmaf(a, b, c)
+    cmath::fmaf(a, b, c)
 }
 
-/// `√x`, through `libm::sqrtf`.
+/// `√x`, through glibc's `sqrtf`.
 #[must_use]
 pub(crate) fn sqrt(x: f32) -> f32 {
-    libm::sqrtf(x)
+    cmath::sqrtf(x)
 }
 
-/// `⌊x⌋`, through `libm::floorf`.
+/// `⌊x⌋`, through glibc's `floorf`.
 #[must_use]
 pub(crate) fn floor(x: f32) -> f32 {
-    libm::floorf(x)
+    cmath::floorf(x)
 }
 
-/// `⌈x⌉`, through `libm::ceilf`.
+/// `⌈x⌉`, through glibc's `ceilf`.
 #[must_use]
 pub(crate) fn ceil(x: f32) -> f32 {
-    libm::ceilf(x)
+    cmath::ceilf(x)
 }
 
 /// pbrt-v4 `NextFloatUp`, as written: early return for `+∞`, `-0` mapped to

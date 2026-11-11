@@ -1,14 +1,14 @@
-//! Scalar transcendentals of Umbra's own, faster than the `libm` routines they
+//! Scalar transcendentals of Umbra's own, faster than the C routines they
 //! replace (ADR 0022): [`sin_cos`], [`atan2`] and [`erf`].
 //!
 //! Each converts its `f32` argument to `f64`, which is exact, and evaluates a
 //! polynomial whose error is below 2⁻³⁰ relative, with `f64` FMAs, whose
 //! rounding errors are near 2⁻⁵². The polynomials are the interpolants of
-//! `libm`'s `f64` routines at the Chebyshev nodes of their interval, of the
-//! lowest degree that meets 2⁻³⁰ (for `erf`, one degree for all its
-//! segments). The `f32` result is then within 1 ULP of the correctly rounded
+//! the `libm` crate's `f64` routines, which Umbra used before glibc, at the
+//! Chebyshev nodes of their interval, of the lowest degree that meets 2⁻³⁰
+//! (for `erf`, one degree for all its segments). The `f32` result is then within 1 ULP of the correctly rounded
 //! one, and correctly rounded for all but a few percent of the arguments.
-//! `tests/umbra_math/accuracy/` checks the bound against `libm`'s `f64`
+//! `tests/umbra_math/accuracy/` checks the bound against glibc's `f64`
 //! routines, exhaustively over `f32` for the unary functions. Special values
 //! (signed zeros, infinities, NaN) give what C's `sinf`, `cosf`, `atan2f` and
 //! `erff` give.
@@ -18,6 +18,7 @@
 
 use core::f64::consts::{FRAC_2_PI, FRAC_PI_2, FRAC_PI_4, PI};
 
+use crate::cmath;
 use crate::float::fma_f64;
 
 /// 1.5 · 2⁵². Adding it to an `f64` of magnitude below 2⁵¹ rounds that to an
@@ -75,7 +76,7 @@ const FRAC_PI_2_HI: f64 = FRAC_PI_2;
 const FRAC_PI_2_LO: f64 = 6.123_233_995_736_766e-17;
 
 /// The magnitude up to which [`sin_cos`] reduces its argument itself; beyond
-/// it, `libm`'s exact reduction takes over. The quadrant must fit in the
+/// it, glibc's exact reduction takes over. The quadrant must fit in the
 /// low bits of [`ROUND`], and the error of π/2 in two parts, times the
 /// quadrant, must stay far below the smallest remainder an `f32` there has.
 const SIN_COS_LIMIT: f32 = 1_048_576.0;
@@ -86,13 +87,13 @@ const SIN_COS_LIMIT: f32 = 1_048_576.0;
 /// `x` is reduced to `r = x − k·π/2` with `|r| ≤ π/4`, with π/2 in two parts
 /// and FMAs, then both are polynomials in `r²` evaluated in `f64`,
 /// and the quadrant `k mod 4` picks and signs them. Beyond ±2²⁰ (and for
-/// infinities and NaN) they are `libm::sinf` and `libm::cosf`.
+/// infinities and NaN) they are `cmath::sinf` and `cmath::cosf`.
 ///
 /// Not in pbrt-v4, which calls `std::sin` and `std::cos` of the same angle.
 #[must_use]
 pub fn sin_cos(x: f32) -> (f32, f32) {
     if x.is_nan() || x.abs() > SIN_COS_LIMIT {
-        return (libm::sinf(x), libm::cosf(x));
+        return (cmath::sinf(x), cmath::cosf(x));
     }
     let x = f64::from(x);
     let shifted = x * FRAC_2_PI + ROUND;
@@ -185,8 +186,8 @@ pub fn atan2(y: f32, x: f32) -> f32 {
 }
 
 /// `erf` on the eight segments `[i/2, (i + 1)/2)`, each the degree-7
-/// interpolant of `libm::erf` (`f64`) at eight Chebyshev nodes, whose error
-/// is below 2⁻³⁰ relative. The first is `erf(x)/x` in powers of `x²`, with
+/// interpolant of the `libm` crate's `erf` (`f64`) at eight Chebyshev nodes,
+/// whose error is below 2⁻³⁰ relative. The first is `erf(x)/x` in powers of `x²`, with
 /// the nodes in `x²` on `[0, 1/4]`, which keeps the relative error small near
 /// zero; the others are `erf(x)` in powers of `x − (i/2 + 1/4)`, with the
 /// nodes in `x` on the segment.

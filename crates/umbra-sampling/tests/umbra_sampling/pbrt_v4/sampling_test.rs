@@ -150,10 +150,10 @@ fn sampling_invert_uniform_disk_concentric() {
 /// The disk warps and their inverses give pbrt-v4's values.
 ///
 /// Here and below, a budget above 0 ulps is the largest difference measured
-/// on these inputs, all of it from the transcendentals (`sinf`, `cosf`,
-/// `atan2f`, `expf`, `logf`, `coshf`), which glibc and the `libm` crate do
-/// not always round alike (either one can be the
-/// correctly rounded result), amplified where the routine subtracts nearly
+/// on these inputs when Umbra took its C math from the `libm` crate, all of
+/// it from the transcendentals (`sinf`, `cosf`, `atan2f`, `expf`, `logf`,
+/// `coshf`), which pbrt-v4's glibc, Umbra's own kernels and the `libm` crate
+/// do not always round alike (any one can be the correctly rounded result), amplified where the routine subtracts nearly
 /// equal values: an inverse subtracting the angle from π/2 or π, Arvo's
 /// construction of the spherical triangle sample.
 #[test]
@@ -350,7 +350,8 @@ fn known_values_triangle() {
         let s = sample_spherical_triangle(v, p, p2(u));
         // 14 ulps on one input, the others exact: glibc's `sinf` is 2 ulps
         // off the correctly rounded value at its sampled area (the `libm`
-        // crate's is exact there), and Arvo's construction amplifies that.
+        // crate's, measured then, is exact there), and Arvo's construction
+        // amplifies that.
         assert_ulps(s.barycentrics, b, 14, "SampleSphericalTriangle");
         assert_ulps([s.pdf], [pdf], 0, "SampleSphericalTriangle pdf");
         // At `u = (0, 0)` the sample is the vertex `b`, along which the

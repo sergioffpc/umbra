@@ -25,9 +25,6 @@ publish = false
 # Micro-benchmarks: a reference and its optimised kernel side by side in one
 # generic bench (arc42 §8.4, ADR 0007).
 divan = "0.1.21"
-# Pure-Rust transcendentals (ADR 0022). `arch` keeps the hardware `sqrt`/`fma`,
-# which are correctly rounded.
-libm = { version = "0.2.16", default-features = false, features = ["arch"] }
 serde = { version = "1.0.228", default-features = false }
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }
@@ -136,8 +133,8 @@ empty_structs_with_brackets = "warn"
 float_cmp_const = "warn"
 get_unwrap = "warn"
 # Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy, taken from
-# the `libm` crate: the `std` methods are in `disallowed-methods` in clippy.toml
-# (platform libm, ADR 0022), which `all` enables. The sibling
+# `umbra_math::cmath`: the `std` methods are in `disallowed-methods` in
+# clippy.toml (ADR 0022), which `all` enables. The sibling
 # `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow libm
 # call on targets built without FMA.
 imprecise_flops = "warn"

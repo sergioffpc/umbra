@@ -73,8 +73,8 @@ a `umbra-math` `Vec4`, one wavelength per lane. Each lane-wise operation
 computes the bits of pbrt-v4's loop over the samples, and the reductions
 (`average`, `min_component_value`, `max_component_value`) keep its order.
 `exp` and `pow` are the exception: they use `umbra-math`'s four-lane kernels,
-within 1 ULP of the correctly rounded result rather than the bits of `libm`
-(ADR 0022).
+within 1 ULP of the correctly rounded result rather than the bits of
+glibc's `expf` and `powf` (ADR 0022).
 
 ### Named spectra computed at compile time
 
@@ -97,11 +97,15 @@ the table to `OUT_DIR` as little-endian `f32`, which `src/rgb_to_spectrum.rs`
 includes as bytes.
 
 The table is a pure function of its sources: IEEE `f64` arithmetic with no
-implicit FMA, the hardware square root, and `libm`'s cube root, with each
-cell's value independent of the thread that computes it (ADR 0022). It can
-differ from pbrt-v4's own table in the last bits of some coefficients, because
-pbrt-v4's build takes its cube root from the platform libm and lets the C++
-compiler contract FMAs. A test pins the table's hash.
+implicit FMA, the hardware square root, and glibc's cube root, with each
+cell's value independent of the thread that computes it (ADR 0022). The
+build script calls `cbrt` through `umbra_math::cmath`'s wrapper, which it
+compiles from `umbra-math`'s source by `#[path]` rather than depending on
+the crate, so the script needs no `x86-64-v3` host. It can differ from
+pbrt-v4's own table in the last bits of some coefficients, because pbrt-v4's
+build lets the C++ compiler contract FMAs and its glibc may not be the
+image's. A test pins the table's hash, which a bump of the image's Ubuntu
+digest can change (ADR 0022).
 
 ## Things to know when using it
 
@@ -143,7 +147,7 @@ interface only:
   examples, including the edge cases of pbrt-v4's definitions on zeros and
   NaNs and the order of its reductions.
 - `table.rs` checks the hash of the generated sRGB table, so a table that
-  changes with the generator, the toolchain or `libm` fails.
+  changes with the generator, the toolchain or glibc's `cbrt` fails.
 - `generators.rs` ports the sample generators pbrt-v4's tests draw from.
 
 Run them with `cargo nextest run -p umbra-spectrum`.

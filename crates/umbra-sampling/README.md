@@ -7,7 +7,8 @@ PDFs and inverses, and piecewise-constant distributions for tabulated
 functions.
 
 It is a core crate: `#![no_std]` without `alloc` (ADR 0014, ADR 0015). It
-depends on `umbra-math` and the `libm` crate, and `umbra-spectrum` and
+depends on `umbra-math` only, whose `cmath` wrappers give it glibc's C math,
+and `umbra-spectrum` and
 `umbra-geometry` depend on it (arc42 §5.1). It covers PBR 4e chapter 2 and
 appendix A, and the RNG of §B.2.8; chapter 8's samplers are still to come.
 
@@ -69,7 +70,8 @@ case. A Pixel Sample is a pure function of the Scene, the seed, the pixel and
 the sample index (ADR 0022), and its numbers come from these routines, so they
 follow pbrt-v4's operations in pbrt-v4's order with no implicit FMA. The hash
 and the RNG then give pbrt-v4's bits exactly; a warp gives pbrt-v4's bits up
-to the last-bit differences between the `libm` crate and a platform libm.
+to the last-bit differences between the glibc of Umbra's image and the libm
+pbrt-v4 was built with.
 
 `hash` hashes the bytes pbrt-v4's variadic `Hash` copies: the arguments one
 after the other, with no padding, each in its C++ layout. The width of each

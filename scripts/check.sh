@@ -57,17 +57,18 @@ rust() {
 
 # The `unsafe` code of `umbra-math` under Miri (ADR 0007), with the
 # `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set. Miri runs
-# the FFI calls to glibc's scalar math in the native libm.so.6. It cannot run
-# the inline assembly `libm` uses for its runtime CPU check, so `libm` is
-# built with `force-soft-floats` (the same, correctly rounded bits). The
-# pbrt-v4 test ports are left out: their long loops take hours under Miri, and
-# the equivalence tests cover every `unsafe` item. Needs the `miri` and
+# the FFI calls of `umbra_math::cmath` in the native libm.so.6. The path is
+# the one the dynamic loader resolves (`ldconfig -p`), not the `/lib` symlink:
+# Miri takes a symbol only from the file it names, and finds none through
+# `/lib/x86_64-linux-gnu`, so every call there is unsupported. The pbrt-v4
+# test ports are left out: their long loops take hours under Miri, and the
+# equivalence tests cover every `unsafe` item. Needs the `miri` and
 # `rust-src` components.
 miri() {
     step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3}" \
-        MIRIFLAGS="-Zmiri-native-lib=/lib/x86_64-linux-gnu/libm.so.6" \
-        cargo miri nextest run -p umbra-math --all-features \
-        --features libm/force-soft-floats --locked -E 'not test(/^pbrt_v4::/)'
+        MIRIFLAGS="-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6" \
+        cargo miri nextest run -p umbra-math --all-features --locked \
+        -E 'not test(/^pbrt_v4::/)'
 }
 
 # The tests of `umbra-math`, which call glibc, under AddressSanitizer, which

@@ -15,7 +15,7 @@
 //!
 //! The exceptions are [`Vec4::exp`] and [`Vec4::pow`], which have no IEEE
 //! operation to match: they are Umbra's own kernels, within 1 ULP of the
-//! correctly rounded result (ADR 0022), tested against `libm`'s `f64`
+//! correctly rounded result (ADR 0022), tested against glibc's `f64`
 //! routines in `tests/umbra_math/accuracy/`.
 //!
 //! NaN payloads produced by arithmetic on non-NaN inputs (the default NaN)

@@ -1,6 +1,7 @@
 //! pbrt-v4 `src/pbrt/util/math_test.cpp`, the `FloatInterval` tests.
 
 use crate::rng::Rng;
+use umbra_math::cmath;
 use umbra_math::{Interval, difference_of_products, lerp, sum_of_products};
 
 const FLOAT_INTERVAL_ITERS: u64 = 1_000_000;
@@ -9,23 +10,23 @@ const FLOAT_INTERVAL_ITERS: u64 = 1_000_000;
 /// compare against.
 fn difference_of_products_f64(a: f64, b: f64, c: f64, d: f64) -> f64 {
     let cd = c * d;
-    let difference = libm::fma(a, b, -cd);
-    let error = libm::fma(-c, d, cd);
+    let difference = cmath::fma(a, b, -cd);
+    let error = cmath::fma(-c, d, cd);
     difference + error
 }
 
 /// pbrt-v4 `SumOfProducts` for `double`.
 fn sum_of_products_f64(a: f64, b: f64, c: f64, d: f64) -> f64 {
     let cd = c * d;
-    let sum = libm::fma(a, b, cd);
-    let error = libm::fma(c, d, -cd);
+    let sum = cmath::fma(a, b, cd);
+    let error = cmath::fma(c, d, -cd);
     sum + error
 }
 
 /// pbrt-v4 `getFloat`: an exponentially distributed value with a random error
 /// bound.
 fn get_float(rng: &mut Rng) -> Interval {
-    let val = libm::powf(10.0, lerp(rng.uniform_f32(), -6.0, 6.0));
+    let val = cmath::powf(10.0, lerp(rng.uniform_f32(), -6.0, 6.0));
     let ulp_error = |rng: &mut Rng, ulps: u32| {
         let offset = f32::from_bits(val.to_bits() + rng.uniform_u32_below(ulps));
         (offset - val).abs()
@@ -99,7 +100,7 @@ fn float_interval_sqrt() {
         let mut rng = Rng::new(trial);
         let ef = get_float(&mut rng);
         let precise = get_precise(ef, &mut rng);
-        assert_contains(ef.abs().sqrt(), libm::sqrt(precise.abs()), trial);
+        assert_contains(ef.abs().sqrt(), cmath::sqrt(precise.abs()), trial);
     }
 }
 
@@ -168,7 +169,7 @@ fn check_fma(rng: &mut Rng, [a, b, c]: [Interval; 3], v: Interval, trial: u64) {
         get_precise(b, rng),
         get_precise(c, rng),
     );
-    assert_contains(v, f64::from(to_f32(libm::fma(pa, pb, pc))), trial);
+    assert_contains(v, f64::from(to_f32(cmath::fma(pa, pb, pc))), trial);
     let vp = a * b + c;
     assert!(v.lower_bound() >= vp.lower_bound(), "{v:?} vs {vp:?}");
     assert!(v.upper_bound() <= vp.upper_bound(), "{v:?} vs {vp:?}");

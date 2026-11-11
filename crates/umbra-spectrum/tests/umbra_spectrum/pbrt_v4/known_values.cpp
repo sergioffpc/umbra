@@ -26,8 +26,8 @@
 // `-ffp-contract=off` keeps the compiler from fusing multiplies and adds,
 // which Umbra never does implicitly (ADR 0002). Transcendentals and the
 // cube root of `rgb2spec_opt` come from the platform libm (glibc), not
-// Umbra's `libm` crate, so values computed through them can differ in their
-// last bits; the tests say how much they allow.
+// Umbra's own kernels or the glibc of its image, so values computed through
+// them can differ in their last bits; the tests say how much they allow.
 
 #include <pbrt/util/color.h>
 #include <pbrt/util/colorspace.h>

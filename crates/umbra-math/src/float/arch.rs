@@ -3,12 +3,11 @@
 //! [`ceil`], and the `f64` [`fma_f64`] that Umbra's own transcendentals
 //! evaluate their polynomials with (ADR 0022).
 //!
-//! `libm` computes the same bits, but on x86-64 its `fmaf` is an indirect
-//! call through a runtime CPU check and its `sqrtf` is opaque inline
-//! assembly, so LLVM can neither inline, schedule nor vectorise them; here
-//! each is one instruction that LLVM sees through, with the same bits
-//! (ADR 0022). `tests/umbra_math/reference/float.rs` keeps the `libm` calls
-//! as the test oracle. The crate supports x86-64 only (`lib.rs`, ADR 0023),
+//! glibc computes the same bits, but each of its routines is a call into a
+//! shared library, which LLVM can neither inline, schedule nor vectorise;
+//! here each is one instruction that LLVM sees through, with the same bits
+//! (ADR 0022). `tests/umbra_math/reference/float.rs` keeps the glibc calls,
+//! through [`cmath`](crate::cmath), as the test oracle. The crate supports x86-64 only (`lib.rs`, ADR 0023),
 //! so there is no fallback.
 //!
 //! The intrinsics are called in functions marked with the `target_feature`

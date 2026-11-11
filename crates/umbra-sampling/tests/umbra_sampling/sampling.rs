@@ -11,6 +11,7 @@
 
 use core::f64::consts::PI;
 
+use umbra_math::cmath;
 use umbra_math::{Point2f, Point3f, Vector3f};
 use umbra_sampling::{
     PiecewiseConstant1D, PiecewiseConstant2D, Rng, bilinear_pdf, cosine_hemisphere_pdf,
@@ -95,19 +96,19 @@ fn assert_normalised(what: &str, integral: f64, tolerance: f64) {
 /// The polar angle and azimuth of the direction `w`, φ in `[0, 2π)`.
 fn theta_phi(w: Vector3f) -> [f64; 2] {
     let [x, y, z] = f64x3(w);
-    let phi = libm::atan2(y, x);
-    let theta = libm::acos(z.clamp(-1.0, 1.0));
+    let phi = cmath::atan2(y, x);
+    let theta = cmath::acos(z.clamp(-1.0, 1.0));
     [theta, if phi < 0.0 { phi + 2.0 * PI } else { phi }]
 }
 
 /// The direction with polar angle `theta` and azimuth `phi`, in `f32`.
 #[expect(clippy::cast_possible_truncation, reason = "the PDFs take f32")]
 fn direction(theta: f64, phi: f64) -> Vector3f {
-    let s = libm::sin(theta);
+    let s = cmath::sin(theta);
     Vector3f::new(
-        (s * libm::cos(phi)) as f32,
-        (s * libm::sin(phi)) as f32,
-        libm::cos(theta) as f32,
+        (s * cmath::cos(phi)) as f32,
+        (s * cmath::sin(phi)) as f32,
+        cmath::cos(theta) as f32,
     )
 }
 
@@ -123,7 +124,7 @@ struct DirectionWarp<W, P> {
 impl<W: Fn(Point2f) -> Vector3f, P: Fn(Vector3f) -> f32> DirectionWarp<W, P> {
     /// The PDF with respect to `(θ, φ)`.
     fn pdf_theta_phi(&self, theta: f64, phi: f64) -> f64 {
-        f64::from((self.pdf)(direction(theta, phi))) * libm::sin(theta)
+        f64::from((self.pdf)(direction(theta, phi))) * cmath::sin(theta)
     }
 
     /// χ² over a 10 × 20 grid of `[0, θmax] × [0, 2π)`.
@@ -214,7 +215,7 @@ fn uniform_cone() {
             name: "uniform cone",
             sample: |u| sample_uniform_cone(u, cos_theta_max),
             pdf: |_| uniform_cone_pdf(cos_theta_max),
-            theta_max: libm::acos(f64::from(cos_theta_max)),
+            theta_max: cmath::acos(f64::from(cos_theta_max)),
         }
         .assert_all(sequence_index, |_| false);
     }
@@ -253,9 +254,9 @@ fn henyey_greenstein_phase() {
 fn assert_uniform_disk(name: &str, sample: impl Fn(Point2f) -> Point2f, sequence_index: u64) {
     let polar = |p: Point2f| {
         let (x, y) = (f64::from(p.x), f64::from(p.y));
-        let phi = libm::atan2(y, x);
+        let phi = cmath::atan2(y, x);
         [
-            libm::hypot(x, y),
+            cmath::hypot(x, y),
             if phi < 0.0 { phi + 2.0 * PI } else { phi },
         ]
     };
@@ -361,7 +362,7 @@ impl SphericalTriangleCase {
         let n = cross3(f64x3(v[1] - v[0]), f64x3(v[2] - v[0]));
         let [a, b, c] = v.map(|vi| unit(f64x3(vi - p)));
         let solid_angle = (2.0
-            * libm::atan2(
+            * cmath::atan2(
                 dot3(a, cross3(b, c)),
                 1.0 + dot3(a, b) + dot3(a, c) + dot3(b, c),
             ))

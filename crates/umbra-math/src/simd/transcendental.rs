@@ -1,9 +1,10 @@
 //! [`Vec4::exp`] and [`Vec4::pow`]: Umbra's own kernels, within 1 ULP of the
-//! correctly rounded result in every lane (ADR 0022), where `libm` per lane
+//! correctly rounded result in every lane (ADR 0022), where glibc per lane
 //! costs several times more. The backend evaluates them in `f64`; this
 //! facade gives `pow` C's values at zeros, infinities and NaNs.
 
 use super::{Vec4, backend};
+use crate::cmath;
 use crate::float::floor;
 
 /// What the exponent of [`Vec4::pow`] does to the sign of a negative base.
@@ -49,7 +50,7 @@ impl Vec4 {
     /// Each lane raised to `e`, within 1 ULP of the correctly rounded
     /// result, with C `powf`'s values for zeros, infinities and NaNs. An
     /// exponent of 0 gives 1 and of 1 the lanes themselves, exactly; an
-    /// infinite or NaN exponent falls back to `libm::powf`.
+    /// infinite or NaN exponent falls back to `cmath::powf`.
     ///
     /// pbrt-v4 `std::pow`, lane by lane.
     #[must_use]
@@ -62,7 +63,7 @@ impl Vec4 {
             return self;
         }
         if !e.is_finite() {
-            return Self(self.0.map(|x| libm::powf(x, e)));
+            return Self(self.0.map(|x| cmath::powf(x, e)));
         }
         let r = self.abs().pow_magnitude(e);
         let nan = self.cmp_ne(self);
