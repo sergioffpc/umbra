@@ -113,7 +113,7 @@ fn calls_mut<const N: usize, T>(x: &mut [T]) -> &mut [[T; N]] {
 }
 
 /// `out = f(x)`, `N` elements per call.
-pub(crate) fn map<const N: usize>(x: &[f32], out: &mut [f32], f: impl Fn([f32; N]) -> [f32; N]) {
+fn map<const N: usize>(x: &[f32], out: &mut [f32], f: impl Fn([f32; N]) -> [f32; N]) {
     assert_eq!(x.len(), out.len(), "one output per input");
     for (out, &x) in calls_mut(out).iter_mut().zip(calls(x)) {
         *out = black_box(f(x));
@@ -121,7 +121,7 @@ pub(crate) fn map<const N: usize>(x: &[f32], out: &mut [f32], f: impl Fn([f32; N
 }
 
 /// `out = f(a, b)`, `N` elements per call.
-pub(crate) fn map2<const N: usize>(
+fn map2<const N: usize>(
     a: &[f32],
     b: &[f32],
     out: &mut [f32],
@@ -135,7 +135,7 @@ pub(crate) fn map2<const N: usize>(
 }
 
 /// `(p, q) = f(x)`, `N` elements per call.
-pub(crate) fn map_pair<const N: usize>(
+fn map_pair<const N: usize>(
     x: &[f32],
     p: &mut [f32],
     q: &mut [f32],
@@ -153,11 +153,7 @@ pub(crate) fn map_pair<const N: usize>(
 }
 
 /// `out = f(v)`, `N` `Vec4`s per call.
-pub(crate) fn map_vec4<const N: usize>(
-    v: &[Vec4],
-    out: &mut [Vec4],
-    f: impl Fn([Vec4; N]) -> [Vec4; N],
-) {
+fn map_vec4<const N: usize>(v: &[Vec4], out: &mut [Vec4], f: impl Fn([Vec4; N]) -> [Vec4; N]) {
     assert_eq!(v.len(), out.len(), "one output per input");
     for (out, &v) in calls_mut(out).iter_mut().zip(calls(v)) {
         *out = black_box(f(v));

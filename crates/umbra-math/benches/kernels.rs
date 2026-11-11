@@ -6,7 +6,7 @@
 //! Each iteration runs a kernel over a batch of inputs of the magnitudes a
 //! renderer meets, generated once with the PCG32 of the tests; the
 //! `ItemsCount` counter gives the throughput per call. Run with
-//! `cargo bench -p umbra-math`; the build uses the local
+//! `cargo bench -p umbra-math --bench kernels`; the build uses the local
 //! `target-cpu=native` of `.cargo/config.toml`, so the numbers are for this
 //! machine's instruction set.
 //!
