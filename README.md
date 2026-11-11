@@ -113,8 +113,15 @@ the Worker on every machine, or pull and restart the release image.
 ### Firewall, once per machine
 
 - Every machine: allow mDNS, UDP port 5353, from the LAN.
-- Every machine you run `umbra render` on: also allow UDP port 7470, the
-  Coordinator's port.
+- Every machine you run `umbra render` on with a firewall: pick a port, allow
+  it, and pass it as `umbra render --port 7470` (or set `UMBRA_PORT`). Without
+  `--port`, the Coordinator listens on a port the OS picks, so you can run
+  several Coordinators on one machine, but a firewall will keep remote Workers
+  out.
+- Every machine with several network interfaces (wired, Wi-Fi, a Docker bridge):
+  `umbra render` listens and announces on all of them. Pass the one your
+  Workers are on, as in `umbra render --interface enp5s0` (or set
+  `UMBRA_INTERFACE`), to keep the port closed on the others.
 
 ## Container image
 

@@ -14,7 +14,7 @@ sequenceDiagram
     participant C as Coordinator
     Note over W: idle: browse _umbra._udp,<br/>keep only its own Cluster
     C-->>W: mDNS: Render Job announced (port, cluster)
-    W->>C: QUIC connect (UDP 7470), accept any certificate
+    W->>C: QUIC connect (announced UDP port), accept any certificate
     W->>C: control: Hello (cluster, Build Identity, host, NUMA node, threads)
     Note over C: Cluster Name and commit match,<br/>tree clean or --allow-dirty,<br/>Worker Slot not refused
     C->>W: control: Welcome (worker_id)
@@ -61,7 +61,7 @@ sequenceDiagram
         C->>O: every reason (file, line, column), exit 3
         Note over C: nothing announced, no Worker ever joins
     end
-    Note over C: open UDP 7470
+    Note over C: open its UDP port<br/>(ephemeral, or --port)
     C-->>W: mDNS: announce the Render Job (_umbra._udp, cluster)
     W->>C: join and load (§6.1)
     loop until every Work Unit is merged
