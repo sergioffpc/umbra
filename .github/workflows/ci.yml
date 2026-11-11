@@ -82,10 +82,12 @@ jobs:
       # `umbra-spectrum` build script generates (ADR 0022).
       - run: scripts/in-ci-image.sh scripts/check.sh rust
 
-  # The `unsafe` code of `umbra-math` under Miri (ADR 0007), on the nightly
-  # pinned in rust-toolchain.toml (ADR 0027), with the `x86-64-v3` baseline
-  # the crate requires, calling the image's glibc libm natively. The
-  # equivalence tests sample fewer inputs under `cfg(miri)`. The command and
+  # The `unsafe` code of `umbra-math`, and the tests of every crate that call
+  # its C math wrappers (`umbra-sampling`, `umbra-spectrum`), under Miri
+  # (ADR 0007), on the nightly pinned in rust-toolchain.toml (ADR 0027), with
+  # the `x86-64-v3` baseline `umbra-math` requires, calling the image's glibc
+  # libm natively. The equivalence tests of `umbra-math` and the χ² tests of
+  # `umbra-sampling` sample fewer inputs under `cfg(miri)`. The command and
   # its exclusions: the `miri` group of scripts/check.sh.
   miri:
     name: miri
@@ -99,8 +101,9 @@ jobs:
           cache-key: miri
       - run: scripts/in-ci-image.sh scripts/check.sh miri
 
-  # The tests that call glibc under AddressSanitizer (ADR 0007), which sees
-  # inside glibc where Miri cannot: the `asan` group of scripts/check.sh.
+  # The tests that call glibc, those of `umbra-math`, `umbra-sampling` and
+  # `umbra-spectrum`, under AddressSanitizer (ADR 0007), which sees inside
+  # glibc where Miri cannot: the `asan` group of scripts/check.sh.
   asan:
     name: asan
     needs: changes

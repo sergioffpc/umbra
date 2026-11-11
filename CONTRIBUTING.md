@@ -321,7 +321,7 @@ Run the checks CI runs:
 ```sh
 scripts/check.sh            # everything: rust, lint and deny
 scripts/check.sh rust       # or one group: fmt, clippy, doc, tests
-scripts/check.sh miri asan  # umbra-math under Miri and AddressSanitizer
+scripts/check.sh miri asan  # the crates that call glibc, under Miri and ASan
 ```
 
 [`scripts/check.sh`](scripts/check.sh) is the one list of these checks: each

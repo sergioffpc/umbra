@@ -26,8 +26,17 @@ use umbra_sampling::{
 use crate::chi2::{Grid, assert_chi2, assert_chi2_counts, integrate, integrate_2d};
 use crate::generators::{uniform_1d, uniform_2d};
 
-/// Samples per χ² test.
-const SAMPLE_COUNT: usize = 1 << 20;
+// Miri interprets every sample, so it runs on fewer: enough to reach every C
+// math call the tests make, which is what it checks (ADR 0007).
+
+/// Samples per χ² test; under Miri, still 16 per cell of the largest grid.
+const SAMPLE_COUNT: usize = if cfg!(miri) { 1 << 12 } else { 1 << 20 };
+/// Points per agreement check of a warp with its PDF.
+const INTERIOR_POINT_COUNT: usize = if cfg!(miri) { 100 } else { 1000 };
+/// Sub-intervals per axis of the integral of a direction PDF over `(θ, φ)`;
+/// under Miri, few enough to be quick that still integrate every one to 1
+/// within 1e-5.
+const NORMALISATION_INTERVALS: u32 = if cfg!(miri) { 24 } else { 64 };
 /// The step of the central differences that estimate a warp's Jacobian.
 const H: f32 = 1e-3;
 /// How far `pdf(T(u)) · |det ∂T/∂u|` may be from 1: the finite differences
@@ -37,7 +46,8 @@ const AGREEMENT_TOLERANCE: f64 = 2e-3;
 /// `u` drawn from sequence `sequence_index`, squeezed into `[0.05, 0.95]²`
 /// so that the finite differences stay away from the edges of the domain.
 fn interior_points(sequence_index: u64) -> impl Iterator<Item = Point2f> {
-    uniform_2d(1000, sequence_index).map(|u| Point2f::new(0.05 + 0.9 * u.x, 0.05 + 0.9 * u.y))
+    uniform_2d(INTERIOR_POINT_COUNT, sequence_index)
+        .map(|u| Point2f::new(0.05 + 0.9 * u.x, 0.05 + 0.9 * u.y))
 }
 
 /// Whether `u` is within a finite-difference step of a seam of the
@@ -156,7 +166,7 @@ impl<W: Fn(Point2f) -> Vector3f, P: Fn(Vector3f) -> f32> DirectionWarp<W, P> {
             |t, p| self.pdf_theta_phi(t, p),
             &(0.0..self.theta_max),
             &(0.0..2.0 * PI),
-            64,
+            NORMALISATION_INTERVALS,
         );
         assert_normalised(self.name, integral, 1e-5);
     }

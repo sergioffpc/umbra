@@ -8,9 +8,11 @@
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy, doc, nextest, doctests
-#   miri  umbra-math's tests under Miri, calling glibc's libm natively (slow;
-#         not in the default run)
-#   asan  umbra-math's tests under AddressSanitizer (not in the default run)
+#   miri  the tests that call glibc's libm (umbra-math, umbra-sampling,
+#         umbra-spectrum) under Miri, calling it natively (slow; not in the
+#         default run)
+#   asan  the same crates' tests under AddressSanitizer (not in the default
+#         run)
 #   lint  typos, unused dependencies, crate READMEs, shell, workflows,
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
@@ -56,28 +58,42 @@ rust() {
 }
 
 # The `unsafe` code of `umbra-math` under Miri (ADR 0007), with the
-# `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set. Miri runs
-# the FFI calls of `umbra-math`'s C math wrappers in the native libm.so.6. The path is
-# the one the dynamic loader resolves (`ldconfig -p`), not the `/lib` symlink:
-# Miri takes a symbol only from the file it names, and finds none through
-# `/lib/x86_64-linux-gnu`, so every call there is unsupported. The pbrt-v4
-# test ports are left out: their long loops take hours under Miri, and the
-# equivalence tests cover every `unsafe` item. Needs the `miri` and
-# `rust-src` components.
+# `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set, and the
+# tests of every crate that call its C math wrappers: `umbra-sampling` and
+# `umbra-spectrum`. Miri runs the FFI calls of the wrappers in the native
+# libm.so.6. The path is the one the dynamic loader resolves (`ldconfig -p`),
+# not the `/lib` symlink: Miri takes a symbol only from the file it names,
+# and finds none through `/lib/x86_64-linux-gnu`, so every call there is
+# unsupported. Left out, as too long interpreted (each over minutes):
+# - the pbrt-v4 test ports, whose long loops take hours, but for
+#   `umbra-spectrum`'s `spectrum_test`, the only tests that reach `roundf`;
+#   the equivalence tests cover every `unsafe` item of `umbra-math`;
+# - the χ² tests of `umbra-sampling` whose warps are slowest interpreted
+#   (Henyey–Greenstein, uniform cone, spherical triangle); the others, on
+#   fewer samples under `cfg(miri)`, call every C math wrapper they do;
+# - `umbra-spectrum`'s hash of its generated table, which calls no C math.
+# Needs the `miri` and `rust-src` components.
 miri() {
     step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3}" \
         MIRIFLAGS="-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6" \
-        cargo miri nextest run -p umbra-math --all-features --locked \
-        -E 'not test(/^pbrt_v4::/)'
+        cargo miri nextest run -p umbra-math -p umbra-sampling -p umbra-spectrum \
+        --all-features --locked -E "$miri_tests"
 }
 
-# The tests of `umbra-math`, which call glibc, under AddressSanitizer, which
-# sees inside glibc where Miri cannot (ADR 0007). The explicit `--target`
-# keeps build scripts and proc macros uninstrumented.
+# The tests the `miri` group runs, as a nextest filterset.
+miri_tests='(not test(/^pbrt_v4::/) or (package(umbra-spectrum) and test(/^pbrt_v4::spectrum_test::/)))
+    and not (package(umbra-sampling) and test(/^sampling::(henyey_greenstein_phase|uniform_cone|spherical_triangle)$/))
+    and not (package(umbra-spectrum) and test(=table::srgb_table_hash))'
+
+# The tests of every crate that calls glibc through `umbra-math`'s wrappers,
+# `umbra-math`, `umbra-sampling` and `umbra-spectrum`, under
+# AddressSanitizer, which sees inside glibc where Miri cannot (ADR 0007).
+# The explicit `--target` keeps build scripts and proc macros
+# uninstrumented.
 asan() {
     step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3} -Zsanitizer=address" \
-        cargo nextest run -p umbra-math --all-features --locked \
-        --target x86_64-unknown-linux-gnu --profile ci
+        cargo nextest run -p umbra-math -p umbra-sampling -p umbra-spectrum \
+        --all-features --locked --target x86_64-unknown-linux-gnu --profile ci
 }
 
 lint() {
