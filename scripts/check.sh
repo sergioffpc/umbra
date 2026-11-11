@@ -5,7 +5,7 @@
 # staged files only. Miri runs in CI only (its own job in ci.yml).
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
-#   rust  fmt, clippy, doc, nextest, doctests
+#   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests
 #   lint  typos, unused dependencies, crate READMEs, shell, workflows,
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
@@ -44,6 +44,11 @@ tracked() {
 rust() {
     step cargo fmt --all -- --check
     step cargo clippy --all-targets --all-features --locked -- -D warnings
+    # umbra-math's nvptx64 backend (ADR 0028), which no CI runner can run:
+    # it must build and pass clippy. RUSTFLAGS drops the x86-64 CPU that CI
+    # sets, which the GPU target does not have.
+    step env RUSTFLAGS="-D warnings" cargo clippy -p umbra-math \
+        --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
     step env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
     step cargo nextest run --all-features --locked --profile ci
     # nextest does not run doctests.
