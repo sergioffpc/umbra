@@ -1,4 +1,4 @@
-name: CI
+name: Rust
 
 on:
   push:
@@ -19,9 +19,13 @@ env:
   # runners are generic x86-64.
   RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
 
+# CI is split into workflows by kind of check, so the checks of a pull request
+# are listed in groups: Rust (this one), Dependencies (dependencies.yml) and
+# Lint (lint.yml).
+#
 # Job names are required status checks in the "Require CI checks" repository
-# ruleset: when renaming or adding a job, update the ruleset too, or merges
-# into develop and main stay blocked.
+# ruleset: when renaming or adding a job, in any of these workflows, update
+# the ruleset too, or merges into develop and main stay blocked.
 #
 # The checks themselves live in scripts/check.sh, which contributors run
 # locally too, and the tool versions in scripts/install-tools.sh, which the
@@ -108,34 +112,3 @@ jobs:
           cargo miri nextest run -p umbra-math --all-features
           --features libm/force-soft-floats --locked
           -E 'not test(/^pbrt_v4::/)'
-
-  # Advisories are split out so a new RustSec advisory shows as its own
-  # failing check, apart from the license and source policy.
-  deny:
-    name: cargo deny (${{ matrix.checks }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        checks: [advisories, bans licenses sources]
-    steps:
-      - uses: actions/checkout@v7
-      - run: scripts/install-tools.sh cargo-deny
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      - run: cargo deny check ${{ matrix.checks }}
-
-  # Spelling, unused dependencies, and the linters of shell scripts, workflows,
-  # EditorConfig, JSON, YAML, Markdown and TOML, on every tracked file.
-  # shellcheck comes with the runner.
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - run: >-
-          scripts/install-tools.sh typos cargo-shear actionlint
-          editorconfig-checker taplo prettier markdownlint-cli2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      - run: scripts/check.sh lint

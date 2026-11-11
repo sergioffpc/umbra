@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
-# (.github/workflows/ci.yml) runs one group per job; locally, run them all
-# before opening a pull request. The pre-commit hook runs the fast ones on the
-# staged files only. Miri runs in CI only (its own job in ci.yml).
+# (.github/workflows/) runs one group per job; locally, run them all before
+# opening a pull request. The pre-commit hook runs the fast ones on the staged
+# files only. Miri runs in CI only (its own job in rust.yml).
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests

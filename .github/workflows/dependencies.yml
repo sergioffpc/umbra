@@ -1,0 +1,37 @@
+name: Dependencies
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Job names are required status checks in the "Require CI checks" repository
+# ruleset; see rust.yml. The policy is in deny.toml, the cargo-deny version in
+# scripts/install-tools.sh.
+jobs:
+  # Advisories are split out so a new RustSec advisory shows as its own
+  # failing check, apart from the license and source policy.
+  deny:
+    name: cargo deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/install-tools.sh cargo-deny
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: cargo deny check ${{ matrix.checks }}
