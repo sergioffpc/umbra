@@ -70,10 +70,16 @@ git cliff --tag vX.Y.Z -o CHANGELOG.md
 
 ## Toolchain
 
-[`rust-toolchain.toml`](rust-toolchain.toml) pins the Rust version, and
+[`rust-toolchain.toml`](rust-toolchain.toml) pins one dated nightly for the
+whole workspace ([ADR 0027](docs/adr/0027-a-pinned-nightly-toolchain.md)), and
 `rustup` installs it automatically the first time you run `cargo` in the repo.
-`rust-version` in [`Cargo.toml`](Cargo.toml) matches it. To upgrade, bump both
-in one `build:` commit and fix any new lints.
+There is no `rust-version` in [`Cargo.toml`](Cargo.toml): a nightly has no
+version to state. To upgrade, bump `channel` to a date that has every listed
+component, in its own `build:` commit, and fix any new lints.
+
+Use stable language and library features only. `#![feature(...)]` belongs in
+`umbra-kernels` alone, for what the GPU kernels cannot do without; every other
+crate builds as if on stable.
 
 Tools used by the hooks, CI and the checks below. Install them all, at the
 versions CI uses, with:
@@ -313,8 +319,10 @@ scripts/check.sh rust       # or one group: fmt, clippy, doc, tests
 ```
 
 [`scripts/check.sh`](scripts/check.sh) is the one list of these checks: each
-CI job runs one of its groups. Only Miri runs in CI alone, since it needs a
-nightly toolchain.
+CI job runs one of its groups. Only Miri runs in CI alone; to run it locally,
+add it to the pinned toolchain with `rustup component add miri rust-src` and
+use the command in the `miri` job of
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Then:
 

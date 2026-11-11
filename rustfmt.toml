@@ -1,5 +1,6 @@
-# Formatting rules. Only stable options are used, so `cargo fmt` works on the
-# stable toolchain that CI and contributors run.
+# Formatting rules. Only stable options are used, like the stable language
+# features every crate but `umbra-kernels` keeps to on the pinned nightly
+# (ADR 0027).
 edition = "2024"
 style_edition = "2024"
 max_width = 100

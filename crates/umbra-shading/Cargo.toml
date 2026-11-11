@@ -3,7 +3,6 @@ name = "umbra-shading"
 description = "Textures, Materials, BxDFs, Lights and light samplers, Media, each with its *Kind"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

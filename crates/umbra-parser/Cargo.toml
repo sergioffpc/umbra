@@ -3,7 +3,6 @@ name = "umbra-parser"
 description = "The .pbrt adapter: tokenising, includes, assets, strict validation, content hash"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

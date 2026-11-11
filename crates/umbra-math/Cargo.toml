@@ -3,7 +3,6 @@ name = "umbra-math"
 description = "Vectors, points, normals, frames, transforms, Interval and floating-point error bounds, libm wrappers"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

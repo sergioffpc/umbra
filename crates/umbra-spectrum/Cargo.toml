@@ -3,7 +3,6 @@ name = "umbra-spectrum"
 description = "Spectrum and SpectrumKind, SampledSpectrum, SampledWavelengths, RGB and color spaces"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

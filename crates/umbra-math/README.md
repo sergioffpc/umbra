@@ -368,9 +368,10 @@ Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
 the local CPU. The `unsafe` backends run under Miri in CI (ADR 0007), with
 `libm` in software (Miri cannot run its inline assembly) and without the
-pbrt-v4 ports (too slow interpreted):
+pbrt-v4 ports (too slow interpreted). Miri runs on the pinned toolchain once
+`rustup component add miri rust-src` has added it:
 
 ```sh
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo +nightly miri nextest run -p umbra-math \
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo miri nextest run -p umbra-math \
   --all-features --features libm/force-soft-floats -E 'not test(/^pbrt_v4::/)'
 ```

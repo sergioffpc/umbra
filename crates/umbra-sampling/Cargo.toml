@@ -3,7 +3,6 @@ name = "umbra-sampling"
 description = "Sampling functions (warps), hashing and RNG, low-discrepancy sequences, Sampler and SamplerKind"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

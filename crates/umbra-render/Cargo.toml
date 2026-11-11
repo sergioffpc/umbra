@@ -3,7 +3,6 @@ name = "umbra-render"
 description = "Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; EXR final image"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

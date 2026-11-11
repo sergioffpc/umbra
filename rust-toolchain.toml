@@ -1,8 +1,16 @@
-# Pinned toolchain. clippy `pedantic`/`cargo` gain new lints with every Rust
-# release, so a floating `stable` would break CI without any code change.
-# Upgrade deliberately: bump `channel` here and `rust-version` in Cargo.toml in
-# the same commit, then fix any new lints. Dependabot does not update this file.
+# One pinned nightly for the whole workspace (ADR 0027). Only `umbra-kernels`
+# enables unstable features; every other crate stays on stable ones.
+#
+# Pinned, not floating: clippy `pedantic`/`cargo` gain new lints with every
+# nightly, so a floating channel would break CI without any code change. The
+# date must have every component below. Upgrade deliberately: bump `channel`
+# in its own `build:` commit and fix any new lints. Dependabot does not update
+# this file.
+#
+# `nvptx64-nvidia-cuda` and `llvm-bitcode-linker` build `umbra-kernels` to PTX.
+# The Miri job adds `miri` and `rust-src` to this same toolchain.
 [toolchain]
-channel = "1.99.1"
-components = ["rustfmt", "clippy", "llvm-tools"]
+channel = "nightly-2026-11-05"
+components = ["rustfmt", "clippy", "llvm-tools", "llvm-bitcode-linker"]
+targets = ["nvptx64-nvidia-cuda"]
 profile = "minimal"

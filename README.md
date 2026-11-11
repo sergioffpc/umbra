@@ -15,7 +15,7 @@ over the machines of a LAN.
 
 ## Building
 
-Requires Rust 1.99.1, pinned in `rust-toolchain.toml`; rustup installs it automatically.
+Requires the nightly Rust toolchain pinned in `rust-toolchain.toml` ([ADR 0027](docs/adr/0027-a-pinned-nightly-toolchain.md)); rustup installs it automatically.
 
 ```sh
 git clone https://github.com/sergioffpc/umbra.git

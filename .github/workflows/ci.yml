@@ -78,26 +78,26 @@ jobs:
       # `umbra-spectrum` build script generates (ADR 0022).
       - run: scripts/check.sh rust
 
-  # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on a
-  # nightly pinned for this job only, with the `x86-64-v3` baseline the crate
-  # requires. The equivalence tests sample fewer inputs under `cfg(miri)`.
-  # Miri cannot run inline assembly, which `libm` uses for its runtime CPU
-  # check, so `libm` is built with `force-soft-floats` (the same, correctly
-  # rounded bits). The pbrt-v4 test ports are left out: their long loops take
-  # hours under Miri, and the equivalence tests cover every `unsafe` item.
+  # The `unsafe` SIMD backends of `umbra-math` under Miri (ADR 0007), on the
+  # nightly pinned in rust-toolchain.toml (ADR 0027), with the `x86-64-v3`
+  # baseline the crate requires. The equivalence tests sample fewer inputs
+  # under `cfg(miri)`. Miri cannot run inline assembly, which `libm` uses for
+  # its runtime CPU check, so `libm` is built with `force-soft-floats` (the
+  # same, correctly rounded bits). The pbrt-v4 test ports are left out: their
+  # long loops take hours under Miri, and the equivalence tests cover every
+  # `unsafe` item.
   miri:
     name: miri
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-latest
-    env:
-      MIRI_TOOLCHAIN: nightly-2026-11-05
     steps:
       - uses: actions/checkout@v7
+      # The toolchain pinned in rust-toolchain.toml, plus Miri.
       - name: Toolchain
         run: >-
-          rustup toolchain install "$MIRI_TOOLCHAIN" --profile minimal
-          --component miri --component rust-src
+          rustup toolchain install && rustup component add miri rust-src &&
+          rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: miri
@@ -105,7 +105,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - run: >-
-          cargo +"$MIRI_TOOLCHAIN" miri nextest run -p umbra-math --all-features
+          cargo miri nextest run -p umbra-math --all-features
           --features libm/force-soft-floats --locked
           -E 'not test(/^pbrt_v4::/)'
 
