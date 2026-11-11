@@ -1,5 +1,6 @@
-# The workspace of arc42 §5.1 (ADR 0015): seven `#![no_std]` core crates
-# without `alloc` and five `std` crates around them, all in `crates/<name>/`.
+# The workspace of arc42 §5.1 (ADR 0015, ADR 0028): seven `#![no_std]` core
+# crates without `alloc`, `umbra-kernels` (`#![no_std]`, built for `nvptx64`
+# only), and six `std` crates around them, all in `crates/<name>/`.
 # Every crate inherits the package metadata, lints and dependencies below
 # (arc42 §5.4).
 [workspace]
@@ -22,9 +23,20 @@ publish = false
 # Core crates use `default-features = false` for every external dependency:
 # it must build without `std` (ADR 0014).
 [workspace.dependencies]
+# The CUDA driver API for `umbra-gpu`, loaded from the NVIDIA driver at run
+# time, so building needs no CUDA (ADR 0028). `cuda-12080`, CUDA 12.8, is the
+# first with Blackwell, the P620's GPU (arc42 §7).
+cudarc = { version = "0.19.10", default-features = false, features = [
+  "std",
+  "driver",
+  "dynamic-loading",
+  "cuda-12080",
+] }
 # Micro-benchmarks: a reference and its optimised kernel side by side in one
 # generic bench (arc42 §8.4, ADR 0007).
 divan = "0.1.21"
+# Loads the driver's OptiX, `libnvoptix.so.1`, at run time (ADR 0028).
+libloading = "0.9.0"
 serde = { version = "1.0.228", default-features = false }
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }

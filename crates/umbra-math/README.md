@@ -297,7 +297,7 @@ statistical equality only (ADR 0026).
   CI's, compiles with one `.extern .func __nv_*` per function used.
 
 No CI runner has a GPU, so CI only builds the backend and runs clippy on it
-(`scripts/check.sh rust`). The GPU test script checks each error bound
+(`scripts/check.sh rust`). The GPU tests (`cargo nextest run --profile gpu`) check each error bound
 against glibc on the GPU (#126).
 
 ## Things to know when using it

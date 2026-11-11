@@ -2,6 +2,8 @@
 
 > **Amended by [ADR 0027](0027-a-pinned-nightly-toolchain.md).** Miri runs on the nightly the whole workspace pins, not on one pinned for its job only.
 >
+> **Amended on 2026-11-11 by [#126](https://github.com/sergioffpc/umbra/issues/126).** The GPU path is an `unsafe` exception of its own, like the C math, without a benchmark or a safe reference: there is no safe way to reach the GPU. It covers the OptiX device API in inline PTX, the entry points' `#[unsafe(no_mangle)]`, and the device-memory reads and writes of `umbra-kernels`; and in `umbra-gpu`, loading OptiX from the driver, the calls through its function table and `cudarc`'s `DeviceRepr` for the records shared with the device. The rules of the C math hold: one safe wrapper per OptiX call or built-in, one `unsafe` operation per block with its `// SAFETY:` comment, and verification by the GPU tests on the P620 (ADR 0026), since neither Miri nor AddressSanitizer runs on the GPU or through the driver.
+>
 > **Amended on 2026-11-11 by [#142](https://github.com/sergioffpc/umbra/issues/142).** FFI to the C math library (glibc on x86-64, `libdevice` on `nvptx64`) is an `unsafe` exception of its own, without a benchmark or a safe reference. On x86-64 it is verified by Miri with `-Zmiri-native-lib`, native tests and AddressSanitizer; on `nvptx64`, by the GPU test script.
 
 Umbra code is safe Rust by default. `unsafe_code = "deny"` applies to every crate of the workspace. SIMD, byte casts, thread pinning and allocators come from crates with safe APIs (`wide` behind the `Vec4`/`Mask4` facade, `bytemuck`, …), so the expected amount of `unsafe` in Umbra itself is zero.

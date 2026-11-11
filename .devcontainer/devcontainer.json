@@ -48,7 +48,18 @@
 
   "hostRequirements": {
     "cpus": 4,
-    "memory": "8gb"
+    "memory": "8gb",
+    // The host's NVIDIA GPUs, where Docker has the NVIDIA Container Toolkit
+    // (the P620); elsewhere the container starts without one.
+    "gpu": "optional"
+  },
+
+  // What the NVIDIA Container Toolkit mounts from the host driver: `compute`
+  // for libcuda, `graphics` for OptiX's libnvoptix and libnvidia-rtcore,
+  // `utility` for nvidia-smi (arc42 §7). Ignored without a GPU.
+  "containerEnv": {
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,graphics,utility"
   },
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",

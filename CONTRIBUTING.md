@@ -196,6 +196,12 @@ container.
   Dependabot updates the base image and features.
 - A git worktree cannot be opened in the container: its `.git` file points
   to a path on the host. Open the main clone instead.
+- On a host whose Docker has the NVIDIA Container Toolkit, such as the P620,
+  the container gets the host's GPUs, with the driver capabilities OptiX
+  needs (`compute,graphics`, arc42 §7), and the GPU tests run in it
+  (`cargo nextest run --profile gpu`):
+  the image holds CUDA's `libdevice.10.bc`, the only file of CUDA the build
+  needs. Elsewhere it starts without a GPU.
 
 ## Lint and formatting rules
 

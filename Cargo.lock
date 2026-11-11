@@ -53,6 +53,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf0a07a401f374238ab8e2f11a104d2851bf9ce711ec69804834de8af45c7af"
 
 [[package]]
+name = "cudarc"
+version = "0.19.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7359bf1de037ddada72729c3acec9b040f3468400c6e9e740b01ba0cd2e89562"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "divan"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -92,6 +101,16 @@ name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -233,12 +252,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "umbra-gpu"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "libloading",
+ "umbra-geometry",
+ "umbra-math",
+]
+
+[[package]]
 name = "umbra-integrators"
 version = "0.1.0"
 dependencies = [
  "serde",
  "umbra-camera",
  "umbra-shading",
+]
+
+[[package]]
+name = "umbra-kernels"
+version = "0.1.0"
+dependencies = [
+ "umbra-geometry",
+ "umbra-math",
 ]
 
 [[package]]

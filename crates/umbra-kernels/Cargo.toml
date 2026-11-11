@@ -1,0 +1,26 @@
+[package]
+name = "umbra-kernels"
+description = "The GPU's programs: OptiX entry points and device bindings, built for nvptx64 only"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+# A `cdylib` is what the `nvptx64` target links into one PTX module, through
+# the toolchain's `llvm-bitcode-linker` (ADR 0028). On the host the crate
+# compiles empty. `umbra-gpu`'s build script builds it; nothing depends on it.
+[lib]
+crate-type = ["cdylib"]
+
+# On the GPU only: on the host the crate is empty and uses nothing.
+[target.'cfg(target_arch = "nvptx64")'.dependencies]
+umbra-geometry = { workspace = true }
+umbra-math = { workspace = true }
+
+[lints]
+workspace = true

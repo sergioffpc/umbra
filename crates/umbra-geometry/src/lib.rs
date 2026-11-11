@@ -3,8 +3,16 @@
 // No `f64` in the core (ADR 0028): `clippy.toml` lists it.
 #![warn(clippy::disallowed_types)]
 
-// Dependency edges of arc42 §5.1, used once the crate has code.
+mod bounds;
+mod ray;
+mod sphere;
+
+// Dependency edges of arc42 §5.1, used once the crate has code that needs
+// them.
 #[cfg(feature = "serde")]
 use serde as _;
-use umbra_math as _;
 use umbra_sampling as _;
+
+pub use bounds::Bounds3f;
+pub use ray::Ray;
+pub use sphere::{QuadricIntersection, Sphere};

@@ -1,0 +1,24 @@
+[package]
+name = "umbra-gpu"
+description = "The GPU Worker's renderer: cudarc, the OptiX host side, and the PTX of umbra-kernels"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+# Compiles `umbra-kernels` for `nvptx64` and links `libdevice` into its PTX
+# (ADR 0028).
+build = "build.rs"
+
+[dependencies]
+cudarc = { workspace = true }
+libloading = { workspace = true }
+umbra-geometry = { workspace = true }
+umbra-math = { workspace = true }
+
+[lints]
+workspace = true

@@ -118,4 +118,14 @@ disallowed-types = [
 
 # pbrt-v4 terms and tool names written as prose in doc comments, not code.
 # `..` keeps clippy's default list.
-doc-valid-idents = ["..", "BxDF", "BxDFs", "BSDF", "BSDFs", "BSSRDF", "BSSRDFs", "AddressSanitizer"]
+doc-valid-idents = [
+  "..",
+  "BxDF",
+  "BxDFs",
+  "BSDF",
+  "BSDFs",
+  "BSSRDF",
+  "BSSRDFs",
+  "AddressSanitizer",
+  "OptiX",
+]
