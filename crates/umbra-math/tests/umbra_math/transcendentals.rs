@@ -22,11 +22,11 @@ use crate::rng::Rng;
 
 // Explicit path, so the benchmark can include this file by `#[path]` too.
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-#[path = "transcendentals/glibc.rs"]
-mod glibc;
+#[path = "transcendentals/libmvec.rs"]
+mod libmvec;
 
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-pub(crate) use glibc::{Libmvec4, Libmvec8};
+pub(crate) use libmvec::{Libmvec4, Libmvec8};
 
 /// The inputs per batch: a multiple of eight, the widest call.
 pub(crate) const BATCH: usize = 1024;
