@@ -4,20 +4,20 @@
 
 Two target machines on one LAN, inventoried on 2026-11-06 ([Hardware inventory of target machines](https://github.com/sergioffpc/umbra/issues/19)).
 
-|                 | Lenovo P620                                                                                                        | Dell PowerEdge R630                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| CPU             | AMD Threadripper PRO 3975WX (Zen 2)                                                                                | 2 × Intel Xeon E5-2690 v4 (Broadwell-EP), 2.6 GHz base / 3.5 GHz turbo |
-| Architecture    | `x86_64-unknown-linux-gnu`                                                                                         | `x86_64-unknown-linux-gnu`                                             |
-| Cores / threads | 32 / 64 (SMT on)                                                                                                   | 28 / 56 (14 / 28 per socket, SMT on)                                   |
-| SIMD            | AVX2, FMA, F16C, BMI1/2; **no AVX-512**                                                                            | AVX2, FMA, F16C, BMI1/2; **no AVX-512**                                |
-| L1d / L2        | 32 KiB / 512 KiB per core                                                                                          | 32 KiB / 256 KiB per core                                              |
-| L3 / LLC        | 128 MiB in 8 × 16 MiB slices (one per CCX of 4 cores)                                                              | 2 × 35 MiB (one per socket)                                            |
-| Cache line      | 64 B                                                                                                               | 64 B                                                                   |
-| NUMA            | 1 node (NPS1, kept fixed), but L3 split over 8 CCXs                                                                | **2 nodes** (one per socket, 128 GiB each)                             |
-| RAM             | 128 GiB DDR4-3200, 8 channels                                                                                      | 256 GiB DDR4-2133, 8 × 32 GB 4R (4 channels per socket)                |
-| OS              | Ubuntu 26.10, kernel 7.3                                                                                           | Debian 13, kernel 6.12                                                 |
-| Network         | 1 GbE (AQC107 10G NIC, link at 1G)                                                                                 | 1 GbE (82599ES 10G SFP+ NIC, link at 1G)                               |
-| Notes           | GPU: NVIDIA RTX 5070 Ti, a GPU Worker of its own ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)) | Host firewall (nftables) admits only SSH from the LAN                  |
+|                 | Lenovo P620                                                                                                                                           | Dell PowerEdge R630                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| CPU             | AMD Threadripper PRO 3975WX (Zen 2), 3.5 GHz base / 4.2 GHz boost                                                                                     | 2 × Intel Xeon E5-2690 v4 (Broadwell-EP), 2.6 GHz base / 3.5 GHz turbo |
+| Architecture    | `x86_64-unknown-linux-gnu`                                                                                                                            | `x86_64-unknown-linux-gnu`                                             |
+| Cores / threads | 32 / 64 (SMT on)                                                                                                                                      | 28 / 56 (14 / 28 per socket, SMT on)                                   |
+| SIMD            | AVX2, FMA, F16C, BMI1/2; **no AVX-512**                                                                                                               | AVX2, FMA, F16C, BMI1/2; **no AVX-512**                                |
+| L1d / L2        | 32 KiB / 512 KiB per core                                                                                                                             | 32 KiB / 256 KiB per core                                              |
+| L3 / LLC        | 128 MiB in 8 × 16 MiB slices (one per CCX of 4 cores)                                                                                                 | 2 × 35 MiB (one per socket)                                            |
+| Cache line      | 64 B                                                                                                                                                  | 64 B                                                                   |
+| NUMA            | 1 node (NPS1, kept fixed), but L3 split over 8 CCXs                                                                                                   | **2 nodes** (one per socket, 128 GiB each)                             |
+| RAM             | 128 GiB DDR4-3200, 8 channels                                                                                                                         | 256 GiB DDR4-2133, 8 × 32 GB 4R (4 channels per socket)                |
+| GPU             | NVIDIA GeForce RTX 5070 Ti (GB203, Blackwell), 16 GB GDDR7; a GPU Worker of its own ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)) | None for compute (onboard Matrox G200eR2, display only)                |
+| OS              | Ubuntu 26.10, kernel 7.3                                                                                                                              | Debian 13, kernel 6.12                                                 |
+| Network         | 1 GbE (AQC107 10G NIC, link at 1G)                                                                                                                    | 1 GbE (82599ES 10G SFP+ NIC, link at 1G)                               |
 
 **Network target: 1 GbE.** Measured P620 ↔ R630 with `iperf3`: ~941 Mb/s in each direction (one stream or four), RTT ~0.25 ms. Both NICs can do 10 GbE, but Umbra is designed for 1 GbE.
 
