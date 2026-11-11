@@ -14,10 +14,8 @@
 
 # ---------------------------------------------------------------------------
 # Toolchain: Ubuntu 26.04 LTS with the toolchain pinned in rust-toolchain.toml.
-# The base of both the builder below and the `ci` stage the Rust jobs of
-# .github/workflows/rust.yml run in, so tests, oracles and hashes see the glibc
-# the release ships. Every FROM ubuntu line uses the same digest; Dependabot
-# updates them all, keep them identical.
+# The base of the builder below. Every FROM ubuntu line uses the same digest;
+# Dependabot updates them all, keep them identical.
 FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS toolchain
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -43,34 +41,6 @@ RUN curl -fsSL --proto '=https' --tlsv1.2 https://sh.rustup.rs \
 WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install && rustc --version
-
-# ---------------------------------------------------------------------------
-# CI: the toolchain image plus what the Rust jobs of rust.yml need: git (for
-# scripts/check.sh), Miri with its sysroot, and cargo-nextest. Never shipped.
-# The checkout is mounted at /src. scripts/in-ci-image.sh builds it and runs
-# a command in it, in CI and locally.
-FROM toolchain AS ci
-
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -y --no-install-recommends git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# The checkout is mounted at /src, the only mount scripts/in-ci-image.sh
-# makes, locally and in CI, and is owned by the host user, not root.
-RUN git config --system --add safe.directory /src
-
-# Miri builds its sysroot here once, not on every job.
-RUN rustup component add miri rust-src && cargo miri setup
-
-# cargo-nextest at the version pinned in scripts/install-tools.sh. The
-# optional `github_token` secret lifts GitHub's rate limit on the download.
-COPY scripts/install-tools.sh /tmp/install-tools.sh
-RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    /tmp/install-tools.sh cargo-nextest \
-    && rm -rf /tmp/install-tools.sh "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 # ---------------------------------------------------------------------------
 # Builder: `cargo build --release` on the toolchain image, so the binary is

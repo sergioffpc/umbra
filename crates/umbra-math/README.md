@@ -533,10 +533,6 @@ added it:
 scripts/check.sh miri asan
 ```
 
-CI runs these tests in the `ci` stage of the repository's `Dockerfile`, on
-the glibc the release image ships, so the oracles and the bits they check are
-the release's. To run them in that same image (Docker or Podman):
-
-```sh
-scripts/in-ci-image.sh scripts/check.sh rust miri asan
-```
+CI runs these tests on the `ubuntu-26.04` runner, the Ubuntu release the
+release image is built on, so the oracles check the bits of that release's
+glibc.
