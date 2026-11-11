@@ -419,15 +419,21 @@ line is within 10 % of these. On 2.41 (the dev container), scalar `sincosf`
 takes 6.12 ns, not 27.3, and `libmvec`'s 8-lane `sin_cos` and `atan2` take
 3.37 and 1.11 ns, slower than at 4 lanes for `sin_cos`.
 
-**R630**: 2 × Intel Xeon E5-2690 v4, glibc 2.43 (the release image)
+**R630**: 2 × Intel Xeon E5-2690 v4, glibc 2.43 (the release image), on
+the CPUs and memory of NUMA node 0
 
 | Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
 | ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
-| `sin_cos`   |            — |     — |            — |                  — |                  — |
-| `atan2`     |            — |     — |            — |                  — |                  — |
-| `erf`       |            — |     — |            — |                  — |                  — |
-| `Vec4::exp` |            — |     — |            — |                  — |                  — |
-| `Vec4::pow` |            — |     — |            — |                  — |                  — |
+| `sin_cos`   |         14.7 |  13.1 |         11.9 |               4.66 |               1.92 |
+| `atan2`     |         18.0 |  8.92 |         22.5 |               3.20 |               1.85 |
+| `erf`       |         24.9 |  11.1 |         11.2 |               1.71 |               1.37 |
+| `Vec4::exp` |         37.3 |  7.88 |         21.9 |               7.72 |               3.67 |
+| `Vec4::pow` |          270 |  26.4 |         47.8 |               33.0 |               19.4 |
+
+The same executables as on the P620, with the same largest errors. Scalar
+`sincosf` is the one line that ranks differently on the two machines: on
+the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
+13.4 in two reruns), where on the P620 it is 4.8 times slower.
 
 ## Tests
 
