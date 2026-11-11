@@ -112,8 +112,9 @@ binary; across machines, results only have to be statistically equal
   glibc's `f64` routines (ADR 0022). Every other C function, and the
   kernels' fallbacks (`pow` with an infinite or NaN exponent, `sin_cos`
   beyond ±2²⁰), is glibc's, through its wrapper, with the bound
-  glibc's manual states. glibc's bits are fixed by the release image's
-  Ubuntu digest (ADR 0025).
+  glibc's manual states. glibc's last bits are not part of the contract:
+  they change with its point release and with Ubuntu's build of it
+  (`amd64` or `amd64v3`), so tests check bounds, not bits (ADR 0022).
 - **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
   machine has: without it the crate stops the build with a `compile_error!`,
   so there is no software-FMA path. Build with `target-cpu=native` (the

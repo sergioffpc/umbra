@@ -104,8 +104,8 @@ compiles from `umbra-math`'s source by `#[path]` rather than depending on
 the crate, so the script needs no `x86-64-v3` host. It can differ from
 pbrt-v4's own table in the last bits of some coefficients, because pbrt-v4's
 build lets the C++ compiler contract FMAs and its glibc may not be the
-image's. A test pins the table's hash, which a bump of the image's Ubuntu
-digest can change (ADR 0022).
+image's. Its last bits also follow the glibc it is built against, which is
+not always the release image's: no test pins them (ADR 0022).
 
 ## Things to know when using it
 
@@ -146,8 +146,6 @@ interface only:
 - `sampled.rs` checks `SampledSpectrum` and `SampledWavelengths` on worked
   examples, including the edge cases of pbrt-v4's definitions on zeros and
   NaNs and the order of its reductions.
-- `table.rs` checks the hash of the generated sRGB table, so a table that
-  changes with the generator, the toolchain or glibc's `cbrt` fails.
 - `generators.rs` ports the sample generators pbrt-v4's tests draw from.
 
 Run them with `cargo nextest run -p umbra-spectrum`.

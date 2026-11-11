@@ -83,8 +83,6 @@ jobs:
       - run: scripts/install-tools.sh cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      # The tests include the hash of the RGB-to-spectrum table the
-      # `umbra-spectrum` build script generates (ADR 0022).
       - run: scripts/check.sh rust
 
   # The `unsafe` code of `umbra-math`, and the tests of every crate that call
