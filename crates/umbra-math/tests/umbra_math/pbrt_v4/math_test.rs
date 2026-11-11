@@ -2,11 +2,13 @@
 //! tests of the same file are in `interval_test`.
 
 use crate::rng::Rng;
+use umbra_math::double;
 use umbra_math::{
     CompensatedFloat, CompensatedSum, difference_of_products, erf_inv, evaluate_polynomial,
     fast_exp, find_interval, fma, gaussian, gaussian_integral, inner_product, is_power_of_2, lerp,
     log2_int, next_float_up, round_up_pow2, sum_of_products, two_prod, two_sum,
 };
+use umbra_math::{erff, exp2f, expf, powf};
 
 /// `TEST(Pow2, Basics)`.
 #[test]
@@ -66,7 +68,7 @@ fn math_compensated_sum() {
 
     let mut rng = Rng::default();
     for _ in 0..16 * 1024 * 1024 {
-        let v = libm::expf(lerp(rng.uniform_f32(), -5.0, 20.0));
+        let v = expf(lerp(rng.uniform_f32(), -5.0, 20.0));
         kahan_sum_d += f64::from(v);
         double_sum += f64::from(v);
         kahan_sum_f += v;
@@ -114,12 +116,12 @@ fn log2_int_basics_u64() {
 #[test]
 fn log2_int_basics_float() {
     for i in -120_i16..=120 {
-        assert_eq!(i32::from(i), log2_int(libm::exp2f(f32::from(i))));
+        assert_eq!(i32::from(i), log2_int(exp2f(f32::from(i))));
     }
     for i in -31_i16..31 {
-        let low = libm::powf(2.0, f32::from(i) + 0.499);
+        let low = powf(2.0, f32::from(i) + 0.499);
         assert_eq!(i32::from(i), log2_int(low));
-        let high = libm::powf(2.0, f32::from(i) + 0.501);
+        let high = powf(2.0, f32::from(i) + 0.501);
         assert_eq!(i32::from(i) + 1, log2_int(high));
     }
 }
@@ -127,16 +129,16 @@ fn log2_int_basics_float() {
 /// `TEST(Math, ErfInv)`.
 #[test]
 fn math_erf_inv() {
-    assert_eq!(0.0, erf_inv(libm::erff(0.0)));
+    assert_eq!(0.0, erf_inv(erff(0.0)));
     for x in [0.1125_f32, 0.25, 0.753, 1.521, 2.5115] {
-        let e = libm::erff(x);
+        let e = erff(x);
         let err = (erf_inv(e) - x).abs() / x;
         assert!(e >= 1.0 || err < 1e-4, "{x} erf {e} inv {}", erf_inv(e));
     }
 }
 
 fn random_magnitude(rng: &mut Rng) -> f32 {
-    libm::powf(10.0, lerp(rng.uniform_f32(), -8.0, 8.0))
+    powf(10.0, lerp(rng.uniform_f32(), -8.0, 8.0))
 }
 
 /// One ULP of `|v|`, as the pbrt-v4 tests measure it.
@@ -161,7 +163,7 @@ fn math_difference_of_products() {
         c *= sign;
         let dp = difference_of_products(a, b, c, d);
         #[expect(clippy::cast_possible_truncation, reason = "f64 reference to f32")]
-        let dp2 = libm::fma(f64::from(a), f64::from(b), -f64::from(c) * f64::from(d)) as f32;
+        let dp2 = double::fma(f64::from(a), f64::from(b), -f64::from(c) * f64::from(d)) as f32;
         assert!((dp - dp2).abs() < 2.0 * ulp(dp2), "{a} {b} {c} {d}");
     }
 }
@@ -182,7 +184,7 @@ fn math_sum_of_products() {
         c *= sign;
         let sp = sum_of_products(a, b, c, d);
         #[expect(clippy::cast_possible_truncation, reason = "f64 reference to f32")]
-        let sp2 = libm::fma(f64::from(a), f64::from(b), f64::from(c) * f64::from(d)) as f32;
+        let sp2 = double::fma(f64::from(a), f64::from(b), f64::from(c) * f64::from(d)) as f32;
         assert!((sp - sp2).abs() < 2.0 * ulp(sp2), "{a} {b} {c} {d}");
     }
 }
@@ -249,7 +251,7 @@ fn find_interval_basics() {
 }
 
 fn random_signed(rng: &mut Rng) -> f32 {
-    let val = libm::powf(10.0, lerp(rng.uniform_f32(), -10.0, 10.0));
+    let val = powf(10.0, lerp(rng.uniform_f32(), -10.0, 10.0));
     let sign = if rng.uniform_f32() < 0.5 { -1.0 } else { 1.0 };
     val * sign
 }
@@ -319,7 +321,7 @@ fn fast_exp_accuracy() {
     let mut rng = Rng::new(6502);
     for _ in 0..100 {
         let v = lerp(rng.uniform_f32(), -20.0, 20.0);
-        let (f, e) = (fast_exp(v), libm::expf(v));
+        let (f, e) = (fast_exp(v), expf(v));
         let err = ((f - e) / e).abs();
         assert!(
             err <= 0.0003,

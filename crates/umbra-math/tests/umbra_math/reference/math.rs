@@ -1,5 +1,5 @@
-//! The reference of `umbra_math`'s `math` module: the FMA-based accuracy helpers over
-//! `libm::fmaf`.
+//! The reference of `umbra_math`'s `math` module: the FMA-based accuracy
+//! helpers over glibc's `fmaf`.
 
 use crate::reference::float::fma;
 use umbra_math::CompensatedFloat;

@@ -6,8 +6,9 @@ scalar helpers pbrt-v4 relies on, and the `Vec4`/`Mask4` SIMD facade.
 
 It is a core crate, `#![no_std]` without `alloc` (ADR 0014, ADR 0015), and
 the bottom of the core (arc42 §5.1): every other core crate depends on it,
-and it depends only on [`libm`](https://crates.io/crates/libm). It covers
-PBR 4e chapter 3, §6.8 and §B.2.
+and it depends on no other crate. Its C math comes from glibc's `libm.so.6`,
+through one safe wrapper per function (ADR 0007, ADR 0022). It
+covers PBR 4e chapter 3, §6.8 and §B.2.
 
 ```rust
 use umbra_math::{Point3f, Point3fi, Vector3f, cross, dot, look_at, perspective};
@@ -39,15 +40,18 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`, `sqrt`, `floor`, `ceil`                                                                                                                                                   |
 | `math` (`util/math.h`)                   | `lerp`, `clamp`, `sqr`, `safe_sqrt`/`asin`/`acos`, `evaluate_polynomial`, `difference_of_products`, `sum_of_products`, `two_prod`, `two_sum`, `inner_product`, `CompensatedSum`, `erf_inv`, `fast_exp`, `gaussian`, `gaussian_integral`, `find_interval`, `quadratic`, `log2_int`, `round_up_pow2`, `min`/`max`, π constants |
-| `transcendental`                         | `sin_cos`, `atan2`, `erf`: on x86-64 Umbra's own scalar transcendentals, within 1 ULP and faster than `libm`'s                                                                                                                                                                                                               |
+| `transcendental`                         | `sin_cos`, `atan2`, `erf`: on x86-64 Umbra's own scalar transcendentals, within 1 ULP and faster than the C routines                                                                                                                                                                                                         |
+| `platform`, `double`                     | One safe wrapper per C math function Umbra calls, over glibc on x86-64: the `f32` ones (`sinf`, `tanf`, `asinf`, `acosf`, `coshf`, `atanhf`, `expf`, `logf`, `powf`, `roundf`, …) at the crate root, the `f64` ones (the test oracles) in `double`                                                                           |
 | `interval` (`util/math.h`)               | `Interval`, a closed `[low, high]` that bounds the rounding error of the computation that produced it                                                                                                                                                                                                                        |
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
 | `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1, AVX2 and FMA on x86-64; scalar lanes on `nvptx64`), with `exp` and `pow`                                                                                                                                                                                        |
 
-Everything is re-exported at the crate root, so `use umbra_math::{…}` is all
-you need.
+Everything but `double` is re-exported at the crate root, so
+`use umbra_math::{…}` is all you need. The C functions keep C's names:
+`umbra_math::tanf(x)`, and `umbra_math::double::atan2(y, x)` for the `f64`
+ones, which would collide with Umbra's own `atan2` and `erf`.
 
 Not here, on purpose: `Bounds2`/`Bounds3`, `Ray` and `DirectionCone` live in
 `umbra-geometry`, and transforming a ray or a bounding box belongs with those
@@ -101,12 +105,15 @@ binary; across machines, results only have to be statistically equal
 (ADR 0022). The crate supports x86-64 (ADR 0023) and the GPU as
 `nvptx64-nvidia-cuda` (ADR 0028, below). On x86-64:
 
-- **Transcendentals come from `libm` or from Umbra's own kernels**, never
-  from the platform's math library or `std`'s float methods (which
-  `clippy.toml` bans). Umbra's own replace `libm` where they measured faster:
-  `sin_cos`, `atan2` and `erf`, and `Vec4::exp` and `Vec4::pow`. Each states
-  its error bound, 1 ULP, and is tested against `libm`'s `f64` routines
-  (ADR 0022).
+- **Transcendentals come from Umbra's own kernels or from glibc**, never
+  from `std`'s float methods (which `clippy.toml` bans). Umbra's own kernels
+  are `sin_cos`, `atan2` and `erf`, and `Vec4::exp` and `Vec4::pow`, faster
+  than glibc's; each states its error bound, 1 ULP, and is tested against
+  glibc's `f64` routines (ADR 0022). Every other C function, and the
+  kernels' fallbacks (`pow` with an infinite or NaN exponent, `sin_cos`
+  beyond ±2²⁰), is glibc's, through its wrapper, with the bound
+  glibc's manual states. glibc's bits are fixed by the release image's
+  Ubuntu digest (ADR 0025).
 - **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
   machine has: without it the crate stops the build with a `compile_error!`,
   so there is no software-FMA path. Build with `target-cpu=native` (the
@@ -114,9 +121,8 @@ binary; across machines, results only have to be statistically equal
   x86-64 and `nvptx64` stops the build too.
 - **`fma`, `sqrt`, `floor` and `ceil` are the hardware instruction**. `fma`
   and `sqrt` are correctly rounded and `floor`/`ceil` are exact, so they
-  compute the bits of `libm`; the hardware forms are inlined, where `libm`'s
-  `fmaf` is an indirect call through a runtime CPU check and its `sqrtf`
-  opaque inline assembly.
+  compute the bits of glibc's routines; the hardware forms are inlined,
+  where glibc's are calls into a shared library.
 - **FMA is explicit**: `umbra_math::fma` wherever pbrt-v4 uses `FMA`, and
   elsewhere where it is faster or more accurate, except in code whose error
   bounds assume pbrt-v4's exact operations. Rust never contracts `a * b + c`
@@ -218,8 +224,8 @@ every result is the same bits:
   instruction (above), and `round_up_pow2` by a count of leading zeros
   instead of pbrt-v4's five shift-or steps.
 
-The transcendentals cannot keep the bits of `libm`, so they keep an error
-bound instead (ADR 0022): every result is within 1 ULP of the correctly
+The transcendentals cannot keep the bits of the C routines, so they keep an
+error bound instead (ADR 0022): every result is within 1 ULP of the correctly
 rounded one, with C's values at signed zeros, infinities and NaNs.
 
 - **`Vec4::exp` and `Vec4::pow`** (`src/simd/x86_64/transcendental.rs`), for
@@ -230,21 +236,26 @@ rounded one, with C's values at signed zeros, infinities and NaNs.
   (`src/simd/transcendental.rs`) gives `pow` C's special values.
 - **`sin_cos`, `atan2` and `erf`** (`src/transcendental/x86_64.rs`): scalar `f64`
   code with the `f64` FMA. `sin_cos` shares one argument reduction (π/2 in
-  two parts, beyond ±2²⁰ `libm`'s), `atan2` reduces to `[0, tan(π/8)]` with
+  two parts, beyond ±2²⁰ glibc's), `atan2` reduces to `[0, tan(π/8)]` with
   one division, and `erf` reads one of eight half-unit segments. Their
-  polynomials are interpolants of `libm`'s `f64` routines at Chebyshev
-  nodes, of the lowest degree whose error is below 2⁻³⁰. The quadrant,
+  polynomials are interpolants of the `libm` crate's `f64` routines, which
+  Umbra used before glibc, at Chebyshev nodes, of the lowest degree whose error is below 2⁻³⁰. The quadrant,
   octant and segment are picked by selects and bit operations, not branches.
 
 The `unsafe` is confined to the x86-64 backend of `Vec4`, to
-`src/float/arch.rs` and to the `libdevice` declarations of `src/libdevice.rs`:
-one intrinsic per `unsafe` block, each with its `// SAFETY:` comment, under
-`#[expect(unsafe_code)]` on that function, and one `extern` block whose
-functions are declared `safe`. The kernels and the facade are safe code.
+`src/float/arch.rs`, to the glibc wrappers of `src/platform/x86_64.rs` and to
+the `libdevice` wrappers of `src/libdevice.rs`: one intrinsic or one FFI call
+per `unsafe` block, each with its `// SAFETY:` comment, under
+`#[expect(unsafe_code)]` on that function. The kernels and the facade are
+safe code. The FFI needs no benchmark or safe reference (ADR 0007): glibc's
+is checked against known values instead (`tests/umbra_math/platform.rs`),
+which catches a wrong signature. `umbra-spectrum`'s build script compiles
+`src/platform/x86_64.rs` by `#[path]`, so its table takes the same `cbrt`
+without the crate's `x86-64-v3` requirement.
 
 Every optimised operation keeps its reference in
 `tests/umbra_math/reference/`: pbrt-v4's code in plain scalar Rust over
-`libm`, working on the public types through their public interface, so it
+glibc's routines, working on the public types through their public interface, so it
 shares nothing with the kernels. It lives with the tests, not in `src/`
 (nothing in `src/` exists only for tests), and `benches/kernels.rs` includes
 it by `#[path]`. `tests/umbra_math/equivalence/` checks each kernel against its
@@ -256,7 +267,7 @@ What was tried and did not win stays in its reference form: a branch-free
 predicted; the scalar form is 20 % faster). A `Vec4` transform of a
 `Vector3f` lost while it transposed the matrix, and wins now that the
 columns are stored. A `sin_cos` that picked its quadrant by a `match` was
-slower than `libm`'s `sinf` and `cosf` together on random angles, and Taylor
+slower than the `libm` crate's `sinf` and `cosf` together on random angles, and Taylor
 polynomials for `sin`, `cos` and `atan` cost a third more than the
 Chebyshev ones.
 
@@ -293,8 +304,8 @@ against glibc on the GPU (#126).
 
 - **Angle units follow pbrt-v4**: `rotate`, `rotate_x/y/z` and `perspective`
   take degrees (as scene files do); everything else (`spherical_direction`,
-  `angle_between`, `sin_cos`, `atan2`, `libm` trigonometry) works in radians. Convert with
-  `radians`/`degrees`.
+  `angle_between`, `sin_cos`, `atan2`, the C trigonometry) works in
+  radians. Convert with `radians`/`degrees`.
 - **Division by a scalar divides each component**; it does not multiply by a
   reciprocal, so `v / 3.0` and `v * (1.0 / 3.0)` can differ in the last bit.
 - **`Transform::from(matrix)` computes the inverse**; for a singular matrix
@@ -303,11 +314,12 @@ against glibc on the GPU (#126).
 - **`Transform` equality compares the forward matrix only**, as in pbrt-v4.
 - **Prefer `umbra_math::min`/`max` over `f32::min`/`max`** in code that ports
   pbrt-v4, for the NaN reason above.
-- **Use `umbra_math::sqrt`, `floor`, `ceil` and `fma`** rather than `libm`'s
-  directly: the same bits, as one inlined instruction.
-- **Use `umbra_math::sin_cos`, `atan2` and `erf`** rather than `libm`'s
+- **Use `umbra_math::sqrt`, `floor`, `ceil` and `fma`** rather than
+  `sqrtf`, `floorf`, `ceilf` and `fmaf`: the same bits, as one inlined
+  instruction.
+- **Use `umbra_math::sin_cos`, `atan2` and `erf`** rather than the wrappers
   `sinf`/`cosf`, `atan2f` and `erff`, and `Vec4::exp`/`pow` rather than
-  `libm` per lane: within 1 ULP, but not the same bits.
+  `expf`/`powf` per lane: within 1 ULP, faster, but not the same bits.
 - **An `Interval` bound must not be NaN.** The outward rounding steps the bits
   of its operand, as pbrt-v4's `NextFloatUp`/`NextFloatDown` do; for a NaN
   that depends on its payload (a NaN whose payload is all ones steps to a
@@ -323,8 +335,9 @@ against glibc on the GPU (#126).
 Several choices cost cycles on purpose, for reproducibility and robustness:
 `difference_of_products` is three operations where `a*b − c*d` is two,
 `inner_product` (matrix products and the 4 × 4 inverse) is compensated, every
-`Interval` operation is several float operations plus ULP steps, and the
-`libm` routines Umbra keeps are somewhat slower than glibc's. `fast_exp` is
+`Interval` operation is several float operations plus ULP steps, and a
+C math wrapper is a call into a shared library that LLVM cannot inline.
+`fast_exp` is
 pbrt-v4's coarse approximation for the Gaussian filter, kept as it is.
 
 Within those choices, the kernels above take back most of the cost.
@@ -364,11 +377,13 @@ Ryzen Threadripper PRO 3975WX (Linux x86-64, `target-cpu=native`, Rust
 | `erf` (`libm::erff`)                   |      14.7 |      5.74 |    2.6 × |
 
 The last five rows were measured when `benches/kernels.rs` still timed the
-transcendentals; they now have their own target, below.
+transcendentals, against the `libm` crate that Umbra then used; they now
+have their own target, below. The other references were measured over the
+`libm` crate too, before they called glibc.
 
 `sqrt` is the same instruction either way; the gain is that LLVM sees
 through the intrinsic and can fold, schedule and vectorise it, which it
-cannot do with `libm`'s inline assembly. The `Transform` benches use a
+could not do with the `libm` crate's inline assembly. The `Transform` benches use a
 different transform for each of the 1024 inputs, so they also time the
 cache traffic of the 256-byte `Transform`. That is why `apply(Normal3f)`,
 which reads the rows as before, measured 1.17 ns before the columns were
@@ -385,16 +400,18 @@ every implementation available, for
 should the x86-64 backend take some of them from glibc? Each bench (`sin_cos`, `atan2`, `erf`, `exp4`
 for `Vec4::exp`, `pow4` for `Vec4::pow`) prints one line per implementation:
 
-- `LibmCrate`: the `libm` crate, one call per element (per lane for `Vec4`);
 - `Umbra`: the crate's own functions;
-- `GlibcScalar`: glibc's `libm.so` through FFI (`sincosf`, `atan2f`, `erff`,
-  `expf`, `powf`), one call per element (per lane for `Vec4`);
+- `GlibcScalar`: glibc's `libm.so` through the crate's wrappers
+  (`sincosf`, `atan2f`, `erff`, `expf`, `powf`), one call per element (per
+  lane for `Vec4`);
 - `Libmvec4` and `Libmvec8`: glibc's `libmvec`, 4 lanes per call for SSE
   (`_ZGVbN4…`) and 8 for AVX2 (`_ZGVdN8…`). `sin_cos` calls the vector
   `sinf` and `cosf`.
 
-The glibc lines exist only on `linux-gnu`, and not under Miri. The bench
-and its test link glibc; the library does not. Every implementation sees
+The `libmvec` lines exist only on `linux-gnu`, and not under Miri. The
+bench and its test link `libmvec`; the library does not. A `LibmCrate` line
+timed the `libm` crate until Umbra dropped it; its columns below are from
+then. Every implementation sees
 the same inputs, those of the `kernels` benches. Divan prints the time per
 batch of 1024; divide the median by 1024 for the time per element, or per
 `Vec4` for `exp4` and `pow4`, where one 8-lane call does two.
@@ -422,7 +439,8 @@ than the image's. In the dev container, `target/` is a volume: copy the
 executable out with `docker cp`.
 
 `accuracy/implementations.rs` checks every implementation on the bench's
-inputs, against `libm`'s `f64` routines rounded to `f32`: within Umbra's
+inputs, against the `libm` crate's `f64` routines rounded to `f32` when
+these were measured (glibc's now): within Umbra's
 bound of 1 ULP, and `libmvec` within the 4 ULPs that glibc's manual states
 for its vector functions. The largest errors there, in ULPs, are the same
 on glibc 2.41, 2.43 and 2.44:
@@ -483,7 +501,7 @@ the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
 - `reference/*.rs` are the safe, book-faithful references of the optimised
   kernels, and `equivalence/*.rs` checks every kernel against its reference
   bit for bit (ADR 0007).
-- `accuracy/*.rs` checks Umbra's own transcendentals against `libm`'s `f64`
+- `accuracy/*.rs` checks Umbra's own transcendentals against glibc's `f64`
   routines: within 1 ULP, with the reference's sign and NaNs (ADR 0022). The
   unary ones (`sin_cos`, `erf`, `Vec4::exp`) are swept over every 251st
   `f32` on every run; `atan2` and `Vec4::pow` over every 251st value of one
@@ -496,16 +514,29 @@ the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
   `benches/transcendentals.rs` times, glibc's included, on the bench's
   inputs, which it shares through `transcendentals.rs`: Umbra's bound of
   1 ULP, and glibc's 4 for `libmvec`. It catches a wrong FFI signature or
-  lane order, and runs only where glibc is linked (not under Miri).
+  lane order; the `libmvec` lines run only where it is linked (not under
+  Miri).
+- `platform.rs` checks each C math wrapper against known values, which
+  catches a wrong FFI signature (ADR 0007).
 
 Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
-the local CPU. The `unsafe` backends run under Miri in CI (ADR 0007), with
-`libm` in software (Miri cannot run its inline assembly) and without the
-pbrt-v4 ports (too slow interpreted). Miri runs on the pinned toolchain once
-`rustup component add miri rust-src` has added it:
+the local CPU. The `unsafe` backends and the C math wrappers run under Miri in CI
+(ADR 0007), without the pbrt-v4 ports (too slow interpreted). Miri calls
+glibc's scalar math natively, through `-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6`, and
+AddressSanitizer runs the tests that call glibc, where Miri cannot see. The
+`miri` and `asan` groups of `scripts/check.sh` hold the exact commands; Miri
+runs on the pinned toolchain once `rustup component add miri rust-src` has
+added it:
 
 ```sh
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo miri nextest run -p umbra-math \
-  --all-features --features libm/force-soft-floats -E 'not test(/^pbrt_v4::/)'
+scripts/check.sh miri asan
+```
+
+CI runs these tests in the `ci` stage of the repository's `Dockerfile`, on
+the glibc the release image ships, so the oracles and the bits they check are
+the release's. To run them in that same image (Docker or Podman):
+
+```sh
+scripts/in-ci-image.sh scripts/check.sh rust miri asan
 ```

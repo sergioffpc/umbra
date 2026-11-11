@@ -1,6 +1,7 @@
-//! [`sin_cos`], [`atan2`] and [`erf`] against `libm::sin`, `cos`, `atan2`
+//! [`sin_cos`], [`atan2`] and [`erf`] against `double::sin`, `cos`, `atan2`
 //! and `erf` in `f64`.
 
+use umbra_math::double;
 use umbra_math::{atan2, erf, sin_cos};
 
 use super::{COUNT, SPECIAL, SWEEP, assert_within, narrow, samples, ulps, worst_over_f32};
@@ -9,7 +10,7 @@ use super::{COUNT, SPECIAL, SWEEP, assert_within, narrow, samples, ulps, worst_o
 fn sin_cos_error(x: f32) -> u32 {
     let (s, c) = sin_cos(x);
     let x64 = f64::from(x);
-    ulps(s, narrow(libm::sin(x64))).max(ulps(c, narrow(libm::cos(x64))))
+    ulps(s, narrow(double::sin(x64))).max(ulps(c, narrow(double::cos(x64))))
 }
 
 #[test]
@@ -26,7 +27,7 @@ fn sin_cos_within_bound_exhaustive() {
 
 /// The error of `erf(x)`.
 fn erf_error(x: f32) -> u32 {
-    ulps(erf(x), narrow(libm::erf(f64::from(x))))
+    ulps(erf(x), narrow(double::erf(f64::from(x))))
 }
 
 #[test]
@@ -43,7 +44,10 @@ fn erf_within_bound_exhaustive() {
 
 /// The error of `atan2(y, x)`.
 fn atan2_error(y: f32, x: f32) -> u32 {
-    ulps(atan2(y, x), narrow(libm::atan2(f64::from(y), f64::from(x))))
+    ulps(
+        atan2(y, x),
+        narrow(double::atan2(f64::from(y), f64::from(x))),
+    )
 }
 
 /// Every angle of the shallow and the steep octants, both signs: one

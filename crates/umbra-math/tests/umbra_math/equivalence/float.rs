@@ -24,7 +24,7 @@ fn triples() -> Vec<(f32, f32, f32)> {
 }
 
 #[test]
-fn fma_matches_libm() {
+fn fma_matches_glibc() {
     for (a, b, c) in triples() {
         let (opt, reference) = (fma(a, b, c), reference::fma(a, b, c));
         assert!(
@@ -35,7 +35,7 @@ fn fma_matches_libm() {
 }
 
 #[test]
-fn sqrt_floor_ceil_match_libm() {
+fn sqrt_floor_ceil_match_glibc() {
     for (a, _, _) in triples() {
         assert!(same(sqrt(a), reference::sqrt(a)), "sqrt({a})");
         assert!(same(floor(a), reference::floor(a)), "floor({a})");

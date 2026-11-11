@@ -1,12 +1,13 @@
 //! The transcendentals Umbra uses, from every implementation there is to
-//! compare (<https://github.com/sergioffpc/umbra/issues/138>): the
-//! `libm` crate, Umbra's own kernels, and, on `linux-gnu`, glibc's scalar
-//! `libm.so` and its vector `libmvec` at four and eight lanes.
+//! compare (<https://github.com/sergioffpc/umbra/issues/138>): Umbra's own
+//! kernels, glibc's scalar `libm.so` through `umbra_math`'s wrappers, and, on
+//! `linux-gnu` outside Miri, glibc's vector `libmvec` at four and eight
+//! lanes.
 //!
 //! `benches/transcendentals.rs` includes this module by `#[path]` and times
 //! the implementations side by side; `accuracy/implementations.rs` checks
-//! each of them on the bench's inputs. glibc is linked here and nowhere in
-//! the library.
+//! each of them on the bench's inputs. `libmvec` is linked here and nowhere
+//! in the library.
 //!
 //! Every implementation maps a whole batch, one call at a time: one element
 //! for the scalar ones, four or eight for `libmvec`. Each call's result
@@ -15,17 +16,17 @@
 
 use std::hint::black_box;
 
-use umbra_math::Vec4;
+use umbra_math::{Vec4, atan2f, erff, expf, powf, sincosf};
 
 use crate::rng::Rng;
 
 // Explicit path, so the benchmark can include this file by `#[path]` too.
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-#[path = "transcendentals/glibc.rs"]
-mod glibc;
+#[path = "transcendentals/libmvec.rs"]
+mod libmvec;
 
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-pub(crate) use glibc::{GlibcScalar, Libmvec4, Libmvec8};
+pub(crate) use libmvec::{Libmvec4, Libmvec8};
 
 /// The inputs per batch: a multiple of eight, the widest call.
 pub(crate) const BATCH: usize = 1024;
@@ -48,32 +49,35 @@ pub(crate) trait Transcendentals {
     fn pow4(v: &[Vec4], e: f32, out: &mut [Vec4]);
 }
 
-/// The `libm` crate, one scalar call per element (per lane for `Vec4`).
+/// glibc's scalar `libm.so` through `umbra_math`'s wrappers, one call per
+/// element (per lane for `Vec4`): `sincosf`, `atan2f`, `erff`, `expf`,
+/// `powf`.
 #[derive(Debug)]
-pub(crate) struct LibmCrate;
+pub(crate) struct GlibcScalar;
 
 /// Umbra's public functions: `sin_cos`, `atan2`, `erf`, `Vec4::exp` and
 /// `Vec4::pow`.
 #[derive(Debug)]
 pub(crate) struct Umbra;
 
-impl Transcendentals for LibmCrate {
+impl Transcendentals for GlibcScalar {
     fn sin_cos(x: &[f32], sin: &mut [f32], cos: &mut [f32]) {
-        map_pair(x, sin, cos, |[x]| ([libm::sinf(x)], [libm::cosf(x)]));
+        map_pair(x, sin, cos, |[x]| {
+            let (s, c) = sincosf(x);
+            ([s], [c])
+        });
     }
     fn atan2(y: &[f32], x: &[f32], out: &mut [f32]) {
-        map2(y, x, out, |[y], [x]| [libm::atan2f(y, x)]);
+        map2(y, x, out, |[y], [x]| [atan2f(y, x)]);
     }
     fn erf(x: &[f32], out: &mut [f32]) {
-        map(x, out, |[x]| [libm::erff(x)]);
+        map(x, out, |[x]| [erff(x)]);
     }
     fn exp4(v: &[Vec4], out: &mut [Vec4]) {
-        map_vec4(v, out, |[v]| [Vec4::from(v.to_array().map(libm::expf))]);
+        map_vec4(v, out, |[v]| [Vec4::from(v.to_array().map(expf))]);
     }
     fn pow4(v: &[Vec4], e: f32, out: &mut [Vec4]) {
-        map_vec4(v, out, |[v]| {
-            [Vec4::from(v.to_array().map(|x| libm::powf(x, e)))]
-        });
+        map_vec4(v, out, |[v]| [Vec4::from(v.to_array().map(|x| powf(x, e)))]);
     }
 }
 

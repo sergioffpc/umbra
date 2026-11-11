@@ -1,8 +1,9 @@
 //! The transcendentals Umbra uses, from every implementation there is,
-//! side by side (<https://github.com/sergioffpc/umbra/issues/138>): the
-//! `libm` crate, Umbra's own kernels (the crate's public interface), and on
-//! `linux-gnu` glibc's scalar `libm.so` and its vector `libmvec` at 4 lanes
-//! (SSE) and 8 (AVX2). Elsewhere, and under Miri, the glibc lines are absent.
+//! side by side (<https://github.com/sergioffpc/umbra/issues/138>): Umbra's
+//! own kernels (the crate's public interface), glibc's scalar `libm.so`
+//! through `umbra_math`'s wrappers, and on `linux-gnu` glibc's vector `libmvec`
+//! at 4 lanes (SSE) and 8 (AVX2). Elsewhere, and under Miri, the `libmvec`
+//! lines are absent.
 //!
 //! The implementations live in `tests/umbra_math/transcendentals.rs`,
 //! included here by `#[path]`; `accuracy/implementations.rs` there checks
@@ -25,11 +26,11 @@ use divan::counter::ItemsCount;
 use umbra_math::Vec4;
 
 use crate::transcendentals::{
-    BATCH, GAMMA, LibmCrate, Transcendentals, Umbra, angles, atan2_args, erf_args, optical_depths,
-    reflectances,
+    BATCH, GAMMA, GlibcScalar, Transcendentals, Umbra, angles, atan2_args, erf_args,
+    optical_depths, reflectances,
 };
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-use crate::transcendentals::{GlibcScalar, Libmvec4, Libmvec8};
+use crate::transcendentals::{Libmvec4, Libmvec8};
 
 fn main() {
     divan::main();
@@ -42,11 +43,11 @@ macro_rules! bench {
         $(#[$attr])*
         #[cfg_attr(
             all(target_os = "linux", target_env = "gnu", not(miri)),
-            divan::bench(types = [LibmCrate, Umbra, GlibcScalar, Libmvec4, Libmvec8])
+            divan::bench(types = [Umbra, GlibcScalar, Libmvec4, Libmvec8])
         )]
         #[cfg_attr(
             not(all(target_os = "linux", target_env = "gnu", not(miri))),
-            divan::bench(types = [LibmCrate, Umbra])
+            divan::bench(types = [Umbra, GlibcScalar])
         )]
         fn $name<K: Transcendentals>($bencher: Bencher<'_, '_>) $body
     };

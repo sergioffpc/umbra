@@ -1,5 +1,5 @@
 //! Every implementation that `benches/transcendentals.rs` times, on the
-//! bench's own inputs, against `libm`'s `f64` routines: each result within
+//! bench's own inputs, against glibc's `f64` routines: each result within
 //! [`BOUND`] ULPs, the bound Umbra's functions document, except `libmvec`'s,
 //! which glibc documents to 4 ULPs and which measure 2 for `atan2f` and
 //! `expf`. For the glibc implementations, this catches a wrong FFI
@@ -7,10 +7,11 @@
 //! calls, all of which are off by far more.
 
 use crate::transcendentals::{
-    BATCH, GAMMA, LibmCrate, Transcendentals, Umbra, angles, atan2_args, erf_args, optical_depths,
-    reflectances,
+    BATCH, GAMMA, GlibcScalar, Transcendentals, Umbra, angles, atan2_args, erf_args,
+    optical_depths, reflectances,
 };
 use umbra_math::Vec4;
+use umbra_math::double;
 
 use super::{BOUND, narrow, ulps};
 
@@ -53,11 +54,11 @@ fn sin_cos_error<K: Transcendentals>() -> (u32, f32) {
     let sines = x
         .iter()
         .zip(&sin)
-        .map(|(&x, &s)| (x, s, narrow(libm::sin(f64::from(x)))));
+        .map(|(&x, &s)| (x, s, narrow(double::sin(f64::from(x)))));
     let cosines = x
         .iter()
         .zip(&cos)
-        .map(|(&x, &c)| (x, c, narrow(libm::cos(f64::from(x)))));
+        .map(|(&x, &c)| (x, c, narrow(double::cos(f64::from(x)))));
     worst(sines.chain(cosines))
 }
 
@@ -70,7 +71,7 @@ fn atan2_error<K: Transcendentals>() -> (u32, f32) {
         y.iter()
             .zip(&x)
             .zip(&out)
-            .map(|((&y, &x), &r)| (y, r, narrow(libm::atan2(f64::from(y), f64::from(x))))),
+            .map(|((&y, &x), &r)| (y, r, narrow(double::atan2(f64::from(y), f64::from(x))))),
     )
 }
 
@@ -81,7 +82,7 @@ fn erf_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         x.iter()
             .zip(&out)
-            .map(|(&x, &r)| (x, r, narrow(libm::erf(f64::from(x))))),
+            .map(|(&x, &r)| (x, r, narrow(double::erf(f64::from(x))))),
     )
 }
 
@@ -92,7 +93,7 @@ fn exp4_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         lanes(&v)
             .zip(lanes(&out))
-            .map(|(x, r)| (x, r, narrow(libm::exp(f64::from(x))))),
+            .map(|(x, r)| (x, r, narrow(double::exp(f64::from(x))))),
     )
 }
 
@@ -103,13 +104,13 @@ fn pow4_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         lanes(&v)
             .zip(lanes(&out))
-            .map(|(x, r)| (x, r, narrow(libm::pow(f64::from(x), f64::from(GAMMA))))),
+            .map(|(x, r)| (x, r, narrow(double::pow(f64::from(x), f64::from(GAMMA))))),
     )
 }
 
 #[test]
-fn libm_crate_within_bound() {
-    assert_within_bound::<LibmCrate>("libm crate", BOUND);
+fn glibc_scalar_within_bound() {
+    assert_within_bound::<GlibcScalar>("glibc scalar", BOUND);
 }
 
 #[test]
@@ -117,20 +118,15 @@ fn umbra_within_bound() {
     assert_within_bound::<Umbra>("Umbra", BOUND);
 }
 
-/// The glibc implementations, where the bench has them.
+/// The `libmvec` implementations, where the bench has them.
 #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
-mod glibc {
-    use super::{BOUND, assert_within_bound};
-    use crate::transcendentals::{GlibcScalar, Libmvec4, Libmvec8};
+mod libmvec {
+    use super::assert_within_bound;
+    use crate::transcendentals::{Libmvec4, Libmvec8};
 
     /// The bound of glibc's vector functions, 4 ULPs, as the glibc manual
     /// states it next to its "Errors in Math Functions" tables.
     const LIBMVEC_BOUND: u32 = 4;
-
-    #[test]
-    fn glibc_scalar_within_bound() {
-        assert_within_bound::<GlibcScalar>("glibc scalar", BOUND);
-    }
 
     #[test]
     fn libmvec_4_lanes_within_bound() {

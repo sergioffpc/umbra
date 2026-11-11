@@ -19,14 +19,9 @@ build = "build/main.rs"
 serde = ["dep:serde", "umbra-math/serde", "umbra-sampling/serde"]
 
 [dependencies]
-libm = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 umbra-math = { workspace = true }
 umbra-sampling = { workspace = true }
-
-# The build script generates the RGB-to-spectrum table with `libm` (ADR 0022).
-[build-dependencies]
-libm = { workspace = true }
 
 [lints]
 workspace = true

@@ -16,7 +16,7 @@
 //!
 //! The exceptions are [`Vec4::exp`] and [`Vec4::pow`], which have no IEEE
 //! operation to match. On x86-64 they are Umbra's own kernels, within 1 ULP
-//! of the correctly rounded result (ADR 0022), tested against `libm`'s `f64`
+//! of the correctly rounded result (ADR 0022), tested against glibc's `f64`
 //! routines in `tests/umbra_math/accuracy/`; on `nvptx64` they are
 //! `libdevice`'s `expf` and `powf`, within 2 and 4 ULP (ADR 0028).
 //!

@@ -5,7 +5,7 @@
 //!
 //! Each follows pbrt-v4's operations in their order, with no implicit FMA
 //! (ADR 0001), so it computes pbrt-v4's bits up to the last-bit differences
-//! between the `libm` crate and a platform libm.
+//! between the glibc of Umbra's image and the libm pbrt-v4 was built with.
 
 mod bilinear;
 mod discrete;

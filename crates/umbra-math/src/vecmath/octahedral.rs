@@ -1,6 +1,7 @@
 //! Unit vectors in 32 bits (pbrt-v4 `OctahedralVector`).
 
 use crate::math::clamp;
+use crate::roundf;
 use crate::vecmath::vector::Vector3f;
 
 /// A unit vector packed into two 16-bit coordinates on the octahedron
@@ -27,7 +28,7 @@ fn encode(f: f32) -> u16 {
         clippy::cast_sign_loss,
         reason = "the value is rounded and in [0, 65535]"
     )]
-    let quantised = libm::roundf(clamp((f + 1.0) / 2.0, 0.0, 1.0) * 65535.0) as u16;
+    let quantised = roundf(clamp((f + 1.0) / 2.0, 0.0, 1.0) * 65535.0) as u16;
     quantised
 }
 

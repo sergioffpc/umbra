@@ -2,13 +2,14 @@
 //! (`src/pbrt/util/sampling.h`). Test support only: `umbra-sampling` owns them.
 
 use umbra_math::{PI, Point2f, Vector3f, safe_sqrt, sqr};
+use umbra_math::{cosf, sinf};
 
 /// pbrt-v4 `SampleUniformSphere`.
 pub(crate) fn sample_uniform_sphere(u: Point2f) -> Vector3f {
     let z = 1.0 - 2.0 * u.x;
     let r = safe_sqrt(1.0 - sqr(z));
     let phi = 2.0 * PI * u.y;
-    Vector3f::new(r * libm::cosf(phi), r * libm::sinf(phi), z)
+    Vector3f::new(r * cosf(phi), r * sinf(phi), z)
 }
 
 /// pbrt-v4 `Hammersley2D(n)`: `(i / n, RadicalInverse(0, i))`, the base-2

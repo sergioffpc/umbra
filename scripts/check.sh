@@ -2,10 +2,17 @@
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
 # (.github/workflows/) runs one group per job; locally, run them all before
 # opening a pull request. The pre-commit hook runs the fast ones on the staged
-# files only. Miri runs in CI only (its own job in rust.yml).
+# files only. CI runs the Rust groups in the `ci` stage of the Dockerfile, on
+# the glibc the release ships; scripts/in-ci-image.sh runs them there locally
+# too.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests
+#   miri  the tests that call glibc's libm (umbra-math, umbra-sampling,
+#         umbra-spectrum) under Miri, calling it natively (slow; not in the
+#         default run)
+#   asan  the same crates' tests under AddressSanitizer (not in the default
+#         run)
 #   lint  typos, unused dependencies, crate READMEs, shell, workflows,
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
@@ -53,6 +60,47 @@ rust() {
     step cargo nextest run --all-features --locked --profile ci
     # nextest does not run doctests.
     step cargo test --doc --all-features --locked
+}
+
+# The `unsafe` code of `umbra-math` under Miri (ADR 0007), with the
+# `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set, and the
+# tests of every crate that call its C math wrappers: `umbra-sampling` and
+# `umbra-spectrum`. Miri runs the FFI calls of the wrappers in the native
+# libm.so.6. The path is the one the dynamic loader resolves (`ldconfig -p`),
+# not the `/lib` symlink: Miri takes a symbol only from the file it names,
+# and finds none through `/lib/x86_64-linux-gnu`, so every call there is
+# unsupported. Left out, as too long interpreted (each over minutes):
+# - the pbrt-v4 test ports, whose long loops take hours, but for
+#   `umbra-spectrum`'s `spectrum_test`, the only tests that reach `roundf`;
+#   the equivalence tests cover every `unsafe` item of `umbra-math`;
+# - the χ² tests of `umbra-sampling` whose warps are slowest interpreted
+#   (Henyey–Greenstein, uniform cone, spherical triangle); the others, on
+#   fewer samples under `cfg(miri)`, call every C math wrapper they do;
+# - `umbra-spectrum`'s hash of its generated table, which calls no C math.
+# Its nextest profile (`.config/nextest.toml`) allows each test 20 min.
+# Needs the `miri` and `rust-src` components.
+miri() {
+    step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3}" \
+        MIRIFLAGS="-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6" \
+        cargo miri nextest run --profile miri \
+        -p umbra-math -p umbra-sampling -p umbra-spectrum \
+        --all-features --locked -E "$miri_tests"
+}
+
+# The tests the `miri` group runs, as a nextest filterset.
+miri_tests='(not test(/^pbrt_v4::/) or (package(umbra-spectrum) and test(/^pbrt_v4::spectrum_test::/)))
+    and not (package(umbra-sampling) and test(/^sampling::(henyey_greenstein_phase|uniform_cone|spherical_triangle)$/))
+    and not (package(umbra-spectrum) and test(=table::srgb_table_hash))'
+
+# The tests of every crate that calls glibc through `umbra-math`'s wrappers,
+# `umbra-math`, `umbra-sampling` and `umbra-spectrum`, under
+# AddressSanitizer, which sees inside glibc where Miri cannot (ADR 0007).
+# The explicit `--target` keeps build scripts and proc macros
+# uninstrumented.
+asan() {
+    step env RUSTFLAGS="${RUSTFLAGS:--C target-cpu=x86-64-v3} -Zsanitizer=address" \
+        cargo nextest run -p umbra-math -p umbra-sampling -p umbra-spectrum \
+        --all-features --locked --target x86_64-unknown-linux-gnu --profile ci
 }
 
 lint() {
@@ -115,9 +163,9 @@ if [ "$#" -eq 0 ]; then
 fi
 for group in "$@"; do
     case "$group" in
-        rust | lint | deny | readmes | unstable) "$group" ;;
+        rust | miri | asan | lint | deny | readmes | unstable) "$group" ;;
         *)
-            echo "check: unknown group '$group'; known: rust lint deny readmes unstable" >&2
+            echo "check: unknown group '$group'; known: rust miri asan lint deny readmes unstable" >&2
             exit 1
             ;;
     esac

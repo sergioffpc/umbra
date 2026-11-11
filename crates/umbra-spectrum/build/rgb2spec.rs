@@ -10,9 +10,10 @@
 //!
 //! The result is a pure function of these sources (ADR 0022): IEEE `f64`
 //! arithmetic, which Rust never contracts into FMAs, the correctly rounded
-//! hardware square root, and `libm`'s cube root. pbrt-v4's own table can
-//! differ in the last bits of some coefficients: its build takes the cube
-//! root from the platform libm and lets the C++ compiler contract FMAs.
+//! hardware square root, and glibc's cube root, through the wrapper of
+//! `umbra_math::double`, whose bits are fixed by the image's Ubuntu digest.
+//! pbrt-v4's own table can differ in the last bits of some coefficients: its
+//! build lets the C++ compiler contract FMAs, and its glibc may differ.
 //! Cells are spread over threads, but each cell's value does not depend on
 //! which thread computes it or when.
 
@@ -22,6 +23,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
 use crate::cie_5nm::{CIE_SAMPLES, CIE_X, CIE_Y, CIE_Z};
+use crate::glibc;
 
 /// The table resolution along each axis (pbrt-v4 `RGBToSpectrumTableRes`).
 const RES: u32 = 64;
@@ -165,7 +167,7 @@ fn tables(gamut: &Gamut) -> Tables {
 fn lab_f(t: f64) -> f64 {
     let delta = 6.0 / 29.0;
     if t > delta * delta * delta {
-        libm::cbrt(t)
+        glibc::cbrt(t)
     } else {
         t / (delta * delta * 3.0) + 4.0 / 29.0
     }

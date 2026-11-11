@@ -197,7 +197,8 @@ fn known_values_to_xyz() {
 
 /// The error allowed, relative to the larger of its magnitude and 1, in a
 /// value computed through the RGB-to-spectrum table, whose coefficients
-/// differ from pbrt-v4's in their last bits where glibc's cube root rounds
-/// differently from `libm`'s, or through sampled wavelengths. The largest
-/// error at the pinned commit is 1.8e-7.
+/// differ from pbrt-v4's in their last bits (pbrt-v4's build contracts
+/// FMAs, and its glibc may not be the image's), or through sampled
+/// wavelengths. The largest error at the pinned commit was 1.8e-7, with the
+/// cube root of the `libm` crate.
 pub(crate) const TABLE_TOLERANCE: f32 = 1e-6;

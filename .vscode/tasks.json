@@ -132,8 +132,24 @@
       "problemMatcher": []
     },
     {
+      "label": "check: miri",
+      "detail": "scripts/check.sh miri: umbra-math's tests under Miri, glibc's libm called natively (slow)",
+      "type": "process",
+      "command": "scripts/check.sh",
+      "args": ["miri"],
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+    {
+      "label": "check: asan",
+      "detail": "scripts/check.sh asan: umbra-math's tests under AddressSanitizer",
+      "type": "process",
+      "command": "scripts/check.sh",
+      "args": ["asan"],
+      "problemMatcher": ["$rustc", "$rust-panic"]
+    },
+    {
       "label": "check: all",
-      "detail": "scripts/check.sh: everything CI runs but Miri (stops at the first failure)",
+      "detail": "scripts/check.sh: everything CI runs but Miri and AddressSanitizer (stops at the first failure)",
       "type": "process",
       "command": "scripts/check.sh",
       "problemMatcher": ["$rustc", "$rust-panic"]

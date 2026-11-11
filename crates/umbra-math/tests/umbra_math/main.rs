@@ -5,6 +5,7 @@
 mod accuracy;
 mod equivalence;
 mod pbrt_v4;
+mod platform;
 mod reference;
 mod rng;
 mod sampling;
