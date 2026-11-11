@@ -349,22 +349,13 @@ CI job runs one of its groups. `miri` and `asan` are not in the default run
 (Miri takes minutes); `miri` needs the `miri` and `rust-src` components, added
 to the pinned toolchain with `rustup component add miri rust-src`.
 
-CI runs the Rust groups (`rust`, `miri`, `asan`) in the `ci` stage of the
-[`Dockerfile`](Dockerfile): the Ubuntu digest and toolchain the release image
-is built with, so the tests, oracles and hashes see the glibc the release
-ships, not the runner's. To run a group in that same image (Docker or
-Podman):
-
-```sh
-scripts/in-ci-image.sh scripts/check.sh rust
-scripts/in-ci-image.sh scripts/check.sh miri asan
-```
-
-[`scripts/in-ci-image.sh`](scripts/in-ci-image.sh) builds the image, mounts
-the checkout at `/src` and keeps the image's target directory and cargo
-registry in Docker volumes. Run it from a clone, not a git worktree, whose
-`.git` points outside the mount. The dev container is on the same Ubuntu
-release but not the same digest, so a glibc point release can still differ.
+CI runs the Rust groups (`rust`, `miri`, `asan`) on GitHub's `ubuntu-26.04`
+runner, the Ubuntu release the release image is built on. Its glibc is not
+the release image's: it can be another point release, and the runner has
+Ubuntu's `amd64v3` build of `libc6`, whose functions return different last
+bits from the `amd64` build the release image and the dev container have.
+No test compares glibc's bits with values computed elsewhere: tests check
+error bounds ([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
 Then:
 

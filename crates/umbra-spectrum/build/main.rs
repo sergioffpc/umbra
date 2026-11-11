@@ -5,7 +5,7 @@
 //! `rgb2spec_opt`, and the table is written to `OUT_DIR` as
 //! `srgb_to_spectrum.bin`, little-endian `f32`: the 64 `z` nodes, then the
 //! `3 × 64 × 64 × 64 × 3` coefficients. `src/rgb_to_spectrum.rs` includes
-//! it. A test checks its hash on every CI target.
+//! it.
 
 mod cie_5nm;
 // glibc's C math through `umbra-math`'s own wrappers (ADR 0007),

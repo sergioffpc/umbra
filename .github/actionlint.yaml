@@ -1,0 +1,7 @@
+# actionlint configuration, read by `scripts/check.sh lint`.
+self-hosted-runner:
+  # GitHub-hosted labels actionlint does not know yet; these are not
+  # self-hosted runners. `ubuntu-26.04` runs the Rust jobs (rust.yml); drop it
+  # once actionlint lists it (rhysd/actionlint#682).
+  labels:
+    - ubuntu-26.04

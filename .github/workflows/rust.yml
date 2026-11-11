@@ -32,16 +32,15 @@ env:
 # dev container uses too. Third-party actions are pinned to a commit SHA (tags
 # can be moved); Dependabot updates the SHA and the version comment together.
 #
-# The Rust jobs run in the `ci` stage of the Dockerfile (built by the
-# .github/actions/ci-image action), on the Ubuntu digest and toolchain the
-# release image is built with, not on the runner's own Ubuntu: the tests, the
-# oracles and the hashes see the glibc the release ships (ADR 0005, ADR 0025).
-# scripts/in-ci-image.sh runs a check group in it, in CI and locally.
+# The Rust jobs run on `ubuntu-26.04`, the Ubuntu release the release image is
+# built on (ADR 0005), not on `ubuntu-latest`: the tests, the oracles and the
+# hashes see that release's glibc. The runner's glibc point release can still
+# differ from the release image's pinned digest (ADR 0022).
 jobs:
   # Whether the change touches anything the Rust jobs read: the crates (their
   # READMEs are their rustdoc, with doctests), the workspace and toolchain
-  # configuration, the check scripts, the CI image or the workflows. A pull
-  # request that touches none of it, such as one with documentation only,
+  # configuration, the check scripts or the workflows. A pull request that
+  # touches none of it, such as one with documentation only,
   # skips `check`, `miri` and `asan`, and a skipped job passes as a required
   # status check. On a pull request the checkout is the merge commit, whose
   # first parent is the base branch, so `HEAD^1` to `HEAD` is exactly what the
@@ -59,7 +58,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           RUST_PATHS: >-
-            ^(crates/|scripts/|\.cargo/|\.config/|\.github/(workflows|actions)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|clippy\.toml$|rustfmt\.toml$|Dockerfile$|\.dockerignore$)
+            ^(crates/|scripts/|\.cargo/|\.config/|\.github/workflows/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|clippy\.toml$|rustfmt\.toml$)
         run: |
           if [ "$EVENT" != pull_request ] ||
             git diff --name-only HEAD^1 HEAD | grep -qE "$RUST_PATHS"; then
@@ -75,20 +74,21 @@ jobs:
     name: fmt, clippy, doc, test
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/ci-image
-        with:
-          cache-key: check
-      # The tests include the hash of the RGB-to-spectrum table the
-      # `umbra-spectrum` build script generates (ADR 0022).
-      - run: scripts/in-ci-image.sh scripts/check.sh rust
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: scripts/install-tools.sh cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh rust
 
   # The `unsafe` code of `umbra-math`, and the tests of every crate that call
   # its C math wrappers (`umbra-sampling`, `umbra-spectrum`), under Miri
   # (ADR 0007), on the nightly pinned in rust-toolchain.toml (ADR 0027), with
-  # the `x86-64-v3` baseline `umbra-math` requires, calling the image's glibc
+  # the `x86-64-v3` baseline `umbra-math` requires, calling the runner's glibc
   # libm natively. The equivalence tests of `umbra-math` and the χ² tests of
   # `umbra-sampling` sample fewer inputs under `cfg(miri)`. The command and
   # its exclusions: the `miri` group of scripts/check.sh.
@@ -96,13 +96,16 @@ jobs:
     name: miri
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/ci-image
-        with:
-          cache-key: miri
-      - run: scripts/in-ci-image.sh scripts/check.sh miri
+      - name: Toolchain
+        run: rustup toolchain install && rustup component add miri rust-src && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: scripts/install-tools.sh cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh miri
 
   # The tests that call glibc, those of `umbra-math`, `umbra-sampling` and
   # `umbra-spectrum`, under AddressSanitizer (ADR 0007), which sees inside
@@ -111,10 +114,13 @@ jobs:
     name: asan
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/ci-image
-        with:
-          cache-key: asan
-      - run: scripts/in-ci-image.sh scripts/check.sh asan
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: scripts/install-tools.sh cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh asan

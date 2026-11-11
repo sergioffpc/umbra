@@ -2,9 +2,8 @@
 # Runs the checks CI runs, on every tracked file: the one list of them. CI
 # (.github/workflows/) runs one group per job; locally, run them all before
 # opening a pull request. The pre-commit hook runs the fast ones on the staged
-# files only. CI runs the Rust groups in the `ci` stage of the Dockerfile, on
-# the glibc the release ships; scripts/in-ci-image.sh runs them there locally
-# too.
+# files only. CI runs the Rust groups on the `ubuntu-26.04` runner, the Ubuntu
+# release the release image is built on.
 #
 # Usage: scripts/check.sh [group...]   (no group: rust, lint and deny)
 #   rust  fmt, clippy (x86-64 and nvptx64), doc, nextest, doctests; not the
@@ -78,8 +77,7 @@ rust() {
 #   the equivalence tests cover every `unsafe` item of `umbra-math`;
 # - the χ² tests of `umbra-sampling` whose warps are slowest interpreted
 #   (Henyey–Greenstein, uniform cone, spherical triangle); the others, on
-#   fewer samples under `cfg(miri)`, call every C math wrapper they do;
-# - `umbra-spectrum`'s hash of its generated table, which calls no C math.
+#   fewer samples under `cfg(miri)`, call every C math wrapper they do.
 # Its nextest profile (`.config/nextest.toml`) allows each test 20 min.
 # Needs the `miri` and `rust-src` components.
 miri() {
@@ -92,8 +90,7 @@ miri() {
 
 # The tests the `miri` group runs, as a nextest filterset.
 miri_tests='(not test(/^pbrt_v4::/) or (package(umbra-spectrum) and test(/^pbrt_v4::spectrum_test::/)))
-    and not (package(umbra-sampling) and test(/^sampling::(henyey_greenstein_phase|uniform_cone|spherical_triangle)$/))
-    and not (package(umbra-spectrum) and test(=table::srgb_table_hash))'
+    and not (package(umbra-sampling) and test(/^sampling::(henyey_greenstein_phase|uniform_cone|spherical_triangle)$/))'
 
 # The tests of every crate that calls glibc through `umbra-math`'s wrappers,
 # `umbra-math`, `umbra-sampling` and `umbra-spectrum`, under
