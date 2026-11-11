@@ -25,7 +25,7 @@ publish = false
 [workspace.dependencies]
 # The CUDA driver API for `umbra-gpu`, loaded from the NVIDIA driver at run
 # time, so building needs no CUDA (ADR 0028). `cuda-12080`, CUDA 12.8, is the
-# first with Blackwell, the P620's GPU (arc42 §7).
+# first with Blackwell (arc42 §7).
 cudarc = { version = "0.19.10", default-features = false, features = [
   "std",
   "driver",

@@ -49,8 +49,8 @@
   "hostRequirements": {
     "cpus": 4,
     "memory": "8gb",
-    // The host's NVIDIA GPUs, where Docker has the NVIDIA Container Toolkit
-    // (the P620); elsewhere the container starts without one.
+    // The host's NVIDIA GPUs, where Docker has the NVIDIA Container
+    // Toolkit; elsewhere the container starts without one.
     "gpu": "optional"
   },
 

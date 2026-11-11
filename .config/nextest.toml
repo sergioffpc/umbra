@@ -9,10 +9,10 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 # that inherits from this one leaves them out. The `gpu` profile runs them.
 default-filter = "not binary(=gpu)"
 
-# The GPU tests alone, on the P620 (ADR 0026), each milestone's validation
+# The GPU tests alone (ADR 0026), each milestone's check
 # issue among others: `cargo nextest run --profile gpu`. They need an NVIDIA
 # driver for OptiX 9.0, and the kernels need CUDA's `libdevice.10.bc` to run
-# (`umbra-gpu`'s README); the dev container has both on the P620.
+# (`umbra-gpu`'s README); the dev container has both on a host with a GPU.
 [profile.gpu]
 default-filter = "binary(=gpu)"
 fail-fast = false
