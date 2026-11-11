@@ -7,7 +7,7 @@ PDFs and inverses, and piecewise-constant distributions for tabulated
 functions.
 
 It is a core crate: `#![no_std]` without `alloc` (ADR 0014, ADR 0015). It
-depends on `umbra-math` only, whose `cmath` wrappers give it glibc's C math,
+depends on `umbra-math` only, whose wrappers give it glibc's C math,
 and `umbra-spectrum` and
 `umbra-geometry` depend on it (arc42 §5.1). It covers PBR 4e chapter 2 and
 appendix A, and the RNG of §B.2.8; chapter 8's samplers are still to come.

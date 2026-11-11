@@ -99,7 +99,7 @@ includes as bytes.
 The table is a pure function of its sources: IEEE `f64` arithmetic with no
 implicit FMA, the hardware square root, and glibc's cube root, with each
 cell's value independent of the thread that computes it (ADR 0022). The
-build script calls `cbrt` through `umbra_math::cmath`'s wrapper, which it
+build script calls `cbrt` through `umbra_math::double`'s wrapper, which it
 compiles from `umbra-math`'s source by `#[path]` rather than depending on
 the crate, so the script needs no `x86-64-v3` host. It can differ from
 pbrt-v4's own table in the last bits of some coefficients, because pbrt-v4's

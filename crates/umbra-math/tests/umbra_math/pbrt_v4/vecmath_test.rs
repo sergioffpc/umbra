@@ -3,7 +3,8 @@
 
 use crate::rng::Rng;
 use crate::sampling::{hammersley_2d, sample_uniform_sphere};
-use umbra_math::cmath;
+use umbra_math::double;
+use umbra_math::sqrtf;
 use umbra_math::{
     Frame, Interval, Normal3f, OctahedralVector, PI, Point2f, Point3f, Point3fi, Vector2f,
     Vector2i, Vector3, Vector3f, Vector3fi, Vector3i, abs_dot, angle_between, coordinate_system,
@@ -119,9 +120,9 @@ fn vector3_basics_permute() {
 fn precise_angle(a: Vector3f, b: Vector3f) -> f64 {
     let ad = [a.x, a.y, a.z].map(f64::from);
     let bd = [b.x, b.y, b.z].map(f64::from);
-    let len = |v: [f64; 3]| cmath::sqrt(v.iter().map(|c| c * c).sum());
+    let len = |v: [f64; 3]| double::sqrt(v.iter().map(|c| c * c).sum());
     let d: f64 = ad.iter().zip(&bd).map(|(x, y)| x * y).sum::<f64>() / (len(ad) * len(bd));
-    cmath::acos(d.clamp(-1.0, 1.0))
+    double::acos(d.clamp(-1.0, 1.0))
 }
 
 fn random_direction(rng: &mut Rng) -> Vector3f {
@@ -158,7 +159,7 @@ fn vector_angle_between() {
     let b = Vector3f::new(-1.0, -1.0001, -1.0).normalize();
     // pbrt-v4 normalises in `long double`; `f64` is close enough here.
     #[expect(clippy::cast_possible_truncation, reason = "pbrt-v4 compares in Float")]
-    let precise = cmath::acos(-3.0001 / cmath::sqrt(3.0 * (2.0 + 1.0001 * 1.0001))) as f32;
+    let precise = double::acos(-3.0001 / double::sqrt(3.0 * (2.0 + 1.0001 * 1.0001))) as f32;
     assert_eq!(
         angle_between(a, b),
         precise,
@@ -247,7 +248,7 @@ fn point_vector_interval() {
     let d = distance_squared(p, q);
     assert!(d.contains(121.0 + 169.0 + 676.0), "{d:?}");
     let d = distance(p, q);
-    assert!(d.contains(cmath::sqrtf(966.0)), "{d:?}");
+    assert!(d.contains(sqrtf(966.0)), "{d:?}");
     let vv = cross(v, v);
     assert!(
         vv.x.contains(0.0) && vv.y.contains(0.0) && vv.z.contains(0.0),

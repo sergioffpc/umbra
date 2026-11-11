@@ -11,7 +11,7 @@ use crate::transcendentals::{
     optical_depths, reflectances,
 };
 use umbra_math::Vec4;
-use umbra_math::cmath;
+use umbra_math::double;
 
 use super::{BOUND, narrow, ulps};
 
@@ -54,11 +54,11 @@ fn sin_cos_error<K: Transcendentals>() -> (u32, f32) {
     let sines = x
         .iter()
         .zip(&sin)
-        .map(|(&x, &s)| (x, s, narrow(cmath::sin(f64::from(x)))));
+        .map(|(&x, &s)| (x, s, narrow(double::sin(f64::from(x)))));
     let cosines = x
         .iter()
         .zip(&cos)
-        .map(|(&x, &c)| (x, c, narrow(cmath::cos(f64::from(x)))));
+        .map(|(&x, &c)| (x, c, narrow(double::cos(f64::from(x)))));
     worst(sines.chain(cosines))
 }
 
@@ -71,7 +71,7 @@ fn atan2_error<K: Transcendentals>() -> (u32, f32) {
         y.iter()
             .zip(&x)
             .zip(&out)
-            .map(|((&y, &x), &r)| (y, r, narrow(cmath::atan2(f64::from(y), f64::from(x))))),
+            .map(|((&y, &x), &r)| (y, r, narrow(double::atan2(f64::from(y), f64::from(x))))),
     )
 }
 
@@ -82,7 +82,7 @@ fn erf_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         x.iter()
             .zip(&out)
-            .map(|(&x, &r)| (x, r, narrow(cmath::erf(f64::from(x))))),
+            .map(|(&x, &r)| (x, r, narrow(double::erf(f64::from(x))))),
     )
 }
 
@@ -93,7 +93,7 @@ fn exp4_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         lanes(&v)
             .zip(lanes(&out))
-            .map(|(x, r)| (x, r, narrow(cmath::exp(f64::from(x))))),
+            .map(|(x, r)| (x, r, narrow(double::exp(f64::from(x))))),
     )
 }
 
@@ -104,7 +104,7 @@ fn pow4_error<K: Transcendentals>() -> (u32, f32) {
     worst(
         lanes(&v)
             .zip(lanes(&out))
-            .map(|(x, r)| (x, r, narrow(cmath::pow(f64::from(x), f64::from(GAMMA))))),
+            .map(|(x, r)| (x, r, narrow(double::pow(f64::from(x), f64::from(GAMMA))))),
     )
 }
 

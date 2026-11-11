@@ -2,30 +2,30 @@
 //! `NextFloatUp`/`NextFloatDown` with their branches, and glibc's routines
 //! for `fma`, `sqrt`, `floor` and `ceil`.
 
-use umbra_math::cmath;
+use umbra_math::{ceilf, floorf, fmaf, sqrtf};
 
 /// pbrt-v4 `FMA`, through glibc's `fmaf`.
 #[must_use]
 pub(crate) fn fma(a: f32, b: f32, c: f32) -> f32 {
-    cmath::fmaf(a, b, c)
+    fmaf(a, b, c)
 }
 
 /// `√x`, through glibc's `sqrtf`.
 #[must_use]
 pub(crate) fn sqrt(x: f32) -> f32 {
-    cmath::sqrtf(x)
+    sqrtf(x)
 }
 
 /// `⌊x⌋`, through glibc's `floorf`.
 #[must_use]
 pub(crate) fn floor(x: f32) -> f32 {
-    cmath::floorf(x)
+    floorf(x)
 }
 
 /// `⌈x⌉`, through glibc's `ceilf`.
 #[must_use]
 pub(crate) fn ceil(x: f32) -> f32 {
-    cmath::ceilf(x)
+    ceilf(x)
 }
 
 /// pbrt-v4 `NextFloatUp`, as written: early return for `+∞`, `-0` mapped to

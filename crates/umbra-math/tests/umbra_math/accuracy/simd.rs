@@ -1,9 +1,9 @@
-//! [`Vec4::exp`] and [`Vec4::pow`] against `cmath::exp` and `cmath::pow` in
+//! [`Vec4::exp`] and [`Vec4::pow`] against `double::exp` and `double::pow` in
 //! `f64`, lane by lane. Each lane gets a different argument, so a lane
 //! mixed up by the widening to `f64` and back shows.
 
 use umbra_math::Vec4;
-use umbra_math::cmath;
+use umbra_math::double;
 
 use super::{BOUND, COUNT, SPECIAL, SWEEP, assert_within, narrow, samples, ulps, worst_over_f32};
 
@@ -29,7 +29,7 @@ fn worst_lane(x: [f32; 4], ours: Vec4, reference: impl Fn(f32) -> f32) -> u32 {
 
 /// The reference `eˣ`.
 fn exp_reference(x: f32) -> f32 {
-    narrow(cmath::exp(f64::from(x)))
+    narrow(double::exp(f64::from(x)))
 }
 
 /// The error of `exp` on the lanes derived from `x`.
@@ -60,7 +60,7 @@ fn pow_reference(x: f32, e: f32) -> f32 {
     if is_signalling(e) {
         return f32::NAN;
     }
-    narrow(cmath::pow(widen_quiet(x), widen_quiet(e)))
+    narrow(double::pow(widen_quiet(x), widen_quiet(e)))
 }
 
 /// `v` as an `f64`, a quiet NaN for any NaN.

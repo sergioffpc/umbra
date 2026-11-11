@@ -25,10 +25,11 @@ compile_error!(concat!(
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("umbra-math supports x86-64 (x86-64-v3) only (ADR 0023)");
 
-pub mod cmath;
+pub mod double;
 mod float;
 mod interval;
 mod math;
+mod platform;
 mod simd;
 mod square_matrix;
 mod transcendental;
@@ -48,6 +49,10 @@ pub use math::{
     evaluate_polynomial, fast_exp, find_interval, gaussian, gaussian_integral, inner_product,
     is_power_of_2, lerp, log2_int, max, min, quadratic, radians, round_up_pow2, safe_acos,
     safe_asin, safe_sqrt, sin_x_over_x, smooth_step, sqr, sum_of_products, two_prod, two_sum,
+};
+pub use platform::{
+    acosf, asinf, atan2f, atanhf, ceilf, cosf, coshf, erff, exp2f, expf, floorf, fmaf, logf, powf,
+    roundf, sincosf, sinf, sqrtf, tanf,
 };
 pub use simd::{Mask4, Vec4};
 pub use square_matrix::SquareMatrix;

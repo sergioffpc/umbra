@@ -4,7 +4,7 @@
 //! pbrt-v4's `PiecewiseLinearSpectrum` and `BlackbodySpectrum` join with
 //! the `.spd` files and blackbody emitters of later milestones (arc42 §4.1).
 
-use umbra_math::{cmath, max};
+use umbra_math::{max, roundf};
 
 use crate::color::{RGB, RGBSigmoidPolynomial, XYZ};
 use crate::color_space::RGBColorSpace;
@@ -107,7 +107,7 @@ impl<'a> DenselySampledSpectrum<'a> {
             clippy::cast_possible_truncation,
             reason = "`std::lround`: a wavelength far off the table saturates and stays off it"
         )]
-        let nearest = cmath::roundf(lambda) as i64;
+        let nearest = roundf(lambda) as i64;
         usize::try_from(nearest - i64::from(self.lambda_min))
             .ok()
             .and_then(|offset| self.values.get(offset))

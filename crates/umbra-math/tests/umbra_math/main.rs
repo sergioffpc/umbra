@@ -3,9 +3,9 @@
 //! optimised kernels against the safe references in `reference/` (ADR 0007).
 
 mod accuracy;
-mod cmath;
 mod equivalence;
 mod pbrt_v4;
+mod platform;
 mod reference;
 mod rng;
 mod sampling;

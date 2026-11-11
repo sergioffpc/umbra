@@ -7,7 +7,7 @@ scalar helpers pbrt-v4 relies on, and the `Vec4`/`Mask4` SIMD facade.
 It is a core crate, `#![no_std]` without `alloc` (ADR 0014, ADR 0015), and
 the bottom of the core (arc42 §5.1): every other core crate depends on it,
 and it depends on no other crate. Its C math comes from glibc's `libm.so.6`,
-through one safe wrapper per function in `cmath` (ADR 0007, ADR 0022). It
+through one safe wrapper per function (ADR 0007, ADR 0022). It
 covers PBR 4e chapter 3, §6.8 and §B.2.
 
 ```rust
@@ -41,16 +41,17 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 | `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`, `sqrt`, `floor`, `ceil`                                                                                                                                                   |
 | `math` (`util/math.h`)                   | `lerp`, `clamp`, `sqr`, `safe_sqrt`/`asin`/`acos`, `evaluate_polynomial`, `difference_of_products`, `sum_of_products`, `two_prod`, `two_sum`, `inner_product`, `CompensatedSum`, `erf_inv`, `fast_exp`, `gaussian`, `gaussian_integral`, `find_interval`, `quadratic`, `log2_int`, `round_up_pow2`, `min`/`max`, π constants |
 | `transcendental`                         | `sin_cos`, `atan2`, `erf`: Umbra's own scalar transcendentals, within 1 ULP and faster than the C routines                                                                                                                                                                                                                   |
-| `cmath`                                  | One safe wrapper per C math function Umbra calls (`sinf`, `tanf`, `asinf`, `acosf`, `coshf`, `atanhf`, `expf`, `logf`, `powf`, `roundf`, …, and the `f64` test oracles), over glibc on x86-64                                                                                                                                |
+| `platform`, `double`                     | One safe wrapper per C math function Umbra calls, over glibc on x86-64: the `f32` ones (`sinf`, `tanf`, `asinf`, `acosf`, `coshf`, `atanhf`, `expf`, `logf`, `powf`, `roundf`, …) at the crate root, the `f64` ones (the test oracles) in `double`                                                                           |
 | `interval` (`util/math.h`)               | `Interval`, a closed `[low, high]` that bounds the rounding error of the computation that produced it                                                                                                                                                                                                                        |
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
 | `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1, AVX2 and FMA on x86-64), with `exp` and `pow` within 1 ULP                                                                                                                                                                                                      |
 
-Everything but `cmath` is re-exported at the crate root, so
-`use umbra_math::{…}` is all you need; the C functions are called as
-`cmath::tanf(x)`, with C's names.
+Everything but `double` is re-exported at the crate root, so
+`use umbra_math::{…}` is all you need. The C functions keep C's names:
+`umbra_math::tanf(x)`, and `umbra_math::double::atan2(y, x)` for the `f64`
+ones, which would collide with Umbra's own `atan2` and `erf`.
 
 Not here, on purpose: `Bounds2`/`Bounds3`, `Ray` and `DirectionCone` live in
 `umbra-geometry`, and transforming a ray or a bounding box belongs with those
@@ -106,7 +107,7 @@ binary; across machines, results only have to be statistically equal
   than glibc's; each states its error bound, 1 ULP, and is tested against
   glibc's `f64` routines (ADR 0022). Every other C function, and the
   kernels' fallbacks (`pow` with an infinite or NaN exponent, `sin_cos`
-  beyond ±2²⁰), is glibc's, through its wrapper in `cmath`, with the bound
+  beyond ±2²⁰), is glibc's, through its wrapper, with the bound
   glibc's manual states. glibc's bits are fixed by the release image's
   Ubuntu digest (ADR 0025).
 - **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
@@ -238,13 +239,13 @@ rounded one, with C's values at signed zeros, infinities and NaNs.
   octant and segment are picked by selects and bit operations, not branches.
 
 The `unsafe` is confined to the backend of `Vec4`, to `src/float/arch.rs`
-and to the glibc wrappers of `src/cmath/x86_64.rs`: one intrinsic or one FFI
+and to the glibc wrappers of `src/platform/x86_64.rs`: one intrinsic or one FFI
 call per `unsafe` block, each with its `// SAFETY:` comment, under
 `#[expect(unsafe_code)]` on that function. The kernels and the facade are
 safe code. The FFI needs no benchmark or safe reference (ADR 0007): it is
-checked against known values instead (`tests/umbra_math/cmath.rs`), which
+checked against known values instead (`tests/umbra_math/platform.rs`), which
 catches a wrong signature. `umbra-spectrum`'s build script compiles
-`src/cmath/x86_64.rs` by `#[path]`, so its table takes the same `cbrt`
+`src/platform/x86_64.rs` by `#[path]`, so its table takes the same `cbrt`
 without the crate's `x86-64-v3` requirement.
 
 Every optimised operation keeps its reference in
@@ -269,7 +270,7 @@ Chebyshev ones.
 
 - **Angle units follow pbrt-v4**: `rotate`, `rotate_x/y/z` and `perspective`
   take degrees (as scene files do); everything else (`spherical_direction`,
-  `angle_between`, `sin_cos`, `atan2`, `cmath` trigonometry) works in
+  `angle_between`, `sin_cos`, `atan2`, the C trigonometry) works in
   radians. Convert with `radians`/`degrees`.
 - **Division by a scalar divides each component**; it does not multiply by a
   reciprocal, so `v / 3.0` and `v * (1.0 / 3.0)` can differ in the last bit.
@@ -280,10 +281,11 @@ Chebyshev ones.
 - **Prefer `umbra_math::min`/`max` over `f32::min`/`max`** in code that ports
   pbrt-v4, for the NaN reason above.
 - **Use `umbra_math::sqrt`, `floor`, `ceil` and `fma`** rather than
-  `cmath`'s: the same bits, as one inlined instruction.
-- **Use `umbra_math::sin_cos`, `atan2` and `erf`** rather than `cmath`'s
+  `sqrtf`, `floorf`, `ceilf` and `fmaf`: the same bits, as one inlined
+  instruction.
+- **Use `umbra_math::sin_cos`, `atan2` and `erf`** rather than the wrappers
   `sinf`/`cosf`, `atan2f` and `erff`, and `Vec4::exp`/`pow` rather than
-  `cmath` per lane: within 1 ULP, faster, but not the same bits.
+  `expf`/`powf` per lane: within 1 ULP, faster, but not the same bits.
 - **An `Interval` bound must not be NaN.** The outward rounding steps the bits
   of its operand, as pbrt-v4's `NextFloatUp`/`NextFloatDown` do; for a NaN
   that depends on its payload (a NaN whose payload is all ones steps to a
@@ -300,7 +302,7 @@ Several choices cost cycles on purpose, for reproducibility and robustness:
 `difference_of_products` is three operations where `a*b − c*d` is two,
 `inner_product` (matrix products and the 4 × 4 inverse) is compensated, every
 `Interval` operation is several float operations plus ULP steps, and a
-`cmath` function is a call into a shared library that LLVM cannot inline.
+C math wrapper is a call into a shared library that LLVM cannot inline.
 `fast_exp` is
 pbrt-v4's coarse approximation for the Gaussian filter, kept as it is.
 
@@ -365,7 +367,7 @@ should the x86-64 backend take some of them from glibc? Each bench (`sin_cos`, `
 for `Vec4::exp`, `pow4` for `Vec4::pow`) prints one line per implementation:
 
 - `Umbra`: the crate's own functions;
-- `GlibcScalar`: glibc's `libm.so` through the wrappers of `cmath`
+- `GlibcScalar`: glibc's `libm.so` through the crate's wrappers
   (`sincosf`, `atan2f`, `erff`, `expf`, `powf`), one call per element (per
   lane for `Vec4`);
 - `Libmvec4` and `Libmvec8`: glibc's `libmvec`, 4 lanes per call for SSE
@@ -480,12 +482,12 @@ the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
   1 ULP, and glibc's 4 for `libmvec`. It catches a wrong FFI signature or
   lane order; the `libmvec` lines run only where it is linked (not under
   Miri).
-- `cmath.rs` checks each wrapper of `cmath` against known values, which
+- `platform.rs` checks each C math wrapper against known values, which
   catches a wrong FFI signature (ADR 0007).
 
 Run them with `cargo nextest run -p umbra-math`. CI's x86-64 jobs build with
 `RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3"`, the baseline rather than
-the local CPU. The `unsafe` backends and the `cmath` wrappers run under Miri in CI
+the local CPU. The `unsafe` backends and the C math wrappers run under Miri in CI
 (ADR 0007), without the pbrt-v4 ports (too slow interpreted). Miri calls
 glibc's scalar math natively, through `-Zmiri-native-lib=/usr/lib/x86_64-linux-gnu/libm.so.6`, and
 AddressSanitizer runs the tests that call glibc, where Miri cannot see. The

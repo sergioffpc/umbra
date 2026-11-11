@@ -133,7 +133,7 @@ empty_structs_with_brackets = "warn"
 float_cmp_const = "warn"
 get_unwrap = "warn"
 # Nursery: prefer hypot, ln_1p, exp_m1 etc. for numerical accuracy, taken from
-# `umbra_math::cmath`: the `std` methods are in `disallowed-methods` in
+# `umbra-math`'s C math wrappers: the `std` methods are in `disallowed-methods` in
 # clippy.toml (ADR 0022), which `all` enables. The sibling
 # `suboptimal_flops` is left off: it pushes `mul_add`, which is a slow libm
 # call on targets built without FMA.

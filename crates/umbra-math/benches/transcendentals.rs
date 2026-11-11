@@ -1,7 +1,7 @@
 //! The transcendentals Umbra uses, from every implementation there is,
 //! side by side (<https://github.com/sergioffpc/umbra/issues/138>): Umbra's
 //! own kernels (the crate's public interface), glibc's scalar `libm.so`
-//! through `umbra_math::cmath`, and on `linux-gnu` glibc's vector `libmvec`
+//! through `umbra_math`'s wrappers, and on `linux-gnu` glibc's vector `libmvec`
 //! at 4 lanes (SSE) and 8 (AVX2). Elsewhere, and under Miri, the `libmvec`
 //! lines are absent.
 //!

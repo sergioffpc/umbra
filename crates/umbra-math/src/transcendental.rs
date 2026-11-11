@@ -18,8 +18,8 @@
 
 use core::f64::consts::{FRAC_2_PI, FRAC_PI_2, FRAC_PI_4, PI};
 
-use crate::cmath;
 use crate::float::fma_f64;
+use crate::{cosf, sinf};
 
 /// 1.5 · 2⁵². Adding it to an `f64` of magnitude below 2⁵¹ rounds that to an
 /// integer, to nearest with ties to even, and leaves the integer in the low
@@ -87,13 +87,13 @@ const SIN_COS_LIMIT: f32 = 1_048_576.0;
 /// `x` is reduced to `r = x − k·π/2` with `|r| ≤ π/4`, with π/2 in two parts
 /// and FMAs, then both are polynomials in `r²` evaluated in `f64`,
 /// and the quadrant `k mod 4` picks and signs them. Beyond ±2²⁰ (and for
-/// infinities and NaN) they are `cmath::sinf` and `cmath::cosf`.
+/// infinities and NaN) they are `sinf` and `cosf`.
 ///
 /// Not in pbrt-v4, which calls `std::sin` and `std::cos` of the same angle.
 #[must_use]
 pub fn sin_cos(x: f32) -> (f32, f32) {
     if x.is_nan() || x.abs() > SIN_COS_LIMIT {
-        return (cmath::sinf(x), cmath::cosf(x));
+        return (sinf(x), cosf(x));
     }
     let x = f64::from(x);
     let shifted = x * FRAC_2_PI + ROUND;

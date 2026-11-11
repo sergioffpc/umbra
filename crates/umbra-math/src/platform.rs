@@ -11,11 +11,17 @@
 //! in Math Functions"); glibc's bits are fixed per release, since every
 //! Worker and the Coordinator run one image (ADR 0025).
 //!
-//! The names and signatures are C's, so `sinf` is the `f32` sine and `sin`
-//! the `f64` one.
+//! The names and signatures are C's. The `f32` wrappers are public at the
+//! crate root (`umbra_math::tanf`); the `f64` ones in
+//! [`double`](crate::double), where `sin` and `atan2` do not collide with
+//! Umbra's own `f32` kernels.
 
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::*;
+pub use x86_64::{
+    acos, acosf, asinf, atan2, atan2f, atanhf, cbrt, ceilf, cos, cosf, coshf, erf, erff, exp,
+    exp2f, expf, floorf, fma, fmaf, hypot, lgamma, log, logf, pow, powf, roundf, sin, sincosf,
+    sinf, sqrt, sqrtf, tanf,
+};

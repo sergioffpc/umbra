@@ -232,8 +232,9 @@ container.
   `std`'s transcendental float methods (`sin`, `exp`, `powf`, …) are banned in
   favour of `umbra-math`: its own kernels (`sin_cos`, `atan2`, `erf`,
   `Vec4::exp`, `Vec4::pow`) where they exist, and otherwise its safe wrappers
-  in `umbra_math::cmath`, which call glibc on x86-64 and `libdevice` on
-  `nvptx64`. Vendor-dependent approximate reciprocal intrinsics and
+  of the C functions, which call glibc on x86-64 and `libdevice` on
+  `nvptx64`: the `f32` ones at the crate root (`umbra_math::tanf`), the `f64`
+  ones in `umbra_math::double`. Vendor-dependent approximate reciprocal intrinsics and
   flush-to-zero are banned too. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
 - No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the

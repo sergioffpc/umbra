@@ -9,7 +9,7 @@
 //! `max`, `select`, `abs`, negation) is compared bit for bit, NaN included.
 
 use crate::rng::Rng;
-use umbra_math::cmath;
+use umbra_math::sqrtf;
 use umbra_math::{Mask4, Vec4, fma, max, min};
 
 /// Special values every operation is tried on, against every other.
@@ -109,7 +109,7 @@ fn mul_add_is_fused() {
 
 #[test]
 fn sqrt_matches_scalar() {
-    check_ternary(|a, _, _| a.sqrt(), |a, _, _| cmath::sqrtf(a), same_value);
+    check_ternary(|a, _, _| a.sqrt(), |a, _, _| sqrtf(a), same_value);
 }
 
 #[test]

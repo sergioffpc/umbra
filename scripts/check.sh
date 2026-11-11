@@ -57,7 +57,7 @@ rust() {
 
 # The `unsafe` code of `umbra-math` under Miri (ADR 0007), with the
 # `x86-64-v3` baseline the crate requires unless RUSTFLAGS is set. Miri runs
-# the FFI calls of `umbra_math::cmath` in the native libm.so.6. The path is
+# the FFI calls of `umbra-math`'s C math wrappers in the native libm.so.6. The path is
 # the one the dynamic loader resolves (`ldconfig -p`), not the `/lib` symlink:
 # Miri takes a symbol only from the file it names, and finds none through
 # `/lib/x86_64-linux-gnu`, so every call there is unsupported. The pbrt-v4

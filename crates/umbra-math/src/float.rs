@@ -6,11 +6,13 @@
 //! Umbra does the same and never changes the rounding mode (ADR 0001).
 //!
 //! [`fma`], [`sqrt`], [`floor`] and [`ceil`] are the hardware instruction,
-//! with the bits of glibc's routines; the [`cmath`](crate::cmath) wrappers of
-//! those are the test oracle in `tests/umbra_math/reference/` (ADR 0007). [`next_float_up`] and [`next_float_down`] keep pbrt-v4's
-//! branches: a branch-free form measured slower, since the branch on
-//! infinity is perfectly predicted, and the `Interval` kernels step four
-//! lanes at once instead.
+//! with the bits of glibc's routines; the wrappers of those
+//! ([`fmaf`](crate::fmaf), [`sqrtf`](crate::sqrtf), [`floorf`](crate::floorf),
+//! [`ceilf`](crate::ceilf)) are the test oracle in
+//! `tests/umbra_math/reference/` (ADR 0007). [`next_float_up`] and
+//! [`next_float_down`] keep pbrt-v4's branches: a branch-free form measured
+//! slower, since the branch on infinity is perfectly predicted, and the
+//! `Interval` kernels step four lanes at once instead.
 
 mod arch;
 
@@ -44,7 +46,7 @@ pub const fn gamma(n: u16) -> f32 {
 /// more accurate, except in code whose error bounds pbrt-v4 derives from its
 /// exact operations (ADR 0022). It is the hardware instruction
 /// (`vfmadd213ss`), which gives the bits of the correctly rounded
-/// [`cmath::fmaf`](crate::cmath::fmaf).
+/// [`fmaf`](crate::fmaf).
 ///
 /// pbrt-v4 `FMA`.
 #[inline]
@@ -54,7 +56,7 @@ pub fn fma(a: f32, b: f32, c: f32) -> f32 {
 }
 
 /// `√x`, correctly rounded: the hardware square root, with the bits of
-/// [`cmath::sqrtf`](crate::cmath::sqrtf).
+/// [`sqrtf`](crate::sqrtf).
 ///
 /// pbrt-v4 `std::sqrt`.
 #[inline]
@@ -64,7 +66,7 @@ pub fn sqrt(x: f32) -> f32 {
 }
 
 /// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of [`cmath::floorf`](crate::cmath::floorf).
+/// the bits of [`floorf`](crate::floorf).
 ///
 /// pbrt-v4 `std::floor`.
 #[inline]
@@ -74,7 +76,7 @@ pub fn floor(x: f32) -> f32 {
 }
 
 /// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of [`cmath::ceilf`](crate::cmath::ceilf).
+/// the bits of [`ceilf`](crate::ceilf).
 ///
 /// pbrt-v4 `std::ceil`.
 #[inline]

@@ -9,7 +9,7 @@
 
 /// Declares each C function in `ffi` and defines its safe wrapper, of the
 /// same name and signature.
-macro_rules! cmath {
+macro_rules! wrappers {
     ($($(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),+) -> $ret:ty;)+) => {
         /// The declarations: only the wrappers call them.
         mod ffi {
@@ -36,7 +36,7 @@ macro_rules! cmath {
     };
 }
 
-cmath! {
+wrappers! {
     /// `sin x`, `x` in radians.
     fn sinf(x: f32) -> f32;
     /// `cos x`, `x` in radians.

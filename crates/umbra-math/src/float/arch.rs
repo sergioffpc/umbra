@@ -7,8 +7,8 @@
 //! shared library, which LLVM can neither inline, schedule nor vectorise;
 //! here each is one instruction that LLVM sees through, with the same bits
 //! (ADR 0022). `tests/umbra_math/reference/float.rs` keeps the glibc calls,
-//! through [`cmath`](crate::cmath), as the test oracle. The crate supports x86-64 only (`lib.rs`, ADR 0023),
-//! so there is no fallback.
+//! through the crate's wrappers, as the test oracle. The crate supports
+//! x86-64 only (`lib.rs`, ADR 0023), so there is no fallback.
 //!
 //! The intrinsics are called in functions marked with the `target_feature`
 //! they need. The crate requires `x86-64-v3` (FMA, SSE4.1, AVX2) for the

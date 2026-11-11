@@ -4,8 +4,8 @@
 //! facade gives `pow` C's values at zeros, infinities and NaNs.
 
 use super::{Vec4, backend};
-use crate::cmath;
 use crate::float::floor;
+use crate::powf;
 
 /// What the exponent of [`Vec4::pow`] does to the sign of a negative base.
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +50,7 @@ impl Vec4 {
     /// Each lane raised to `e`, within 1 ULP of the correctly rounded
     /// result, with C `powf`'s values for zeros, infinities and NaNs. An
     /// exponent of 0 gives 1 and of 1 the lanes themselves, exactly; an
-    /// infinite or NaN exponent falls back to `cmath::powf`.
+    /// infinite or NaN exponent falls back to `powf`.
     ///
     /// pbrt-v4 `std::pow`, lane by lane.
     #[must_use]
@@ -63,7 +63,7 @@ impl Vec4 {
             return self;
         }
         if !e.is_finite() {
-            return Self(self.0.map(|x| cmath::powf(x, e)));
+            return Self(self.0.map(|x| powf(x, e)));
         }
         let r = self.abs().pow_magnitude(e);
         let nan = self.cmp_ne(self);
