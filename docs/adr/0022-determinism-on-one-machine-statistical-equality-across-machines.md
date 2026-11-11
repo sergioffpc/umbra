@@ -1,5 +1,7 @@
 # Determinism on one machine, statistical equality across machines
 
+> **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md) and [ADR 0028](0028-one-core-for-cpu-and-gpu.md).** A GPU Worker promises statistical equality only, even on one machine. The ban on approximate instructions applies to the CPU; the GPU backend of `umbra-math` may use PTX's approximate instructions within documented bounds. `f64` is allowed only inside `umbra-math`'s backends. The rest of this ADR still applies.
+
 Umbra promises bit-identical results only for one binary on one machine. Across machines, and across Render Jobs on a Cluster, it promises images that are statistically equal: the same to the eye, and indistinguishable by the test of [ADR 0013](0013-statistical-validation-against-a-published-pbrt-v4-reference.md). Decided with the owner on 2026-11-09. This supersedes [ADR 0002](0002-bit-identical-results-across-architectures.md). It amends [ADR 0004](0004-deterministic-film-for-a-fixed-render-job.md), [ADR 0009](0009-pull-based-pass-major-scheduling.md), [ADR 0011](0011-pixel-traces-by-deterministic-re-execution.md), [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md), [ADR 0013](0013-statistical-validation-against-a-published-pbrt-v4-reference.md) and [ADR 0020](0020-bit-identical-exr-final-image.md), which assumed bit-identical results on every Worker.
 
 The priority is to get the most out of the owner's machines. Bit-identity across machines served three purposes, and none of them is worth what it costs in speed and complexity:

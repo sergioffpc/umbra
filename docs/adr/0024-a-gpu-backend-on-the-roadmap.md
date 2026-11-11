@@ -1,5 +1,7 @@
 # A GPU backend on the roadmap
 
+> **Superseded by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** The GPU joins from `v0.1.0`, as one more Worker per GPU, and every milestone delivers its features on the CPU and the GPU, except `bdpt`, `sppm` and `mlt`. The toolchain is upstream `rustc` with `nvptx64-nvidia-cuda` and OptiX ([ADR 0028](0028-one-core-for-cpu-and-gpu.md)).
+
 The NVIDIA RTX 5070 Ti in the P620 becomes part of Umbra's scope, as the goal of a milestone after the CPU milestones. CPU work comes first. Decided with the owner on 2026-11-09. This amends [ADR 0014](0014-gpu-ready-no-std-rendering-core.md), whose readiness rules still apply, and moves the GPU from out of scope (arc42 §2.2, §3.3) to the roadmap (arc42 §4.1).
 
 The GPU is the most powerful hardware the owner has, and the project's priority is to get the most out of it. The main obstacle was bit-identity with the CPU. A GPU has its own transcendentals, FMA contraction, reduction order and ray-tracing hardware, so matching the CPU bit for bit would have meant giving up the RT cores. [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) dropped bit-identity across machines, and with it that obstacle.

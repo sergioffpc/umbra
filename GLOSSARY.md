@@ -77,15 +77,19 @@ The single process that accepts a Render Job, owns its Film, assigns Work Units 
 _Avoid_: Master, server, leader, scheduler
 
 **Worker**:
-A long-running process that joins the Render Jobs of its Cluster one at a time. While it is in a Render Job, it holds a replica of the Scene and renders the Work Units assigned to it using all the cores of its NUMA node. Between Render Jobs it holds no Scene. A machine runs one Worker per NUMA node, so usually exactly one.
+A long-running process that joins the Render Jobs of its Cluster one at a time. While it is in a Render Job, it holds a replica of the Scene and renders the Work Units assigned to it on its Render Device. Between Render Jobs it holds no Scene. A machine runs one Worker per Render Device: one per NUMA node, plus one per GPU.
 _Avoid_: Node, slave, client, agent, render thread
 
+**Render Device**:
+The hardware one Worker renders on: either all the cores of one NUMA node, or one GPU.
+_Avoid_: Backend, accelerator, compute unit
+
 **Local Worker**:
-A Worker that runs inside the Coordinator's own process, so that one machine can render a Render Job alone.
+A Worker that the Coordinator starts on its own machine, so that one machine can render a Render Job alone: the one for the CPU runs inside the Coordinator's process, and the one for each GPU in a child process of it.
 _Avoid_: Embedded worker, in-process node
 
 **Worker Slot**:
-One machine and one of its NUMA nodes, as a Worker reports them when it joins a Render Job. The Coordinator counts the failures of successive Workers in the same slot and refuses the slot after three in a row.
+One machine and one of its Render Devices, as a Worker reports them when it joins a Render Job. The Coordinator counts the failures of successive Workers in the same slot and refuses the slot after three in a row.
 _Avoid_: Worker instance, seat, node
 
 **Cluster**:

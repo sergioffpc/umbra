@@ -36,7 +36,7 @@ flowchart LR
 flowchart LR
     subgraph opm["Operator machine"]
         fs[("Scene File,<br/>image, report")]
-        coord["umbra render:<br/>Coordinator (+ local Worker)"]
+        coord["umbra render:<br/>Coordinator (+ Local Workers:<br/>CPU in-process, GPU child)"]
         val["umbra validate"]
     end
     subgraph hosts["Other hosts on the LAN"]
@@ -56,7 +56,7 @@ flowchart LR
 | Files              | Operator machine and Coordinator                | `.pbrt` Scene File and assets in; image and versioned-JSON Render Job Report out, next to the image                   | §8.2, §8.10, §8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)                                                                    |
 | Discovery          | Coordinator and the idle Workers of its Cluster | DNS-SD over multicast DNS (UDP 5353): the Coordinator announces its Render Job as `_umbra._udp` with `cluster=<name>` | §7.3, §8.13, [ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)                                                                |
 | Coordinator–Worker | Coordinator and each remote Worker              | QUIC (`quinn`), UDP 7470 by default, unverified TLS, `postcard` messages and raw little-endian bulk data              | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
-| Local Worker       | Coordinator and its in-process Worker           | In-memory transport, same messages                                                                                    | §8.8                                                                                                                                            |
+| Local Worker       | Coordinator and the Workers it starts           | In-memory transport for the CPU one, QUIC on loopback for each GPU one in a child process; same messages              | §8.8                                                                                                                                            |
 | Releases           | CI and Linux hosts                              | One `x86-64-v3` container image on `ghcr.io`                                                                          | §7.2, [ADR 0025](../adr/0025-one-x86-64-v3-release-image.md)                                                                                    |
 | Reference          | GitHub release assets and `umbra validate`      | `pbrt-v4-reference/<commit>` release, downloaded and hash-checked                                                     | §8.11                                                                                                                                           |
 | Telemetry          | Coordinator and the operator                    | Status line on stderr; `tracing` logs; Tracy behind the `tracy` feature. No metrics endpoint                          | §8.4, §8.10                                                                                                                                     |
@@ -65,7 +65,8 @@ flowchart LR
 
 Ruled out of this architecture, so no section of this document plans for them:
 
-- A GPU backend before the CPU milestones are done: it is on the roadmap after them (§4.1, [ADR 0024](../adr/0024-a-gpu-backend-on-the-roadmap.md)). Until then only the readiness rules of §8.12 apply.
+- GPUs other than NVIDIA's, and GPU toolchains other than upstream `rustc` with CUDA and OptiX ([ADR 0028](../adr/0028-one-core-for-cpu-and-gpu.md)).
+- The `bdpt`, `sppm` and `mlt` integrators on the GPU ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
 - arm64 ([ADR 0023](../adr/0023-x86-64-only.md)).
 - Cloud deployment, autoscaling, Workers outside the LAN.
 - Out-of-core Scenes: every Worker holds the whole Scene.

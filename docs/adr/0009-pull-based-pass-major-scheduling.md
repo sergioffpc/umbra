@@ -1,6 +1,8 @@
 # Pull-based, Pass-major scheduling with speculative tail
 
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md).** The Film merges on arrival: Pass p of a Tile no longer waits for Pass p − 2 to be merged, and a duplicate Work Result is discarded unread, without a hash comparison. arm64 Workers are no longer supported.
+>
+> **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** Each Worker declares how many Work Units it keeps in flight: about two per eight threads on a CPU, and enough to fill the GPU, rendered as one wavefront batch, on a GPU. The Local Worker of each GPU runs in a child process and connects over QUIC. The rest of this ADR still applies.
 
 The Coordinator schedules a Render Job by letting Workers pull Work Units in Pass-major order, inside a bounded window, and by duplicating the oldest Work Units in flight once the queue is empty ([Work decomposition and scheduling](https://github.com/sergioffpc/umbra/issues/23)). The target machines differ widely in speed (Threadripper PRO 3975WX, 2 × Xeon E5-2690 v4, §7.1), there is no live view, and [ADR 0004](0004-deterministic-film-for-a-fixed-render-job.md) requires every Tile's Work Results to be merged in Pass order with early arrivals held on the Coordinator.
 

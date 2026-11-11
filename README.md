@@ -31,8 +31,8 @@ cargo run --release
 
 ## Rendering on several machines
 
-> **Status:** remote Workers arrive in v0.2.0. Until then, `umbra render` uses
-> only the machine it runs on.
+> **Status:** remote Workers and GPU Workers arrive in v0.1.0. Until then,
+> nothing renders.
 
 Umbra spreads one image over every machine on the LAN that runs a Worker. You
 start a Worker on each machine once and leave it running. A Worker sits idle

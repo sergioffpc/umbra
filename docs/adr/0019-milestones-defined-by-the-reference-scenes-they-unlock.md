@@ -1,5 +1,7 @@
 # Milestones defined by the Reference Scenes they unlock
 
+> **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** Each milestone makes its Reference Scenes renderable on the CPU and on the GPU, except those of the CPU-only integrators `bdpt`, `sppm` and `mlt`. The former `v0.2.0 — Distribution` joins `v0.1.0`, and later milestones are renumbered down by one. The rest of this ADR still applies.
+
 Umbra reaches all of pbrt-v4 on CPU through a sequence of milestones. Each one is defined by the Reference Scenes it makes fully renderable, not by book chapters or by infrastructure layers. Decided in [Milestone sequencing](https://github.com/sergioffpc/umbra/issues/31). The roadmap itself is in [arc42 §4.1](../architecture/04-solution-strategy.md#41-delivery-roadmap).
 
 - **Scope of a milestone.** A milestone's scope is the smallest `.pbrt` subset its new Reference Scenes need ([ADR 0003](0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Strict validation rejects everything outside that subset. Inside a milestone, issues follow the book's order and the crate dependency graph ([arc42 §5.1](../architecture/05-building-block-view.md#51-level-1-the-workspace)).
