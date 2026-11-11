@@ -229,8 +229,11 @@ container.
   another crate, a `_` arm is allowed after the known variants.
 - Numerics ([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)):
   `std`'s transcendental float methods (`sin`, `exp`, `powf`, …) are banned in
-  favour of the `libm` crate, as are vendor-dependent approximate reciprocal
-  intrinsics and flush-to-zero. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
+  favour of `umbra-math`: its own kernels (`sin_cos`, `atan2`, `erf`,
+  `Vec4::exp`, `Vec4::pow`) where they exist, and otherwise its safe wrappers
+  in `umbra_math::cmath`, which call glibc on x86-64 and `libdevice` on
+  `nvptx64`. Vendor-dependent approximate reciprocal intrinsics and
+  flush-to-zero are banned too. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
 - No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
