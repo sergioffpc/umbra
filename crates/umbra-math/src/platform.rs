@@ -30,9 +30,8 @@ pub use x86_64::{
     sinf, sqrt, sqrtf, tanf,
 };
 
-// On `nvptx64` the crate's own calls take `libdevice`'s wrappers where it
-// has the function (ADR 0028); they stay crate-private until #146 gives the
-// GPU the full set. `acosf`, `asinf`, `logf`, `tanf` and `roundf` have no
-// `libdevice` wrapper yet, so the `nvptx64` build lacks them.
+// On `nvptx64` the crate's own calls take `libdevice`'s wrappers (ADR 0028);
+// they stay crate-private until #146 links `libdevice` and gives the GPU the
+// full set.
 #[cfg(target_arch = "nvptx64")]
-pub(crate) use crate::libdevice::{powf, sinf};
+pub(crate) use crate::libdevice::{acosf, asinf, logf, powf, roundf, sinf, tanf};

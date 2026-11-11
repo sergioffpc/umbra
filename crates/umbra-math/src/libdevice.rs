@@ -45,6 +45,11 @@ mod ffi {
         pub(super) fn __nv_erff(x: f32) -> f32;
         pub(super) fn __nv_expf(x: f32) -> f32;
         pub(super) fn __nv_powf(x: f32, y: f32) -> f32;
+        pub(super) fn __nv_roundf(x: f32) -> f32;
+        pub(super) fn __nv_tanf(x: f32) -> f32;
+        pub(super) fn __nv_asinf(x: f32) -> f32;
+        pub(super) fn __nv_acosf(x: f32) -> f32;
+        pub(super) fn __nv_logf(x: f32) -> f32;
     }
 }
 
@@ -130,4 +135,30 @@ wrapper! {
 wrapper! {
     /// `xʸ`, within 4 ULP.
     powf = __nv_powf(x, y)
+}
+
+wrapper! {
+    /// `x` rounded to the nearest integer, halfway cases away from zero:
+    /// exact.
+    roundf = __nv_roundf(x)
+}
+
+wrapper! {
+    /// `tan(x)`, within 4 ULP.
+    tanf = __nv_tanf(x)
+}
+
+wrapper! {
+    /// `asin(x)`, within 2 ULP.
+    asinf = __nv_asinf(x)
+}
+
+wrapper! {
+    /// `acos(x)`, within 2 ULP.
+    acosf = __nv_acosf(x)
+}
+
+wrapper! {
+    /// `ln(x)`, within 1 ULP.
+    logf = __nv_logf(x)
 }

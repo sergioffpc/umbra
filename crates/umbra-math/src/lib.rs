@@ -62,7 +62,7 @@ pub use platform::{
     roundf, sincosf, sinf, sqrtf, tanf,
 };
 #[cfg(target_arch = "nvptx64")]
-use platform::{powf, sinf};
+use platform::{acosf, asinf, logf, powf, roundf, sinf, tanf};
 pub use simd::{Mask4, Vec4};
 pub use square_matrix::SquareMatrix;
 pub use transcendental::{atan2, erf, sin_cos};
