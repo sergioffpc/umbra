@@ -12,7 +12,7 @@
     // gh: the issue tracker and pull requests are managed with the gh CLI.
     "ghcr.io/devcontainers/features/github-cli:1": {},
     // Node.js and npm for the Claude Code feature, which needs npm and on
-    // Debian would otherwise apt-install nodejs without it.
+    // Ubuntu would otherwise apt-install nodejs without it.
     "ghcr.io/devcontainers/features/node:2": {},
     // Claude Code CLI; the Matt Pocock skills plugin is installed by
     // post-create.sh.

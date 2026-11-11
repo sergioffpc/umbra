@@ -178,9 +178,10 @@ files in `.vscode/` are ignored by git.
 
 ### Dev container
 
-[`.devcontainer/`](.devcontainer) defines a Debian 13 container with the
-pinned toolchain, `rust-src`, `gh`, Claude Code and every tool listed
-under [Toolchain](#toolchain). With Docker running and the Dev Containers
+[`.devcontainer/`](.devcontainer) defines an Ubuntu 26.04 LTS container, the
+release the [release image](Dockerfile) builds and ships on, with the pinned
+toolchain, `rust-src`, `gh`, Claude Code and every tool listed under
+[Toolchain](#toolchain). With Docker running and the Dev Containers
 extension installed, run **Dev Containers: Reopen in Container**. On creation
 it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
 container.
