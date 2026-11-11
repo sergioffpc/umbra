@@ -236,6 +236,16 @@ container.
   `nvptx64`: the `f32` ones at the crate root (`umbra_math::tanf`), the `f64`
   ones in `umbra_math::double`. Vendor-dependent approximate reciprocal intrinsics and
   flush-to-zero are banned too. The list is `disallowed-methods` in [`clippy.toml`](clippy.toml).
+  The GPU is the exception: `umbra-math`'s `nvptx64` backend uses PTX's
+  approximate instructions, directly and inside `libdevice`, whose results
+  are statistical only
+  ([ADR 0028](docs/adr/0028-one-core-for-cpu-and-gpu.md)).
+- No `f64` in the seven core crates
+  ([ADR 0028](docs/adr/0028-one-core-for-cpu-and-gpu.md)): consumer GPUs run
+  it at a small fraction of `f32`'s rate. `disallowed-types` in
+  [`clippy.toml`](clippy.toml) lists it, and each core crate's `lib.rs` turns
+  the lint on; `umbra-math`'s x86-64 backends `#[expect]` it. The `std`
+  crates, tests and build scripts keep `f64`.
 - No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
@@ -309,7 +319,8 @@ optimised
 ([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
-(`target-cpu=native`). Override `RUSTFLAGS` for binaries that must run on
+(`target-cpu=native`), on the x86-64 target only: `nvptx64` builds use that
+target's default. Override `RUSTFLAGS` for binaries that must run on
 other machines. An override must keep at least `-C target-cpu=x86-64-v3`:
 `umbra-math` requires FMA, SSE4.1 and AVX2 and stops the build without them
 ([ADR 0023](docs/adr/0023-x86-64-only.md)).

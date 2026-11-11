@@ -28,6 +28,8 @@ Model every choice as an enum with named variants, in parameters and fields alik
 
 Issues live in GitHub Issues on `sergioffpc/umbra`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+When you start work on an issue, assign it first (`gh issue edit <n> --add-assignee @me`), before any other change, so everyone can see it is taken.
+
 ### Triage labels
 
 Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.

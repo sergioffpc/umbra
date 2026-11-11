@@ -3,9 +3,10 @@
 //! Four `f32` lanes in one 128-bit SSE register, the width of
 //! `SampledSpectrum` (ADR 0001). Each operation computes, lane by lane,
 //! exactly what the scalar operation computes: the scalar code is its
-//! reference and test oracle (`tests/umbra_math/simd_test.rs`). There is one
-//! backend, `x86_64` (SSE4.1, FMA); a GPU port adds its own (ADR 0024). Where
-//! the hardware leaves a result open, the facade pins it down:
+//! reference and test oracle (`tests/umbra_math/simd_test.rs`). There are two
+//! backends: `x86_64` (SSE4.1, FMA), and `nvptx64`, four plain scalar lanes,
+//! since the GPU vectorises across threads (ADR 0028). Where the hardware
+//! leaves a result open, the facade pins it down:
 //!
 //! - `min`/`max` have C++ `std::min`/`std::max` semantics (see
 //!   [`crate::min`]): `minps`/`maxps` with swapped operands.
@@ -14,9 +15,10 @@
 //!   differ between CPU vendors (ADR 0022).
 //!
 //! The exceptions are [`Vec4::exp`] and [`Vec4::pow`], which have no IEEE
-//! operation to match: they are Umbra's own kernels, within 1 ULP of the
-//! correctly rounded result (ADR 0022), tested against glibc's `f64`
-//! routines in `tests/umbra_math/accuracy/`.
+//! operation to match. On x86-64 they are Umbra's own kernels, within 1 ULP
+//! of the correctly rounded result (ADR 0022), tested against glibc's `f64`
+//! routines in `tests/umbra_math/accuracy/`; on `nvptx64` they are
+//! `libdevice`'s `expf` and `powf`, within 2 and 4 ULP (ADR 0028).
 //!
 //! NaN payloads produced by arithmetic on non-NaN inputs (the default NaN)
 //! differ between CPU vendors in the scalar code too; they are not part of
@@ -31,10 +33,18 @@ use core::ops::{
     SubAssign,
 };
 
+#[cfg(target_arch = "nvptx64")]
+mod nvptx64;
 mod transcendental;
 #[cfg(target_arch = "x86_64")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the x86-64 kernels of `exp` and `pow` evaluate in f64 (ADR 0028)"
+)]
 mod x86_64;
 
+#[cfg(target_arch = "nvptx64")]
+use nvptx64 as backend;
 #[cfg(target_arch = "x86_64")]
 use x86_64 as backend;
 

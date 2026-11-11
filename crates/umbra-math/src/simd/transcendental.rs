@@ -1,7 +1,9 @@
-//! [`Vec4::exp`] and [`Vec4::pow`]: Umbra's own kernels, within 1 ULP of the
-//! correctly rounded result in every lane (ADR 0022), where glibc per lane
-//! costs several times more. The backend evaluates them in `f64`; this
-//! facade gives `pow` C's values at zeros, infinities and NaNs.
+//! [`Vec4::exp`] and [`Vec4::pow`]. On x86-64 they are Umbra's own kernels,
+//! within 1 ULP of the correctly rounded result in every lane (ADR 0022),
+//! where glibc per lane costs several times more; the backend evaluates them
+//! in `f64`. On `nvptx64` they are `libdevice`'s `expf` and `powf` per lane,
+//! within 2 and 4 ULP (ADR 0028). This facade gives `pow` C's values at
+//! zeros, infinities and NaNs on both.
 
 use super::{Vec4, backend};
 use crate::float::floor;
@@ -37,8 +39,9 @@ impl Parity {
 }
 
 impl Vec4 {
-    /// `eˣ` per lane, within 1 ULP of the correctly rounded result: overflow
-    /// gives `+∞`, underflow the subnormals and then `+0`, NaN stays NaN.
+    /// `eˣ` per lane, within 1 ULP of the correctly rounded result on x86-64
+    /// and 2 ULP on `nvptx64`: overflow gives `+∞`, underflow the subnormals
+    /// (which `nvptx64` may flush to zero) and then `+0`, NaN stays NaN.
     ///
     /// pbrt-v4 `std::exp`, lane by lane.
     #[inline]
@@ -48,9 +51,10 @@ impl Vec4 {
     }
 
     /// Each lane raised to `e`, within 1 ULP of the correctly rounded
-    /// result, with C `powf`'s values for zeros, infinities and NaNs. An
-    /// exponent of 0 gives 1 and of 1 the lanes themselves, exactly; an
-    /// infinite or NaN exponent falls back to `powf`.
+    /// result on x86-64 and 4 ULP on `nvptx64`, with C `powf`'s values for
+    /// zeros, infinities and NaNs. An exponent of 0 gives 1 and of 1 the
+    /// lanes themselves, exactly; an infinite or NaN exponent falls back to
+    /// `powf`.
     ///
     /// pbrt-v4 `std::pow`, lane by lane.
     #[must_use]

@@ -67,9 +67,14 @@ impl RGBColorSpace {
     /// Never: the sRGB primaries are independent.
     #[must_use]
     pub fn srgb() -> Self {
-        // pbrt-v4's `double` literals, rounded to `float` as C++ does.
-        let primaries = [(0.64, 0.33), (0.3, 0.6), (0.15, 0.06)]
-            .map(|(x, y)| Point2f::new(narrow(x), narrow(y)));
+        // pbrt-v4's `double` literals, rounded to `float` as C++ does, at
+        // compile time: no `f64` at run time (ADR 0028).
+        const PRIMARIES: [(f32, f32); 3] = [
+            (narrow(0.64), narrow(0.33)),
+            (narrow(0.3), narrow(0.6)),
+            (narrow(0.15), narrow(0.06)),
+        ];
+        let primaries = PRIMARIES.map(|(x, y)| Point2f::new(x, y));
         Self::new(primaries, StdIlluminant::D65, &rgb_to_spectrum::SRGB)
             .expect("the sRGB primaries are independent")
     }

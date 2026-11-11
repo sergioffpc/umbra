@@ -1,6 +1,8 @@
 # One core for CPU and GPU
 
 > **Amended on 2026-11-11 by [#142](https://github.com/sergioffpc/umbra/issues/142).** The `nvptx64` backend of `umbra-math` takes its C math from CUDA's `libdevice`, which `umbra-gpu`'s build links into the PTX. The rest of this ADR still applies.
+>
+> **Amended on 2026-11-11 by [#124](https://github.com/sergioffpc/umbra/issues/124).** The `nvptx64` backend reaches its PTX instructions through `libdevice` too, declared by FFI: `__nv_fmaf`, `__nv_fsqrt_rn`, `__nv_floorf` and `__nv_ceilf` for the scalar primitives, `__nv_fast_sinf` and `__nv_fast_cosf` for `sin.approx` and `cos.approx`. On stable Rust, `core` has no `f32` `sqrt`, `mul_add`, `floor` or `ceil` (they need `core_float_math`), and inline PTX needs `asm_experimental_arch`; [ADR 0027](0027-a-pinned-nightly-toolchain.md) keeps unstable features to `umbra-kernels`. Its `atan2`, `erf`, `Vec4::exp` and `Vec4::pow` are `libdevice`'s `atan2f`, `erff`, `expf` and `powf`, with the CUDA Math API's bounds; its `sin_cos` is a reduction of Umbra's own followed by the approximate instructions.
 
 The `no_std` core is compiled twice from the same source: for `x86_64` and for `nvptx64-nvidia-cuda`, both by upstream `rustc`. Two drivers run it, a per-pixel loop on the CPU and a wavefront on the GPU. Decided with the owner on 2026-11-11. This amends [ADR 0014](0014-gpu-ready-no-std-rendering-core.md), [ADR 0015](0015-layered-workspace-with-a-seven-crate-no-std-core.md), [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md), and makes concrete the GPU port that ADR 0014 deferred.
 

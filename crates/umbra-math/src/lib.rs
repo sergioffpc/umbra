@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+// No `f64` in the core (ADR 0028): `clippy.toml` lists it.
+#![warn(clippy::disallowed_types)]
 
 // The x86-64 CPU baseline (ADR 0023): every target machine has FMA, and the
 // kernels use it, SSE4.1 and AVX2 unconditionally. Without them the build
@@ -19,15 +21,19 @@ compile_error!(concat!(
     "build with `-C target-cpu=x86-64-v3`, or `target-cpu=native` on a CPU that has it"
 ));
 
-// The one supported architecture (ADR 0023): the target machines are x86-64,
-// and the SIMD facade and the scalar primitives have a backend for it only. A
-// GPU port adds its own (ADR 0024).
-#[cfg(not(target_arch = "x86_64"))]
-compile_error!("umbra-math supports x86-64 (x86-64-v3) only (ADR 0023)");
+// The two supported architectures: the CPUs of the target machines are
+// x86-64 (ADR 0023) and their GPUs run the core as `nvptx64` (ADR 0028). The
+// SIMD facade, the scalar primitives and the transcendentals have a backend
+// for each and no fallback.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "nvptx64")))]
+compile_error!("umbra-math supports x86-64 (x86-64-v3) and nvptx64 only (ADR 0023, ADR 0028)");
 
+#[cfg(target_arch = "x86_64")]
 pub mod double;
 mod float;
 mod interval;
+#[cfg(target_arch = "nvptx64")]
+mod libdevice;
 mod math;
 mod platform;
 mod simd;
@@ -50,10 +56,13 @@ pub use math::{
     is_power_of_2, lerp, log2_int, max, min, quadratic, radians, round_up_pow2, safe_acos,
     safe_asin, safe_sqrt, sin_x_over_x, smooth_step, sqr, sum_of_products, two_prod, two_sum,
 };
+#[cfg(target_arch = "x86_64")]
 pub use platform::{
     acosf, asinf, atan2f, atanhf, ceilf, cosf, coshf, erff, exp2f, expf, floorf, fmaf, logf, powf,
     roundf, sincosf, sinf, sqrtf, tanf,
 };
+#[cfg(target_arch = "nvptx64")]
+use platform::{powf, sinf};
 pub use simd::{Mask4, Vec4};
 pub use square_matrix::SquareMatrix;
 pub use transcendental::{atan2, erf, sin_cos};

@@ -16,6 +16,7 @@
 
 mod arch;
 
+#[cfg(target_arch = "x86_64")]
 pub(crate) use arch::fma_f64;
 
 /// Half the distance between 1 and the next `f32`: the bound on the relative
@@ -45,8 +46,8 @@ pub const fn gamma(n: u16) -> f32 {
 /// Umbra uses it where pbrt-v4 uses `FMA`, and anywhere else it is faster or
 /// more accurate, except in code whose error bounds pbrt-v4 derives from its
 /// exact operations (ADR 0022). It is the hardware instruction
-/// (`vfmadd213ss`), which gives the bits of the correctly rounded
-/// [`fmaf`](crate::fmaf).
+/// (`vfmadd213ss`, or `fma.rn.f32` on `nvptx64`), which gives the bits of
+/// the correctly rounded [`fmaf`](crate::fmaf).
 ///
 /// pbrt-v4 `FMA`.
 #[inline]
@@ -65,8 +66,9 @@ pub fn sqrt(x: f32) -> f32 {
     arch::sqrt(x)
 }
 
-/// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of [`floorf`](crate::floorf).
+/// `⌊x⌋`: the hardware rounding instruction (SSE4.1 `roundss`, or
+/// `cvt.rmi.f32.f32` on `nvptx64`). Exact, so the bits of
+/// [`floorf`](crate::floorf).
 ///
 /// pbrt-v4 `std::floor`.
 #[inline]
@@ -75,8 +77,9 @@ pub fn floor(x: f32) -> f32 {
     arch::floor(x)
 }
 
-/// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`). Exact, so
-/// the bits of [`ceilf`](crate::ceilf).
+/// `⌈x⌉`: the hardware rounding instruction (SSE4.1 `roundss`, or
+/// `cvt.rpi.f32.f32` on `nvptx64`). Exact, so the bits of
+/// [`ceilf`](crate::ceilf).
 ///
 /// pbrt-v4 `std::ceil`.
 #[inline]

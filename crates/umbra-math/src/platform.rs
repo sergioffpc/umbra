@@ -17,6 +17,10 @@
 //! Umbra's own `f32` kernels.
 
 #[cfg(target_arch = "x86_64")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "glibc's f64 functions, on x86-64 only (ADR 0028)"
+)]
 mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
@@ -25,3 +29,10 @@ pub use x86_64::{
     exp2f, expf, floorf, fma, fmaf, hypot, lgamma, log, logf, pow, powf, roundf, sin, sincosf,
     sinf, sqrt, sqrtf, tanf,
 };
+
+// On `nvptx64` the crate's own calls take `libdevice`'s wrappers where it
+// has the function (ADR 0028); they stay crate-private until #146 gives the
+// GPU the full set. `acosf`, `asinf`, `logf`, `tanf` and `roundf` have no
+// `libdevice` wrapper yet, so the `nvptx64` build lacks them.
+#[cfg(target_arch = "nvptx64")]
+pub(crate) use crate::libdevice::{powf, sinf};

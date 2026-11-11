@@ -40,13 +40,13 @@ assert!(ndc.z > 0.0 && ndc.z < 1.0);
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `float` (`util/float.h`)                 | `MACHINE_EPSILON`, `ONE_MINUS_EPSILON`, `gamma(n)`, `next_float_up`/`down`, rounded-up/-down `+ − × ÷ √` and FMA, `exponent`/`significand`, `fma`, `sqrt`, `floor`, `ceil`                                                                                                                                                   |
 | `math` (`util/math.h`)                   | `lerp`, `clamp`, `sqr`, `safe_sqrt`/`asin`/`acos`, `evaluate_polynomial`, `difference_of_products`, `sum_of_products`, `two_prod`, `two_sum`, `inner_product`, `CompensatedSum`, `erf_inv`, `fast_exp`, `gaussian`, `gaussian_integral`, `find_interval`, `quadratic`, `log2_int`, `round_up_pow2`, `min`/`max`, π constants |
-| `transcendental`                         | `sin_cos`, `atan2`, `erf`: Umbra's own scalar transcendentals, within 1 ULP and faster than the C routines                                                                                                                                                                                                                   |
+| `transcendental`                         | `sin_cos`, `atan2`, `erf`: on x86-64 Umbra's own scalar transcendentals, within 1 ULP and faster than the C routines                                                                                                                                                                                                         |
 | `platform`, `double`                     | One safe wrapper per C math function Umbra calls, over glibc on x86-64: the `f32` ones (`sinf`, `tanf`, `asinf`, `acosf`, `coshf`, `atanhf`, `expf`, `logf`, `powf`, `roundf`, …) at the crate root, the `f64` ones (the test oracles) in `double`                                                                           |
 | `interval` (`util/math.h`)               | `Interval`, a closed `[low, high]` that bounds the rounding error of the computation that produced it                                                                                                                                                                                                                        |
 | `vecmath` (`util/vecmath.h`)             | `Vector2/3`, `Point2/3`, `Normal3` (generic, with `f`, `i` and `fi` aliases), `dot`, `cross`, `face_forward`, `angle_between`, `coordinate_system`, `Frame`, `OctahedralVector`, spherical geometry                                                                                                                          |
 | `square_matrix` (`util/math.h`)          | `SquareMatrix<N>`, with determinant and inverse for N = 2, 3, 4                                                                                                                                                                                                                                                              |
 | `transform` (`util/transform.h`, `.cpp`) | `Transform` (a matrix and its inverse), `translate`, `scale`, `rotate*`, `rotate_from_to`, `look_at`, `perspective`, `orthographic`                                                                                                                                                                                          |
-| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1, AVX2 and FMA on x86-64), with `exp` and `pow` within 1 ULP                                                                                                                                                                                                      |
+| `simd`                                   | `Vec4`, `Mask4`: four `f32` lanes over `core::arch` (SSE4.1, AVX2 and FMA on x86-64; scalar lanes on `nvptx64`), with `exp` and `pow`                                                                                                                                                                                        |
 
 Everything but `double` is re-exported at the crate root, so
 `use umbra_math::{…}` is all you need. The C functions keep C's names:
@@ -89,17 +89,21 @@ Where Umbra departs from pbrt-v4, the doc comment says so:
 ### `f32` only, `no_std`, no `alloc`
 
 The core computes in `f32` (ADR 0001); there is no `Float` alias and no `f64`
-build. The crate is `#![no_std]` without `alloc` (ADR 0014, ADR 0015), so it
+build. `f64` appears only inside the x86-64 backends, where Umbra's own
+transcendentals evaluate in it: `clippy::disallowed_types` bans it elsewhere
+in the core, since consumer GPUs run it at a small fraction of `f32`'s rate
+(ADR 0028). The crate is `#![no_std]` without `alloc` (ADR 0014, ADR 0015), so it
 can never allocate.
 All types are `Copy`. There is no recursion; pbrt-v4's variadic recursive
 helpers (`InnerProduct`, `SumSquares`, `EvaluatePolynomial`) are folds over
 const-generic arrays here.
 
-### Deterministic on one machine, x86-64 only
+### Deterministic on one machine, x86-64 and `nvptx64`
 
 A computation gives the same bits every time it runs on one machine with one
 binary; across machines, results only have to be statistically equal
-(ADR 0022). The crate supports x86-64 only (ADR 0023). Hence:
+(ADR 0022). The crate supports x86-64 (ADR 0023) and the GPU as
+`nvptx64-nvidia-cuda` (ADR 0028, below). On x86-64:
 
 - **Transcendentals come from Umbra's own kernels or from glibc**, never
   from `std`'s float methods (which `clippy.toml` bans). Umbra's own kernels
@@ -113,8 +117,8 @@ binary; across machines, results only have to be statistically equal
 - **`x86-64-v3` is required** (FMA, SSE4.1, AVX2), which every target
   machine has: without it the crate stops the build with a `compile_error!`,
   so there is no software-FMA path. Build with `target-cpu=native` (the
-  local default) or `-C target-cpu=x86-64-v3`. Any other architecture stops
-  the build too; a GPU port adds its own backend (ADR 0024).
+  local default) or `-C target-cpu=x86-64-v3`. Any architecture other than
+  x86-64 and `nvptx64` stops the build too.
 - **`fma`, `sqrt`, `floor` and `ceil` are the hardware instruction**. `fma`
   and `sqrt` are correctly rounded and `floor`/`ceil` are exact, so they
   compute the bits of glibc's routines; the hardware forms are inlined,
@@ -230,7 +234,7 @@ rounded one, with C's values at signed zeros, infinities and NaNs.
   `2^(x log₂ e)` and `2^(e log₂ x)` from Taylor polynomials and exponent-bit
   arithmetic, and one rounding back to `f32`. The facade
   (`src/simd/transcendental.rs`) gives `pow` C's special values.
-- **`sin_cos`, `atan2` and `erf`** (`src/transcendental.rs`): scalar `f64`
+- **`sin_cos`, `atan2` and `erf`** (`src/transcendental/x86_64.rs`): scalar `f64`
   code with the `f64` FMA. `sin_cos` shares one argument reduction (π/2 in
   two parts, beyond ±2²⁰ glibc's), `atan2` reduces to `[0, tan(π/8)]` with
   one division, and `erf` reads one of eight half-unit segments. Their
@@ -238,13 +242,14 @@ rounded one, with C's values at signed zeros, infinities and NaNs.
   Umbra used before glibc, at Chebyshev nodes, of the lowest degree whose error is below 2⁻³⁰. The quadrant,
   octant and segment are picked by selects and bit operations, not branches.
 
-The `unsafe` is confined to the backend of `Vec4`, to `src/float/arch.rs`
-and to the glibc wrappers of `src/platform/x86_64.rs`: one intrinsic or one FFI
-call per `unsafe` block, each with its `// SAFETY:` comment, under
+The `unsafe` is confined to the x86-64 backend of `Vec4`, to
+`src/float/arch.rs`, to the glibc wrappers of `src/platform/x86_64.rs` and to
+the `libdevice` wrappers of `src/libdevice.rs`: one intrinsic or one FFI call
+per `unsafe` block, each with its `// SAFETY:` comment, under
 `#[expect(unsafe_code)]` on that function. The kernels and the facade are
-safe code. The FFI needs no benchmark or safe reference (ADR 0007): it is
-checked against known values instead (`tests/umbra_math/platform.rs`), which
-catches a wrong signature. `umbra-spectrum`'s build script compiles
+safe code. The FFI needs no benchmark or safe reference (ADR 0007): glibc's
+is checked against known values instead (`tests/umbra_math/platform.rs`),
+which catches a wrong signature. `umbra-spectrum`'s build script compiles
 `src/platform/x86_64.rs` by `#[path]`, so its table takes the same `cbrt`
 without the crate's `x86-64-v3` requirement.
 
@@ -265,6 +270,35 @@ columns are stored. A `sin_cos` that picked its quadrant by a `match` was
 slower than the `libm` crate's `sinf` and `cosf` together on random angles, and Taylor
 polynomials for `sin`, `cos` and `atan` cost a third more than the
 Chebyshev ones.
+
+### The `nvptx64` backend (ADR 0028)
+
+The core also compiles for `nvptx64-nvidia-cuda`, which the GPU runs. That
+backend gives up ADR 0022's bits and 1 ULP for speed: the GPU promises
+statistical equality only (ADR 0026).
+
+- **`Vec4`/`Mask4` are four plain scalar lanes** (`src/simd/nvptx64.rs`): the
+  GPU vectorises across threads, not within one. Each lane computes exactly
+  what the scalar operation computes.
+- **The scalar primitives and the transcendentals come from CUDA's
+  `libdevice`** (`src/libdevice.rs`), declared by FFI on stable Rust (ADR
+  0027): `fma`, `sqrt`, `floor` and `ceil` are one IEEE PTX instruction each
+  (`fma.rn`, `sqrt.rn`, `cvt.rmi`, `cvt.rpi`); `atan2` is `atan2f`, within
+  3 ULP, `erf` is `erff`, within 2 ULP, and `Vec4::exp` and `Vec4::pow` are
+  `expf` and `powf` per lane, within 2 and 4 ULP (the CUDA Math API's
+  bounds). These use approximate, flush-to-zero instructions inside, so a
+  subnormal result may come back as zero.
+- **`sin_cos` is Umbra's own** (`src/transcendental/nvptx64.rs`): a
+  reduction by 2π in three parts, then `sin.approx.f32` and `cos.approx.f32`
+  (`__nv_fast_sinf`, `__nv_fast_cosf`), with an absolute error below 2⁻²⁰
+  up to ±2²⁰, and `libdevice`'s `sinf` and `cosf` beyond.
+- **The crate only declares the `libdevice` functions.** `umbra-gpu`'s build
+  links `libdevice.10.bc` into the PTX (#146); a build without it, such as
+  CI's, compiles with one `.extern .func __nv_*` per function used.
+
+No CI runner has a GPU, so CI only builds the backend and runs clippy on it
+(`scripts/check.sh rust`). The GPU test script checks each error bound
+against glibc on the GPU (#126).
 
 ## Things to know when using it
 

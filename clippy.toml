@@ -106,6 +106,16 @@ disallowed-methods = [
   { path = "core::arch::x86_64::_MM_SET_DENORMALS_ZERO_MODE", reason = "denormals-are-zero (ADR 0022): keep IEEE defaults", allow-invalid = true },
 ]
 
+# `f64` in the core (ADR 0028): consumer GPUs run it at a small fraction of
+# `f32`'s rate, and the core is compiled for `nvptx64` too. Only the seven
+# core crates enable the lint (`#![warn(clippy::disallowed_types)]` in their
+# `lib.rs`; the workspace sets it to `allow`), so the `std` crates (ADR 0001's
+# per-pixel sums), tests and build scripts keep `f64`. Inside the core,
+# `umbra-math`'s x86-64 backends `#[expect]` it.
+disallowed-types = [
+  { path = "f64", reason = "no `f64` in the core (ADR 0028): it runs slowly on the GPU; compute in `f32`" },
+]
+
 # pbrt-v4 terms and tool names written as prose in doc comments, not code.
 # `..` keeps clippy's default list.
 doc-valid-idents = ["..", "BxDF", "BxDFs", "BSDF", "BSDFs", "BSSRDF", "BSSRDFs", "AddressSanitizer"]
