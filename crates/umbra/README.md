@@ -100,6 +100,13 @@ The Reproduction Record in the EXR's header stores them as
 `pixel_samples_per_pixel` and `pixel_samples_per_pass`, the names of the
 `RenderJobOptions` fields they set.
 
+`--spp-per-pass` does not decide how a Worker fills its cores: it asks for
+about two Work Units per eight threads and shares each one's rows among
+them. The Pass size matters there only when Tiles × Passes is smaller than
+what the Workers ask for, as with a small image on a Cluster. The
+[Render Guide](../umbra-render/docs/render-guide.html#cores) shows this with
+an interactive calculator.
+
 ## Things to know when using it
 
 - **Exit codes** (arc42 §8.13): 0 rendered; 1 an I/O error or a panic,
