@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
 <style>
-/* Sister document of docs/math/field-guide.html: same tokens, same layout.
+/* Sister document of crates/umbra-math/docs/math-guide.html: same tokens, same layout.
     One 66ch reading column; each interactive "bench" widens to the full
     1120px measure. Every section names the source file and PBR 4e section. */
 :root {
@@ -351,7 +351,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
         <li><span class="who ext">umbra-render</span><span class="ty">Film</span><span class="what">weighted average per pixel</span></li>
     </ol>
 
-    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last comes an interactive figure: move the sliders and watch the result change. New to the symbols? Start with <a href="#toolkit">section 0</a>. The figures repeat the Rust code's operations in JavaScript (in double precision, so the last digits can differ from Umbra's). Section references (“PBR 4e §5.2”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows. The matrix maths of <code>perspective()</code> is covered in more depth in the <a href="../../umbra-math/docs/field-guide.html">Umbra Math Field Guide</a>.</p>
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last comes an interactive figure: move the sliders and watch the result change. New to the symbols? Start with <a href="#toolkit">section 0</a>. The figures repeat the Rust code's operations in JavaScript (in double precision, so the last digits can differ from Umbra's). Section references (“PBR 4e §5.2”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows. The matrix maths of <code>perspective()</code> is covered in more depth in the <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</p>
 
     <nav class="toc" aria-labelledby="toc-h">
         <h2 id="toc-h">Contents</h2>
@@ -1239,7 +1239,7 @@ RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="
         <li>Shirley and Chiu. A Low Distortion Map Between Disk and Square. <i>Journal of Graphics Tools</i> 2(3), 1997. The concentric map of the lens sample.</li>
         <li>Kolb, Mitchell, Hanrahan. A Realistic Camera Model for Computer Graphics. SIGGRAPH 1995. Lens systems beyond the thin lens.</li>
         <li>Wyman, Sloan, Shirley. <a href="https://jcgt.org/published/0002/02/01/">Simple Analytic Approximations to the CIE XYZ Color Matching Functions</a>. JCGT 2(2), 2013. Used by the sensor figures only.</li>
-        <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../umbra-math/docs/field-guide.html">Umbra Math Field Guide</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (numeric model, importance-sampled filters), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (closed enums), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (no_std core), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Pixel Sample, Film).</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (numeric model, importance-sampled filters), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (closed enums), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (no_std core), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Pixel Sample, Film).</li>
     </ul>
 </section>
 
