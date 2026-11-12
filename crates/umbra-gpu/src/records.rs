@@ -5,9 +5,9 @@ use cudarc::driver::DeviceRepr;
 use umbra_geometry::{Ray, Sphere};
 
 use crate::Error;
-use crate::launch::{HitKind, HitRecord, LaunchParams, RayRecord};
+use crate::launch::{HitKind, HitRecord, LaunchParams, MathFunction, MathParams, RayRecord};
 use crate::optix::SBT_RECORD_HEADER_SIZE;
-use crate::{Geometry, Hit};
+use crate::{Function, Geometry, Hit};
 
 /// A shader binding table record: the header OptiX packs for a program
 /// group, then the data its programs read with `optixGetSbtDataPointer`.
@@ -49,6 +49,7 @@ macro_rules! device_repr {
 
 device_repr!(
     LaunchParams,
+    MathParams,
     RayRecord,
     HitRecord,
     SbtRecord<()>,
@@ -87,5 +88,30 @@ impl HitRecord {
             t: self.t,
             geometry,
         }))
+    }
+}
+
+impl From<Function> for MathFunction {
+    fn from(function: Function) -> Self {
+        match function {
+            Function::Fma => Self::Fma,
+            Function::Sqrt => Self::Sqrt,
+            Function::Floor => Self::Floor,
+            Function::Ceil => Self::Ceil,
+            Function::Roundf => Self::Roundf,
+            Function::Sinf => Self::Sinf,
+            Function::SinOfSinCos => Self::SinOfSinCos,
+            Function::CosOfSinCos => Self::CosOfSinCos,
+            Function::Tanf => Self::Tanf,
+            Function::Asinf => Self::Asinf,
+            Function::Acosf => Self::Acosf,
+            Function::Atan2 => Self::Atan2,
+            Function::Erf => Self::Erf,
+            Function::Expf => Self::Expf,
+            Function::Powf => Self::Powf,
+            Function::Logf => Self::Logf,
+            Function::Atanhf => Self::Atanhf,
+            Function::Coshf => Self::Coshf,
+        }
     }
 }

@@ -10,6 +10,7 @@
 #![warn(clippy::disallowed_types)]
 
 mod launch;
+mod math;
 mod optix;
 
 use core::mem::offset_of;
@@ -18,7 +19,7 @@ use core::panic::PanicInfo;
 use umbra_geometry::{Ray, Sphere};
 use umbra_math::{Point3f, Vector3f};
 
-use crate::launch::{HitKind, HitRecord, LaunchParams, RayRecord};
+use crate::launch::{HitKind, HitRecord, LaunchParams, MathFunction, RayRecord};
 use crate::optix::{Primitive, TraceRay};
 
 /// The launch parameters: the `.const` variable the host's pipeline names
@@ -77,6 +78,26 @@ pub extern "ptx-kernel" fn __raygen__trace() {
             kind,
         },
     );
+}
+
+/// Ray generation for a math launch: evaluates the launch's function on
+/// argument record `i`, for the launch index `i`, and writes result `i`.
+#[expect(
+    unsafe_code,
+    reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
+)]
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn __raygen__math() {
+    let params = math::math_params();
+    let i = optix::launch_index_x();
+    if i >= params.count {
+        return;
+    }
+    let Some(function) = MathFunction::from_id(params.function) else {
+        optix::trap()
+    };
+    let result = function.evaluate(math::read_args(params.args, i));
+    math::write_result(params.results, i, result);
 }
 
 /// Miss: the ray hit nothing.

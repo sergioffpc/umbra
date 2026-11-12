@@ -1,5 +1,5 @@
-//! The launch parameters and buffer records of the trace programs: the
-//! layout shared by the host and the device.
+//! The launch parameters and buffer records of the trace and math
+//! programs: the layout shared by the host and the device.
 //!
 //! `umbra-kernels` and `umbra-gpu` both compile this file, the second by
 //! `#[path]`, so the two sides read one definition. It depends on `core`
@@ -94,4 +94,83 @@ pub(crate) enum HitKind {
     Triangle = 1,
     /// A sphere, by the custom intersection program.
     Sphere = 2,
+}
+
+/// What the host passes to one launch of the math program, in the same
+/// `.const` variable `params` as [`LaunchParams`], which is no smaller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub(crate) struct MathParams {
+    /// Device address of `count` argument records, `[f32; 3]` each: the
+    /// function's arguments in order, the unused ones ignored.
+    pub(crate) args: u64,
+    /// Device address of `count` `f32` results, written by the launch.
+    pub(crate) results: u64,
+    /// The number of argument records, at most the launch width.
+    pub(crate) count: u32,
+    /// The [`MathFunction`] discriminant.
+    pub(crate) function: u32,
+}
+
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(size_of::<MathParams>() == 24, "`MathParams` is 24 bytes");
+    assert!(
+        size_of::<MathParams>() <= size_of::<LaunchParams>(),
+        "`MathParams` fits the `params` variable, sized for `LaunchParams`"
+    );
+    assert!(offset_of!(MathParams, args) == 0, "`args` is at byte 0");
+    assert!(
+        offset_of!(MathParams, results) == 8,
+        "`results` is at byte 8"
+    );
+    assert!(offset_of!(MathParams, count) == 16, "`count` is at byte 16");
+    assert!(
+        offset_of!(MathParams, function) == 20,
+        "`function` is at byte 20"
+    );
+};
+
+/// The function of `umbra-math` a launch of the math program evaluates, as
+/// [`MathParams::function`] stores it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub(crate) enum MathFunction {
+    /// `fma(x, y, z)`.
+    Fma = 0,
+    /// `sqrt(x)`.
+    Sqrt = 1,
+    /// `floor(x)`.
+    Floor = 2,
+    /// `ceil(x)`.
+    Ceil = 3,
+    /// `roundf(x)`.
+    Roundf = 4,
+    /// `sinf(x)`.
+    Sinf = 5,
+    /// `sin_cos(x).0`.
+    SinOfSinCos = 6,
+    /// `sin_cos(x).1`.
+    CosOfSinCos = 7,
+    /// `tanf(x)`.
+    Tanf = 8,
+    /// `asinf(x)`.
+    Asinf = 9,
+    /// `acosf(x)`.
+    Acosf = 10,
+    /// `atan2(y, x)`.
+    Atan2 = 11,
+    /// `erf(x)`.
+    Erf = 12,
+    /// `expf(x)`.
+    Expf = 13,
+    /// `powf(x, y)`.
+    Powf = 14,
+    /// `logf(x)`.
+    Logf = 15,
+    /// `atanhf(x)`.
+    Atanhf = 16,
+    /// `coshf(x)`.
+    Coshf = 17,
 }
