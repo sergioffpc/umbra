@@ -736,8 +736,8 @@ builder
             <rect x="430" y="34" width="370" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="446" y="62" font-size="12">seed: Seed(0)</text>
             <text x="446" y="88" font-size="12">tile_size: 32</text>
-            <text x="446" y="114" font-size="12">pixel_samples_per_pass: 64</text>
-            <text x="446" y="140" font-size="12">pixel_samples_per_pixel: 16</text>
+            <text x="446" y="114" font-size="12">spp_per_pass: 64</text>
+            <text x="446" y="140" font-size="12">spp: 16</text>
             <text x="446" y="162" font-size="11" class="t-mut">the defaults: RenderJobOptions::default()</text>
             <rect x="430" y="200" width="370" height="38" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
             <text x="615" y="224" text-anchor="middle" font-size="12">command line: --spp 64 --seed 7</text>
@@ -786,7 +786,7 @@ builder
             <text x="592" y="166" text-anchor="middle" font-size="12">Work Units = Tiles × Passes</text>
             <text x="592" y="188" text-anchor="middle" font-size="12" class="t-acc">8 × 3 = 24</text>
         </svg></div>
-        <figcaption>How the options cut the work. <code>tile_size</code> cuts the image: the Tiles on the right and bottom edges are cut short by the image. <code>pixel_samples_per_pass</code> cuts the sample numbers: the last Pass is shorter when the total is not a multiple of it. Each (Tile, Pass) pair is one Work Unit. The cutting itself happens in <code>umbra-render</code> (see the <a href="../../umbra-render/docs/render-guide.html">Umbra Render Guide</a>); <code>umbra-scene</code> only holds the numbers.</figcaption>
+        <figcaption>How the options cut the work. <code>tile_size</code> cuts the image: the Tiles on the right and bottom edges are cut short by the image. <code>spp_per_pass</code> cuts the sample numbers: the last Pass is shorter when the total is not a multiple of it. Each (Tile, Pass) pair is one Work Unit. The cutting itself happens in <code>umbra-render</code> (see the <a href="../../umbra-render/docs/render-guide.html">Umbra Render Guide</a>); <code>umbra-scene</code> only holds the numbers.</figcaption>
     </figure>
 
     <div class="prose">
@@ -797,7 +797,7 @@ builder
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
         <div class="mb-row"><div class="mb-f">Tiles = ⌈W ⁄ t⌉ × ⌈H ⁄ t⌉</div><div class="mb-d"><b>How many Tiles.</b> ⌈ ⌉ means “round up”: 200 ⁄ 64 = 3.1, so 4 columns. <var>W</var>, <var>H</var>: the film's resolution; <var>t</var>: <code>tile_size</code>.</div></div>
-        <div class="mb-row"><div class="mb-f">Passes = ⌈spp ⁄ p⌉, &nbsp; last = spp − (Passes − 1) · p</div><div class="mb-d"><b>How many Passes, and the length of the last.</b> <var>spp</var>: <code>pixel_samples_per_pixel</code>; <var>p</var>: <code>pixel_samples_per_pass</code>. With the defaults, 16 and 64, there is one Pass of 16.</div></div>
+        <div class="mb-row"><div class="mb-f">Passes = ⌈spp ⁄ p⌉, &nbsp; last = spp − (Passes − 1) · p</div><div class="mb-d"><b>How many Passes, and the length of the last.</b> <var>spp</var>: <code>spp</code>; <var>p</var>: <code>spp_per_pass</code>. With the defaults, 16 and 64, there is one Pass of 16.</div></div>
         <div class="mb-row"><div class="mb-f">Work Units = Tiles × Passes</div><div class="mb-d"><b>How many pieces of work.</b> The default film and options give 40 × 23 Tiles and one Pass: 920 Work Units.</div></div>
         <div class="mb-row"><div class="mb-f">u = s if s ≥ 0, else s + 2<sup>32</sup></div><div class="mb-d"><b>The seed's bits.</b> An <code>i32</code> read as a <code>u32</code>: −1 becomes 4 294 967 295. <code>From&lt;Seed&gt; for u32</code>, via <code>cast_unsigned</code>.</div></div>
     </div>
@@ -807,8 +807,8 @@ builder
             <div class="ctl"><label for="op-w">film width</label><div class="row"><input id="op-w" type="range" min="16" max="1920" step="1" value="1280"><output id="op-w-o" for="op-w"></output></div></div>
             <div class="ctl"><label for="op-h">film height</label><div class="row"><input id="op-h" type="range" min="16" max="1080" step="1" value="720"><output id="op-h-o" for="op-h"></output></div></div>
             <div class="ctl"><label for="op-tile">tile_size</label><div class="row"><input id="op-tile" type="range" min="0" max="256" step="1" value="32"><output id="op-tile-o" for="op-tile"></output></div></div>
-            <div class="ctl"><label for="op-pass">pixel_samples_per_pass</label><div class="row"><input id="op-pass" type="range" min="0" max="128" step="1" value="64"><output id="op-pass-o" for="op-pass"></output></div></div>
-            <div class="ctl"><label for="op-spp">pixel_samples_per_pixel</label><div class="row"><input id="op-spp" type="range" min="0" max="512" step="1" value="16"><output id="op-spp-o" for="op-spp"></output></div></div>
+            <div class="ctl"><label for="op-pass">spp_per_pass</label><div class="row"><input id="op-pass" type="range" min="0" max="128" step="1" value="64"><output id="op-pass-o" for="op-pass"></output></div></div>
+            <div class="ctl"><label for="op-spp">spp</label><div class="row"><input id="op-spp" type="range" min="0" max="512" step="1" value="16"><output id="op-spp-o" for="op-spp"></output></div></div>
             <div class="ctl"><label for="op-seed">seed</label><div class="row"><input id="op-seed" type="range" min="-8" max="8" step="1" value="0"><output id="op-seed-o" for="op-seed"></output></div></div>
             <div class="ctl"><span class="lbl">presets</span><div class="btns"><button type="button" id="op-default">RenderJobOptions::default()</button><button type="button" id="op-small">a 200 × 120 film</button></div></div>
         </div>
@@ -1260,8 +1260,8 @@ builder
 <span class="k">pub struct</span> RenderJobOptions {
     <span class="k">pub</span> seed: Seed,
     <span class="k">pub</span> tile_size: NonZeroU32,
-    <span class="k">pub</span> pixel_samples_per_pass: NonZeroU32,
-    <span class="k">pub</span> pixel_samples_per_pixel: NonZeroU32,
+    <span class="k">pub</span> spp_per_pass: NonZeroU32,
+    <span class="k">pub</span> spp: NonZeroU32,
 }</pre>
         <p><code>Seed</code> is a <b>newtype</b>: a struct around a single value, which gives that value its own type. A function that takes a <code>Seed</code> can't be handed a Tile size by mistake. Its conversion is a <code>From</code> implementation, so the renderer writes <code>options.seed.into()</code> where a <code>u32</code> is wanted.</p>
         <p>The sizes are <code>NonZeroU32</code>. A zero Tile size would mean dividing the image by zero; zero Pixel Samples would mean an image with nothing in it. With this type, the check happens once, wherever an option is made, and code that reads the options never has to check again. <code>tile_size.get()</code> gives the plain <code>u32</code> back.</p>
@@ -1689,7 +1689,7 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
     function draw() {
         const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm"), bad = tok("--err"), ok = tok("--exact");
         const W = +$("op-w").value, H = +$("op-h").value, t = +$("op-tile").value, p = +$("op-pass").value, spp = +$("op-spp").value, seed = +$("op-seed").value;
-        const zero = [["tile_size", t], ["pixel_samples_per_pass", p], ["pixel_samples_per_pixel", spp]].filter(([, v]) => v === 0).map(([n]) => n);
+        const zero = [["tile_size", t], ["spp_per_pass", p], ["spp", spp]].filter(([, v]) => v === 0).map(([n]) => n);
         /* tiles */
         {
             const { ctx, w, h } = fit($("op-tiles"));
@@ -1725,7 +1725,7 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
             ctx.font = `11px ${tok("--mono")}`;
             if (spp === 0 || p === 0) {
                 ctx.fillStyle = bad; ctx.textAlign = "center";
-                ctx.fillText(`${spp === 0 ? "pixel_samples_per_pixel" : "pixel_samples_per_pass"} 0: not a NonZeroU32`, w / 2, h / 2); ctx.textAlign = "left";
+                ctx.fillText(`${spp === 0 ? "spp" : "spp_per_pass"} 0: not a NonZeroU32`, w / 2, h / 2); ctx.textAlign = "left";
             } else {
                 const n = ceilDiv(spp, p), X = (i) => pad + i / spp * (w - 2 * pad);
                 const cols = [acc, ok, warm];

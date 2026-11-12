@@ -121,7 +121,7 @@ impl SceneTarget {
         let spp = overrides.spp.or(self.file_options.pixel_samples);
         RenderJobOptions {
             seed,
-            pixel_samples_per_pixel: spp.unwrap_or(defaults.pixel_samples_per_pixel),
+            spp: spp.unwrap_or(defaults.spp),
             ..defaults
         }
     }

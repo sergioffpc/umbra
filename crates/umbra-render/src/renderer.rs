@@ -197,7 +197,7 @@ impl<'s> Renderer<'s> {
         Ok(Self {
             scene,
             decomposition: Decomposition::new(scene.full_resolution(), options)?,
-            samples_per_pixel: options.pixel_samples_per_pixel.get(),
+            samples_per_pixel: options.spp.get(),
             randomization: Randomization::new(scene.randomize_strategy(), options.seed.into()),
             integrator: Box::new(PixelLoop(scene.integrator())),
         })

@@ -38,8 +38,8 @@ pub struct ReproductionRecord {
     content_hash: ContentHash,
     seed: i32,
     tile_size: u32,
-    pixel_samples_per_pass: u32,
-    pixel_samples_per_pixel: u32,
+    spp_per_pass: u32,
+    spp: u32,
     build_identity: BuildIdentity,
 }
 
@@ -62,8 +62,8 @@ impl ReproductionRecord {
             content_hash,
             seed: options.seed.0,
             tile_size: options.tile_size.get(),
-            pixel_samples_per_pass: options.pixel_samples_per_pass.get(),
-            pixel_samples_per_pixel: options.pixel_samples_per_pixel.get(),
+            spp_per_pass: options.spp_per_pass.get(),
+            spp: options.spp.get(),
             build_identity,
         }
     }

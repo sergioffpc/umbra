@@ -21,8 +21,8 @@ pub(crate) fn options(spp: u32, per_pass: u32) -> RenderJobOptions {
     RenderJobOptions {
         seed: Seed(0),
         tile_size: NonZeroU32::new(16).expect("16 is not zero"),
-        pixel_samples_per_pass: NonZeroU32::new(per_pass).expect("a Pass has a Pixel Sample"),
-        pixel_samples_per_pixel: NonZeroU32::new(spp).expect("a pixel has a Pixel Sample"),
+        spp_per_pass: NonZeroU32::new(per_pass).expect("a Pass has a Pixel Sample"),
+        spp: NonZeroU32::new(spp).expect("a pixel has a Pixel Sample"),
     }
 }
 
