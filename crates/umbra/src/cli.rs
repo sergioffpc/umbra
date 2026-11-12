@@ -51,13 +51,12 @@ pub(crate) struct RenderArgs {
     ///
     /// With N Pixel Samples per Pass, Pass p takes the sample indices from
     /// p × N to (p + 1) × N − 1 in every pixel, and the last Pass stops at
-    /// `--spp`. One Tile for one Pass is a Work Unit. A
-    /// smaller value gives more, smaller Work Units: a failed Worker loses
-    /// less, and the end of the render waits less on one Work Unit. The
-    /// image's noise stays the same, but its last bits can change, because
-    /// the Film adds the Pixel Samples in other groups (ADR 0009, ADR 0022).
-    /// A value of `--spp` or more renders in one Pass.
-    /// Umbra's own option, never in a Scene File.
+    /// `--spp`. One Tile for one Pass is a Work Unit. A smaller value gives
+    /// more, smaller Work Units: a failed Worker loses less, and the end of
+    /// the render waits less on one Work Unit. The image's noise stays the
+    /// same, but its last bits can change, because the Film adds the Pixel
+    /// Samples in other groups. A value of `--spp` or more renders in one
+    /// Pass. Umbra's own option, never in a Scene File.
     #[arg(long, default_value = "64")]
     pub(crate) spp_per_pass: NonZeroU32,
     /// The Local Worker's threads; one per logical CPU by default.
