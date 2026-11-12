@@ -16,5 +16,11 @@ umbra-cluster = { workspace = true }
 umbra-parser = { workspace = true }
 umbra-render = { workspace = true }
 
+[dev-dependencies]
+dhat = { workspace = true }
+rayon = { workspace = true }
+umbra-math = { workspace = true }
+umbra-scene = { workspace = true }
+
 [lints]
 workspace = true
