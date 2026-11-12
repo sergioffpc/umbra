@@ -25,7 +25,7 @@ assert_eq!(scene.full_resolution(), Point2i::new(64, 48));
 let _view = scene.view();
 let options = RenderJobOptions::default();
 assert_eq!(options.tile_size.get(), 32);
-# Ok::<(), umbra_scene::SceneError>(())
+# Ok::<(), umbra_scene::Error>(())
 ```
 
 ## What is in it
@@ -36,7 +36,7 @@ assert_eq!(options.tile_size.get(), 32);
 | `arena`        | `Arena<T>`: the objects of one type, which mints a `Handle<T>` per object and refuses more than a `u32` can index                                                                                                                             |
 | `options`      | `RenderJobOptions` (seed, Tile size, Pixel Samples per Pass, Pixel Samples per pixel) and `Seed`                                                                                                                                              |
 | `content_hash` | `ContentHash`: the SHA-256 of the files a Scene was read from, which the parser computes and the Reproduction Record carries                                                                                                                  |
-| `error`        | `SceneError`                                                                                                                                                                                                                                  |
+| `error`        | `Error`                                                                                                                                                                                                                                       |
 
 Not here yet: Shapes, lights and materials and their arenas, from
 [#79](https://github.com/sergioffpc/umbra/issues/79) on, with the BVH; the

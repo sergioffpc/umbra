@@ -7,7 +7,8 @@ use std::fmt;
 use umbra_math::SquareMatrix;
 use umbra_scene::{RenderJobOptions, Scene};
 
-use crate::decomposition::{Decomposition, RenderError, WorkUnit};
+use crate::decomposition::{Decomposition, WorkUnit};
+use crate::error::Error;
 use crate::image::Image;
 use crate::reproduction::ReproductionRecord;
 use crate::work_result::{PixelSum, WorkResult};
@@ -48,13 +49,13 @@ impl Film {
     ///
     /// # Errors
     ///
-    /// [`RenderError::TooManyTiles`] if the Tiles cannot be counted in a
+    /// [`Error::TooManyTiles`] if the Tiles cannot be counted in a
     /// `u32`.
     ///
     /// # Panics
     ///
     /// Never for a built Scene, whose resolution is positive.
-    pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, RenderError> {
+    pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, Error> {
         let decomposition = Decomposition::new(scene.full_resolution(), options)?;
         let resolution = decomposition.resolution();
         let len = [resolution.x, resolution.y]

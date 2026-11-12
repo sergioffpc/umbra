@@ -81,19 +81,19 @@ The signatures below are the contracts between crates. Error types and option st
 
 ```rust
 /// Reads a Scene File with its includes and assets, validates it strictly, applies the overrides, builds the Scene.
-pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseError>;
+pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, Error>;
 pub struct Overrides { pub spp: Option<NonZeroU32>, pub seed: Option<Seed>, pub outfile: Option<PathBuf> }
-pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub output: PathBuf, pub content_hash: ContentHash, pub warnings: Vec<ParserError> }
+pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub output: PathBuf, pub content_hash: ContentHash, pub warnings: Vec<Diagnostic> }
 ```
 
-`parse` is the only public function. `ParseError::Invalid` lists every `ParserError` with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). It takes pbrt-v4's overrides because `--outfile` decides whether the output is an EXR, which is a `ParserError` (§8.15). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
+`parse` is the only public function. `Error::Invalid` lists every `Diagnostic` with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). It takes pbrt-v4's overrides because `--outfile` decides whether the output is an EXR, which is a `Diagnostic` (§8.15). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
 
 ### `umbra-scene`
 
 ```rust
 impl SceneBuilder {
     pub fn add_shape(&mut self, shape: ShapeKind) -> ShapeId;   // one add_* per arena
-    pub fn build(self) -> Result<Scene, SceneError>;           // builds the BVH
+    pub fn build(self) -> Result<Scene, Error>;           // builds the BVH
 }
 impl Scene { pub fn view(&self) -> SceneView<'_>; }
 ```
@@ -104,12 +104,12 @@ impl Scene { pub fn view(&self) -> SceneView<'_>; }
 
 ```rust
 impl<'s> Renderer<'s> {
-    pub fn new(scene: &'s Scene, options: &RenderJobOptions) -> Result<Self, RenderError>;
+    pub fn new(scene: &'s Scene, options: &RenderJobOptions) -> Result<Self, Error>;
     pub fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Rendered;   // Done(WorkResult) | Cancelled
     pub fn trace(&self, request: &TraceRequest) -> Vec<PixelTrace>;
 }
 impl Film {
-    pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, RenderError>;
+    pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, Error>;
     pub fn accept(&mut self, result: &WorkResult) -> Acceptance;  // Merged | Duplicate
     pub fn finish(self, record: ReproductionRecord) -> Image;
 }
@@ -125,8 +125,8 @@ impl Film {
 pub struct RenderJob { pub scene: Scene, pub options: RenderJobOptions, pub record: ReproductionRecord }
 
 pub fn coordinate(job: RenderJob, options: &CoordinatorOptions, status: &mut dyn io::Write)
-    -> Result<RenderJobOutcome, ClusterError>;   // { image: Image, report: RenderJobReport }
-pub fn work(options: &WorkerOptions) -> Result<(), ClusterError>;
+    -> Result<RenderJobOutcome, Error>;   // { image: Image, report: RenderJobReport }
+pub fn work(options: &WorkerOptions) -> Result<(), Error>;
 ```
 
 - Both functions are synchronous. Each owns its `tokio` runtime, so callers never see `async`, QUIC, discovery, heartbeats or scheduling.

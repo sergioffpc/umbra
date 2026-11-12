@@ -3,9 +3,10 @@
 
 use std::ops::Range;
 
-use thiserror::Error;
 use umbra_math::Point2i;
 use umbra_scene::RenderJobOptions;
+
+use crate::error::Error;
 
 /// The index of a Tile, in raster order: left to right, then top to
 /// bottom.
@@ -70,18 +71,6 @@ impl TileBounds {
     }
 }
 
-/// Why a Render Job cannot be cut into Work Units.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum RenderError {
-    /// More Tiles than a `u32` counts.
-    #[error("the image has more than 2^32 - 1 Tiles")]
-    TooManyTiles,
-    /// A Tile size larger than an image can be.
-    #[error("the Tile size is above 2^31 - 1 pixels")]
-    TileTooLarge,
-}
-
 /// The Tiles and Passes of a Render Job: its image and Render Job Options
 /// fix them, never the Workers (arc42 §8.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,16 +89,15 @@ impl Decomposition {
     ///
     /// # Errors
     ///
-    /// [`RenderError::TooManyTiles`] if the Tiles cannot be counted in a
-    /// `u32`, and [`RenderError::TileTooLarge`] if the Tile size does not
+    /// [`Error::TooManyTiles`] if the Tiles cannot be counted in a
+    /// `u32`, and [`Error::TileTooLarge`] if the Tile size does not
     /// fit an `i32`.
     ///
     /// # Panics
     ///
     /// If a side of `resolution` is not positive.
-    pub fn new(resolution: Point2i, options: &RenderJobOptions) -> Result<Self, RenderError> {
-        let tile_size =
-            i32::try_from(options.tile_size.get()).map_err(|_| RenderError::TileTooLarge)?;
+    pub fn new(resolution: Point2i, options: &RenderJobOptions) -> Result<Self, Error> {
+        let tile_size = i32::try_from(options.tile_size.get()).map_err(|_| Error::TileTooLarge)?;
         let tiles = |side: i32| {
             u32::try_from(side)
                 .expect("a resolution is positive")
@@ -118,7 +106,7 @@ impl Decomposition {
         let tiles_x = tiles(resolution.x);
         let tile_count = tiles_x
             .checked_mul(tiles(resolution.y))
-            .ok_or(RenderError::TooManyTiles)?;
+            .ok_or(Error::TooManyTiles)?;
         Ok(Self {
             resolution,
             tile_size,

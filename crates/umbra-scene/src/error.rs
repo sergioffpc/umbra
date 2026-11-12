@@ -6,7 +6,7 @@ use umbra_math::Point2i;
 /// Why `SceneBuilder::build`, or adding to a Scene, failed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
-pub enum SceneError {
+pub enum Error {
     /// An arena would hold more objects than a `u32` handle can index
     /// (ADR 0008).
     #[error("more than {} objects of type `{type_name}`", u32::MAX - 1)]

@@ -19,7 +19,7 @@ pub(crate) struct SceneFiles {
 
 /// Why a file was not read.
 #[derive(Debug)]
-pub(crate) enum ReadError {
+pub(crate) enum Unread {
     /// It is already being read: it includes itself.
     Cycle,
     /// The file system refused it, or it is not UTF-8.
@@ -47,17 +47,17 @@ impl SceneFiles {
 
     /// The text of `path`, which is now being read until [`Self::close`],
     /// and is hashed.
-    pub(crate) fn open(&mut self, path: &Path) -> Result<String, ReadError> {
-        let identity = fs::canonicalize(path).map_err(ReadError::Io)?;
+    pub(crate) fn open(&mut self, path: &Path) -> Result<String, Unread> {
+        let identity = fs::canonicalize(path).map_err(Unread::Io)?;
         if self.open.contains(&identity) {
-            return Err(ReadError::Cycle);
+            return Err(Unread::Cycle);
         }
-        let bytes = fs::read(path).map_err(ReadError::Io)?;
+        let bytes = fs::read(path).map_err(Unread::Io)?;
         self.hasher
             .update(u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
         self.hasher.update(&bytes);
         let text = String::from_utf8(bytes)
-            .map_err(|e| ReadError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+            .map_err(|e| Unread::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
         self.open.push(identity);
         Ok(text)
     }

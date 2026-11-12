@@ -4,7 +4,7 @@ The adapter from a pbrt-v4 Scene File to a Scene: it tokenises the `.pbrt`
 file with locations, resolves its includes as pbrt-v4 does, validates it
 strictly, applies pbrt-v4's command-line overrides, and returns either the
 Scene with its Render Job Options, its output path and the content hash of
-the Scene File, its includes and its assets, or every `ParserError`, with
+the Scene File, its includes and its assets, or every `Diagnostic`, with
 nothing built (ADR 0003). `parse` is its one public function.
 
 It is a `std` crate, outside the core. It depends on `umbra-scene`, and only
@@ -40,7 +40,8 @@ assert!(parsed.warnings.is_empty());
 | Module         | Contents                                                                                                                                                                                                     |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `lib`          | `parse`, `Overrides` (`--spp`, `--seed` as a `Seed`, `--outfile`), `Parsed`                                                                                                                                  |
-| `error`        | `ParserError`, with its `Severity` and `Location` (`file:line:column`), and `ParseError`, what `parse` returns on failure                                                                                    |
+| `diagnostic`   | `Diagnostic`, an error or a warning, with its `Severity` and `Location` (`file:line:column`)                                                                                                                 |
+| `error`        | `Error`, what `parse` returns on failure                                                                                                                                                                     |
 | `tokenizer`    | pbrt-v4 `Tokenizer` (`src/pbrt/parser.cpp`) with `nom` and `nom_locate`: brackets, quoted strings with their escapes, bare words; comments skipped                                                           |
 | `syntax`       | pbrt-v4 `parse` (`parser.cpp`): directives, parameter lists and `Include`, handed to a `ParserTarget`; unsupported and unknown directives refused with their arguments skipped, so every error is reported   |
 | `params`       | pbrt-v4 `ParameterDictionary` (`src/pbrt/paramdict.h`): typed lookups that consume what they read; what is left is refused when pbrt-v4 honours it and Umbra does not yet, and warned of otherwise           |
@@ -68,7 +69,7 @@ scene builder do, so the tokenizer can change without touching validation
 
 ### Report everything, build nothing
 
-Every check pushes a `ParserError` and carries on with pbrt-v4's default, so
+Every check pushes a `Diagnostic` and carries on with pbrt-v4's default, so
 one parse lists every error. An unsupported directive is skipped with its
 arguments: everything up to the next bare word that is not a number or a
 boolean. `parse` builds the Scene only if there is no error.
@@ -105,9 +106,9 @@ hash.
   must end in `.exr` (arc42 §8.15).
 - **The seed is `--seed`, else the sampler's `seed`, else 0.** pbrt-v4
   lets the sampler's parameter win; Umbra lets the override win (ADR 0003).
-- **`ParseError::Io` is for the Scene File itself.** An include that cannot
-  be read is a `ParserError` at its `Include`.
-- **A `ParserError`'s column counts characters**, from 1.
+- **`Error::Io` is for the Scene File itself.** An include that cannot
+  be read is a `Diagnostic` at its `Include`.
+- **A `Diagnostic`'s column counts characters**, from 1.
 
 ## Tests
 

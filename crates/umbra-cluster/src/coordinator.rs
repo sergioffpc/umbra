@@ -5,12 +5,12 @@ use std::io;
 use std::num::NonZeroUsize;
 use std::thread;
 
-use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
-use thiserror::Error;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use tokio::runtime::Builder;
-use umbra_render::{Decomposition, Film, Image, RenderError, Renderer, ReproductionRecord};
+use umbra_render::{Decomposition, Film, Image, Renderer, ReproductionRecord};
 use umbra_scene::{RenderJobOptions, Scene};
 
+use crate::error::Error;
 use crate::local_worker;
 use crate::report::RenderJobReport;
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
@@ -56,24 +56,6 @@ pub struct RenderJobOutcome {
     pub report: RenderJobReport,
 }
 
-/// Why a Render Job did not finish.
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum ClusterError {
-    /// The Render Job cannot be cut into Work Units.
-    #[error("cannot render the Render Job: {0}")]
-    Render(#[from] RenderError),
-    /// The runtime could not start.
-    #[error("cannot start the Coordinator's runtime: {0}")]
-    Runtime(#[source] io::Error),
-    /// The Local Worker's threads could not start.
-    #[error("cannot start the Local Worker's threads: {0}")]
-    ThreadPool(#[source] ThreadPoolBuildError),
-    /// Every Worker went away before the last Work Unit was merged.
-    #[error("every Worker went away before the end")]
-    NoWorkers,
-}
-
 /// Renders `job` to its image with the Local Worker, assigning Work Units
 /// as it asks for them, Pass by Pass in raster Tile order (ADR 0009), and
 /// merging each Work Result into the Film as it arrives (ADR 0022). It
@@ -82,13 +64,13 @@ pub enum ClusterError {
 ///
 /// # Errors
 ///
-/// [`ClusterError`] if the Render Job cannot be cut into Work Units, the
+/// [`Error`] if the Render Job cannot be cut into Work Units, the
 /// runtime or the Local Worker cannot start, or the Local Worker goes away.
 pub fn coordinate(
     job: RenderJob,
     options: &CoordinatorOptions,
     status: &mut dyn io::Write,
-) -> Result<RenderJobOutcome, ClusterError> {
+) -> Result<RenderJobOutcome, Error> {
     let RenderJob {
         scene,
         options: job_options,
@@ -99,7 +81,7 @@ pub fn coordinate(
     let pool = thread_pool(options.threads)?;
     let runtime = Builder::new_current_thread()
         .build()
-        .map_err(ClusterError::Runtime)?;
+        .map_err(Error::Runtime)?;
     let (coordinator, worker) = connect();
     thread::scope(|s| {
         s.spawn(|| local_worker::work(&renderer, &pool, worker));
@@ -120,7 +102,7 @@ pub fn coordinate(
 }
 
 /// The Local Worker's thread pool.
-fn thread_pool(threads: Threads) -> Result<ThreadPool, ClusterError> {
+fn thread_pool(threads: Threads) -> Result<ThreadPool, Error> {
     let count = match threads {
         Threads::All => 0,
         Threads::Count(n) => n.get(),
@@ -128,7 +110,7 @@ fn thread_pool(threads: Threads) -> Result<ThreadPool, ClusterError> {
     ThreadPoolBuilder::new()
         .num_threads(count)
         .build()
-        .map_err(ClusterError::ThreadPool)
+        .map_err(Error::ThreadPool)
 }
 
 /// Assigns every Work Unit of `decomposition` as the Worker asks, and
@@ -137,7 +119,7 @@ async fn schedule(
     decomposition: &Decomposition,
     film: &mut Film,
     connection: CoordinatorEnd,
-) -> Result<(), ClusterError> {
+) -> Result<(), Error> {
     let CoordinatorEnd {
         to_worker,
         mut from_worker,
@@ -145,7 +127,7 @@ async fn schedule(
     let mut queue = decomposition.work_units();
     let mut demand = 0_u32;
     while !film.is_complete() {
-        match from_worker.recv().await.ok_or(ClusterError::NoWorkers)? {
+        match from_worker.recv().await.ok_or(Error::NoWorkers)? {
             ToCoordinator::RequestWork(count) => demand = demand.saturating_add(count),
             ToCoordinator::WorkResult(result) => {
                 film.accept(&result);
@@ -156,7 +138,7 @@ async fn schedule(
         {
             to_worker
                 .send(ToWorker::Assign(unit))
-                .map_err(|_| ClusterError::NoWorkers)?;
+                .map_err(|_| Error::NoWorkers)?;
             demand -= 1;
         }
     }

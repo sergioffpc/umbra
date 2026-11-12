@@ -5,8 +5,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::error::{Diagnostics, Location, ParserError};
-use crate::files::{ReadError, SceneFiles};
+use crate::diagnostic::{Diagnostic, Diagnostics, Location};
+use crate::files::{SceneFiles, Unread};
 use crate::params::{Param, ParamList, ParamType, Quoting, Value};
 use crate::tokenizer::{Token, TokenKind, tokenize};
 
@@ -182,11 +182,11 @@ impl Parser<'_> {
         let path = self.files.resolve(&name);
         match self.files.open(&path) {
             Ok(text) => self.parse(&path, &text),
-            Err(ReadError::Cycle) => {
+            Err(Unread::Cycle) => {
                 let message = format!("{} includes itself", path.display());
                 self.error(location, message);
             }
-            Err(ReadError::Io(error)) => {
+            Err(Unread::Io(error)) => {
                 let message = format!("cannot read {}: {error}", path.display());
                 self.error(location, message);
             }
@@ -237,7 +237,7 @@ impl Parser<'_> {
 
     /// Reports an error at `location`.
     fn error(&mut self, location: &Location, message: impl Into<String>) {
-        self.diagnostics.push(ParserError::error(location, message));
+        self.diagnostics.push(Diagnostic::error(location, message));
     }
 }
 

@@ -8,7 +8,7 @@ mod scene;
 
 pub use arena::Arena;
 pub use content_hash::ContentHash;
-pub use error::SceneError;
+pub use error::Error;
 pub use options::{RenderJobOptions, Seed};
 pub use scene::{
     FilmParameters, GaussianFilterParameters, HaltonSamplerParameters, PerspectiveCameraParameters,

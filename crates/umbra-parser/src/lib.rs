@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod diagnostic;
 mod error;
 mod files;
 mod params;
@@ -10,11 +11,12 @@ mod tokenizer;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-pub use error::{Location, ParseError, ParserError, Severity};
+pub use diagnostic::{Diagnostic, Location, Severity};
+pub use error::Error;
 use umbra_scene::{ContentHash, RenderJobOptions, Scene, Seed};
 
-use crate::error::Diagnostics;
-use crate::files::{ReadError, SceneFiles};
+use crate::diagnostic::Diagnostics;
+use crate::files::{SceneFiles, Unread};
 use crate::scene_target::SceneTarget;
 use crate::syntax::Parser;
 
@@ -46,7 +48,7 @@ pub struct Parsed {
     /// The hash of the Scene File, its includes and its assets.
     pub content_hash: ContentHash,
     /// The warnings: parameters given but unused.
-    pub warnings: Vec<ParserError>,
+    pub warnings: Vec<Diagnostic>,
 }
 
 /// Reads the Scene File at `scene_file` with its includes, validates it
@@ -55,14 +57,14 @@ pub struct Parsed {
 ///
 /// # Errors
 ///
-/// [`ParseError::Io`] if the Scene File cannot be read, and
-/// [`ParseError::Invalid`] with every `ParserError` if anything in it is
+/// [`Error::Io`] if the Scene File cannot be read, and
+/// [`Error::Invalid`] with every `Diagnostic` if anything in it is
 /// unsupported or wrong; nothing is built then.
-pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseError> {
+pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, Error> {
     let mut files = SceneFiles::new(scene_file);
     let text = files.open(scene_file).map_err(|error| match error {
-        ReadError::Io(error) => ParseError::Io(error),
-        ReadError::Cycle => unreachable!("the first file opened is in no cycle"),
+        Unread::Io(error) => Error::Io(error),
+        Unread::Cycle => unreachable!("the first file opened is in no cycle"),
     })?;
     let mut target = SceneTarget::new();
     let mut diagnostics = Diagnostics::default();
@@ -81,6 +83,6 @@ pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseEr
             content_hash: files.content_hash(),
             warnings: diagnostics.into_vec(),
         }),
-        None => Err(ParseError::Invalid(diagnostics.into_vec())),
+        None => Err(Error::Invalid(diagnostics.into_vec())),
     }
 }

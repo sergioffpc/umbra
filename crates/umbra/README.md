@@ -23,6 +23,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --pix
 | `main`           | The exit codes of arc42 §8.13, and a panic hook that exits 1                                                   |
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`       |
+| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                               |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree, target CPU                             |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
@@ -58,7 +59,7 @@ directory, synced, and renamed over the target (arc42 §8.15).
 
 - **Exit codes** (arc42 §8.13): 0 rendered; 1 an I/O error or a panic,
   including a Scene File that cannot be read; 2 invalid usage; 3 an invalid
-  Scene File, with every `ParserError` on stderr as `file:line:column:
+  Scene File, with every `Diagnostic` on stderr as `file:line:column:
 error: ...`.
 - **Warnings and the final status go to stderr** with `writeln!` until
   `tracing` arrives with #86.

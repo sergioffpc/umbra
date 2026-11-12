@@ -15,7 +15,8 @@ use umbra_sampling::{
 };
 use umbra_scene::{RenderJobOptions, Scene};
 
-use crate::decomposition::{Decomposition, RenderError, WorkUnit};
+use crate::decomposition::{Decomposition, WorkUnit};
+use crate::error::Error;
 use crate::work_result::{PixelSum, WorkResult};
 
 /// A request to stop rendering, shared between whoever cancels and the
@@ -190,9 +191,9 @@ impl<'s> Renderer<'s> {
     ///
     /// # Errors
     ///
-    /// [`RenderError::TooManyTiles`] if the Tiles cannot be counted in a
+    /// [`Error::TooManyTiles`] if the Tiles cannot be counted in a
     /// `u32`.
-    pub fn new(scene: &'s Scene, options: &RenderJobOptions) -> Result<Self, RenderError> {
+    pub fn new(scene: &'s Scene, options: &RenderJobOptions) -> Result<Self, Error> {
         Ok(Self {
             scene,
             decomposition: Decomposition::new(scene.full_resolution(), options)?,

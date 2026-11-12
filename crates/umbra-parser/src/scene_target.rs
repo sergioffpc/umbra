@@ -13,11 +13,11 @@ use umbra_math::{Point2f, Point2i, Point3f, Transform, Vector2f, Vector3f, look_
 use umbra_sampling::RandomizeStrategy;
 use umbra_scene::{
     FilmParameters, GaussianFilterParameters, HaltonSamplerParameters, PerspectiveCameraParameters,
-    RenderJobOptions, Scene, SceneBuilder, SceneError, Seed,
+    RenderJobOptions, Scene, SceneBuilder, Seed,
 };
 
 use crate::Overrides;
-use crate::error::{Diagnostics, Location, ParserError};
+use crate::diagnostic::{Diagnostic, Diagnostics, Location};
 use crate::params::{ParamList, ParamType};
 use crate::syntax::{Directive, ParserTarget, TypedDirective};
 
@@ -95,7 +95,7 @@ impl SceneTarget {
         diagnostics: &mut Diagnostics,
     ) -> Option<Built> {
         if self.block == Block::Options {
-            diagnostics.push(ParserError::unlocated("the Scene File has no WorldBegin"));
+            diagnostics.push(Diagnostic::unlocated("the Scene File has no WorldBegin"));
         }
         let filename = self.file_options.filename.as_ref();
         let output = output_path(overrides, filename, resolve, diagnostics);
@@ -126,7 +126,7 @@ impl SceneTarget {
         }
     }
 
-    /// The Scene, or a `ParserError` located at the directive that makes it
+    /// The Scene, or a `Diagnostic` located at the directive that makes it
     /// impossible to build.
     fn build(self, diagnostics: &mut Diagnostics) -> Option<Scene> {
         let (film, filter) = (self.film, self.filter);
@@ -134,13 +134,13 @@ impl SceneTarget {
             .build()
             .map_err(|error| {
                 let location = match error {
-                    SceneError::EmptyResolution { .. } => film,
-                    SceneError::FilterRadiusTooSmall => filter,
-                    SceneError::TooManyObjects { .. } | _ => None,
+                    umbra_scene::Error::EmptyResolution { .. } => film,
+                    umbra_scene::Error::FilterRadiusTooSmall => filter,
+                    umbra_scene::Error::TooManyObjects { .. } | _ => None,
                 };
-                diagnostics.push(ParserError {
+                diagnostics.push(Diagnostic {
                     location,
-                    ..ParserError::unlocated(error.to_string())
+                    ..Diagnostic::unlocated(error.to_string())
                 });
             })
             .ok()
@@ -237,13 +237,13 @@ impl SceneTarget {
             .unwrap_or_else(|| VolPathIntegrator::default().max_depth());
         if let Some((true, location)) = params.boolean("regularize", diagnostics) {
             let message = "Integrator \"volpath\" regularization is not supported yet";
-            diagnostics.push(ParserError::error(&location, message));
+            diagnostics.push(Diagnostic::error(&location, message));
         }
         if let Some((sampler, location)) = params.string("lightsampler", diagnostics)
             && sampler != "bvh"
         {
             let message = format!("light sampler \"{sampler}\" is not supported yet");
-            diagnostics.push(ParserError::error(&location, message));
+            diagnostics.push(Diagnostic::error(&location, message));
         }
         params.warn_unused(diagnostics);
         self.builder.integrator(VolPathIntegrator::new(max_depth));
@@ -260,7 +260,7 @@ impl ParserTarget for SceneTarget {
         let up = Vector3f::new(ux, uy, uz);
         match look_at(eye, look, up) {
             Some(t) => self.ctm = self.ctm * t,
-            None => diagnostics.push(ParserError::error(
+            None => diagnostics.push(Diagnostic::error(
                 location,
                 "LookAt's up vector is parallel to its viewing direction",
             )),
@@ -280,7 +280,7 @@ impl ParserTarget for SceneTarget {
         } = *directive;
         if self.block == Block::World {
             let message = format!("{} is not allowed after WorldBegin", directive.name());
-            return diagnostics.push(ParserError::error(location, message));
+            return diagnostics.push(Diagnostic::error(location, message));
         }
         let supported = match directive {
             TypedDirective::Camera => "perspective",
@@ -291,7 +291,7 @@ impl ParserTarget for SceneTarget {
         };
         if type_name != supported {
             let message = format!("{} \"{type_name}\" is not supported", directive.name());
-            return diagnostics.push(ParserError::error(location, message));
+            return diagnostics.push(Diagnostic::error(location, message));
         }
         match directive {
             TypedDirective::Camera => self.camera(params, diagnostics),
@@ -306,7 +306,7 @@ impl ParserTarget for SceneTarget {
     /// is reset.
     fn world_begin(&mut self, location: &Location, diagnostics: &mut Diagnostics) {
         if self.block == Block::World {
-            diagnostics.push(ParserError::error(location, "WorldBegin appears twice"));
+            diagnostics.push(Diagnostic::error(location, "WorldBegin appears twice"));
         }
         self.block = Block::World;
         self.ctm = Transform::default();
@@ -314,7 +314,7 @@ impl ParserTarget for SceneTarget {
 }
 
 /// The output path: `--outfile`, else the Film's `filename` resolved as an
-/// `Include`, else `pbrt.exr`, as pbrt-v4 does; `None` with a `ParserError` if
+/// `Include`, else `pbrt.exr`, as pbrt-v4 does; `None` with a `Diagnostic` if
 /// it is not an EXR (arc42 §8.15).
 fn output_path(
     overrides: &Overrides,
@@ -335,8 +335,8 @@ fn output_path(
     }
     let message = format!("the output {} is not an EXR (.exr) file", path.display());
     diagnostics.push(match location {
-        Some(location) => ParserError::error(location, message),
-        None => ParserError::unlocated(message),
+        Some(location) => Diagnostic::error(location, message),
+        None => Diagnostic::unlocated(message),
     });
     None
 }
@@ -355,7 +355,7 @@ fn randomization(
     };
     if strategy.is_none() {
         let message = format!("Sampler \"halton\" has no randomization \"{name}\"");
-        diagnostics.push(ParserError::error(location, message));
+        diagnostics.push(Diagnostic::error(location, message));
     }
     strategy
 }
@@ -369,7 +369,7 @@ fn pixel_samples(
     let positive = u32::try_from(value).ok().and_then(NonZeroU32::new);
     if positive.is_none() {
         let message = format!("parameter \"pixelsamples\" must be at least 1, not {value}");
-        diagnostics.push(ParserError::error(location, message));
+        diagnostics.push(Diagnostic::error(location, message));
     }
     positive
 }
@@ -379,7 +379,7 @@ fn max_depth(value: i32, location: &Location, diagnostics: &mut Diagnostics) -> 
     let depth = u32::try_from(value).ok();
     if depth.is_none() {
         let message = format!("parameter \"maxdepth\" must not be negative, not {value}");
-        diagnostics.push(ParserError::error(location, message));
+        diagnostics.push(Diagnostic::error(location, message));
     }
     depth
 }

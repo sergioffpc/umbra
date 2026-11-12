@@ -13,7 +13,7 @@ use nom::sequence::{delimited, pair};
 use nom::{IResult, Parser};
 use nom_locate::LocatedSpan;
 
-use crate::error::{Location, ParserError};
+use crate::diagnostic::{Diagnostic, Location};
 
 /// The text of a file, with positions.
 type Span<'a> = LocatedSpan<&'a str>;
@@ -40,7 +40,7 @@ pub(crate) struct Token {
 
 /// The tokens of `text`, read from `file`, up to the first lexical error,
 /// which is returned with them.
-pub(crate) fn tokenize(file: &Arc<Path>, text: &str) -> (Vec<Token>, Option<ParserError>) {
+pub(crate) fn tokenize(file: &Arc<Path>, text: &str) -> (Vec<Token>, Option<Diagnostic>) {
     let mut tokens = Vec::new();
     let mut input = Span::new(text);
     loop {
@@ -51,7 +51,7 @@ pub(crate) fn tokenize(file: &Arc<Path>, text: &str) -> (Vec<Token>, Option<Pars
         let location = location(file, input);
         let Ok((rest, kind)) = token(input) else {
             let message = "a quoted string is not closed on its line";
-            return (tokens, Some(ParserError::error(&location, message)));
+            return (tokens, Some(Diagnostic::error(&location, message)));
         };
         tokens.push(Token { kind, location });
         input = rest;
