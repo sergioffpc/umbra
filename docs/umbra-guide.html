@@ -1019,7 +1019,7 @@ function buildStrip(el) {
         },
         {
             t: "Write down how to reproduce it", on: ["umbra", "umbra-render"],
-            d: "The binary records what is needed to compute any pixel again: the Scene File's path, the content hash of the file with its includes and assets, the options, and the Build Identity (the commit). The record travels to the EXR header.",
+            d: "The binary records what is needed to compute any pixel again: the Scene File's path, the content hash of the file with its includes and assets, the options, and the Build Identity (the commit). The record travels in the Render Job Report.",
             st: "done", s: "done.",
             l: [["umbra-render README", README("umbra-render")], adr("0020")], v: "ReproductionRecord",
         },

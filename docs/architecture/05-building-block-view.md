@@ -51,7 +51,7 @@ Arrows point from a dependency to the crate that uses it; the dotted arrow is a 
 | `umbra-cluster`     | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, Local Workers (CPU in-process, GPU in a child process), Build Identity admission, status line, Render Job Report | `tokio`, `quinn`, `postcard` |
 | `umbra`             | The binary: `clap` subcommands `render` (`--render-devices`), `worker` (`--render-device`), `trace`, `bench`; `tracing` setup; the statistics of `bench`                                                  | `clap`, `tracing`            |
 
-The final image is an EXR written by `umbra-render` with the `exr` crate, carrying the Reproduction Record in its header (§8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
+The final image is an EXR written by `umbra-render` with the `image` crate; the Reproduction Record is in the Render Job Report (§8.9, §8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
 
 ## 5.2 Level 2: the core
 
@@ -111,7 +111,7 @@ impl<'s> Renderer<'s> {
 impl Film {
     pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, Error>;
     pub fn accept(&mut self, result: &WorkResult) -> Acceptance;  // Merged | Duplicate
-    pub fn finish(self, record: ReproductionRecord) -> Image;
+    pub fn finish(self) -> Image;
 }
 ```
 

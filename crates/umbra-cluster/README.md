@@ -47,7 +47,7 @@ assert_eq!(outcome.image.resolution(), resolution);
 | `error`        | `Error`: why a Render Job did not finish                                                                                                          |
 | `local_worker` | The CPU Local Worker: renders its Work Units with `umbra-render`'s `Renderer`, several at once on its own rayon pool                              |
 | `transport`    | The in-memory transport: `Assign` and `JobFinished` to the Worker, `RequestWork` and Work Results to the Coordinator, typed and unencoded (§8.13) |
-| `report`       | `RenderJobReport`, so far its schema version, `Outcome` and Film hash                                                                             |
+| `report`       | `RenderJobReport`, so far its schema version, `Outcome`, Film hash and Reproduction Record, and `write`, atomically                               |
 
 Not here yet: the status line, the full Render Job Report and Ctrl-C, with
 [#86](https://github.com/sergioffpc/umbra/issues/86); QUIC and the GPU

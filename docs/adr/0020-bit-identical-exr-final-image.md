@@ -3,6 +3,8 @@
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md).** The file is a pure function of the Film, but the Film is bit-identical across renders only when each Tile has one Pass, so the file-hash test renders a single Pass.
 >
 > **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** Nothing computes relMSE against a Reference Image, and the `exr` crate reads images for `umbra trace` only. The whole-file test compares two renders made in one test run, so a change to the `exr` crate's compressor has no committed hash to update.
+>
+> **Amended on 2026-11-12, decided with the owner.** The image is written through the `image` crate, which also writes other formats, instead of `exr` directly. `image` writes no custom attributes, no half floats and no chosen compression, so: the Reproduction Record is in the Render Job Report only, as `reproduction_record`, and `umbra trace` reads it there; the header carries no pbrt-v4 `RGBFilm` metadata; pixels are 32-bit floats, and `savefp16` stays refused; the compression is `exr`'s default (RLE in 64 × 64 tiles). `image` takes `exr` without its `rayon` feature, so the file is written in one thread and its bytes are still a pure function of the Film. There is no `dyn` image-writer seam: `Image::write` picks the format from the path's extension, as `image` maps it. Scene validation still accepts only `.exr`. The rest of this ADR still applies.
 
 The final image of a Render Job is an OpenEXR file whose bytes are a pure function of the Render Job, and it carries its Reproduction Record as one header attribute. Decided in [Image output](https://github.com/sergioffpc/umbra/issues/65).
 

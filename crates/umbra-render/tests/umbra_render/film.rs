@@ -1,14 +1,10 @@
 //! Seam 2: the Film merges each Work Result as it arrives, in any order,
 //! and discards a second one for the same Work Unit unread (ADR 0022).
 
-use std::path::PathBuf;
-
 use umbra_math::Point2i;
 use umbra_render::{
-    Acceptance, BuildIdentity, Film, PassIndex, PixelSum, Renderer, ReproductionRecord, TileIndex,
-    Tree, WorkResult, WorkUnit,
+    Acceptance, Film, PassIndex, PixelSum, Renderer, TileIndex, WorkResult, WorkUnit,
 };
-use umbra_scene::ContentHash;
 
 use crate::scenes::{camera_only, options, render_all};
 
@@ -122,20 +118,6 @@ fn the_passes_of_a_tile_add_up() {
     assert!(!film.is_complete(), "the other Tiles are missing");
 }
 
-/// A Reproduction Record for tests: what it holds does not matter here.
-fn record() -> ReproductionRecord {
-    let identity = BuildIdentity {
-        commit: "test".to_owned(),
-        tree: Tree::Clean,
-    };
-    ReproductionRecord::new(
-        PathBuf::from("scene.pbrt"),
-        ContentHash([0; 32]),
-        &options(4, 4),
-        identity,
-    )
-}
-
 #[test]
 fn a_finished_film_is_each_pixels_weighted_mean_in_srgb() {
     let scene = camera_only();
@@ -152,7 +134,7 @@ fn a_finished_film_is_each_pixels_weighted_mean_in_srgb() {
         let value = if unit.tile.0 == 0 { 2.0 } else { 0.0 };
         film.accept(&uniform(unit, area, value));
     }
-    let image = film.finish(record());
+    let image = film.finish();
 
     assert_eq!(image.resolution(), Point2i::new(40, 24));
     // The default sensor's RGB is XYZ; sRGB from XYZ, Rec. ITU-R BT.709

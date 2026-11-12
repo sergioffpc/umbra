@@ -29,7 +29,7 @@ pub struct BuildIdentity {
 /// The Reproduction Record of a Render Job: the Scene File and the content
 /// hash of everything it read, the seed, every Render Job Option but the
 /// output path, and the Build Identity. Its JSON is versioned, and the
-/// final image carries it as `umbra.reproductionRecord`.
+/// Render Job Report carries it as `reproduction_record`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReproductionRecord {
     version: u32,
@@ -66,16 +66,6 @@ impl ReproductionRecord {
             spp: options.spp.get(),
             build_identity,
         }
-    }
-
-    /// The record as JSON, on one line, its fields in a fixed order.
-    ///
-    /// # Panics
-    ///
-    /// Never: every field serialises.
-    #[must_use]
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("a Reproduction Record serialises")
     }
 }
 
