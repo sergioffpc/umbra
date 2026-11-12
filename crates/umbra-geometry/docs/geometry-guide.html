@@ -1,0 +1,1919 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Geometry Guide</title>
+<meta name="description" content="How umbra-geometry describes rays, axis-aligned boxes and spheres, finds where a ray first meets a sphere with careful floating-point bounds, and names Scene objects by typed index handles, with interactive figures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of crates/umbra-camera/docs/camera-guide.html and
+    crates/umbra-math/docs/math-guide.html: same tokens, same layout.
+    One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file and PBR 4e section. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+svg .t-bad { fill: var(--err); }
+svg .t-ok { fill: var(--exact); }
+svg .k-ok { stroke: var(--exact); }
+svg .f-ok-soft { fill: color-mix(in srgb, var(--exact) 18%, transparent); }
+svg .f-bad-soft { fill: color-mix(in srgb, var(--err) 18%, transparent); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-geometry/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Geometry Guide</h1>
+    </div>
+    <p class="lede">A renderer spends most of its time asking one question: where does this ray hit something? <code>umbra-geometry</code> holds the pieces that question needs: the ray itself, the box drawn around an object, the sphere and the test that finds where a ray first meets it, and the numbered handles the Scene uses to name its objects. This guide explains each one in pictures first and formulas second. It assumes only school maths.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="A ray, a sphere with its bounding box, the first hit, and the sphere's handle in its arena">
+            <!-- bounding box and sphere -->
+            <rect x="375" y="85" width="110" height="110" class="f-acc-soft k-acc" stroke-width="1.5" stroke-dasharray="6 4"/>
+            <circle cx="430" cy="140" r="55" class="f-warm-soft k-warm" stroke-width="1.8"/>
+            <circle cx="430" cy="140" r="2.5" class="f-mut"/>
+            <!-- ray: solid to the hit, dashed inside, solid after -->
+            <line x1="60" y1="210" x2="376" y2="150" class="k-ink" stroke-width="2.2"/>
+            <line x1="376" y1="150" x2="484" y2="130" class="k-ink" stroke-width="1.4" stroke-dasharray="4 4"/>
+            <line x1="484" y1="130" x2="640" y2="100" class="k-ink" stroke-width="2.2" marker-end="url(#ah-ink)"/>
+            <!-- d arrow and ticks -->
+            <line x1="60" y1="210" x2="130" y2="196.7" class="k-acc" stroke-width="3.5" marker-end="url(#ah-acc)"/>
+            <path d="M138 189.3 L141 199.3 M216 174.5 L219 184.5 M294 159.7 L297 169.7" class="k-mut" stroke-width="1.5"/>
+            <text x="140" y="214" class="t-mut" font-size="11">t=1</text>
+            <text x="218" y="199" class="t-mut" font-size="11">t=2</text>
+            <text x="296" y="184" class="t-mut" font-size="11">t=3</text>
+            <circle cx="60" cy="210" r="5" class="f-ink"/>
+            <text x="52" y="236" text-anchor="middle">o</text>
+            <text x="92" y="186" class="t-acc">d</text>
+            <circle cx="376" cy="150" r="6" class="f-warm k-ink" stroke-width="1.5"/>
+            <!-- arena -->
+            <text x="730" y="196" text-anchor="middle" class="t-mut">the Scene's arena of spheres</text>
+            <rect x="600" y="210" width="65" height="40" class="f-surf k-ink"/>
+            <rect x="665" y="210" width="65" height="40" class="f-surf k-ink"/>
+            <rect x="730" y="210" width="65" height="40" class="f-warm-soft k-warm" stroke-width="2"/>
+            <rect x="795" y="210" width="65" height="40" class="f-surf k-ink"/>
+            <circle cx="632" cy="230" r="9" class="k-mut" fill="none"/>
+            <circle cx="697" cy="230" r="13" class="k-mut" fill="none"/>
+            <circle cx="762" cy="230" r="11" class="k-warm" fill="none" stroke-width="1.5"/>
+            <circle cx="827" cy="230" r="7" class="k-mut" fill="none"/>
+            <text x="632" y="268" text-anchor="middle" class="t-mut">0</text>
+            <text x="697" y="268" text-anchor="middle" class="t-mut">1</text>
+            <text x="762" y="268" text-anchor="middle" class="t-warm">2</text>
+            <text x="827" y="268" text-anchor="middle" class="t-mut">3</text>
+            <path d="M745 208 C 700 150, 560 170, 488 160" class="k-warm" fill="none" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ah-warm)"/>
+            <!-- steps -->
+            <g class="step"><circle cx="150" cy="150" r="11"/><text x="150" y="154" text-anchor="middle">1</text></g>
+            <text x="168" y="154">a ray: o + t·d</text>
+            <g class="step"><circle cx="375" cy="60" r="11"/><text x="375" y="64" text-anchor="middle">2</text></g>
+            <text x="393" y="64">a box around the sphere</text>
+            <g class="step"><circle cx="300" cy="248" r="11"/><text x="300" y="252" text-anchor="middle">3</text></g>
+            <text x="318" y="252">first hit: t_hit, p_obj</text>
+            <line x1="368" y1="238" x2="374" y2="160" class="k-mut" stroke-dasharray="3 3"/>
+            <g class="step"><circle cx="560" cy="282" r="11"/><text x="560" y="286" text-anchor="middle">4</text></g>
+            <text x="578" y="290">Handle&lt;Sphere&gt;: just the number 2</text>
+        </svg></div>
+        <figcaption id="big-cap">The crate in one picture. <b>①</b> A <a href="#ray"><code>Ray</code></a> is a starting point and a direction. <b>②</b> A <a href="#bounds"><code>Bounds3f</code></a> is the box around an object, here from <a href="#bounds-transform"><code>Sphere::bounds</code></a>. <b>③</b> <a href="#sphere"><code>Sphere::intersect</code></a> finds where the ray first meets the sphere, done with <a href="#robust">care for rounding errors</a>. <b>④</b> The Scene keeps all spheres in one list and names each by its position, a <a href="#handles"><code>Handle</code></a>.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="A ray through umbra-geometry, as types and functions">
+        <li><span class="who ext">umbra-camera</span><span class="ty">CameraRay</span><span class="what">its .ray is a Ray</span></li>
+        <li><span class="who">umbra-geometry</span><span class="ty"><a href="#ray">Ray</a></span><span class="what">o, d · at(t) · transform</span></li>
+        <li class="fn"><span class="who">umbra-geometry</span><span class="ty"><a href="#sphere">Sphere::intersect</a></span><span class="what">ray, t_max → first hit or None</span></li>
+        <li><span class="who">umbra-geometry</span><span class="ty"><a href="#sphere">QuadricIntersection</a></span><span class="what">t_hit, p_obj</span></li>
+        <li class="fn"><span class="who">umbra-geometry</span><span class="ty"><a href="#bounds-transform">Sphere::bounds</a></span><span class="what">sphere → box in render space</span></li>
+        <li><span class="who">umbra-geometry</span><span class="ty"><a href="#bounds">Bounds3f</a></span><span class="what">p_min, p_max</span></li>
+        <li><span class="who ext">umbra-scene</span><span class="ty"><a href="#handles">Handle&lt;T&gt;</a></span><span class="what">minted by Arena&lt;T&gt;::push</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Most sections end with an interactive figure: drag the points, move the sliders and watch the result change. New to the symbols? Start with <a href="#toolkit">section 0</a>. The figures repeat the Rust code's operations in JavaScript, in double precision unless they say otherwise, so the last digits can differ from Umbra's. Section references (“PBR 4e §6.2”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows. Two sibling guides go deeper on shared ground: the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> makes the rays this crate receives, and the <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a> covers <code>f32</code> rounding and interval arithmetic.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Theory</div>
+                <ol>
+                    <li><a href="#toolkit"><span class="n">0</span><span class="t">The maths toolkit, in pictures</span><span class="c">dot product, the quadratic, min and max, intervals</span></a></li>
+                    <li><a href="#ray"><span class="n">1</span><span class="t">A ray: a start and a direction</span><span class="c">Ray · at</span></a></li>
+                    <li><a href="#bounds"><span class="n">2</span><span class="t">Boxes that line up with the axes</span><span class="c">Bounds3f · Bounds2f · lerp</span></a></li>
+                    <li><a href="#bounds-transform"><span class="n">3</span><span class="t">Moving a box, and why it grows</span><span class="c">Bounds3f::transform · Sphere::bounds</span></a></li>
+                    <li><a href="#sphere"><span class="n">4</span><span class="t">Where a ray meets a sphere</span><span class="c">Sphere::intersect · QuadricIntersection</span></a></li>
+                    <li><a href="#robust"><span class="n">5</span><span class="t">Rounding errors, kept in check</span><span class="c">Interval · discriminant · Ray::transform</span></a></li>
+                    <li><a href="#handles"><span class="n">6</span><span class="t">Numbers instead of pointers</span><span class="c">Handle&lt;T&gt; · ADR 0008</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">7</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 sources</span></a></li>
+                    <li><a href="#one-core"><span class="n">8</span><span class="t">One sphere test for the CPU and the GPU</span><span class="c">Copy values · ADR 0028, 0026</span></a></li>
+                    <li><a href="#layout"><span class="n">9</span><span class="t">Fixed byte layouts</span><span class="c">#[repr(C)] · size_of asserts</span></a></li>
+                    <li><a href="#handle-impl"><span class="n">10</span><span class="t">A handle's traits, written by hand</span><span class="c">PhantomData&lt;fn() -&gt; T&gt;</span></a></li>
+                    <li><a href="#tests"><span class="n">11</span><span class="t">Worked examples as tests</span><span class="c">tests/umbra_geometry</span></a></li>
+                    <li><a href="#not-yet"><span class="n">12</span><span class="t">Not here yet</span><span class="c">what later milestones add</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Theory</div>
+    <h2>Rays, boxes and spheres</h2>
+    <p>Three shapes of thought carry this crate: a line that starts somewhere and goes on forever, a box whose sides line up with the axes, and a ball. Every question the crate answers is about how they meet.</p>
+</div>
+
+<section class="topic" id="toolkit">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">0</span>background · used by every section</div>
+        <h3>The maths toolkit, in pictures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>This crate needs four ideas beyond school arithmetic: the dot product of two arrows, the formula that solves <var>a t</var>² + <var>b t</var> + <var>c</var> = 0, taking the smaller or larger of two numbers axis by axis, and a number stored together with its possible error. Points, vectors, matrices and normalising are already drawn in the <a href="../../umbra-camera/docs/camera-guide.html#toolkit">camera guide's toolkit</a>, and how <code>f32</code> numbers round is in the <a href="../../umbra-math/docs/math-guide.html#float">math guide</a>.</div>
+
+    <div class="cards">
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="The dot product as a shadow of one arrow on another">
+                <line x1="30" y1="160" x2="230" y2="160" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+                <line x1="30" y1="160" x2="150" y2="60" class="k-warm" stroke-width="2.2" marker-end="url(#ah-warm)"/>
+                <line x1="150" y1="60" x2="150" y2="160" class="k-mut" stroke-dasharray="4 4"/>
+                <line x1="30" y1="175" x2="150" y2="175" class="k-ink" stroke-width="3"/>
+                <text x="236" y="164" class="t-acc">u</text>
+                <text x="156" y="58" class="t-warm">v</text>
+                <text x="90" y="192" text-anchor="middle">shadow of v on u</text>
+                <text x="40" y="30">u·v = |u| × shadow</text>
+            </svg>
+            <h4>The dot product</h4>
+            <p>Multiply the two arrows' <var>x</var>s, their <var>y</var>s and their <var>z</var>s, and add. The result is one number: the length of <var>u</var> times the length of <var>v</var>'s shadow on <var>u</var>. An arrow dotted with itself gives its length squared, which is how the sphere test measures distance from the centre.</p>
+            <div class="f">u·v = u<sub>x</sub>v<sub>x</sub> + u<sub>y</sub>v<sub>y</sub> + u<sub>z</sub>v<sub>z</sub> &nbsp; v·v = |v|²</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="Three parabolas: two roots, one root, no root">
+                <line x1="10" y1="120" x2="250" y2="120" class="k-mut"/>
+                <path d="M20 40 Q 70 220 120 40" class="k-acc" fill="none" stroke-width="2"/>
+                <circle cx="49" cy="120" r="4" class="f-warm"/><circle cx="91" cy="120" r="4" class="f-warm"/>
+                <path d="M110 40 Q 160 200 210 40" class="k-mut" fill="none" stroke-width="1.5" stroke-dasharray="5 4"/>
+                <circle cx="160" cy="120" r="4" class="f-warm"/>
+                <path d="M170 30 Q 210 150 250 30" class="k-bad" fill="none" stroke-width="1.5"/>
+                <text x="70" y="160" text-anchor="middle" class="t-acc">2 roots</text>
+                <text x="160" y="140" text-anchor="middle" class="t-mut">1</text>
+                <text x="225" y="160" text-anchor="middle" class="t-bad">none</text>
+                <text x="130" y="190" text-anchor="middle">roots: where the curve crosses 0</text>
+            </svg>
+            <h4>The quadratic and its roots</h4>
+            <p>A curve <var>a t</var>² + <var>b t</var> + <var>c</var> is a U shape. Its <b>roots</b> are the <var>t</var> values where it crosses zero. The <b>discriminant</b> <var>b</var>² − 4<var>ac</var> says how many there are: positive gives two, zero gives one (the U just touches), negative gives none. A ray and a sphere meet at the roots of exactly such a curve.</p>
+            <div class="f">t = (−b ± √(b² − 4ac)) ⁄ (2a)</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="Componentwise min and max of two points give a box">
+                <rect x="60" y="50" width="140" height="100" class="f-acc-soft k-acc" stroke-width="1.5"/>
+                <circle cx="200" cy="50" r="5" class="f-warm"/><text x="206" y="44">p₁ = (5, 4)</text>
+                <circle cx="60" cy="150" r="5" class="f-warm"/><text x="20" y="172">p₂ = (1, 0)</text>
+                <circle cx="60" cy="50" r="4" class="f-ink"/><circle cx="200" cy="150" r="4" class="f-ink"/>
+                <text x="62" y="44" font-size="11" class="t-mut">(1, 4)</text>
+                <text x="206" y="166" font-size="11" class="t-mut">(5, 0)</text>
+                <text x="130" y="105" text-anchor="middle" class="t-acc">min → p_min</text>
+                <text x="130" y="122" text-anchor="middle" class="t-acc">max → p_max</text>
+            </svg>
+            <h4>Min and max, axis by axis</h4>
+            <p>Given two points, take the smaller <var>x</var> and the smaller <var>y</var>: that is one corner of the box between them. The larger of each gives the opposite corner. Each axis is handled on its own, so the result need not be either of the two points.</p>
+            <div class="f">min(p, q) = (min(p<sub>x</sub>, q<sub>x</sub>), min(p<sub>y</sub>, q<sub>y</sub>), min(p<sub>z</sub>, q<sub>z</sub>))</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="An interval: a number with error bars, compared to zero">
+                <line x1="20" y1="110" x2="240" y2="110" class="k-mut"/>
+                <line x1="70" y1="95" x2="70" y2="125" class="k-ink" stroke-width="2"/>
+                <text x="70" y="145" text-anchor="middle">0</text>
+                <rect x="120" y="100" width="70" height="20" rx="3" class="f-acc-soft k-acc"/>
+                <circle cx="155" cy="110" r="4" class="f-acc"/>
+                <text x="120" y="92" text-anchor="middle" font-size="11">low</text>
+                <text x="190" y="92" text-anchor="middle" font-size="11">high</text>
+                <rect x="40" y="150" width="70" height="20" rx="3" class="f-bad-soft k-bad"/>
+                <text x="140" y="165" font-size="11" class="t-bad">straddles 0: can't tell</text>
+                <text x="130" y="40" text-anchor="middle">the true value is somewhere</text>
+                <text x="130" y="57" text-anchor="middle">between low and high</text>
+            </svg>
+            <h4>A number with error bars</h4>
+            <p>Each computer operation rounds its result a little. An <b>interval</b> carries a lower and an upper bound that the true value is certain to lie between. Questions become safe: “is <var>t</var> above 0?” is answered yes only if even the <em>low</em> end is above 0. The math guide's <a href="../../umbra-math/docs/math-guide.html#intervals">section 3</a> shows the rules.</p>
+            <div class="f">[a, b] + [c, d] = [a + c, b + d] (rounded outward)</div>
+        </div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:1.4rem; max-width: 52rem">
+        <table class="data symbols">
+            <thead><tr><th>symbol</th><th>read it as</th><th>example in this guide</th></tr></thead>
+            <tbody>
+                <tr><td><var>o</var>, <var>d</var></td><td>a ray's origin (start point) and direction</td><td><code>Ray { o, d }</code></td></tr>
+                <tr><td><var>t</var></td><td>how far along the ray, in steps of length |<var>d</var>|</td><td><code>ray.at(t)</code>, <code>t_hit</code></td></tr>
+                <tr><td><var>u</var>·<var>v</var></td><td>dot product: multiply matching parts and add</td><td><var>b</var> = 2 <var>d</var>·<var>o</var></td></tr>
+                <tr><td>|<var>v</var>|</td><td>length of an arrow</td><td>|<var>v</var>|, the distance of the ray from the centre</td></tr>
+                <tr><td><var>r</var></td><td>a sphere's radius</td><td><code>Sphere::new(t, r)</code></td></tr>
+                <tr><td>√</td><td>square root</td><td>√disc in the quadratic formula</td></tr>
+                <tr><td>[<var>a</var>, <var>b</var>]</td><td>every number from <var>a</var> to <var>b</var>, ends included</td><td>an <code>Interval</code>; a box side</td></tr>
+                <tr><td>(0, <var>t</var><sub>max</sub>]</td><td>above 0, up to and including <var>t</var><sub>max</sub></td><td>where a hit may be</td></tr>
+                <tr><td><var>M</var>, <var>M</var>⁻¹</td><td>a transform matrix and its undo</td><td><code>render_from_object</code>, <code>apply_inverse</code></td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="ray">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-geometry</span> · <a href="../src/ray.rs">ray.rs</a> · <code>Ray</code>, <code>Ray::at</code> · PBR 4e §3.1</div>
+        <h3>A ray: a start and a direction</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A ray is a laser pointer: a spot where it starts, <var>o</var>, and an arrow saying which way it points, <var>d</var>. Every point on the beam can be named by one number <var>t</var>: start at <var>o</var> and take <var>t</var> steps of the arrow. <var>t</var> = 0 is the start, <var>t</var> = 2 is two arrow-lengths along. Negative <var>t</var> would be behind the pointer, and that is not part of the ray.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 200" class="dg-wide" role="img" aria-label="A ray with points at t equals 0, 1, 2, 3 and a dashed part behind the origin">
+            <line x1="20" y1="150" x2="100" y2="130" class="k-mut" stroke-dasharray="4 5"/>
+            <text x="30" y="178" class="t-mut">t &lt; 0: not on the ray</text>
+            <line x1="100" y1="130" x2="620" y2="0" class="k-ink" stroke-width="2" marker-end="url(#ah-ink)"/>
+            <line x1="100" y1="130" x2="220" y2="100" class="k-acc" stroke-width="4" marker-end="url(#ah-acc)"/>
+            <circle cx="100" cy="130" r="6" class="f-ink"/>
+            <circle cx="220" cy="100" r="4" class="f-mut"/>
+            <circle cx="340" cy="70" r="4" class="f-mut"/>
+            <circle cx="460" cy="40" r="6" class="f-warm"/>
+            <text x="100" y="156" text-anchor="middle">t = 0: o</text>
+            <text x="226" y="122">t = 1</text>
+            <text x="346" y="92">t = 2</text>
+            <text x="466" y="62" class="t-warm">t = 3: o + 3d</text>
+            <text x="150" y="98" class="t-acc">d</text>
+            <path d="M100 185 H460" class="k-warm" stroke-width="1.5" marker-end="url(#ah-warm)" marker-start="url(#ah-warm)"/>
+            <text x="280" y="198" text-anchor="middle" class="t-warm" font-size="12">distance = 3 × |d|</text>
+        </svg></div>
+        <figcaption>One number <var>t</var> names every point on the ray. The points are evenly spaced, one arrow-length <b>|d|</b> apart. If <var>d</var> has length 1, <var>t</var> is the distance; if not, the distance is <var>t</var> × |<var>d</var>|.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Umbra's <code>Ray</code> is just those two fields. pbrt-v4's ray also carries a time and the medium it travels through; Umbra adds those with the features that read them.</p>
+<pre class="code"><span class="k">pub struct</span> Ray {
+    <span class="k">pub</span> o: Point3f,   <span class="c">// the origin</span>
+    <span class="k">pub</span> d: Vector3f,  <span class="c">// the direction, not necessarily normalised</span>
+}
+
+<span class="k">pub fn</span> at(&amp;<span class="k">self</span>, t: f32) -&gt; Point3f {
+    <span class="k">self</span>.o + <span class="k">self</span>.d * t
+}</pre>
+        <p>Note “not necessarily normalised”. The camera makes rays of length 1, but a ray moved into a sphere's own coordinates (see <a href="#sphere">section 4</a>) can be stretched or shrunk. The hit distance <code>t_hit</code> is always counted in steps of the ray's own <var>d</var>, so the same <var>t</var> means the same point before and after such a move. That is why nothing needs to re-normalise the direction.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">p(t) = o + t·d, &nbsp; t ≥ 0</div><div class="mb-d"><b>The point at <var>t</var>.</b> Start at <var>o</var>, add <var>t</var> copies of the arrow <var>d</var>. Only <var>t</var> ≥ 0 belongs to the ray: it starts at <var>o</var> and goes forward. <code>Ray::at</code></div></div>
+        <div class="mb-row"><div class="mb-f">distance from o = t · |d|</div><div class="mb-d"><b>How far that is.</b> Each step of <var>t</var> moves one arrow-length. With |<var>d</var>| = 1 the two are the same.</div></div>
+    </div>
+
+    <figure class="bench" id="ry">
+        <div class="controls">
+            <div class="ctl"><label for="ry-ang">direction angle</label><div class="row"><input id="ry-ang" type="range" min="-90" max="90" step="1" value="20"><output id="ry-ang-o" for="ry-ang"></output></div></div>
+            <div class="ctl"><label for="ry-len">length of d</label><div class="row"><input id="ry-len" type="range" min="0.25" max="2" step="0.05" value="1"><output id="ry-len-o" for="ry-len"></output></div></div>
+            <div class="ctl"><label for="ry-t">t</label><div class="row"><input id="ry-t" type="range" min="0" max="10" step="0.05" value="3"><output id="ry-t-o" for="ry-t"></output></div></div>
+        </div>
+        <div class="split">
+            <div><p class="panel-title">the ray in the x–y plane (drag the origin)</p><canvas id="ry-cv" class="cv-wide" tabindex="0" aria-label="A ray with its origin, direction arrow and the point at t"></canvas></div>
+            <dl class="readout" id="ry-read"></dl>
+        </div>
+        <figcaption><b>Try:</b> keep <var>t</var> at 3 and shorten <var>d</var> to 0.5. The point slides back toward the origin: three steps of a shorter arrow. The tick marks always sit at <var>t</var> = 1, 2, 3 … so their spacing shows |<var>d</var>|.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="bounds">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-geometry</span> · <a href="../src/bounds.rs">bounds.rs</a> · <code>Bounds3f</code>, <code>Bounds2f</code>, <code>Bounds2f::lerp</code> · PBR 4e §3.7</div>
+        <h3>Boxes that line up with the axes</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Testing a ray against a complicated object is slow. Testing it against a plain box is fast. So renderers wrap every object in the smallest box they can find whose walls run along the <var>x</var>, <var>y</var> and <var>z</var> axes, an <em>axis-aligned bounding box</em>. Such a box needs only two corners to describe it: the one with the smallest coordinates and the one with the largest.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 260" class="dg-wide" role="img" aria-label="A 3D box with corners numbered 0 to 7 by their bits">
+            <!-- back face -->
+            <path d="M150 70 H330 V190" class="k-mut" fill="none" stroke-dasharray="5 4"/>
+            <path d="M150 70 V190 H330" class="k-mut" fill="none" stroke-dasharray="5 4"/>
+            <!-- front face -->
+            <rect x="90" y="110" width="180" height="120" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <path d="M90 110 L150 70 M270 110 L330 70 M270 230 L330 190 M90 230 L150 190" class="k-acc" stroke-width="1.6"/>
+            <path d="M150 70 H330 V190" class="k-acc" fill="none" stroke-width="1.6"/>
+            <!-- corners: bit0 x, bit1 y, bit2 z; front = z low -->
+            <circle cx="90" cy="230" r="5" class="f-ink"/><text x="76" y="250" text-anchor="middle">0</text>
+            <circle cx="270" cy="230" r="5" class="f-ink"/><text x="270" y="250" text-anchor="middle">1</text>
+            <circle cx="90" cy="110" r="5" class="f-ink"/><text x="76" y="106" text-anchor="middle">2</text>
+            <circle cx="270" cy="110" r="5" class="f-ink"/><text x="262" y="100" text-anchor="middle">3</text>
+            <circle cx="150" cy="190" r="4" class="f-mut"/><text x="160" y="184" class="t-mut">4</text>
+            <circle cx="330" cy="190" r="4" class="f-mut"/><text x="340" y="194" class="t-mut">5</text>
+            <circle cx="150" cy="70" r="4" class="f-mut"/><text x="140" y="62" text-anchor="middle" class="t-mut">6</text>
+            <circle cx="330" cy="70" r="6" class="f-warm"/><text x="340" y="66" class="t-warm">7 = p_max</text>
+            <circle cx="90" cy="230" r="7" class="k-warm" fill="none" stroke-width="2"/>
+            <text x="20" y="215" class="t-warm">p_min</text>
+            <!-- axes -->
+            <line x1="420" y1="200" x2="490" y2="200" class="k-cx" stroke-width="2" marker-end="url(#ah-ink)"/>
+            <line x1="420" y1="200" x2="420" y2="130" class="k-ok" stroke-width="2" marker-end="url(#ah-ink)"/>
+            <line x1="420" y1="200" x2="460" y2="170" class="k-acc" stroke-width="2" marker-end="url(#ah-ink)"/>
+            <text x="496" y="204">x</text><text x="414" y="122">y</text><text x="466" y="166">z</text>
+            <text x="420" y="40">corner i, i = 0 … 7:</text>
+            <text x="420" y="62" class="t-mut">1s bit of i set → x from p_max</text>
+            <text x="420" y="80" class="t-mut">2s bit set → y from p_max</text>
+            <text x="420" y="98" class="t-mut">4s bit set → z from p_max</text>
+            <text x="420" y="240">e.g. 5 = 4 + 1: x, z from p_max</text>
+        </svg></div>
+        <figcaption>A <code>Bounds3f</code> is two points, <code>p_min</code> and <code>p_max</code>. Its eight corners mix their coordinates. The private helper <code>corner(i)</code> reads the bits of <var>i</var>: the 1s bit picks <var>x</var>, the 2s bit <var>y</var>, the 4s bit <var>z</var>. Counting 0 to 7 visits every mix exactly once.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>A box can be built from any two opposite corners in any order: <code>Bounds3f::new</code> sorts them, axis by axis, with <code>min</code> and <code>max</code>. So <code>new(a, b)</code> and <code>new(b, a)</code> give the same box, and so does a pair of the box's other opposite corners.</p>
+<pre class="code"><span class="k">pub fn</span> new(p1: Point3f, p2: Point3f) -&gt; Self {
+    Self { p_min: p1.min(p2), p_max: p1.max(p2) }
+}</pre>
+        <p><code>Bounds2f</code> is the flat version, a rectangle, with the same <code>new</code>. It adds one operation, <code>lerp</code>: give it two fractions (<var>t<sub>x</sub></var>, <var>t<sub>y</sub></var>) between 0 and 1 and it returns the point that far across the rectangle. (0, 0) is <code>p_min</code>, (1, 1) is <code>p_max</code>, (½, ½) is the middle. The camera uses a <code>Bounds2f</code> for its screen window, and its filter uses <code>lerp</code> to place the cells of its table (see the <a href="../../umbra-camera/docs/camera-guide.html#filter">camera guide</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">p<sub>min</sub> = min(p₁, p₂), &nbsp; p<sub>max</sub> = max(p₁, p₂)</div><div class="mb-d"><b>The box from two corners.</b> Smaller of each coordinate for one corner, larger for the other. <code>Bounds3f::new</code>, <code>Bounds2f::new</code>, via <code>Point3f::min</code> and <code>max</code></div></div>
+        <div class="mb-row"><div class="mb-f">corner(i) = (i&amp;1 ? x<sub>max</sub> : x<sub>min</sub>, i&amp;2 ? y<sub>max</sub> : y<sub>min</sub>, i&amp;4 ? z<sub>max</sub> : z<sub>min</sub>)</div><div class="mb-d"><b>Corner number <var>i</var>.</b> “<var>i</var> &amp; 2” means “is the 2s bit of <var>i</var> set?”. <code>corner</code>, private to <code>bounds.rs</code></div></div>
+        <div class="mb-row"><div class="mb-f">lerp(t, a, b) = (1 − t)·a + t·b</div><div class="mb-d"><b>Blend.</b> <var>t</var> = 0 gives <var>a</var>, <var>t</var> = 1 gives <var>b</var>, in between slides along the straight line. <code>lerp</code> in umbra-math</div></div>
+        <div class="mb-row"><div class="mb-f">Bounds2f::lerp(t) = (lerp(t<sub>x</sub>, x<sub>min</sub>, x<sub>max</sub>), lerp(t<sub>y</sub>, y<sub>min</sub>, y<sub>max</sub>))</div><div class="mb-d"><b>A point by fractions.</b> One blend per axis. <code>Bounds2f::lerp</code></div></div>
+    </div>
+
+    <figure class="bench" id="bx">
+        <div class="controls">
+            <div class="ctl"><label for="bx-tx">t<sub>x</sub></label><div class="row"><input id="bx-tx" type="range" min="0" max="1" step="0.01" value="0.25"><output id="bx-tx-o" for="bx-tx"></output></div></div>
+            <div class="ctl"><label for="bx-ty">t<sub>y</sub></label><div class="row"><input id="bx-ty" type="range" min="0" max="1" step="0.01" value="0.5"><output id="bx-ty-o" for="bx-ty"></output></div></div>
+            <div class="ctl"><span class="lbl">corners</span><div class="btns"><button type="button" id="bx-swap">swap p₁ and p₂</button><button type="button" id="bx-other">use the other diagonal</button></div></div>
+        </div>
+        <div class="split">
+            <div><p class="panel-title">drag p₁ or p₂; the box is Bounds2f::new(p₁, p₂)</p><canvas id="bx-cv" class="cv-mid" aria-label="A rectangle defined by two draggable corners, with a lerp point"></canvas></div>
+            <dl class="readout" id="bx-read"></dl>
+        </div>
+        <figcaption><b>Try:</b> drag p₁ below and left of p₂. The labels p₁ and p₂ move, but <code>p_min</code> stays the lower-left corner. Swap the corners, or switch to the other diagonal: the box doesn't change. The amber point is <code>lerp(t)</code>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="bounds-transform">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-geometry</span> · <a href="../src/bounds.rs">bounds.rs</a>, <a href="../src/sphere.rs">sphere.rs</a> · <code>Bounds3f::transform</code>, <code>Sphere::bounds</code> · PBR 4e §3.10, §6.2.1</div>
+        <h3>Moving a box, and why it grows</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A sphere is defined sitting at the centre of its own little world, with its own box from −<var>r</var> to <var>r</var> on every axis. To place it in the scene, a transform slides, turns or stretches it. Turning the box tilts it, and a tilted box no longer lines up with the axes. So Umbra moves all eight corners and draws a fresh axis-aligned box around them. That new box is safe (it contains everything) but it can be bigger than needed.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 250" class="dg-wide" role="img" aria-label="Object box of a sphere, rotated by 45 degrees, and the larger axis-aligned box around the rotated corners">
+            <text x="140" y="22" text-anchor="middle" class="t-bold">object space</text>
+            <rect x="80" y="60" width="120" height="120" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <circle cx="140" cy="120" r="60" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="140" y="205" text-anchor="middle" class="t-mut">box [−r, r]³ fits snugly</text>
+            <line x1="230" y1="120" x2="300" y2="120" class="k-ink" stroke-width="1.6" marker-end="url(#ah-ink)"/>
+            <text x="265" y="108" text-anchor="middle">rotate 45°</text>
+            <text x="470" y="22" text-anchor="middle" class="t-bold">render space</text>
+            <rect x="385" y="35" width="170" height="170" class="k-acc" fill="none" stroke-width="2"/>
+            <path d="M470 35 L555 120 L470 205 L385 120 Z" class="k-mut" fill="none" stroke-dasharray="5 4" stroke-width="1.5"/>
+            <circle cx="470" cy="120" r="60" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <circle cx="470" cy="35" r="4" class="f-ink"/><circle cx="555" cy="120" r="4" class="f-ink"/><circle cx="470" cy="205" r="4" class="f-ink"/><circle cx="385" cy="120" r="4" class="f-ink"/>
+            <text x="560" y="124">x = √2·r</text>
+            <text x="470" y="230" text-anchor="middle" class="t-acc">new box: √2 times as wide as the sphere needs</text>
+        </svg></div>
+        <figcaption>Why the box grows. The dashed square is the object box after turning; its corners (black dots) now poke out along the axes. The fresh axis-aligned box must reach them, so it is √2 ≈ 1.414 times wider than the sphere. This is exactly what the crate's test <code>rotated_sphere_bounds_contain_the_rotated_object_box</code> checks.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> transform(&amp;<span class="k">self</span>, t: &amp;Transform) -&gt; Self {
+    <span class="k">let</span> first = t.apply(<span class="k">self</span>.corner(<span class="k">0</span>));
+    (<span class="k">1</span>..<span class="k">8</span>).fold(Self::new(first, first), |bounds, i| {
+        <span class="k">let</span> p = t.apply(<span class="k">self</span>.corner(i));
+        Self { p_min: bounds.p_min.min(p), p_max: bounds.p_max.max(p) }
+    })
+}</pre>
+        <p>The code starts with a box that is just the first moved corner, then widens it to take in each of the other seven. For a sphere this gives <code>Sphere::bounds</code>:</p>
+<pre class="code"><span class="k">pub fn</span> bounds(&amp;<span class="k">self</span>) -&gt; Bounds3f {
+    <span class="k">let</span> r = <span class="k">self</span>.radius;
+    Bounds3f::new(Point3f::new(-r, -r, -r), Point3f::new(r, r, r))
+        .transform(&amp;<span class="k">self</span>.render_from_object)
+}</pre>
+        <p>A box that is too big is never wrong, only slower: a ray that hits the box but misses the sphere costs one wasted sphere test. A box that is too small would be wrong, because a ray could miss the box and skip a sphere it actually hits. pbrt-v4 makes the same trade.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">c<sub>i</sub>′ = M c<sub>i</sub>, &nbsp; i = 0 … 7</div><div class="mb-d"><b>Move each corner</b> with the transform's matrix <var>M</var>. <code>Transform::apply</code> in umbra-math</div></div>
+        <div class="mb-row"><div class="mb-f">p<sub>min</sub>′ = min<sub>i</sub> c<sub>i</sub>′, &nbsp; p<sub>max</sub>′ = max<sub>i</sub> c<sub>i</sub>′</div><div class="mb-d"><b>The new box</b>: the smallest and largest coordinate over all eight, axis by axis. <code>Bounds3f::transform</code></div></div>
+        <div class="mb-row"><div class="mb-f">width′ = 2r (|cos θ| + |sin θ|)</div><div class="mb-d"><b>How much it grows</b> when a cube of side 2<var>r</var> turns by θ about one axis. At θ = 45° that is 2<var>r</var> · √2. The sphere itself still needs only 2<var>r</var>.</div></div>
+    </div>
+
+    <figure class="bench" id="bt">
+        <div class="controls">
+            <div class="ctl"><label for="bt-rot">rotate_z θ</label><div class="row"><input id="bt-rot" type="range" min="0" max="90" step="1" value="30"><output id="bt-rot-o" for="bt-rot"></output></div></div>
+            <div class="ctl"><label for="bt-sx">scale x</label><div class="row"><input id="bt-sx" type="range" min="0.4" max="2" step="0.05" value="1"><output id="bt-sx-o" for="bt-sx"></output></div></div>
+            <div class="ctl"><label for="bt-tx">translate x</label><div class="row"><input id="bt-tx" type="range" min="-2" max="2" step="0.1" value="0"><output id="bt-tx-o" for="bt-tx"></output></div></div>
+            <div class="ctl"><span class="lbl">preset</span><div class="btns"><button type="button" id="bt-test">the test: 45°, unit sphere</button></div></div>
+        </div>
+        <div class="split">
+            <div><p class="panel-title">top view (z out of the screen): sphere, moved object box (dashed), Bounds3f (blue), tightest box (dotted)</p><canvas id="bt-cv" class="cv-mid" aria-label="The sphere, its transformed object box and the resulting axis-aligned bounds"></canvas></div>
+            <dl class="readout" id="bt-read"></dl>
+        </div>
+        <figcaption>The transform is translate · rotate_z · scale, applied right to left to a sphere of radius 1. The figure moves the eight corners exactly as <code>Bounds3f::transform</code> does. The dotted box is the tightest one around the (possibly stretched) sphere, for comparison: Umbra doesn't compute it. <b>Try:</b> the preset, then read <var>x</var> in p_max: 1.41421, √2.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="sphere">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-geometry</span> · <a href="../src/sphere.rs">sphere.rs</a> · <code>Sphere::intersect</code>, <code>QuadricIntersection</code> · PBR 4e §6.2.2</div>
+        <h3>Where a ray meets a sphere</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A point is on a sphere when its distance from the centre equals the radius. Walk along the ray and keep asking “how far am I from the centre?”. That distance shrinks, then grows again. It equals the radius at most twice: once going in, once coming out. Writing that down gives a quadratic in <var>t</var>, the kind from school, and its two roots are the two crossings. The nearer crossing ahead of the ray is the hit.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 210" class="dg-wide" role="img" aria-label="The ray is moved into the sphere's object space, where the sphere sits at the origin">
+            <text x="160" y="22" text-anchor="middle" class="t-bold">render space</text>
+            <line x1="20" y1="120" x2="300" y2="120" class="k-mut"/>
+            <circle cx="210" cy="120" r="44" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <circle cx="210" cy="120" r="2.5" class="f-mut"/>
+            <line x1="30" y1="120" x2="160" y2="120" class="k-ink" stroke-width="2.2" marker-end="url(#ah-ink)"/>
+            <circle cx="30" cy="120" r="5" class="f-ink"/>
+            <text x="30" y="145" text-anchor="middle">o = (0, 0, 0)</text>
+            <text x="210" y="190" text-anchor="middle" class="t-mut">centre x = 10, radius 2</text>
+            <line x1="315" y1="105" x2="385" y2="105" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <text x="350" y="92" text-anchor="middle" class="t-acc" font-size="12">apply_inverse</text>
+            <text x="350" y="128" text-anchor="middle" class="t-acc" font-size="12">(render_from_object)</text>
+            <text x="510" y="22" text-anchor="middle" class="t-bold">object space</text>
+            <line x1="400" y1="120" x2="630" y2="120" class="k-mut"/>
+            <line x1="540" y1="60" x2="540" y2="180" class="k-mut"/>
+            <circle cx="540" cy="120" r="44" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <line x1="410" y1="120" x2="490" y2="120" class="k-ink" stroke-width="2.2" marker-end="url(#ah-ink)"/>
+            <circle cx="410" cy="120" r="5" class="f-ink"/>
+            <text x="410" y="145" text-anchor="middle">o′ = (−10, 0, 0)</text>
+            <circle cx="496" cy="120" r="5" class="f-warm k-ink"/>
+            <text x="496" y="100" text-anchor="middle" class="t-warm">p_obj = (−2, 0, 0)</text>
+            <text x="540" y="190" text-anchor="middle" class="t-mut">centre 0, radius 2</text>
+        </svg></div>
+        <figcaption>Step one: don't move the sphere, move the ray. The sphere stores the transform that put it in the scene, <code>render_from_object</code>. Running it backwards on the ray (<code>apply_inverse</code>) brings the ray into the sphere's own space, where the sphere is centred on 0. The maths is simplest there. <var>t</var> means the same point in both spaces, so the answer <var>t</var><sub>hit</sub> = 8 needs no converting back. This is the README's example.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 300" class="dg-wide" role="img" aria-label="A ray crossing a sphere at t0 and t1, and below it the quadratic crossing zero at the same t values">
+            <circle cx="330" cy="100" r="60" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <circle cx="330" cy="100" r="2.5" class="f-mut"/>
+            <line x1="330" y1="100" x2="330" y2="70" class="k-mut" stroke-dasharray="3 3"/>
+            <text x="336" y="92" font-size="11" class="t-mut">|v|</text>
+            <line x1="330" y1="100" x2="382" y2="70" class="k-mut" stroke-width="1"/>
+            <text x="360" y="100" font-size="11" class="t-mut">r</text>
+            <line x1="60" y1="70" x2="610" y2="70" class="k-ink" stroke-width="2" marker-end="url(#ah-ink)"/>
+            <circle cx="60" cy="70" r="5" class="f-ink"/>
+            <text x="60" y="50" text-anchor="middle">o (t = 0)</text>
+            <circle cx="278" cy="70" r="5.5" class="f-warm k-ink"/>
+            <circle cx="382" cy="70" r="5" class="f-surf k-warm" stroke-width="2"/>
+            <text x="268" y="50" text-anchor="end" class="t-warm">in: t₀ = the hit</text>
+            <text x="392" y="50" class="t-mut">out: t₁</text>
+            <line x1="278" y1="76" x2="278" y2="250" class="k-mut" stroke-dasharray="3 4"/>
+            <line x1="382" y1="76" x2="382" y2="250" class="k-mut" stroke-dasharray="3 4"/>
+            <!-- the quadratic -->
+            <line x1="40" y1="250" x2="620" y2="250" class="k-mut"/>
+            <text x="626" y="254" class="t-mut">t</text>
+            <text x="40" y="242" class="t-mut" font-size="11">0</text>
+            <path d="M200 150 Q330 388 460 150" class="k-acc" fill="none" stroke-width="2.2"/>
+            <circle cx="278" cy="250" r="4.5" class="f-warm"/>
+            <circle cx="382" cy="250" r="4.5" class="f-warm"/>
+            <text x="470" y="160" class="t-acc">f(t) = |o + t·d|² − r²</text>
+            <text x="470" y="180" class="t-acc">&nbsp; &nbsp; &nbsp; = a t² + b t + c</text>
+            <text x="470" y="215" class="t-mut" font-size="11">above 0: outside the sphere</text>
+            <text x="120" y="285" class="t-mut" font-size="11">below 0 (between the roots): inside the sphere</text>
+        </svg></div>
+        <figcaption>The same <var>t</var> axis, twice. Top: the ray enters at <var>t</var>₀ and leaves at <var>t</var>₁. Bottom: the squared distance from the centre minus <var>r</var>², which is below zero exactly while the ray is inside. Its roots are the crossings (the curve is drawn with its dip exaggerated). <var>|v|</var> is how close the ray's line passes to the centre; it is used in <a href="#robust">section 5</a>.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Write the ray's point as <var>o</var> + <var>t d</var> and ask that its squared length be <var>r</var>². Multiplying out with the dot product gives three numbers <var>a</var>, <var>b</var>, <var>c</var> that depend only on the ray and the radius. The quadratic formula then gives the roots. Of the two, the code keeps the smaller as <var>t</var>₀.</p>
+        <p>Which root is the hit? Only crossings with <var>t</var> above 0 (ahead of the origin) and at most <var>t</var><sub>max</sub> count. <var>t</var><sub>max</sub> is how far the caller cares to look, usually the distance to the nearest hit found so far. The diagram shows the four cases:</p>
+    </div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 250" class="dg-wide" role="img" aria-label="Four cases of root positions relative to zero and t_max">
+            <g>
+                <line x1="150" y1="20" x2="150" y2="230" class="k-ink" stroke-width="1.5"/>
+                <text x="150" y="245" text-anchor="middle">t = 0</text>
+                <line x1="470" y1="20" x2="470" y2="230" class="k-acc" stroke-width="1.5" stroke-dasharray="5 4"/>
+                <text x="470" y="245" text-anchor="middle" class="t-acc">t_max</text>
+            </g>
+            <line x1="40" y1="45" x2="600" y2="45" class="k-mut"/>
+            <circle cx="250" cy="45" r="6" class="f-warm"/><circle cx="380" cy="45" r="5" class="f-surf k-mut" stroke-width="2"/>
+            <text x="250" y="32" text-anchor="middle" font-size="11">t₀</text><text x="380" y="32" text-anchor="middle" font-size="11">t₁</text>
+            <text x="610" y="49" class="t-ok" font-size="12">hit t₀</text>
+            <text x="40" y="70" class="t-mut" font-size="11">both ahead: the near side</text>
+            <line x1="40" y1="100" x2="600" y2="100" class="k-mut"/>
+            <circle cx="90" cy="100" r="5" class="f-surf k-mut" stroke-width="2"/><circle cx="260" cy="100" r="6" class="f-warm"/>
+            <text x="90" y="87" text-anchor="middle" font-size="11">t₀</text><text x="260" y="87" text-anchor="middle" font-size="11">t₁</text>
+            <text x="610" y="104" class="t-ok" font-size="12">hit t₁</text>
+            <text x="40" y="125" class="t-mut" font-size="11">origin inside: t₀ is behind, use the far side</text>
+            <line x1="40" y1="155" x2="600" y2="155" class="k-mut"/>
+            <circle cx="60" cy="155" r="5" class="f-surf k-bad" stroke-width="2"/><circle cx="120" cy="155" r="5" class="f-surf k-bad" stroke-width="2"/>
+            <text x="60" y="142" text-anchor="middle" font-size="11">t₀</text><text x="120" y="142" text-anchor="middle" font-size="11">t₁</text>
+            <text x="610" y="159" class="t-bad" font-size="12">None</text>
+            <text x="40" y="180" class="t-mut" font-size="11">both behind: the sphere is at our back</text>
+            <line x1="40" y1="205" x2="600" y2="205" class="k-mut"/>
+            <circle cx="510" cy="205" r="5" class="f-surf k-bad" stroke-width="2"/><circle cx="570" cy="205" r="5" class="f-surf k-bad" stroke-width="2"/>
+            <text x="510" y="192" text-anchor="middle" font-size="11">t₀</text><text x="570" y="192" text-anchor="middle" font-size="11">t₁</text>
+            <text x="610" y="209" class="t-bad" font-size="12">None</text>
+            <text x="180" y="225" class="t-mut" font-size="11">t₀ beyond t_max: something nearer was already found</text>
+        </svg></div>
+        <figcaption>Picking the root. If <var>t</var>₀ is ahead, it's the hit. If only <var>t</var>₁ is ahead (the ray starts inside the sphere), <var>t</var>₁ is the hit, as long as it's not past <var>t</var><sub>max</sub>. Otherwise there is no hit and <code>intersect</code> returns <code>None</code>. If the discriminant is negative there are no roots at all: the line misses the sphere.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> intersect(&amp;<span class="k">self</span>, ray: &amp;Ray, t_max: f32) -&gt; Option&lt;QuadricIntersection&gt; {
+    <span class="k">let</span> oi = <span class="k">self</span>.render_from_object.apply_inverse(Point3fi::from(ray.o));
+    <span class="k">let</span> di = <span class="k">self</span>.render_from_object.apply_inverse(Vector3fi::from(ray.d));
+    <span class="k">let</span> (t0, t1) = <span class="k">self</span>.quadratic_roots(oi, di)?;          <span class="c">// None: the line misses</span>
+    <span class="k">if</span> t0.upper_bound() &gt; t_max || t1.lower_bound() &lt;= <span class="k">0.0</span> {
+        <span class="k">return</span> None;                                            <span class="c">// too far, or all behind</span>
+    }
+    <span class="k">let</span> t_shape_hit = <span class="k">if</span> t0.lower_bound() &gt; <span class="k">0.0</span> { t0 } <span class="k">else</span> { t1 };
+    <span class="k">if</span> t_shape_hit.upper_bound() &gt; t_max {
+        <span class="k">return</span> None;
+    }
+    <span class="k">let</span> t_hit = f32::from(t_shape_hit);
+    <span class="k">let</span> p_hit = Point3f::from(oi) + Vector3f::from(di) * t_hit;
+    <span class="k">let</span> p_obj = p_hit * (<span class="k">self</span>.radius / distance(p_hit, Point3f::default()));
+    Some(QuadricIntersection { t_hit, p_obj })
+}</pre>
+        <p>The <code>i</code> in <code>oi</code>, <code>di</code>, <code>Point3fi</code> stands for <em>interval</em>: every number carries its error bars. That is the subject of <a href="#robust">section 5</a>; for now read <code>lower_bound()</code> and <code>upper_bound()</code> as the number itself. The answer, a <code>QuadricIntersection</code>, holds <code>t_hit</code> and the hit point <code>p_obj</code> in the sphere's object space. pbrt-v4's version also holds the angle φ, which only partial spheres and the full surface interaction need; Umbra will add it with them.</p>
+        <p>The last line nudges the hit point onto the sphere. Rounding leaves <var>p</var><sub>hit</sub> a hair inside or outside. Scaling it so its distance from the centre is exactly <var>r</var> puts it back on the surface, far more precisely than the ray maths alone could.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">o′ = M⁻¹ o, &nbsp; d′ = M⁻¹ d</div><div class="mb-d"><b>Into object space.</b> <var>M</var> is <code>render_from_object</code>; <var>M</var>⁻¹ undoes it. <code>Transform::apply_inverse</code></div></div>
+        <div class="mb-row"><div class="mb-f">|o′ + t d′|² = r²</div><div class="mb-d"><b>On the sphere</b>: the point's squared distance from the centre 0 is the squared radius.</div></div>
+        <div class="mb-row"><div class="mb-f">a = d′·d′, &nbsp; b = 2 d′·o′, &nbsp; c = o′·o′ − r²</div><div class="mb-d"><b>The three coefficients</b>, from multiplying out (<var>o</var>′ + <var>t d</var>′)·(<var>o</var>′ + <var>t d</var>′) − <var>r</var>² = <var>a t</var>² + <var>b t</var> + <var>c</var>. <code>quadratic_roots</code>, private</div></div>
+        <div class="mb-row"><div class="mb-f">disc = b² − 4ac = 4a (r + |v|)(r − |v|),<br>v = o′ − (b ⁄ 2a) d′</div><div class="mb-d"><b>The discriminant</b>, in pbrt-v4's form. <var>v</var> runs from the centre to the point of the line nearest to it. Negative disc (|<var>v</var>| &gt; <var>r</var>): the line passes outside the sphere and the function returns <code>None</code>. Why this form: <a href="#robust">section 5</a>.</div></div>
+        <div class="mb-row"><div class="mb-f">q = −½ (b + sign(b) √disc), &nbsp; t₀, t₁ = q ⁄ a, c ⁄ q (sorted)</div><div class="mb-d"><b>The two roots</b>, the same as (−<var>b</var> ± √disc) ⁄ 2<var>a</var>, rearranged so that <var>b</var> and sign(<var>b</var>)√disc, which have the same sign, are added: a sum of same-signed numbers never cancels. (sign(<var>b</var>) is +1 for <var>b</var> ≥ 0, else −1.)</div></div>
+        <div class="mb-row"><div class="mb-f">t<sub>hit</sub> = t₀ if t₀ &gt; 0, else t₁; &nbsp; need 0 &lt; t<sub>hit</sub> ≤ t<sub>max</sub></div><div class="mb-d"><b>The nearest crossing ahead.</b> <code>Sphere::intersect</code></div></div>
+        <div class="mb-row"><div class="mb-f">p<sub>obj</sub> = p<sub>hit</sub> · r ⁄ |p<sub>hit</sub>|</div><div class="mb-d"><b>Snap onto the surface</b>: rescale the point to distance exactly <var>r</var> from the centre. <code>distance</code> in umbra-math</div></div>
+    </div>
+
+    <figure class="bench" id="ss">
+        <div class="controls">
+            <div class="ctl"><label for="ss-cx">sphere centre x</label><div class="row"><input id="ss-cx" type="range" min="-3" max="12" step="0.1" value="0"><output id="ss-cx-o" for="ss-cx"></output></div></div>
+            <div class="ctl"><label for="ss-r">radius r</label><div class="row"><input id="ss-r" type="range" min="0.25" max="3" step="0.05" value="1"><output id="ss-r-o" for="ss-r"></output></div></div>
+            <div class="ctl"><label for="ss-ang">ray angle</label><div class="row"><input id="ss-ang" type="range" min="-180" max="180" step="1" value="0"><output id="ss-ang-o" for="ss-ang"></output></div></div>
+            <div class="ctl"><label for="ss-len">length of d</label><div class="row"><input id="ss-len" type="range" min="0.5" max="2" step="0.05" value="1"><output id="ss-len-o" for="ss-len"></output></div></div>
+            <div class="ctl"><label for="ss-tmax">t_max</label><div class="row"><input id="ss-tmax" type="range" min="0.5" max="20" step="0.1" value="20"><output id="ss-tmax-o" for="ss-tmax"></output></div></div>
+        </div>
+        <div class="controls">
+            <div class="ctl"><span class="lbl">the crate's tests (turned onto the x axis)</span><div class="btns">
+                <button type="button" id="ss-near">near side</button>
+                <button type="button" id="ss-miss">miss</button>
+                <button type="button" id="ss-inside">from inside</button>
+                <button type="button" id="ss-short">t_max = 3</button>
+                <button type="button" id="ss-moved">moved sphere</button>
+                <button type="button" id="ss-rand" class="primary">random ray</button>
+            </div></div>
+        </div>
+        <div class="split even">
+            <div><p class="panel-title">render space, the plane z = 0 (drag the origin)</p><canvas id="ss-cv" class="cv-mid" aria-label="A sphere and a ray in the plane, with the hit point"></canvas></div>
+            <div><p class="panel-title">f(t) = a t² + b t + c, with 0 and t_max</p><canvas id="ss-q" class="cv-mid" aria-label="The quadratic in t with its roots"></canvas></div>
+        </div>
+        <dl class="readout" id="ss-read"></dl>
+        <figcaption>The figure follows <code>Sphere::intersect</code> step by step, in plain double precision without the error bars. The sphere's transform here is a translation by its centre, so object space is “subtract the centre”. Shaded parts of the <var>t</var> axis are where a root doesn't count: behind the origin, and past <var>t</var><sub>max</sub>. <b>Try:</b> “near side” gives <var>t</var><sub>hit</sub> = 4 and p_obj = (−1, 0, 0), as in the test. Lengthen <var>d</var> to 2 and <var>t</var><sub>hit</sub> halves: the same point is fewer, longer steps away.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="robust">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-geometry</span> · <a href="../src/sphere.rs">sphere.rs</a>, <a href="../src/ray.rs">ray.rs</a> · uses <span class="crate">umbra-math</span> <code>Interval</code>, <code>Point3fi</code> · PBR 4e §6.8.2, §6.8.6</div>
+        <h3>Rounding errors, kept in check</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Computers round every result to a nearby number they can store. Usually that doesn't matter. In a hit test it can: a ray leaving a surface may “hit” the very surface it is leaving, because rounding put its start a hair behind it. The result is black speckles in the image. Umbra avoids this in three ways: it computes the discriminant in a form that rounds less, it carries error bars on every number and only says “ahead of the ray” when it is sure, and it starts moved rays slightly forward, past their own error.</div>
+
+    <h4>1 · A discriminant that rounds less</h4>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 230" class="dg-wide" role="img" aria-label="Subtracting two huge nearly equal numbers loses the small difference; the alternative form multiplies small numbers">
+            <text x="20" y="24" class="t-bold">b² − 4ac: two huge numbers, nearly equal</text>
+            <rect x="20" y="40" width="560" height="18" class="f-acc-soft k-acc"/>
+            <text x="590" y="54">b²</text>
+            <rect x="20" y="64" width="554" height="18" class="f-mut-soft k-mut"/>
+            <text x="590" y="78">4ac</text>
+            <rect x="574" y="64" width="6" height="18" class="f-warm"/>
+            <path d="M520 96 V104 M540 96 V104 M560 96 V104 M580 96 V104 M600 96 V104" class="k-bad" stroke-width="1.5"/>
+            <text x="20" y="104" class="t-bad" font-size="12">what is left (amber) is smaller than the gap between storable numbers (red ticks)</text>
+            <text x="20" y="150" class="t-bold">4a (r + |v|)(r − |v|): only small numbers</text>
+            <rect x="20" y="166" width="80" height="18" class="f-warm-soft k-warm"/>
+            <text x="110" y="180">r</text>
+            <rect x="20" y="190" width="40" height="18" class="f-warm-soft k-warm"/>
+            <text x="70" y="204">|v|</text>
+            <text x="160" y="190" class="t-ok" font-size="12">r and |v| are about the sphere's size, wherever the ray starts:</text>
+            <text x="160" y="208" class="t-ok" font-size="12">their difference keeps its digits</text>
+        </svg></div>
+        <figcaption>Both formulas are equal on paper. The classic one subtracts two numbers that grow with the square of the distance to the sphere, so a small sphere far away leaves almost nothing after the subtraction, and the rounding of the big numbers swamps it. pbrt-v4's form works with the radius and the ray's closest distance to the centre, both small.</figcaption>
+    </figure>
+
+    <figure class="bench" id="fp">
+        <div class="controls">
+            <div class="ctl"><label for="fp-L">distance to sphere (log₁₀)</label><div class="row"><input id="fp-L" type="range" min="0.3" max="4" step="0.01" value="3.5"><output id="fp-L-o" for="fp-L"></output></div></div>
+            <div class="ctl"><label for="fp-r">radius r</label><div class="row"><input id="fp-r" type="range" min="0.1" max="2" step="0.05" value="1"><output id="fp-r-o" for="fp-r"></output></div></div>
+            <div class="ctl"><label for="fp-h">miss distance |v| ⁄ r</label><div class="row"><input id="fp-h" type="range" min="0" max="1.2" step="0.01" value="0.5"><output id="fp-h-o" for="fp-h"></output></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">relative error of the discriminant in f32, against distance</p>
+                <canvas id="fp-cv" class="cv-wide" aria-label="Relative error of two discriminant formulas against distance"></canvas>
+                <div class="legend" style="margin-top:0.4rem">
+                    <span style="--sw: var(--err)">b² − 4ac</span>
+                    <span style="--sw: var(--accent)">4a(r + |v|)(r − |v|)</span>
+                    <span style="--sw: var(--muted)">this distance</span>
+                </div>
+            </div>
+            <div class="tablewrap"><table class="data" id="fp-tab"></table></div>
+        </div>
+        <figcaption>A ray along +<var>x</var> from (−<var>L</var>, |<var>v</var>|, 0) toward a sphere of radius <var>r</var> at the origin. Each formula is computed in <code>f32</code>, rounding after every operation as plain <code>f32</code> code would. Umbra's intervals carry error bars around such values; the figure leaves those out. The exact value is 4(<var>r</var>² − |<var>v</var>|²). Points at the bottom of the chart are exact. <b>Try:</b> at <var>L</var> = 10⁴ the classic formula gives 0 instead of 3: the hit point lands almost one unit off on a sphere of radius 1. Then push |<var>v</var>| ⁄ <var>r</var> just past 1, so the ray truly misses: at many distances the classic formula reports a touch (0) instead of a miss.</figcaption>
+    </figure>
+
+    <h4>2 · Error bars on t</h4>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 200" class="dg-wide" role="img" aria-label="Root intervals compared with zero and t_max">
+            <line x1="140" y1="20" x2="140" y2="180" class="k-ink" stroke-width="1.5"/>
+            <text x="140" y="196" text-anchor="middle">0</text>
+            <line x1="500" y1="20" x2="500" y2="180" class="k-acc" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="500" y="196" text-anchor="middle" class="t-acc">t_max</text>
+            <line x1="20" y1="50" x2="620" y2="50" class="k-mut"/>
+            <rect x="210" y="42" width="40" height="16" rx="3" class="f-ok-soft k-ok"/>
+            <text x="230" y="34" text-anchor="middle" font-size="11">t₀</text>
+            <text x="270" y="54" font-size="12" class="t-ok">low end &gt; 0: safely ahead, keep it</text>
+            <line x1="20" y1="100" x2="620" y2="100" class="k-mut"/>
+            <rect x="120" y="92" width="40" height="16" rx="3" class="f-bad-soft k-bad"/>
+            <text x="140" y="84" text-anchor="middle" font-size="11">t₀</text>
+            <text x="180" y="104" font-size="12" class="t-bad">straddles 0: maybe behind, so use t₁ instead</text>
+            <line x1="20" y1="150" x2="620" y2="150" class="k-mut"/>
+            <rect x="480" y="142" width="40" height="16" rx="3" class="f-bad-soft k-bad"/>
+            <text x="500" y="134" text-anchor="middle" font-size="11">t₀</text>
+            <text x="200" y="154" font-size="12" class="t-bad">high end past t_max: not reported</text>
+        </svg></div>
+        <figcaption>Each root is an <code>Interval</code>, a range the true root is certain to be in. Every test is written so that a doubtful case answers “no”: <var>t</var>₀ counts as ahead only if its <em>lower</em> bound is above 0, and as within reach only if its <em>upper</em> bound is at most <var>t</var><sub>max</sub>. A reported hit is therefore never behind the ray's origin.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>The error bars start at the ray. <code>Point3fi::from(ray.o)</code> makes an interval of zero width (the origin is taken as exact), and <code>apply_inverse</code> widens it by the rounding of the matrix maths. Every <code>+</code>, <code>×</code> and <code>sqrt</code> on <code>Interval</code>s rounds its lower bound down and its upper bound up, so the true value never escapes. At the end, <code>f32::from(t_shape_hit)</code> takes the interval's midpoint as the answer. The rules of interval arithmetic are in the math guide's <a href="../../umbra-math/docs/math-guide.html#intervals">section 3</a>.</p>
+    </div>
+
+    <h4>3 · Moving a ray without moving it backwards</h4>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 220" class="dg-wide" role="img" aria-label="A transformed ray origin with its error box is pushed forward along the direction to the far edge of the box">
+            <path d="M20 170 Q 200 140 380 170" class="k-ink" fill="none" stroke-width="2"/>
+            <text x="30" y="196" class="t-mut">a surface</text>
+            <rect x="170" y="128" width="60" height="44" class="f-bad-soft k-bad" stroke-dasharray="4 3"/>
+            <circle cx="200" cy="150" r="5" class="f-ink"/>
+            <text x="120" y="120" class="t-bad" font-size="12">error box of the moved origin</text>
+            <line x1="200" y1="150" x2="226" y2="124" class="k-warm" stroke-width="2" marker-end="url(#ah-warm)"/>
+            <circle cx="230" cy="120" r="5" class="f-warm k-ink"/>
+            <line x1="230" y1="120" x2="330" y2="20" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="248" y="122" class="t-warm" font-size="12">shifted by d·dt</text>
+            <text x="300" y="50" class="t-acc">d</text>
+            <text x="420" y="60">dt = (|d| · e) ⁄ |d|²</text>
+            <text x="420" y="84" class="t-mut" font-size="12">e: the origin's error per axis</text>
+            <text x="420" y="104" class="t-mut" font-size="12">|d|: d with every part made positive</text>
+            <text x="420" y="140">o ← o + d·dt</text>
+            <text x="420" y="164" class="t-mut" font-size="12">the start moves to the far edge</text>
+            <text x="420" y="182" class="t-mut" font-size="12">of its error box, along d</text>
+        </svg></div>
+        <figcaption><code>Ray::transform</code>, used for example when the camera moves its rays into rendering space. Transforming the origin rounds it, so it is really somewhere in the red box, perhaps behind the surface it should start on. Sliding the start forward along <var>d</var> until it clears the box removes that doubt. This is pbrt-v4's rule, and it is why a transformed ray starts very slightly further along.</figcaption>
+    </figure>
+<pre class="code"><span class="k">pub fn</span> transform(&amp;<span class="k">self</span>, t: &amp;Transform) -&gt; Self {
+    <span class="k">let mut</span> o = t.apply(Point3fi::from(<span class="k">self</span>.o));
+    <span class="k">let</span> d = t.apply(<span class="k">self</span>.d);
+    <span class="k">let</span> length_squared = d.length_squared();
+    <span class="k">if</span> length_squared &gt; <span class="k">0.0</span> {
+        <span class="k">let</span> dt = dot(d.abs(), Vector3f::from(o.error())) / length_squared;
+        o += Vector3fi::from(d * dt);
+    }
+    Self::new(Point3f::from(o), d)
+}</pre>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">ULP(x) ≈ |x| · 2⁻²³</div><div class="mb-d"><b>The gap between neighbouring <code>f32</code> numbers near <var>x</var></b>. It grows with <var>x</var>. When <var>b</var>² ≈ 4<var>L</var>² is huge, its gap can exceed the whole discriminant.</div></div>
+        <div class="mb-row"><div class="mb-f">b² − 4ac = 4a (r² − |v|²) = 4a (r + |v|)(r − |v|)</div><div class="mb-d"><b>Same value, safer form.</b> <var>r</var>² − |<var>v</var>|² is the squared half-length of the chord inside the sphere (Pythagoras). <code>quadratic_roots</code></div></div>
+        <div class="mb-row"><div class="mb-f">[a, b] ∘ [c, d] ⊆ [low ↓, high ↑]</div><div class="mb-d"><b>Interval arithmetic.</b> Any operation ∘ gives an interval containing every possible result, with the low end rounded down and the high end rounded up. <code>Interval</code> in umbra-math</div></div>
+        <div class="mb-row"><div class="mb-f">ahead ⇔ low(t₀) &gt; 0; &nbsp; in reach ⇔ high(t) ≤ t<sub>max</sub></div><div class="mb-d"><b>Safe comparisons.</b> <code>lower_bound</code>, <code>upper_bound</code></div></div>
+        <div class="mb-row"><div class="mb-f">e = half-width of each component of o</div><div class="mb-d"><b>The origin's error</b> per axis. <code>Point3fi::error</code></div></div>
+        <div class="mb-row"><div class="mb-f">dt = (|d<sub>x</sub>| e<sub>x</sub> + |d<sub>y</sub>| e<sub>y</sub> + |d<sub>z</sub>| e<sub>z</sub>) ⁄ |d|², &nbsp; o ← o + d·dt</div><div class="mb-d"><b>How far to slide the start.</b> Just enough along <var>d</var> to clear the error box. <code>Ray::transform</code></div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="handles">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-geometry</span> · <a href="../src/handle.rs">handle.rs</a> · <code>Handle&lt;T&gt;</code> · <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a></div>
+        <h3>Numbers instead of pointers</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Scene objects point at each other: a shape names its material, a light names its shape. In many programs that “naming” is a memory address. Umbra instead keeps all objects of one type in one numbered list, an <em>arena</em>, and names an object by its position in the list. That name is a <code>Handle</code>. Numbers can be copied to another machine or a GPU and still mean the same thing; memory addresses can't.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 700 260" class="dg-wide" role="img" aria-label="Objects linked by pointers across memory compared with arenas linked by typed indices">
+            <text x="160" y="22" text-anchor="middle" class="t-bold">pointers (not used)</text>
+            <rect x="30" y="50" width="80" height="34" rx="4" class="f-surf k-mut"/><text x="70" y="72" text-anchor="middle" font-size="12">shape</text>
+            <rect x="200" y="110" width="80" height="34" rx="4" class="f-surf k-mut"/><text x="240" y="132" text-anchor="middle" font-size="12">material</text>
+            <rect x="60" y="170" width="80" height="34" rx="4" class="f-surf k-mut"/><text x="100" y="192" text-anchor="middle" font-size="12">light</text>
+            <path d="M110 70 C 170 70, 200 90, 220 108" class="k-mut" fill="none" marker-end="url(#ah-mut)"/>
+            <path d="M100 168 C 100 130, 70 110, 70 88" class="k-mut" fill="none" marker-end="url(#ah-mut)"/>
+            <text x="160" y="232" text-anchor="middle" class="t-mut" font-size="12">0x7f3a…: 8 bytes, valid only</text>
+            <text x="160" y="248" text-anchor="middle" class="t-mut" font-size="12">in this process's memory</text>
+
+            <text x="510" y="22" text-anchor="middle" class="t-bold">arenas and handles (Umbra)</text>
+            <text x="350" y="62" font-size="12">spheres</text>
+            <rect x="420" y="44" width="60" height="28" class="f-surf k-ink"/><rect x="480" y="44" width="60" height="28" class="f-warm-soft k-warm" stroke-width="2"/><rect x="540" y="44" width="60" height="28" class="f-surf k-ink"/>
+            <text x="450" y="63" text-anchor="middle" font-size="12">0</text><text x="510" y="63" text-anchor="middle" font-size="12">1</text><text x="570" y="63" text-anchor="middle" font-size="12">2</text>
+            <text x="350" y="122" font-size="12">materials</text>
+            <rect x="420" y="104" width="60" height="28" class="f-surf k-ink"/><rect x="480" y="104" width="60" height="28" class="f-surf k-ink"/><rect x="540" y="104" width="60" height="28" class="f-acc-soft k-acc" stroke-width="2"/>
+            <text x="450" y="123" text-anchor="middle" font-size="12">0</text><text x="510" y="123" text-anchor="middle" font-size="12">1</text><text x="570" y="123" text-anchor="middle" font-size="12">2</text>
+            <rect x="380" y="160" width="300" height="34" rx="4" class="f-surf k-ink"/>
+            <text x="530" y="182" text-anchor="middle" font-size="12">a record: sphere 1, material 2</text>
+            <path d="M470 160 C 470 120, 500 90, 508 74" class="k-warm" fill="none" stroke-width="1.5" marker-end="url(#ah-warm)"/>
+            <path d="M600 160 C 600 150, 580 140, 572 134" class="k-acc" fill="none" stroke-width="1.5" marker-end="url(#ah-acc)"/>
+            <text x="530" y="222" text-anchor="middle" font-size="12">Handle&lt;Sphere&gt;(1), Handle&lt;Material&gt;(2): 4 bytes each</text>
+            <text x="530" y="242" text-anchor="middle" class="t-mut" font-size="12">same meaning on every Worker and on the GPU</text>
+        </svg></div>
+        <figcaption>Left: objects scattered across memory, linked by addresses. Right: one arena per type, and links that are just positions. The type in the angle brackets is part of the handle's type, so the compiler refuses to look up a <code>Handle&lt;Sphere&gt;</code> in the materials arena, even though both are plain numbers underneath. (The arena itself, <code>Arena&lt;T&gt;</code>, lives in <code>umbra-scene</code>.)</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>A <code>Handle&lt;T&gt;</code> is a <code>u32</code>, and nothing more at run time:</p>
+<pre class="code"><span class="k">#[repr(transparent)]</span>
+<span class="k">pub struct</span> Handle&lt;T&gt; {
+    index: u32,
+    target: PhantomData&lt;<span class="k">fn</span>() -&gt; T&gt;,   <span class="c">// zero bytes: only remembers T for the compiler</span>
+}
+
+<span class="k">let</span> h: Handle&lt;Sphere&gt; = Handle::new(<span class="k">1</span>);
+<span class="k">let</span> i: usize = h.into();   <span class="c">// From&lt;Handle&lt;T&gt;&gt; for usize: index into a slice</span></pre>
+        <p><code>new</code> makes one from an index, <code>index()</code> gives the number back, and <code>usize::from</code> turns it into a slice index. Only the Scene builder mints handles (ADR 0008), so a handle always names an object that was really added to that Scene. A handle from one Scene used in another is not caught: the type system knows the object type, not which Scene. ADR 0008 lists that as an accepted cost. Following a handle costs one indexed load and one bounds check.</p>
+        <p>This crate holds <code>Handle</code> even though it has no arena: the hit records it will produce will name their Material, area Light and Medium by handle, and the type belongs to the lowest crate that needs it.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">object = arena[handle.index()]</div><div class="mb-d"><b>Following a handle</b> is looking up a list position. <code>Handle::index</code>, <code>From&lt;Handle&lt;T&gt;&gt; for usize</code></div></div>
+        <div class="mb-row"><div class="mb-f">0 ≤ index ≤ 2³² − 1</div><div class="mb-d"><b>The range of a <code>u32</code></b>: about 4.3 billion objects of one type per Scene. The Scene's validation rejects more (ADR 0008).</div></div>
+        <div class="mb-row"><div class="mb-f">size_of::&lt;Handle&lt;T&gt;&gt;() = 4</div><div class="mb-d"><b>Half a pointer.</b> <code>#[repr(transparent)]</code> makes the handle exactly its <code>u32</code>; <code>PhantomData</code> takes no space.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-geometry</code> is a core crate: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects, so the same code runs on the CPU and, compiled for <code>nvptx64</code>, on the GPU (ADR 0014, ADR 0015, ADR 0028). It covers parts of PBR 4e chapters 3, 6 and 7, and so far only what the GPU tracer bullet (<a href="https://github.com/sergioffpc/umbra/issues/126">#126</a>) and the camera (<a href="https://github.com/sergioffpc/umbra/issues/77">#77</a>) need.</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-geometry</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a> · <a href="../Cargo.toml">Cargo.toml</a></div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 330" class="dg-wide" role="img" aria-label="The four modules of umbra-geometry, the crates below it and the crates that use it">
+            <!-- users -->
+            <text x="20" y="22" class="t-mut" font-size="12">used by</text>
+            <rect x="20" y="32" width="150" height="34" rx="4" class="f-surf k-mut"/><text x="95" y="54" text-anchor="middle" font-size="12">umbra-camera</text>
+            <rect x="185" y="32" width="150" height="34" rx="4" class="f-surf k-mut"/><text x="260" y="54" text-anchor="middle" font-size="12">umbra-shading</text>
+            <rect x="350" y="32" width="150" height="34" rx="4" class="f-surf k-mut"/><text x="425" y="54" text-anchor="middle" font-size="12">umbra-integrators</text>
+            <rect x="515" y="32" width="170" height="34" rx="4" class="f-surf k-mut"/><text x="600" y="54" text-anchor="middle" font-size="12">umbra-kernels (GPU)</text>
+            <rect x="700" y="32" width="180" height="34" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="790" y="54" text-anchor="middle" font-size="12">umbra-scene, umbra-gpu</text>
+            <line x1="450" y1="72" x2="450" y2="96" class="k-mut" marker-end="url(#ah-mut)"/>
+            <!-- the crate -->
+            <rect x="20" y="100" width="860" height="150" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="34" y="124" class="t-bold">umbra-geometry</text>
+            <rect x="40" y="138" width="190" height="96" rx="6" class="f-surf k-ink"/>
+            <text x="54" y="160" class="t-bold">ray.rs</text>
+            <text x="54" y="184" font-size="12">Ray</text>
+            <text x="54" y="204" font-size="12" class="t-mut">at · transform</text>
+            <rect x="245" y="138" width="190" height="96" rx="6" class="f-surf k-ink"/>
+            <text x="259" y="160" class="t-bold">bounds.rs</text>
+            <text x="259" y="184" font-size="12">Bounds3f · Bounds2f</text>
+            <text x="259" y="204" font-size="12" class="t-mut">new · transform · lerp</text>
+            <rect x="450" y="138" width="210" height="96" rx="6" class="f-surf k-ink"/>
+            <text x="464" y="160" class="t-bold">sphere.rs</text>
+            <text x="464" y="184" font-size="12">Sphere</text>
+            <text x="464" y="204" font-size="12">QuadricIntersection</text>
+            <text x="464" y="224" font-size="12" class="t-mut">intersect · bounds</text>
+            <rect x="675" y="138" width="190" height="96" rx="6" class="f-surf k-ink"/>
+            <text x="689" y="160" class="t-bold">handle.rs</text>
+            <text x="689" y="184" font-size="12">Handle&lt;T&gt;</text>
+            <text x="689" y="204" font-size="12" class="t-mut">new · index</text>
+            <path d="M450 186 H436" class="k-ink" marker-end="url(#ah-ink)"/>
+            <path d="M555 136 C 555 112, 140 112, 140 134" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <!-- below -->
+            <line x1="450" y1="252" x2="450" y2="276" class="k-mut" marker-end="url(#ah-mut)"/>
+            <rect x="250" y="280" width="190" height="34" rx="4" class="f-surf k-mut"/><text x="345" y="302" text-anchor="middle" font-size="12">umbra-math</text>
+            <rect x="460" y="280" width="190" height="34" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="555" y="302" text-anchor="middle" font-size="12">umbra-sampling</text>
+            <text x="20" y="302" class="t-mut" font-size="12">depends on</text>
+            <text x="665" y="302" class="t-mut" font-size="11">declared, not used yet</text>
+        </svg></div>
+        <figcaption>Four modules, everything re-exported at the crate root. <code>sphere.rs</code> uses the other two geometry modules: <code>Sphere::bounds</code> returns a <code>Bounds3f</code> and <code>Sphere::intersect</code> takes a <code>Ray</code>. <code>handle.rs</code> stands alone. The <code>umbra-sampling</code> dependency is declared now, for the arc42 layering, and kept alive by a <code>use umbra_sampling as _;</code> until code needs it.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>type or function</th><th>what it is</th><th>pbrt-v4 name</th></tr></thead>
+            <tbody>
+                <tr><td><code>Ray</code></td><td>origin <code>o</code> and direction <code>d</code></td><td><code>Ray</code> (<code>ray.h</code>), without <code>time</code>, <code>medium</code></td></tr>
+                <tr><td><code>Ray::at</code></td><td>the point <var>o</var> + <var>t d</var></td><td><code>Ray::operator()</code></td></tr>
+                <tr><td><code>Ray::transform</code></td><td>moved ray, origin pushed past its error</td><td><code>Transform::operator()(const Ray &amp;)</code></td></tr>
+                <tr><td><code>Bounds3f</code>, <code>Bounds3f::new</code></td><td>3D box from two corners</td><td><code>Bounds3f</code>, <code>Bounds3(Point3, Point3)</code></td></tr>
+                <tr><td><code>Bounds3f::transform</code></td><td>box around the 8 moved corners</td><td><code>Transform::operator()(const Bounds3f &amp;)</code></td></tr>
+                <tr><td><code>Bounds2f</code>, <code>Bounds2f::new</code></td><td>2D rectangle from two corners</td><td><code>Bounds2f</code>, <code>Bounds2(Point2, Point2)</code></td></tr>
+                <tr><td><code>Bounds2f::lerp</code></td><td>point at fractions across the rectangle</td><td><code>Bounds2::Lerp</code></td></tr>
+                <tr><td><code>Sphere</code>, <code>Sphere::new</code></td><td>full sphere: transform and radius</td><td><code>Sphere</code> (<code>shapes.h</code>), full spheres only</td></tr>
+                <tr><td><code>Sphere::bounds</code></td><td>its box in render space</td><td><code>Sphere::Bounds</code></td></tr>
+                <tr><td><code>Sphere::intersect</code></td><td>nearest hit in (0, <var>t</var><sub>max</sub>]</td><td><code>Sphere::BasicIntersect</code></td></tr>
+                <tr><td><code>QuadricIntersection</code></td><td><code>t_hit</code>, <code>p_obj</code></td><td><code>QuadricIntersection</code>, without <code>phi</code></td></tr>
+                <tr><td><code>Handle&lt;T&gt;</code></td><td>typed <code>u32</code> index into a Scene arena</td><td>none: pbrt-v4 uses pointers (ADR 0008)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="topic" id="one-core">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-geometry</span> · <a href="../src/sphere.rs">sphere.rs</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a>, <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
+        <h3>One sphere test for the CPU and the GPU</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra renders on processors and on graphics cards. Rather than write the sphere test twice, once per machine, it writes it once as a plain function: values in, a value out, nothing shared, nothing allocated. The CPU calls it directly. On the GPU, NVIDIA's OptiX ray tracer asks “does this ray hit your custom shape?”, and Umbra answers by calling the very same function.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 200" class="dg-wide" role="img" aria-label="One Sphere::intersect called from the CPU and from the OptiX intersection program">
+            <rect x="270" y="60" width="220" height="70" rx="8" class="f-acc-soft k-acc" stroke-width="1.8"/>
+            <text x="380" y="88" text-anchor="middle" class="t-bold">Sphere::intersect</text>
+            <text x="380" y="110" text-anchor="middle" font-size="12" class="t-mut">(&amp;Sphere, &amp;Ray, f32) → Option</text>
+            <rect x="20" y="70" width="180" height="50" rx="6" class="f-surf k-ink"/>
+            <text x="110" y="92" text-anchor="middle" font-size="12">CPU code</text>
+            <text x="110" y="110" text-anchor="middle" font-size="12" class="t-mut">x86_64, calls it directly</text>
+            <line x1="200" y1="95" x2="266" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="560" y="60" width="180" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="650" y="84" text-anchor="middle" font-size="12">umbra-kernels</text>
+            <text x="650" y="102" text-anchor="middle" font-size="12" class="t-mut">__intersection__sphere</text>
+            <text x="650" y="120" text-anchor="middle" font-size="12" class="t-mut">nvptx64, from OptiX</text>
+            <line x1="558" y1="95" x2="494" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="650" y="160" text-anchor="middle" font-size="12">reports hit.t_hit to OptiX</text>
+            <text x="380" y="170" text-anchor="middle" class="t-mut" font-size="12">compiled twice from one source by upstream rustc</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+        <p>ADR 0028's rule is “the core works on values”: each step of a path is a function that takes and returns <code>Copy</code> values and never touches a queue, a buffer or a thread index. <code>Sphere::intersect</code> fits it: it reads a <code>Sphere</code> and a <code>Ray</code>, both <code>Copy</code>, and returns an <code>Option&lt;QuadricIntersection&gt;</code>. It follows pbrt-v4's <code>BasicIntersect</code> operation for operation, interval arithmetic included, so the GPU gets the same guarantee that no hit is reported behind the ray's origin. <code>umbra-gpu</code>'s GPU tests check the GPU's answers against <code>Sphere::intersect</code> run on the CPU.</p>
+    </div>
+</section>
+
+<section class="topic" id="layout">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-geometry</span> · <a href="../src/bounds.rs">bounds.rs</a>, <a href="../src/sphere.rs">sphere.rs</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>Fixed byte layouts</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Spheres and boxes are stored in the Scene and copied to the graphics card as raw bytes, without translation. That only works if both machines agree on where each field sits inside those bytes. Rust normally may reorder fields as it likes, so Umbra pins the order with <code>#[repr(C)]</code> and writes down the expected sizes and positions as checks that stop the build if they are ever wrong.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 220" class="dg-wide" role="img" aria-label="Byte layouts of Bounds3f, 24 bytes, and Sphere, 272 bytes">
+            <text x="20" y="24" class="t-bold">Bounds3f · 24 bytes, align 4</text>
+            <rect x="20" y="36" width="65" height="34" class="f-acc-soft k-acc"/><rect x="85" y="36" width="65" height="34" class="f-acc-soft k-acc"/><rect x="150" y="36" width="65" height="34" class="f-acc-soft k-acc"/>
+            <rect x="215" y="36" width="65" height="34" class="f-warm-soft k-warm"/><rect x="280" y="36" width="65" height="34" class="f-warm-soft k-warm"/><rect x="345" y="36" width="65" height="34" class="f-warm-soft k-warm"/>
+            <text x="52" y="58" text-anchor="middle" font-size="12">x</text><text x="117" y="58" text-anchor="middle" font-size="12">y</text><text x="182" y="58" text-anchor="middle" font-size="12">z</text>
+            <text x="247" y="58" text-anchor="middle" font-size="12">x</text><text x="312" y="58" text-anchor="middle" font-size="12">y</text><text x="377" y="58" text-anchor="middle" font-size="12">z</text>
+            <text x="117" y="88" text-anchor="middle" class="t-acc" font-size="12">p_min</text><text x="312" y="88" text-anchor="middle" class="t-warm" font-size="12">p_max</text>
+            <text x="20" y="104" class="t-mut" font-size="11">0</text><text x="215" y="104" text-anchor="middle" class="t-mut" font-size="11">12</text><text x="410" y="104" text-anchor="middle" class="t-mut" font-size="11">24</text>
+
+            <text x="20" y="140" class="t-bold">Sphere · 272 bytes, align 16</text>
+            <rect x="20" y="152" width="160" height="34" class="f-acc-soft k-acc"/><rect x="180" y="152" width="160" height="34" class="f-acc-soft k-acc"/>
+            <rect x="340" y="152" width="160" height="34" class="f-mut-soft k-mut"/><rect x="500" y="152" width="160" height="34" class="f-mut-soft k-mut"/>
+            <rect x="660" y="152" width="40" height="34" class="f-warm-soft k-warm"/>
+            <rect x="700" y="152" width="120" height="34" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="100" y="174" text-anchor="middle" font-size="12">m</text><text x="260" y="174" text-anchor="middle" font-size="12">m_inv</text>
+            <text x="420" y="174" text-anchor="middle" font-size="12">m by column</text><text x="580" y="174" text-anchor="middle" font-size="12">m_inv by column</text>
+            <text x="680" y="174" text-anchor="middle" font-size="11">r</text><text x="760" y="174" text-anchor="middle" font-size="12" class="t-mut">padding</text>
+            <path d="M20 194 V200 H660 V194" class="k-acc" fill="none"/>
+            <text x="340" y="214" text-anchor="middle" class="t-acc" font-size="12">render_from_object: Transform, 256</text>
+            <text x="660" y="214" text-anchor="middle" class="t-mut" font-size="11">256</text><text x="700" y="214" text-anchor="middle" class="t-mut" font-size="11">260</text><text x="820" y="214" text-anchor="middle" class="t-mut" font-size="11">272</text>
+        </svg></div>
+        <figcaption>Byte maps (not to scale). A <code>Transform</code> keeps its matrix and its inverse, each a second time by column for fast vector maths; that's 4 × 64 bytes. The radius follows at byte 256. The whole sphere must be a multiple of 16 bytes, its alignment, so 12 bytes of padding close it.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">#[repr(C)]</span>
+<span class="k">pub struct</span> Sphere {
+    render_from_object: Transform,
+    radius: f32,
+}
+
+<span class="k">const</span> _: () = {
+    <span class="k">use</span> core::mem::offset_of;
+    <span class="k">assert!</span>(size_of::&lt;Sphere&gt;() == <span class="k">272</span>, <span class="c">"..."</span>);
+    <span class="k">assert!</span>(align_of::&lt;Sphere&gt;() == <span class="k">16</span>, <span class="c">"..."</span>);
+    <span class="k">assert!</span>(offset_of!(Sphere, render_from_object) == <span class="k">0</span>, <span class="c">"..."</span>);
+    <span class="k">assert!</span>(offset_of!(Sphere, radius) == <span class="k">256</span>, <span class="c">"..."</span>);
+};</pre>
+        <p>The <code>const _</code> block runs at compile time, on both targets. If a field were added, reordered or resized, the build would stop with the message in the assertion rather than the GPU quietly reading the wrong bytes. <code>Bounds3f</code> has the same kind of block: 24 bytes, aligned to 4, <code>p_min</code> at byte 0 and <code>p_max</code> at 12. <code>Ray</code> is different: it is made fresh per Pixel Sample and never stored in an arena, so it keeps Rust's default layout. <code>Bounds2f</code> isn't stored in an arena either and has no layout block.</p>
+    </div>
+</section>
+
+<section class="topic" id="handle-impl">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-geometry</span> · <a href="../src/handle.rs">handle.rs</a></div>
+        <h3>A handle's traits, written by hand</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A handle is a number, so copying, comparing and sorting it should always work, whatever it points to. Rust's shortcut for adding those abilities, <code>#[derive]</code>, would quietly demand them of the pointed-to type too. So <code>handle.rs</code> spells each one out, comparing just the numbers.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 700 170" class="dg-wide" role="img" aria-label="Derive adds a bound on T; the hand-written impl does not">
+            <text x="170" y="22" text-anchor="middle" class="t-bold">#[derive(Clone, Copy)] (not used)</text>
+            <rect x="30" y="40" width="280" height="44" rx="6" class="f-surf k-mut"/>
+            <text x="170" y="67" text-anchor="middle" font-size="12">impl&lt;T: Clone&gt; Clone for Handle&lt;T&gt;</text>
+            <text x="170" y="110" text-anchor="middle" class="t-bad" font-size="12">Handle&lt;Material&gt; isn't Copy</text>
+            <text x="170" y="128" text-anchor="middle" class="t-bad" font-size="12">unless Material is</text>
+            <text x="520" y="22" text-anchor="middle" class="t-bold">by hand (Umbra)</text>
+            <rect x="380" y="40" width="280" height="44" rx="6" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="520" y="67" text-anchor="middle" font-size="12">impl&lt;T&gt; Clone for Handle&lt;T&gt;</text>
+            <text x="520" y="110" text-anchor="middle" class="t-ok" font-size="12">every handle is Copy, Eq, Ord, Hash</text>
+            <text x="520" y="128" text-anchor="middle" class="t-ok" font-size="12">compares only the index</text>
+            <text x="350" y="160" text-anchor="middle" class="t-mut" font-size="12">Debug prints Handle(3); PartialOrd delegates to Ord</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="c">// Implemented by hand: deriving them would require `T` to implement them</span>
+<span class="c">// too, and a handle is a `u32` whatever it points to.</span>
+<span class="k">impl</span>&lt;T&gt; Clone <span class="k">for</span> Handle&lt;T&gt; { <span class="k">fn</span> clone(&amp;<span class="k">self</span>) -&gt; Self { *<span class="k">self</span> } }
+<span class="k">impl</span>&lt;T&gt; Copy <span class="k">for</span> Handle&lt;T&gt; {}
+<span class="k">impl</span>&lt;T&gt; PartialEq <span class="k">for</span> Handle&lt;T&gt; { <span class="k">fn</span> eq(&amp;<span class="k">self</span>, other: &amp;Self) -&gt; bool { <span class="k">self</span>.index == other.index } }
+<span class="c">// … Eq, PartialOrd, Ord, Hash, Debug the same way</span></pre>
+        <p>The marker field is <code>PhantomData&lt;fn() -&gt; T&gt;</code>, not <code>PhantomData&lt;T&gt;</code>. The plain form would tell the compiler that a handle <em>owns</em> a <code>T</code>, which affects whether a handle may cross threads. The function-pointer form says only “this produces a <code>T</code>”, so a handle is safe to share between threads whatever <code>T</code> is, as a <code>u32</code> should be. The conversion to <code>usize</code> uses <code>TryFrom</code> with an <code>expect</code>, since a <code>u32</code> always fits in a <code>usize</code> on Umbra's 64-bit targets.</p>
+    </div>
+</section>
+
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-geometry</span> · <a href="../tests/umbra_geometry/sphere.rs">tests/umbra_geometry/sphere.rs</a></div>
+        <h3>Worked examples as tests</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Each test is a small example you could check with pencil and paper: a ray, a sphere, and the distance you'd expect. The sphere figure in <a href="#sphere">section 4</a> has a button for each.</div>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>test</th><th>ray and sphere</th><th>expected</th></tr></thead>
+            <tbody>
+                <tr><td><code>ray_towards_the_centre_hits_the_near_side</code></td><td>(0, 0, −5) along +<var>z</var>, unit sphere</td><td><var>t</var><sub>hit</sub> = 4, p_obj = (0, 0, −1)</td></tr>
+                <tr><td><code>ray_off_the_sphere_misses</code></td><td>(0, 2, −5) along +<var>z</var>, unit sphere</td><td><code>None</code></td></tr>
+                <tr><td><code>ray_from_inside_hits_the_far_side</code></td><td>(0, 0, 0) along +<var>x</var>, unit sphere</td><td><var>t</var><sub>hit</sub> = 1, p_obj = (1, 0, 0)</td></tr>
+                <tr><td><code>hit_beyond_t_max_is_not_reported</code></td><td>as the first, <var>t</var><sub>max</sub> = 3</td><td><code>None</code></td></tr>
+                <tr><td><code>moved_sphere_is_hit_in_render_space</code></td><td>(0, 0, 0) along +<var>x</var>, radius 2 at <var>x</var> = 10</td><td><var>t</var><sub>hit</sub> = 8, p_obj = (−2, 0, 0)</td></tr>
+                <tr><td><code>moved_sphere_bounds_surround_it_in_render_space</code></td><td>radius 2 at <var>x</var> = 10</td><td>box (8, −2, −2) to (12, 2, 2)</td></tr>
+                <tr><td><code>rotated_sphere_bounds_contain_the_rotated_object_box</code></td><td>unit sphere, <code>rotate_z(45.0)</code></td><td>±√2 in <var>x</var> and <var>y</var>, ±1 in <var>z</var></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="prose" style="margin-top:1.2rem">
+        <p>Distances are compared within 10⁻⁶ (10⁻⁵ for the moved sphere), and <code>p_obj</code> exactly, which the snap onto the surface makes possible. <code>Ray::transform</code> has no test of its own here: it is checked through <code>umbra-camera</code>'s camera rays, which are compared with pbrt-v4's. The GPU's sphere test is checked against <code>Sphere::intersect</code> by <code>umbra-gpu</code>'s GPU tests, on real hardware (<code>cargo nextest run --profile gpu</code>). Run this crate's tests with <code>cargo nextest run -p umbra-geometry</code>.</p>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-geometry</span> · roadmap</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="prose">
+        <p>pbrt-v4 has much more geometry than this. The crate grows as the milestones need it; the Shapes arrive with <a href="https://github.com/sergioffpc/umbra/issues/79">#79 Emissive spheres visible to the camera</a>.</p>
+        <ul>
+            <li><b>The ray's time and medium</b>, for motion blur and participating media, and <b>ray differentials</b>, for texture filtering.</li>
+            <li><b>Partial spheres</b> (<code>zmin</code>, <code>zmax</code>, <code>phimax</code>), the angle <code>phi</code> in <code>QuadricIntersection</code>, and the <b>surface interaction</b> a hit becomes (pbrt-v4's <code>InteractionFromIntersection</code>, <code>SurfaceInteraction</code>), with normals, partial derivatives and the error bounds used to spawn the next ray.</li>
+            <li><b>The other Shapes</b> (triangles, bilinear patches, cylinders, disks, curves), shape sampling for lights, and the closed enum <code>ShapeKind</code> (ADR 0006).</li>
+            <li><b>The rest of pbrt-v4's box operations</b>: union, intersection, inside tests, surface area, offset, bounding sphere, and the <b>ray–box slab test</b> (<code>Bounds3::IntersectP</code>) that a BVH relies on.</li>
+            <li><b>The BVH</b>: its node layout and traversal.</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> §3.1 (rays), §3.7 (bounding boxes), §3.10 (applying transformations), §6.2 (spheres), §6.8 (managing rounding error: intervals, robust origins).</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/ray.h</code>, <code>util/vecmath.h</code> (<code>Bounds2</code>, <code>Bounds3</code>), <code>util/transform.h</code>, <code>shapes.h</code> (<code>Sphere</code>, <code>QuadricIntersection</code>).</li>
+        <li>Goldberg. <a href="https://dl.acm.org/doi/10.1145/103162.103163">What Every Computer Scientist Should Know About Floating-Point Arithmetic</a>. <i>ACM Computing Surveys</i> 23(1), 1991. Cancellation and the stable quadratic formula.</li>
+        <li>Haines, Günther, Akenine-Möller. Precision Improvements for Ray/Sphere Intersection. In <i>Ray Tracing Gems</i>, 2019. The discriminant form used here.</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> (arenas and handles), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (closed enums), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (no_std core), <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (one core for CPU and GPU), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Scene, Pixel Sample, Worker).</li>
+    </ul>
+</section>
+
+<footer>Umbra Geometry Guide · crates/umbra-geometry/docs/geometry-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    The same as the camera guide's.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+const fmtG = (x) => {
+    if (x === 0) return "0";
+    if (!Number.isFinite(x)) return String(x);
+    const a = Math.abs(x);
+    return a >= 1e5 || a < 1e-3 ? x.toExponential(3) : x.toPrecision(6);
+};
+const vec = (a, d = 4) => "(" + a.map((v) => fmt(v, d)).join(", ") + ")";
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+/* Set a range input from code and fire its input handler. */
+function setRange(id, v) {
+    const el = $(id);
+    el.value = String(v);
+    el.dispatchEvent(new Event("input"));
+}
+
+/* A world rectangle drawn with the same scale on both axes, y up. */
+function view(w, h, cx, cy, spanX, spanY, pad = 14) {
+    const s = Math.min((w - 2 * pad) / spanX, (h - 2 * pad) / spanY);
+    return {
+        s,
+        X: (x) => w / 2 + (x - cx) * s,
+        Y: (y) => h / 2 - (y - cy) * s,
+        x: (px) => cx + (px - w / 2) / s,
+        y: (py) => cy - (py - h / 2) / s,
+    };
+}
+function grid(ctx, V, w, h, step, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+    const x0 = Math.ceil(V.x(0) / step) * step, x1 = V.x(w);
+    for (let x = x0; x <= x1; x += step) { ctx.beginPath(); ctx.moveTo(V.X(x), 0); ctx.lineTo(V.X(x), h); ctx.stroke(); }
+    const y0 = Math.ceil(V.y(h) / step) * step, y1 = V.y(0);
+    for (let y = y0; y <= y1; y += step) { ctx.beginPath(); ctx.moveTo(0, V.Y(y)); ctx.lineTo(w, V.Y(y)); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+}
+function axes(ctx, V, w, h, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(0, V.Y(0)); ctx.lineTo(w, V.Y(0)); ctx.moveTo(V.X(0), 0); ctx.lineTo(V.X(0), h); ctx.stroke();
+}
+function arrow(ctx, x0, y0, x1, y1, color, width = 2) {
+    const a = Math.atan2(y1 - y0, x1 - x0), L = Math.hypot(x1 - x0, y1 - y0), hd = Math.min(10, L * 0.4);
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - hd * 0.8 * Math.cos(a), y1 - hd * 0.8 * Math.sin(a)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - hd * Math.cos(a - 0.4), y1 - hd * Math.sin(a - 0.4));
+    ctx.lineTo(x1 - hd * Math.cos(a + 0.4), y1 - hd * Math.sin(a + 0.4));
+    ctx.closePath(); ctx.fill();
+}
+function dot(ctx, x, y, r, fill, stroke) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+}
+function label(ctx, text, x, y, color, align = "left") {
+    ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = color; ctx.textAlign = align;
+    ctx.fillText(text, x, y); ctx.textAlign = "left";
+}
+/* Pointer dragging of named handles on a canvas. pick(x, y) returns a key or null. */
+function draggable(cv, pick, move) {
+    let key = null;
+    const at = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top, r.width, r.height]; };
+    cv.addEventListener("pointerdown", (ev) => {
+        const [x, y, w, h] = at(ev);
+        key = pick(x, y, w, h);
+        if (key !== null) { cv.setPointerCapture(ev.pointerId); move(key, x, y, w, h); }
+    });
+    cv.addEventListener("pointermove", (ev) => { if (key !== null) { const [x, y, w, h] = at(ev); move(key, x, y, w, h); } });
+    cv.addEventListener("pointerup", () => { key = null; });
+}
+
+/* ================================================================
+    4 × 4 transforms, row-major, as umbra-math's Transform.
+    ================================================================ */
+const M4 = {
+    mul(a, b) {
+        const r = new Array(16).fill(0);
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+            let s = 0;
+            for (let k = 0; k < 4; k++) s += a[i * 4 + k] * b[k * 4 + j];
+            r[i * 4 + j] = s;
+        }
+        return r;
+    },
+    scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
+    translate: (x, y, z) => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z, 0, 0, 0, 1],
+    /* umbra-math rotate_z(theta), theta in degrees */
+    rotateZ(deg) {
+        const t = deg * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+        return [c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    },
+    apply(m, [x, y, z]) {
+        const xp = m[0] * x + m[1] * y + m[2] * z + m[3];
+        const yp = m[4] * x + m[5] * y + m[6] * z + m[7];
+        const zp = m[8] * x + m[9] * y + m[10] * z + m[11];
+        const wp = m[12] * x + m[13] * y + m[14] * z + m[15];
+        return wp === 1 ? [xp, yp, zp] : [xp / wp, yp / wp, zp / wp];
+    },
+};
+const vmin = (a, b) => a.map((v, i) => Math.min(v, b[i]));
+const vmax = (a, b) => a.map((v, i) => Math.max(v, b[i]));
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const mul3 = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+
+/* bounds.rs: Bounds3f::new, corner, transform */
+const boundsNew = (p1, p2) => ({ pMin: vmin(p1, p2), pMax: vmax(p1, p2) });
+const corner = (b, i) => [
+    i & 1 ? b.pMax[0] : b.pMin[0],
+    i & 2 ? b.pMax[1] : b.pMin[1],
+    i & 4 ? b.pMax[2] : b.pMin[2],
+];
+function boundsTransform(b, m) {
+    const first = M4.apply(m, corner(b, 0));
+    let acc = boundsNew(first, first);
+    for (let i = 1; i < 8; i++) {
+        const p = M4.apply(m, corner(b, i));
+        acc = { pMin: vmin(acc.pMin, p), pMax: vmax(acc.pMax, p) };
+    }
+    return acc;
+}
+/* umbra-math lerp(x, a, b) = (1 − x)·a + x·b */
+const lerp = (x, a, b) => (1 - x) * a + x * b;
+
+/* sphere.rs: Sphere::intersect with a translated sphere, in double precision,
+    without the interval error bars. Returns every intermediate for display. */
+function sphereIntersect(centre, radius, o, d, tMax) {
+    const oi = sub3(o, centre), di = d; // apply_inverse of translate(centre)
+    const a = dot3(di, di);
+    const b = 2 * dot3(di, oi);
+    const c = dot3(oi, oi) - radius * radius;
+    const v = sub3(oi, mul3(di, b / (2 * a)));
+    const vLen = Math.hypot(v[0], v[1], v[2]);
+    const discrim = 4 * a * (radius + vLen) * (radius - vLen);
+    const out = { oi, di, a, b, c, vLen, discrim, t0: NaN, t1: NaN, hit: null, why: "" };
+    if (discrim < 0) { out.why = "discriminant &lt; 0: the line misses"; return out; }
+    const root = Math.sqrt(discrim);
+    const q = b < 0 ? -0.5 * (b - root) : -0.5 * (b + root);
+    let t0 = q / a, t1 = c / q;
+    if (t0 > t1) [t0, t1] = [t1, t0];
+    out.t0 = t0; out.t1 = t1;
+    if (t0 > tMax || t1 <= 0) { out.why = t1 <= 0 ? "both roots behind the origin" : "t₀ beyond t_max"; return out; }
+    const tShapeHit = t0 > 0 ? t0 : t1;
+    if (tShapeHit > tMax) { out.why = "t₁ beyond t_max"; return out; }
+    const pHit = add3(oi, mul3(di, tShapeHit));
+    const pObj = mul3(pHit, radius / Math.hypot(pHit[0], pHit[1], pHit[2]));
+    out.hit = { tHit: tShapeHit, pObj, root: tShapeHit === t0 ? "t₀" : "t₁" };
+    return out;
+}
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================================================================
+    §1 Ray bench
+    ================================================================ */
+(() => {
+    const st = { o: [0, 0.5] };
+    const cv = $("ry-cv");
+    const V0 = (w, h) => view(w, h, 6, 1.5, 16, 7);
+    const dir = () => {
+        const a = +$("ry-ang").value * Math.PI / 180, L = +$("ry-len").value;
+        return [L * Math.cos(a), L * Math.sin(a), 0];
+    };
+    bindRange("ry-ang", (v) => v + "°", draw);
+    bindRange("ry-len", (v) => v.toFixed(2), draw);
+    bindRange("ry-t", (v) => v.toFixed(2), draw);
+    draggable(cv, () => "o", (k, x, y, w, h) => {
+        const V = V0(w, h);
+        st.o = [clamp(V.x(x), -2, 14), clamp(V.y(y), -2, 5)];
+        draw();
+    });
+    cv.addEventListener("keydown", (ev) => {
+        const k = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0], ArrowUp: [0, 0.1], ArrowDown: [0, -0.1] }[ev.key];
+        if (!k) return;
+        ev.preventDefault();
+        st.o = [clamp(st.o[0] + k[0], -2, 14), clamp(st.o[1] + k[1], -2, 5)];
+        draw();
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), rule = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const { ctx, w, h } = fit(cv);
+        const V = V0(w, h);
+        grid(ctx, V, w, h, 1, rule);
+        axes(ctx, V, w, h, mut);
+        const d = dir(), t = +$("ry-t").value, o = [st.o[0], st.o[1], 0];
+        const p = add3(o, mul3(d, t));
+        const far = 40 / Math.hypot(d[0], d[1]);
+        // behind the origin
+        ctx.setLineDash([4, 5]); ctx.strokeStyle = mut; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(V.X(o[0]), V.Y(o[1])); ctx.lineTo(V.X(o[0] - d[0] * far), V.Y(o[1] - d[1] * far)); ctx.stroke();
+        ctx.setLineDash([]);
+        // the ray
+        ctx.strokeStyle = ink; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(V.X(o[0]), V.Y(o[1])); ctx.lineTo(V.X(o[0] + d[0] * far), V.Y(o[1] + d[1] * far)); ctx.stroke();
+        // ticks at whole t
+        for (let k = 1; k <= 30; k++) {
+            const q = add3(o, mul3(d, k));
+            if (V.X(q[0]) < -10 || V.X(q[0]) > w + 10 || V.Y(q[1]) < -10 || V.Y(q[1]) > h + 10) break;
+            dot(ctx, V.X(q[0]), V.Y(q[1]), 2.5, mut);
+            if (k <= 6) label(ctx, "t=" + k, V.X(q[0]) + 5, V.Y(q[1]) + 14, mut);
+        }
+        arrow(ctx, V.X(o[0]), V.Y(o[1]), V.X(o[0] + d[0]), V.Y(o[1] + d[1]), acc, 3.5);
+        label(ctx, "d", V.X(o[0] + d[0] / 2) - 4, V.Y(o[1] + d[1] / 2) - 8, acc);
+        dot(ctx, V.X(p[0]), V.Y(p[1]), 6, warm, ink);
+        label(ctx, "at(t)", V.X(p[0]) + 8, V.Y(p[1]) - 8, warm);
+        dot(ctx, V.X(o[0]), V.Y(o[1]), 6, ink);
+        label(ctx, "o", V.X(o[0]) - 14, V.Y(o[1]) + 4, ink);
+        const len = Math.hypot(d[0], d[1], d[2]);
+        $("ry-read").innerHTML = `
+            <dt>o</dt><dd>${vec(o, 2)}</dd>
+            <dt>d</dt><dd>${vec(d, 3)}</dd>
+            <dt>|d|</dt><dd>${fmt(len, 3)}</dd>
+            <dt>t</dt><dd>${fmt(t, 2)}</dd>
+            <dt>at(t) = o + t·d</dt><dd class="acc">${vec(p, 3)}</dd>
+            <dt>distance from o</dt><dd>t · |d| = ${fmt(t * len, 3)}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §2 Bounds bench
+    ================================================================ */
+(() => {
+    const st = { p1: [6, 4.5], p2: [1.5, 1] };
+    const cv = $("bx-cv");
+    const V0 = (w, h) => view(w, h, 4, 2.75, 10, 7.5);
+    bindRange("bx-tx", (v) => v.toFixed(2), draw);
+    bindRange("bx-ty", (v) => v.toFixed(2), draw);
+    $("bx-swap").addEventListener("click", () => { [st.p1, st.p2] = [st.p2, st.p1]; draw(); });
+    $("bx-other").addEventListener("click", () => {
+        // The other pair of opposite corners: swap the x coordinates.
+        [st.p1, st.p2] = [[st.p2[0], st.p1[1]], [st.p1[0], st.p2[1]]]; draw();
+    });
+    draggable(cv, (x, y, w, h) => {
+        const V = V0(w, h);
+        const d1 = Math.hypot(V.X(st.p1[0]) - x, V.Y(st.p1[1]) - y), d2 = Math.hypot(V.X(st.p2[0]) - x, V.Y(st.p2[1]) - y);
+        return Math.min(d1, d2) > 40 ? null : d1 <= d2 ? "p1" : "p2";
+    }, (k, x, y, w, h) => {
+        const V = V0(w, h);
+        st[k] = [clamp(Math.round(V.x(x) * 10) / 10, -1, 9), clamp(Math.round(V.y(y) * 10) / 10, -1, 6.5)];
+        draw();
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), rule = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const { ctx, w, h } = fit(cv);
+        const V = V0(w, h);
+        grid(ctx, V, w, h, 1, rule);
+        axes(ctx, V, w, h, mut);
+        // Bounds2f::new
+        const pMin = [Math.min(st.p1[0], st.p2[0]), Math.min(st.p1[1], st.p2[1])];
+        const pMax = [Math.max(st.p1[0], st.p2[0]), Math.max(st.p1[1], st.p2[1])];
+        ctx.fillStyle = acc; ctx.globalAlpha = 0.12;
+        ctx.fillRect(V.X(pMin[0]), V.Y(pMax[1]), (pMax[0] - pMin[0]) * V.s, (pMax[1] - pMin[1]) * V.s);
+        ctx.globalAlpha = 1; ctx.strokeStyle = acc; ctx.lineWidth = 2;
+        ctx.strokeRect(V.X(pMin[0]), V.Y(pMax[1]), (pMax[0] - pMin[0]) * V.s, (pMax[1] - pMin[1]) * V.s);
+        // Bounds2f::lerp
+        const tx = +$("bx-tx").value, ty = +$("bx-ty").value;
+        const q = [lerp(tx, pMin[0], pMax[0]), lerp(ty, pMin[1], pMax[1])];
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = warm; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(V.X(q[0]), V.Y(pMin[1])); ctx.lineTo(V.X(q[0]), V.Y(q[1])); ctx.lineTo(V.X(pMin[0]), V.Y(q[1])); ctx.stroke();
+        ctx.setLineDash([]);
+        dot(ctx, V.X(q[0]), V.Y(q[1]), 6, warm, ink);
+        label(ctx, "lerp(t)", V.X(q[0]) + 8, V.Y(q[1]) - 8, warm);
+        // corners
+        label(ctx, "p_min", V.X(pMin[0]) - 4, V.Y(pMin[1]) + 16, acc, "right");
+        label(ctx, "p_max", V.X(pMax[0]) + 4, V.Y(pMax[1]) - 8, acc);
+        for (const [k, p] of [["p₁", st.p1], ["p₂", st.p2]]) {
+            dot(ctx, V.X(p[0]), V.Y(p[1]), 7, ink);
+            label(ctx, k, V.X(p[0]) + 10, V.Y(p[1]) + 16, ink);
+        }
+        $("bx-read").innerHTML = `
+            <dt>p₁</dt><dd>${vec(st.p1, 1)}</dd>
+            <dt>p₂</dt><dd>${vec(st.p2, 1)}</dd>
+            <dt>p_min = min(p₁, p₂)</dt><dd class="acc">${vec(pMin, 1)}</dd>
+            <dt>p_max = max(p₁, p₂)</dt><dd class="acc">${vec(pMax, 1)}</dd>
+            <dt>t</dt><dd>${vec([tx, ty], 2)}</dd>
+            <dt>lerp(t)</dt><dd>${vec(q, 3)}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §3 Transform-a-box bench
+    ================================================================ */
+(() => {
+    const r = 1;
+    bindRange("bt-rot", (v) => v + "°", draw);
+    bindRange("bt-sx", (v) => v.toFixed(2), draw);
+    bindRange("bt-tx", (v) => v.toFixed(1), draw);
+    $("bt-test").addEventListener("click", () => {
+        $("bt-sx").value = "1"; $("bt-tx").value = "0";
+        $("bt-sx").dispatchEvent(new Event("input")); $("bt-tx").dispatchEvent(new Event("input"));
+        setRange("bt-rot", 45);
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), rule = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const th = +$("bt-rot").value, sx = +$("bt-sx").value, tx = +$("bt-tx").value;
+        // translate · rotate_z · scale, as umbra-math composes them
+        const m = M4.mul(M4.translate(tx, 0, 0), M4.mul(M4.rotateZ(th), M4.scale(sx, 1, 1)));
+        const obj = boundsNew([-r, -r, -r], [r, r, r]);
+        const b = boundsTransform(obj, m);
+        // tightest box around the transformed (possibly stretched) sphere, for comparison only
+        const t = th * Math.PI / 180, A = sx * r, B = r;
+        const hx = Math.hypot(A * Math.cos(t), B * Math.sin(t)), hy = Math.hypot(A * Math.sin(t), B * Math.cos(t));
+        const { ctx, w, h } = fit($("bt-cv"));
+        const V = view(w, h, 0, 0, 7, 5.25);
+        grid(ctx, V, w, h, 1, rule);
+        axes(ctx, V, w, h, mut);
+        // the sphere (an ellipse when scaled)
+        ctx.save();
+        ctx.translate(V.X(tx), V.Y(0)); ctx.rotate(-t);
+        ctx.beginPath(); ctx.ellipse(0, 0, A * V.s, B * V.s, 0, 0, 7);
+        ctx.fillStyle = warm; ctx.globalAlpha = 0.2; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = warm; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.restore();
+        // the moved object box: its four z = −r corners (the z = +r ones lie above them)
+        const cs = [0, 1, 3, 2].map((i) => M4.apply(m, corner(obj, i)));
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = ink; ctx.lineWidth = 1.3;
+        ctx.beginPath(); cs.forEach((p, i) => (i ? ctx.lineTo(V.X(p[0]), V.Y(p[1])) : ctx.moveTo(V.X(p[0]), V.Y(p[1])))); ctx.closePath(); ctx.stroke();
+        // tightest box
+        ctx.setLineDash([2, 3]); ctx.strokeStyle = mut;
+        ctx.strokeRect(V.X(tx - hx), V.Y(hy), 2 * hx * V.s, 2 * hy * V.s);
+        ctx.setLineDash([]);
+        // Bounds3f::transform
+        ctx.strokeStyle = acc; ctx.lineWidth = 2.2;
+        ctx.strokeRect(V.X(b.pMin[0]), V.Y(b.pMax[1]), (b.pMax[0] - b.pMin[0]) * V.s, (b.pMax[1] - b.pMin[1]) * V.s);
+        cs.forEach((p) => dot(ctx, V.X(p[0]), V.Y(p[1]), 3.5, ink));
+        label(ctx, "p_max", V.X(b.pMax[0]) + 4, V.Y(b.pMax[1]) - 6, acc);
+        label(ctx, "p_min", V.X(b.pMin[0]) - 4, V.Y(b.pMin[1]) + 14, acc, "right");
+        const bw = b.pMax[0] - b.pMin[0], bh = b.pMax[1] - b.pMin[1];
+        $("bt-read").innerHTML = `
+            <dt>object box</dt><dd>(−1, −1, −1) to (1, 1, 1)</dd>
+            <dt>p_min</dt><dd class="acc">${vec(b.pMin, 5)}</dd>
+            <dt>p_max</dt><dd class="acc">${vec(b.pMax, 5)}</dd>
+            <dt>box size x × y</dt><dd>${fmt(bw, 4)} × ${fmt(bh, 4)}</dd>
+            <dt>tightest x × y</dt><dd>${fmt(2 * hx, 4)} × ${fmt(2 * hy, 4)}</dd>
+            <dt>box area ⁄ tightest</dt><dd>${fmt(bw * bh / (4 * hx * hy), 3)} ×</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §4 Sphere bench
+    ================================================================ */
+(() => {
+    const st = { o: [-5, 0] };
+    const cv = $("ss-cv");
+    const V0 = (w, h) => view(w, h, 3, 0, 20, 15);
+    const TMAX_INF = 20;
+    const tMax = () => (+$("ss-tmax").value >= TMAX_INF ? Infinity : +$("ss-tmax").value);
+    bindRange("ss-cx", (v) => v.toFixed(1), draw);
+    bindRange("ss-r", (v) => v.toFixed(2), draw);
+    bindRange("ss-ang", (v) => v + "°", draw);
+    bindRange("ss-len", (v) => v.toFixed(2), draw);
+    bindRange("ss-tmax", (v) => (v >= TMAX_INF ? "∞" : v.toFixed(1)), draw);
+    const preset = (o, cx, r, ang, len, tm) => {
+        st.o = o;
+        for (const [id, v] of [["ss-cx", cx], ["ss-r", r], ["ss-ang", ang], ["ss-len", len]]) { $(id).value = String(v); $(id + "-o").textContent = ""; }
+        setRange("ss-tmax", tm);
+        ["ss-cx", "ss-r", "ss-ang", "ss-len"].forEach((id) => $(id).dispatchEvent(new Event("input")));
+    };
+    // The tests' rays along +z, turned onto +x so they lie in the plane drawn.
+    $("ss-near").addEventListener("click", () => preset([-5, 0], 0, 1, 0, 1, TMAX_INF));
+    $("ss-miss").addEventListener("click", () => preset([-5, 2], 0, 1, 0, 1, TMAX_INF));
+    $("ss-inside").addEventListener("click", () => preset([0, 0], 0, 1, 0, 1, TMAX_INF));
+    $("ss-short").addEventListener("click", () => preset([-5, 0], 0, 1, 0, 1, 3));
+    $("ss-moved").addEventListener("click", () => preset([0, 0], 10, 2, 0, 1, TMAX_INF));
+    let rng = mulberry32(17);
+    $("ss-rand").addEventListener("click", () => {
+        const o = [Math.round((-6 + 18 * rng()) * 10) / 10, Math.round((-5 + 10 * rng()) * 10) / 10];
+        const cx = +$("ss-cx").value;
+        // aim roughly at the sphere, give or take
+        const aim = Math.atan2(-o[1], cx - o[0]) * 180 / Math.PI + (rng() - 0.5) * 50;
+        st.o = o;
+        setRange("ss-ang", Math.round(clamp(aim, -180, 180)));
+    });
+    draggable(cv, () => "o", (k, x, y, w, h) => {
+        const V = V0(w, h);
+        st.o = [clamp(Math.round(V.x(x) * 10) / 10, -7, 13), clamp(Math.round(V.y(y) * 10) / 10, -7, 7)];
+        draw();
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), rule = tok("--rule"), acc = tok("--accent"), warm = tok("--warm"), bad = tok("--err"), ok = tok("--exact");
+        const cx = +$("ss-cx").value, r = +$("ss-r").value;
+        const a = +$("ss-ang").value * Math.PI / 180, L = +$("ss-len").value;
+        const o = [st.o[0], st.o[1], 0], d = [L * Math.cos(a), L * Math.sin(a), 0];
+        const tm = tMax();
+        const res = sphereIntersect([cx, 0, 0], r, o, d, tm);
+        /* render space */
+        {
+            const { ctx, w, h } = fit(cv);
+            const V = V0(w, h);
+            grid(ctx, V, w, h, 1, rule);
+            axes(ctx, V, w, h, mut);
+            ctx.beginPath(); ctx.arc(V.X(cx), V.Y(0), r * V.s, 0, 7);
+            ctx.fillStyle = warm; ctx.globalAlpha = 0.2; ctx.fill(); ctx.globalAlpha = 1;
+            ctx.strokeStyle = warm; ctx.lineWidth = 1.6; ctx.stroke();
+            dot(ctx, V.X(cx), V.Y(0), 2.5, mut);
+            const far = 60 / L;
+            ctx.setLineDash([4, 5]); ctx.strokeStyle = mut; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(V.X(o[0]), V.Y(o[1])); ctx.lineTo(V.X(o[0] - d[0] * far), V.Y(o[1] - d[1] * far)); ctx.stroke();
+            ctx.setLineDash([]);
+            // the ray up to t_max
+            const tEnd = Number.isFinite(tm) ? tm : far;
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.8;
+            ctx.beginPath(); ctx.moveTo(V.X(o[0]), V.Y(o[1])); ctx.lineTo(V.X(o[0] + d[0] * tEnd), V.Y(o[1] + d[1] * tEnd)); ctx.stroke();
+            if (Number.isFinite(tm)) {
+                const pe = add3(o, mul3(d, tm));
+                ctx.strokeStyle = acc; ctx.lineWidth = 2;
+                const nx = -Math.sin(a) * 8, ny = -Math.cos(a) * 8;
+                ctx.beginPath(); ctx.moveTo(V.X(pe[0]) + nx, V.Y(pe[1]) + ny); ctx.lineTo(V.X(pe[0]) - nx, V.Y(pe[1]) - ny); ctx.stroke();
+                label(ctx, "t_max", V.X(pe[0]) + 6, V.Y(pe[1]) - 10, acc);
+                ctx.setLineDash([2, 4]); ctx.strokeStyle = mut;
+                ctx.beginPath(); ctx.moveTo(V.X(pe[0]), V.Y(pe[1])); ctx.lineTo(V.X(o[0] + d[0] * far), V.Y(o[1] + d[1] * far)); ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            arrow(ctx, V.X(o[0]), V.Y(o[1]), V.X(o[0] + d[0]), V.Y(o[1] + d[1]), acc, 3);
+            // both roots as crossings
+            for (const tt of [res.t0, res.t1]) {
+                if (!Number.isFinite(tt)) continue;
+                const p = add3(o, mul3(d, tt));
+                dot(ctx, V.X(p[0]), V.Y(p[1]), 4.5, null, mut);
+            }
+            if (res.hit) {
+                const p = add3(o, mul3(d, res.hit.tHit));
+                dot(ctx, V.X(p[0]), V.Y(p[1]), 6.5, warm, ink);
+                label(ctx, "hit", V.X(p[0]) + 8, V.Y(p[1]) + 16, warm);
+            }
+            dot(ctx, V.X(o[0]), V.Y(o[1]), 6, ink);
+            label(ctx, "o", V.X(o[0]) - 14, V.Y(o[1]) + 4, ink);
+        }
+        /* the quadratic */
+        {
+            const { ctx, w, h } = fit($("ss-q"));
+            const roots = [res.t0, res.t1].filter(Number.isFinite);
+            const vertex = -res.b / (2 * res.a);
+            const span = Math.max(4, ...roots.map((t) => Math.abs(t - vertex) * 1.6), Math.abs(vertex) * 1.2 + 1);
+            const t0v = Math.min(vertex - span, -1), t1v = Math.max(vertex + span, Number.isFinite(tm) ? tm + 1 : 0);
+            const f = (t) => res.a * t * t + res.b * t + res.c;
+            const fMin = f(vertex);
+            const fTop = Math.max(f(t0v), f(t1v), 1);
+            const lo = Math.min(fMin, -0.15 * fTop);
+            const pad = 16;
+            const X = (t) => pad + (t - t0v) / (t1v - t0v) * (w - 2 * pad);
+            const Y = (v) => h - pad - (v - lo) / (fTop - lo) * (h - 2 * pad);
+            // shaded: behind the origin, past t_max
+            ctx.fillStyle = mut; ctx.globalAlpha = 0.12;
+            ctx.fillRect(0, 0, X(0), h);
+            if (Number.isFinite(tm)) ctx.fillRect(X(tm), 0, w - X(tm), h);
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = rule; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(X(0), pad / 2); ctx.lineTo(X(0), h - pad / 2); ctx.stroke();
+            label(ctx, "t = 0", X(0) + 4, 12, ink);
+            if (Number.isFinite(tm)) {
+                ctx.setLineDash([5, 4]); ctx.strokeStyle = acc;
+                ctx.beginPath(); ctx.moveTo(X(tm), pad / 2); ctx.lineTo(X(tm), h - pad / 2); ctx.stroke(); ctx.setLineDash([]);
+                label(ctx, "t_max", X(tm) + 4, 24, acc);
+            }
+            ctx.strokeStyle = acc; ctx.lineWidth = 2.2; ctx.beginPath();
+            for (let i = 0; i <= 200; i++) {
+                const t = t0v + (t1v - t0v) * i / 200, y = clamp(Y(f(t)), -5, h + 5);
+                i ? ctx.lineTo(X(t), y) : ctx.moveTo(X(t), y);
+            }
+            ctx.stroke();
+            [res.t0, res.t1].forEach((tt, i) => {
+                if (!Number.isFinite(tt)) return;
+                const chosen = res.hit && res.hit.tHit === tt;
+                dot(ctx, X(tt), Y(0), chosen ? 6.5 : 4.5, chosen ? warm : null, chosen ? ink : mut);
+                label(ctx, i ? "t₁" : "t₀", X(tt), Y(0) + 18, chosen ? warm : mut, "center");
+            });
+            label(ctx, "t →", w - pad, Y(0) - 6, mut, "right");
+        }
+        const verdict = res.hit
+            ? `<span class="ok">Some: t_hit = ${fmt(res.hit.tHit, 5)} (${res.hit.root})</span>`
+            : `<span class="bad">None: ${res.why}</span>`;
+        $("ss-read").innerHTML = `
+            <dt>o′ = o − centre, d′</dt><dd>${vec(res.oi, 3)}, ${vec(res.di, 3)}</dd>
+            <dt>a, b, c</dt><dd>${fmt(res.a, 4)}, ${fmt(res.b, 4)}, ${fmt(res.c, 4)}</dd>
+            <dt>|v| (closest approach)</dt><dd>${fmt(res.vLen, 4)} <span class="mut">vs r = ${fmt(r, 2)}</span></dd>
+            <dt>disc = 4a(r+|v|)(r−|v|)</dt><dd>${fmt(res.discrim, 4)}</dd>
+            <dt>t₀, t₁</dt><dd>${Number.isFinite(res.t0) ? fmt(res.t0, 5) + ", " + fmt(res.t1, 5) : "–"}</dd>
+            <dt>result</dt><dd>${verdict}</dd>
+            <dt>p_obj</dt><dd class="acc">${res.hit ? vec(res.hit.pObj, 5) : "–"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §5 Discriminant in f32 bench
+    ================================================================ */
+(() => {
+    const F = Math.fround;
+    /* The ray (−L, h, 0) + t (1, 0, 0) against a sphere of radius r at the origin,
+        every operation rounded to f32 (quadratic_roots' arithmetic without the error bars). */
+    function f32Case(Lin, radiusIn, hin) {
+        const ox = F(-Lin), oy = F(hin), oz = 0, dx = 1, dy = 0, dz = 0, r = F(radiusIn);
+        const a = F(F(F(dx * dx) + F(dy * dy)) + F(dz * dz));
+        const b = F(2 * F(F(F(dx * ox) + F(dy * oy)) + F(dz * oz)));
+        const c = F(F(F(F(ox * ox) + F(oy * oy)) + F(oz * oz)) - F(r * r));
+        const naive = F(F(b * b) - F(F(4 * a) * c));
+        const k = F(b / F(2 * a));
+        const vx = F(ox - F(k * dx)), vy = F(oy - F(k * dy)), vz = F(oz - F(k * dz));
+        const vl = F(Math.sqrt(F(F(F(vx * vx) + F(vy * vy)) + F(vz * vz))));
+        const pbrt = F(F(F(4 * a) * F(r + vl)) * F(r - vl));
+        // exact, from the same f32 inputs: a = 1, closest distance |oy|
+        const exact = 4 * (r * r - oy * oy);
+        const tExact = exact >= 0 ? -ox - Math.sqrt(r * r - oy * oy) : NaN;
+        const nearRoot = (D) => {
+            if (!(D >= 0)) return NaN;
+            const root = F(Math.sqrt(D));
+            const q = b < 0 ? F(-0.5 * F(b - root)) : F(-0.5 * F(b + root));
+            return Math.min(F(q / a), F(c / q));
+        };
+        return { exact, naive, pbrt, tExact, tNaive: nearRoot(naive), tPbrt: nearRoot(pbrt), b, c };
+    }
+    const relErr = (x, ex) => (ex === 0 ? (x === 0 ? 0 : Infinity) : Math.abs(x / ex - 1));
+    bindRange("fp-L", (v) => "L = " + fmtG(10 ** v), draw);
+    bindRange("fp-r", (v) => v.toFixed(2), draw);
+    bindRange("fp-h", (v) => v.toFixed(2), draw);
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), rule = tok("--rule"), acc = tok("--accent"), bad = tok("--err");
+        const r = +$("fp-r").value, hf = +$("fp-h").value, Llog = +$("fp-L").value;
+        const hv = hf * r;
+        /* sweep */
+        {
+            const { ctx, w, h } = fit($("fp-cv"));
+            const pad = 16, padL = 44, E0 = -9, E1 = 1, L0 = 0.3, L1 = 4;
+            const X = (lg) => padL + (lg - L0) / (L1 - L0) * (w - padL - pad);
+            const Y = (e) => h - pad - (clamp(e, E0, E1) - E0) / (E1 - E0) * (h - 2 * pad);
+            ctx.strokeStyle = rule; ctx.lineWidth = 1;
+            for (let e = E0; e <= E1; e += 2) {
+                ctx.beginPath(); ctx.moveTo(padL, Y(e)); ctx.lineTo(w - pad, Y(e)); ctx.stroke();
+                label(ctx, "1e" + e, padL - 4, Y(e) + 4, mut, "right");
+            }
+            for (let lg = 1; lg <= 4; lg++) label(ctx, "10" + "⁰¹²³⁴"[lg], X(lg), h - 2, mut, "center");
+            label(ctx, "100 %", w - pad, Y(0) - 4, bad, "right");
+            const series = (key, color) => {
+                ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.beginPath();
+                for (let i = 0; i <= 240; i++) {
+                    const lg = L0 + (L1 - L0) * i / 240;
+                    const cs = f32Case(10 ** lg, r, hv);
+                    const e = relErr(cs[key], cs.exact);
+                    const y = Y(e === 0 ? E0 : Math.log10(e));
+                    i ? ctx.lineTo(X(lg), y) : ctx.moveTo(X(lg), y);
+                }
+                ctx.stroke();
+            };
+            series("naive", bad);
+            series("pbrt", acc);
+            ctx.setLineDash([4, 4]); ctx.strokeStyle = mut; ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(X(Llog), pad / 2); ctx.lineTo(X(Llog), h - pad); ctx.stroke(); ctx.setLineDash([]);
+            label(ctx, "exact ↓", padL + 4, h - pad - 4, mut);
+        }
+        const cs = f32Case(10 ** Llog, r, hv);
+        const verdict = (D) => (D < 0 ? "miss" : D === 0 ? "touch" : "hit");
+        const truth = verdict(cs.exact);
+        const cell = (D) => `<span class="${verdict(D) === truth ? "ok" : "bad"}">${verdict(D)}</span>`;
+        const errCell = (x, ex) => { const e = relErr(x, ex); return Number.isFinite(e) ? fmt(100 * e, e < 1e-4 ? 6 : 2) + " %" : "∞"; };
+        const tCell = (t) => (Number.isFinite(t) ? fmtG(t) : "–");
+        $("fp-tab").innerHTML = `
+            <thead><tr><th></th><th>exact</th><th>b² − 4ac</th><th>4a(r+|v|)(r−|v|)</th></tr></thead>
+            <tbody>
+                <tr><td>discriminant</td><td>${fmtG(cs.exact)}</td><td>${fmtG(cs.naive)}</td><td>${fmtG(cs.pbrt)}</td></tr>
+                <tr><td>relative error</td><td>–</td><td class="bad">${errCell(cs.naive, cs.exact)}</td><td class="acc">${errCell(cs.pbrt, cs.exact)}</td></tr>
+                <tr><td>verdict</td><td>${truth}</td><td>${cell(cs.naive)}</td><td>${cell(cs.pbrt)}</td></tr>
+                <tr><td>near root t₀</td><td>${tCell(cs.tExact)}</td><td>${tCell(cs.tNaive)}</td><td>${tCell(cs.tPbrt)}</td></tr>
+                <tr><td>t₀ off by</td><td>–</td><td>${Number.isFinite(cs.tNaive) && Number.isFinite(cs.tExact) ? fmtG(Math.abs(cs.tNaive - cs.tExact)) : "–"}</td><td>${Number.isFinite(cs.tPbrt) && Number.isFinite(cs.tExact) ? fmtG(Math.abs(cs.tPbrt - cs.tExact)) : "–"}</td></tr>
+                <tr><td>b², for scale</td><td colspan="3">${fmtG(cs.b * cs.b)}</td></tr>
+            </tbody>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+})();
+</script>
+</body>
+</html>
