@@ -3,6 +3,8 @@
 > **Amended by [ADR 0018](0018-sessions-launched-from-the-operators-machine.md).** The set of Workers is not a Render Job option: it is the launch script's host list ([arc42 §7.3](../architecture/07-deployment-view.md#73-deployment-and-launch)), and it never changes the Film ([ADR 0004](0004-deterministic-film-for-a-fixed-render-job.md)). The rest of this ADR still applies.
 >
 > **Amended by [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md).** The Workers are whichever Workers of the Coordinator's Cluster join while it runs. They are still not a Render Job option.
+>
+> **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** pbrt-v4's renders are no longer Umbra's correctness oracle: the owner checks renders by eye. The pinned commits stay, for the Reference Scenes and the speed comparison of QS-5, and moving them publishes nothing.
 
 Umbra reads exactly one input format: pbrt-v4's `.pbrt` Scene File, unextended. Each milestone declares the subset it supports and grows it until the whole format is covered. This lets the pbrt-v4 test scenes, and reference images rendered by pbrt-v4 itself, serve as Umbra's correctness oracle and benchmark suite without a converter.
 

@@ -1,6 +1,8 @@
 # Deterministic Film for a fixed Render Job
 
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md).** The Film is bit-identical only up to the order in which Work Results are merged. Work Results carry no content hash, there is no `verify` option, and the Film merges on arrival with no early-arrival buffer. Pure Pixel Samples, the per-pixel summation order and the deterministic BVH stay. CI's golden Film hashes come from single-Pass renders on x86-64.
+>
+> **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** CI compares no Film hash with committed values. The invariance tests stay.
 
 Given the same Scene, seed and Render Job options (Tile size, Pixel Samples per Pass), the final Film is bit-identical. This holds however many Workers take part, whichever Worker or thread renders a Work Unit, in whatever order Work Results arrive, and despite Worker failures and reassignments. A Render Job can then be reproduced exactly, a pixel can be debugged on any machine, and any difference is a bug rather than noise. [ADR 0002](0002-bit-identical-results-across-architectures.md) already makes a single Work Result bit-identical across architectures. This ADR extends that guarantee to the whole Film.
 
