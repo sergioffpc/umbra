@@ -1001,7 +1001,7 @@ function buildStrip(el) {
     const STEPS = [
         {
             t: "The operator types a command", on: ["umbra"],
-            d: "The umbra binary reads its arguments with clap: the Scene File, and overrides such as --spp, --seed, --outfile, --tile-size and --pixel-samples-per-pass.",
+            d: "The umbra binary reads its arguments with clap: the Scene File, and overrides such as --spp, --seed, --outfile, --tile-size and --spp-per-pass. --spp sets how many Pixel Samples each pixel gets; --spp-per-pass only cuts them into Passes.",
             st: "part", s: "render works today; worker, trace and bench arrive with #129, #88 and #93.",
             l: [["umbra README", README("umbra")]], v: "a path and the overrides",
         },
