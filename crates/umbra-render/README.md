@@ -40,7 +40,8 @@ assert!(film.is_complete());
 | `renderer`      | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`; `Cancellation`                                                             |
 | `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                    |
 | `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                 |
-| `image`         | `Image`, written in the format its path's extension names, and `write_atomically`                                                                                                       |
+| `image`         | `Image`, written in the format its path's extension names                                                                                                                               |
+| `atomic_file`   | `write_atomically`: a file written whole or not at all, for the image and the Render Job Report                                                                                         |
 | `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                              |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with

@@ -1,10 +1,13 @@
 //! The Render Job Report (arc42 §8.10): Umbra's own JSON, versioned
 //! `major.minor`. So far its outcome, Film hash and Reproduction Record;
-//! the rest of §8.10
-//! arrives with [#86](https://github.com/sergioffpc/umbra/issues/86).
+//! the rest of §8.10 arrives with
+//! [#86](https://github.com/sergioffpc/umbra/issues/86).
+
+use std::io::{self, Write};
+use std::path::Path;
 
 use serde::{Serialize, Serializer};
-use umbra_render::{FilmHash, ReproductionRecord};
+use umbra_render::{FilmHash, ReproductionRecord, write_atomically};
 
 /// How a Render Job ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -54,14 +57,17 @@ impl RenderJobReport {
         self.film_hash
     }
 
-    /// The report as indented JSON, its fields in a fixed order.
+    /// Writes the report to `path` as indented JSON, its fields in a fixed
+    /// order, replacing any file there.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Never: every field serialises.
-    #[must_use]
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("a Render Job Report serialises")
+    /// Any I/O error; `path` is then left as it was.
+    pub fn write(&self, path: &Path) -> io::Result<()> {
+        write_atomically(path, |file| {
+            serde_json::to_writer_pretty(&mut *file, self)?;
+            writeln!(file)
+        })
     }
 }
 
