@@ -1,22 +1,19 @@
 #![doc = include_str!("../README.md")]
 
-mod diagnostic;
+mod error;
 mod files;
 mod params;
 mod scene_target;
 mod syntax;
 mod tokenizer;
 
-use std::error::Error;
-use std::fmt;
-use std::io;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-pub use diagnostic::{Diagnostic, Location, Severity};
+pub use error::{Location, ParseError, ParserError, Severity};
 use umbra_scene::{ContentHash, RenderJobOptions, Scene, Seed};
 
-use crate::diagnostic::Diagnostics;
+use crate::error::Diagnostics;
 use crate::files::{ReadError, SceneFiles};
 use crate::scene_target::SceneTarget;
 use crate::syntax::Parser;
@@ -49,38 +46,7 @@ pub struct Parsed {
     /// The hash of the Scene File, its includes and its assets.
     pub content_hash: ContentHash,
     /// The warnings: parameters given but unused.
-    pub warnings: Vec<Diagnostic>,
-}
-
-/// Why a Scene File was not parsed.
-#[derive(Debug)]
-pub enum ParseError {
-    /// The Scene File could not be read.
-    Io(io::Error),
-    /// The Scene File is invalid: every Diagnostic, errors and warnings,
-    /// in the order found. Nothing was built.
-    Invalid(Vec<Diagnostic>),
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "cannot read the Scene File: {error}"),
-            Self::Invalid(diagnostics) => {
-                write!(f, "invalid Scene File")?;
-                diagnostics.iter().try_for_each(|d| write!(f, "\n{d}"))
-            }
-        }
-    }
-}
-
-impl Error for ParseError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            Self::Invalid(_) => None,
-        }
-    }
+    pub warnings: Vec<ParserError>,
 }
 
 /// Reads the Scene File at `scene_file` with its includes, validates it
@@ -90,7 +56,7 @@ impl Error for ParseError {
 /// # Errors
 ///
 /// [`ParseError::Io`] if the Scene File cannot be read, and
-/// [`ParseError::Invalid`] with every Diagnostic if anything in it is
+/// [`ParseError::Invalid`] with every `ParserError` if anything in it is
 /// unsupported or wrong; nothing is built then.
 pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseError> {
     let mut files = SceneFiles::new(scene_file);

@@ -2,7 +2,7 @@
 //! `src/pbrt/paramdict.h`): typed lookups that consume what they read, so
 //! what is left over is unsupported or unused.
 
-use crate::diagnostic::{Diagnostic, Diagnostics, Location};
+use crate::error::{Diagnostics, Location, ParserError};
 
 /// The type a parameter is declared with, as in `"float fov"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,7 +140,7 @@ impl ParamList {
             .flatten();
         if parsed.is_none() {
             let message = format!("\"{}\" is not an integer", value.text);
-            diagnostics.push(Diagnostic::error(&param.location, message));
+            diagnostics.push(ParserError::error(&param.location, message));
         }
         parsed.map(|v| (v, param.location))
     }
@@ -156,7 +156,7 @@ impl ParamList {
         let [value] = Self::exactly::<1>(&param, diagnostics)?;
         if value.quoting == Quoting::Bare {
             let message = format!("{} is not a quoted string", value.text);
-            diagnostics.push(Diagnostic::error(&param.location, message));
+            diagnostics.push(ParserError::error(&param.location, message));
             return None;
         }
         Some((value.text.clone(), param.location))
@@ -178,7 +178,7 @@ impl ParamList {
         };
         if parsed.is_none() {
             let message = format!("\"{}\" is neither true nor false", value.text);
-            diagnostics.push(Diagnostic::error(&param.location, message));
+            diagnostics.push(ParserError::error(&param.location, message));
         }
         parsed.map(|b| (b, param.location))
     }
@@ -196,7 +196,7 @@ impl ParamList {
                 "{} parameter \"{}\" is not supported yet",
                 self.context, param.name
             );
-            diagnostics.push(Diagnostic::error(&param.location, message));
+            diagnostics.push(ParserError::error(&param.location, message));
         }
     }
 
@@ -204,7 +204,7 @@ impl ParamList {
     pub(crate) fn warn_unused(self, diagnostics: &mut Diagnostics) {
         for param in self.params {
             let message = format!("{} does not use parameter \"{}\"", self.context, param.name);
-            diagnostics.push(Diagnostic::warning(&param.location, message));
+            diagnostics.push(ParserError::warning(&param.location, message));
         }
     }
 
@@ -222,7 +222,7 @@ impl ParamList {
             ty.name(),
             param.ty.name()
         );
-        diagnostics.push(Diagnostic::error(&param.location, message));
+        diagnostics.push(ParserError::error(&param.location, message));
         None
     }
 
@@ -238,13 +238,13 @@ impl ParamList {
                 param.name,
                 param.values.len()
             );
-            diagnostics.push(Diagnostic::error(&param.location, message));
+            diagnostics.push(ParserError::error(&param.location, message));
         }
         values.map(<[Value; N]>::each_ref)
     }
 }
 
-/// `value` as a finite `f32`, or a Diagnostic at `location`.
+/// `value` as a finite `f32`, or a `ParserError` at `location`.
 fn parse_float(value: &Value, location: &Location, diagnostics: &mut Diagnostics) -> Option<f32> {
     let parsed = (value.quoting == Quoting::Bare)
         .then(|| value.text.parse::<f32>().ok())
@@ -252,7 +252,7 @@ fn parse_float(value: &Value, location: &Location, diagnostics: &mut Diagnostics
         .filter(|v| v.is_finite());
     if parsed.is_none() {
         let message = format!("\"{}\" is not a finite number", value.text);
-        diagnostics.push(Diagnostic::error(location, message));
+        diagnostics.push(ParserError::error(location, message));
     }
     parsed
 }

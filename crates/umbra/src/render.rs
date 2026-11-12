@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use umbra_cluster::{CoordinatorOptions, RenderJob, Threads, coordinate};
-use umbra_parser::{Diagnostic, Overrides, ParseError, Parsed};
+use umbra_parser::{Overrides, ParseError, Parsed, ParserError};
 use umbra_render::{ExrWriter, ImageWriter, ReproductionRecord, write_atomically};
 use umbra_scene::{RenderJobOptions, Seed};
 
@@ -19,8 +19,8 @@ use crate::cli::RenderArgs;
 /// Why `umbra render` did not write an image.
 #[derive(Debug)]
 pub(crate) enum RenderFailure {
-    /// The Scene File is invalid: every Diagnostic.
-    Refused(Vec<Diagnostic>),
+    /// The Scene File is invalid: every `ParserError`.
+    Refused(Vec<ParserError>),
     /// Something failed that a retry may fix.
     Failed(Box<dyn Error>),
 }

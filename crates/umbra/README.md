@@ -58,7 +58,7 @@ directory, synced, and renamed over the target (arc42 §8.15).
 
 - **Exit codes** (arc42 §8.13): 0 rendered; 1 an I/O error or a panic,
   including a Scene File that cannot be read; 2 invalid usage; 3 an invalid
-  Scene File, with every Diagnostic on stderr as `file:line:column:
+  Scene File, with every `ParserError` on stderr as `file:line:column:
 error: ...`.
 - **Warnings and the final status go to stderr** with `writeln!` until
   `tracing` arrives with #86.

@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::diagnostic::{Diagnostic, Diagnostics, Location};
+use crate::error::{Diagnostics, Location, ParserError};
 use crate::files::{ReadError, SceneFiles};
 use crate::params::{Param, ParamList, ParamType, Quoting, Value};
 use crate::tokenizer::{Token, TokenKind, tokenize};
@@ -237,7 +237,7 @@ impl Parser<'_> {
 
     /// Reports an error at `location`.
     fn error(&mut self, location: &Location, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic::error(location, message));
+        self.diagnostics.push(ParserError::error(location, message));
     }
 }
 
