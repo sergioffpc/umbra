@@ -12,15 +12,19 @@ categories.workspace = true
 publish.workspace = true
 
 [dependencies]
+clap = { workspace = true }
 umbra-cluster = { workspace = true }
 umbra-parser = { workspace = true }
 umbra-render = { workspace = true }
+umbra-scene = { workspace = true }
 
 [dev-dependencies]
 dhat = { workspace = true }
+exr = { workspace = true }
 rayon = { workspace = true }
 umbra-math = { workspace = true }
-umbra-scene = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

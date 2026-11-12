@@ -17,6 +17,7 @@ umbra-geometry = { workspace = true }
 umbra-integrators = { workspace = true, features = ["serde"] }
 umbra-math = { workspace = true }
 umbra-sampling = { workspace = true }
+umbra-spectrum = { workspace = true }
 
 [lints]
 workspace = true

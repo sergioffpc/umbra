@@ -38,12 +38,14 @@ assert!(film.is_complete());
 | `decomposition` | `Decomposition`: the Tiles and Passes of a Render Job, its `WorkUnit`s (`TileIndex`, `PassIndex`) Pass by Pass in raster order, each Tile's `TileBounds` and each Pass's sample indices; `RenderError` |
 | `renderer`      | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`; `Cancellation`                                                                            |
 | `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                                   |
-| `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, and its `FilmHash`                                                                                          |
+| `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                                |
+| `image`         | `Image`, the `ImageWriter` seam and its `ExrWriter`, and `write_atomically`                                                                                                                            |
+| `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                                             |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
-[#88](https://github.com/sergioffpc/umbra/issues/88); turning the Film into
-an image and writing the EXR with its Reproduction Record, with
-[#78](https://github.com/sergioffpc/umbra/issues/78); the Anomalous Pixel
+[#88](https://github.com/sergioffpc/umbra/issues/88); the EXR's `RGBFilm`
+metadata, `savefp16` and float pixels, with
+[#84](https://github.com/sergioffpc/umbra/issues/84); the Anomalous Pixel
 Samples of a Work Result, with
 [#85](https://github.com/sergioffpc/umbra/issues/85).
 
@@ -81,6 +83,22 @@ last bits of a pixel.
 order: it tells two Films apart, for the invariance tests and the Render Job
 Report, and is not a security hash.
 
+### An EXR whose bytes are a function of the image
+
+`ExrWriter` writes RGB as half floats, as pbrt-v4's default `savefp16`,
+with ZIP compression, increasing line order and no parallel compression,
+and the Reproduction Record as the one custom attribute,
+`umbra.reproductionRecord` (ADR 0020). The `exr` crate keeps custom
+attributes in a `HashMap`: with one, their order is fixed; a second needs
+care. The record's JSON is stored as UTF-8 bytes, which EXR text allows.
+
+### Finishing as pbrt-v4 does
+
+`Film::finish` narrows each pixel's `f64` sums to `f32`, divides by the
+weight when it is not zero, and converts sensor RGB to sRGB with the
+Scene's matrix (pbrt-v4 `RGBFilm::GetPixelRGB`). It panics before the last
+Work Unit is merged: an image exists only once every Pass is (ADR 0004).
+
 ## Things to know when using it
 
 - **`render` may run for several Work Units at once**, from any threads:
@@ -90,6 +108,8 @@ Report, and is not a security hash.
   finishes it before returning `Rendered::Cancelled`.
 - **`Film::accept` panics** on a Work Result for a Work Unit outside the
   Render Job, or with the wrong number of pixels: either is a bug.
+- **`write_atomically` leaves the target as it was on failure**, and syncs
+  both the file and its directory.
 - **A Work Result's pixels are row by row across its Tile**, and the Tiles
   at the right and bottom edges are cut short by the image.
 
@@ -100,13 +120,16 @@ Report, and is not a security hash.
 - `film.rs`, the Film's acceptance: single-Pass Work Results merged in
   several orders give the same Film and hash; a duplicate with other sums
   leaves the Film unchanged; a Work Result lands on its Tile's pixels; the
-  Passes of a Tile add up.
+  Passes of a Tile add up; a finished Film is each pixel's weighted mean in
+  sRGB, against the BT.709 matrix.
 - `renderer.rs`, the Renderer over a camera-only Scene from `SceneBuilder`:
   every pixel is black with positive filter weights; Work Results and the
   single-Pass Film hash are the same on 1 and 4 threads; a Work Unit renders
   the same again in another order; a cancelled render returns no Work Result.
 
 The counting-allocator test of ADR 0008, which renders through this crate,
-is in `crates/umbra/tests/allocation.rs`.
+is in `crates/umbra/tests/allocation.rs`; the EXR's bytes and its
+Reproduction Record are tested through the binary, in
+`crates/umbra/tests/render/`.
 
 Run them with `cargo nextest run -p umbra-render`.

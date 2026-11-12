@@ -4,9 +4,12 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use umbra_math::SquareMatrix;
 use umbra_scene::{RenderJobOptions, Scene};
 
 use crate::decomposition::{Decomposition, RenderError, WorkUnit};
+use crate::image::Image;
+use crate::reproduction::ReproductionRecord;
 use crate::work_result::{PixelSum, WorkResult};
 
 /// What [`Film::accept`] did with a Work Result.
@@ -37,6 +40,7 @@ pub struct Film {
     decomposition: Decomposition,
     pixels: Vec<PixelSum>,
     merged: HashSet<WorkUnit>,
+    output_rgb_from_sensor_rgb: SquareMatrix<3>,
 }
 
 impl Film {
@@ -61,6 +65,7 @@ impl Film {
             decomposition,
             pixels: vec![PixelSum::default(); len],
             merged: HashSet::new(),
+            output_rgb_from_sensor_rgb: *scene.output_rgb_from_sensor_rgb(),
         })
     }
 
@@ -121,6 +126,26 @@ impl Film {
                 .flat_map(|v| v.to_bits().to_le_bytes())
         });
         FilmHash(bytes.fold(OFFSET_BASIS, |h, b| (h ^ u64::from(b)).wrapping_mul(PRIME)))
+    }
+
+    /// The final image: each pixel's weighted sensor RGB over its weight, in
+    /// the output colour space, with the Render Job's `record`.
+    ///
+    /// pbrt-v4 `RGBFilm::GetPixelRGB`.
+    ///
+    /// # Panics
+    ///
+    /// If a Work Unit is not merged yet: an image exists only once every
+    /// Pass is rendered (ADR 0004).
+    #[must_use]
+    pub fn finish(self, record: ReproductionRecord) -> Image {
+        assert!(self.is_complete(), "every Work Unit is merged");
+        let pixels = self
+            .pixels
+            .iter()
+            .map(|sum| self.output_rgb_from_sensor_rgb * sum.sensor_rgb())
+            .collect();
+        Image::new(self.decomposition.resolution(), pixels, record)
     }
 
     /// The image's width, in pixels.

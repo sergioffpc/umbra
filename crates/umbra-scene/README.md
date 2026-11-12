@@ -30,12 +30,13 @@ assert_eq!(options.tile_size.get(), 32);
 
 ## What is in it
 
-| Module    | Contents                                                                                                                                                                                                                                      |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scene`   | `SceneBuilder`, with one parameter type per directive it supports (`FilmParameters`, `PerspectiveCameraParameters`, `GaussianFilterParameters`, `HaltonSamplerParameters`, and `VolPathIntegrator`), and the `Scene` it builds, with `view()` |
-| `arena`   | `Arena<T>`: the objects of one type, which mints a `Handle<T>` per object and refuses more than a `u32` can index                                                                                                                             |
-| `options` | `RenderJobOptions` (seed, Tile size, Pixel Samples per Pass, Pixel Samples per pixel) and `Seed`                                                                                                                                              |
-| `error`   | `SceneError`                                                                                                                                                                                                                                  |
+| Module         | Contents                                                                                                                                                                                                                                      |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scene`        | `SceneBuilder`, with one parameter type per directive it supports (`FilmParameters`, `PerspectiveCameraParameters`, `GaussianFilterParameters`, `HaltonSamplerParameters`, and `VolPathIntegrator`), and the `Scene` it builds, with `view()` |
+| `arena`        | `Arena<T>`: the objects of one type, which mints a `Handle<T>` per object and refuses more than a `u32` can index                                                                                                                             |
+| `options`      | `RenderJobOptions` (seed, Tile size, Pixel Samples per Pass, Pixel Samples per pixel) and `Seed`                                                                                                                                              |
+| `content_hash` | `ContentHash`: the SHA-256 of the files a Scene was read from, which the parser computes and the Reproduction Record carries                                                                                                                  |
+| `error`        | `SceneError`                                                                                                                                                                                                                                  |
 
 Not here yet: Shapes, lights and materials and their arenas, from
 [#79](https://github.com/sergioffpc/umbra/issues/79) on, with the BVH; the
@@ -69,6 +70,12 @@ interactions will carry handles.
 the seed are `RenderJobOptions`, as pbrt-v4's `--spp` and `--seed` override
 the Scene File's. The digit permutations a seed chooses are computed by
 `umbra-render`'s `Renderer`, once per Render Job.
+
+### The output colour space is the Scene's
+
+`build` computes the matrix from the sensor's RGB to sRGB, the only output
+colour space so far, once; the Film reads it from the Scene to finish its
+image (pbrt-v4 `RGBFilm::outputRGBFromSensorRGB`).
 
 ## Things to know when using it
 
