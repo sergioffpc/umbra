@@ -25,7 +25,7 @@ pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), Er
     }
     let options = RenderJobOptions {
         tile_size: args.tile_size,
-        pixel_samples_per_pass: args.pixel_samples_per_pass,
+        pixel_samples_per_pass: args.spp_per_pass,
         ..parsed.options
     };
     let record = ReproductionRecord::new(

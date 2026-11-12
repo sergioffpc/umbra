@@ -305,6 +305,9 @@ svg .t-small { font-size: 11px; }
 .cv-gantt { aspect-ratio: 16 / 5.5; }
 .cv-tile { aspect-ratio: 16 / 10; }
 @media (max-width: 560px) { .cv-gantt { aspect-ratio: 4 / 3; } }
+.meter { height: 0.8rem; border-radius: 999px; background: var(--grid); overflow: hidden; margin: 0.2rem 0; }
+.meter > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+.meter > span.short { background: var(--warm); }
 </style>
 </head>
 <body>
@@ -414,7 +417,7 @@ svg .t-small { font-size: 11px; }
                     <li><a href="#vocab"><span class="n">0</span><span class="t">The words, in pictures</span><span class="c">Tile, Pass, Work Unit, Work Result, Film</span></a></li>
                     <li><a href="#sums"><span class="n">1</span><span class="t">A pixel is two sums</span><span class="c">PixelSum · weighted average, divided last</span></a></li>
                     <li><a href="#decomposition"><span class="n">2</span><span class="t">Cutting the job into Work Units</span><span class="c">Decomposition · tile_bounds · sample_indices</span></a></li>
-                    <li><a href="#scheduling"><span class="n">3</span><span class="t">Handing out the work</span><span class="c">Pass-major order · pulling · speculative tail</span></a></li>
+                    <li><a href="#scheduling"><span class="n">3</span><span class="t">Handing out the work</span><span class="c">Pass-major order · pulling · speculative tail · what fills the cores</span></a></li>
                     <li><a href="#float"><span class="n">4</span><span class="t">Why the order of additions matters</span><span class="c">rounding · not associative</span></a></li>
                     <li><a href="#determinism"><span class="n">5</span><span class="t">What stays exactly the same</span><span class="c">pure Pixel Samples · 1, 2, 3 Passes</span></a></li>
                     <li><a href="#merge"><span class="n">6</span><span class="t">Checking and merging a Work Result</span><span class="c">Film::accept · Acceptance · FilmHash</span></a></li>
@@ -740,7 +743,7 @@ svg .t-small { font-size: 11px; }
 <!-- ================================================================= -->
 <section class="topic" id="scheduling">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-render</span> · <code>work_units</code>, <code>Cancellation</code>, <code>Acceptance::Duplicate</code> · the scheduler itself: <span class="crate">umbra-cluster</span>, not built yet · <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> · arc42 §8.8</div>
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-render</span> · <code>work_units</code>, <code>Cancellation</code>, <code>Acceptance::Duplicate</code> · the scheduler itself: <span class="crate">umbra-cluster</span> · <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> · arc42 §8.8</div>
         <h3>Handing out the work</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>The Coordinator keeps the list of Work Units. Each Worker asks for more whenever it has room, so a fast machine simply asks more often: nobody has to measure who is fast. Work goes out Pass by Pass. At the very end, when nothing is left to hand out, an idle Worker gets a copy of the oldest unfinished Work Unit, so one slow machine can't hold up the finish. Whichever copy comes back first counts, and the other is thrown away.</div>
@@ -767,7 +770,7 @@ svg .t-small { font-size: 11px; }
     </figure>
 
     <div class="prose">
-        <p>The scheduler belongs to <code>umbra-cluster</code>, which is designed (<a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a>) but not built yet. <code>umbra-render</code> already provides the four pieces it will need:</p>
+        <p>The scheduler belongs to <code>umbra-cluster</code> (<a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a>). Today it serves one in-process Local Worker, which pulls Work Units exactly as above; the network, failed Workers and the speculative tail arrive with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a> and <a href="https://github.com/sergioffpc/umbra/issues/129">#129</a>. <code>umbra-render</code> provides the four pieces it needs:</p>
         <ul>
             <li><b>The order.</b> <code>Decomposition::work_units()</code> lists the Work Units Pass-major: all Tiles of Pass 0 in raster order, then all of Pass 1, and so on. The whole image improves evenly, and a slow Pass of one Tile never holds back the later Passes of that Tile, as it would if each Tile's Passes went out together (“Tile-major”, rejected in ADR 0009).</li>
             <li><b>Concurrent rendering.</b> <code>Renderer::render</code> takes <code>&amp;self</code> and the Renderer is <code>Sync</code>, so a Worker can render several Work Units at once from different threads. A CPU Worker keeps about two in flight per eight threads, to hide the network's delay.</li>
@@ -802,6 +805,93 @@ svg .t-small { font-size: 11px; }
         </div>
         <dl class="readout" id="sc-read"></dl>
         <figcaption>A toy version of ADR 0009 for the test image: 6 Tiles × 3 Passes. Three Workers pull one Work Unit at a time (a simplification). A Work Unit's cost depends on its Tile's size, so the short edge Tiles are quicker. <b>Try:</b> make Worker C very slow, then switch the tail off and see the finish move later, while A and B sit idle. The cancel takes a moment to reach the other copy, which then stops at the end of its current row. A copy that finishes before the cancel reaches it sends its Work Result anyway, and the Film calls it a Duplicate: press “another run” a few times to see one.</figcaption>
+    </figure>
+    <h4 id="cores">What keeps the cores busy, and what the Pass size is for</h4>
+    <div class="prose">
+        <p>The Pass size (<code>--spp-per-pass</code>) looks like the knob that spreads work over a machine's cores, but it is not. A Worker fills its cores on two levels, and neither depends on the Pass size:</p>
+        <ol>
+            <li><b>Several Work Units at once.</b> A CPU Worker asks for ⌈threads ⁄ 4⌉ Work Units, about two per eight threads (<code>capacity</code> in <code>umbra-cluster</code>'s <code>local_worker.rs</code>): 16 on the P620's 64 threads.</li>
+            <li><b>The rows of each Work Unit at once.</b> Inside one Work Unit, the Tile's rows are shared out over the same rayon pool, and a free thread steals the next row (<a href="#render-unit">section 7</a>).</li>
+        </ol>
+        <p>Sixteen Work Units of 32 rows each make 512 rows to share among 64 threads, whatever the Pass size. What the Pass size sets is how big one Work Unit is along the samples, as the Tile size sets it across the image:</p>
+    </div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 270" class="dg-wide" role="img" aria-label="Six Tiles by 256 Pixel Samples, cut into four Passes of 64 on the left and one Pass of 256 on the right">
+            <g font-size="12">
+                <text x="190" y="20" text-anchor="middle" class="t-bold">--spp 256 --spp-per-pass 64</text>
+                <text x="570" y="20" text-anchor="middle" class="t-bold">--spp 256 --spp-per-pass 256</text>
+                <rect x="40" y="40" width="300" height="160" class="f-surf k-ink" stroke-width="1.2"/>
+                <path d="M90 40 V200 M140 40 V200 M190 40 V200 M240 40 V200 M290 40 V200" class="k-mut"/>
+                <path d="M40 80 H340 M40 120 H340 M40 160 H340" class="k-ink" stroke-width="1.5"/>
+                <rect x="140" y="80" width="50" height="40" class="f-acc-soft k-acc" stroke-width="2"/>
+                <text x="350" y="64" class="t-mut">Pass 0</text>
+                <text x="350" y="104" class="t-mut">Pass 1</text>
+                <text x="350" y="144" class="t-mut">Pass 2</text>
+                <text x="350" y="184" class="t-mut">Pass 3</text>
+                <rect x="420" y="40" width="300" height="160" class="f-surf k-ink" stroke-width="1.2"/>
+                <path d="M470 40 V200 M520 40 V200 M570 40 V200 M620 40 V200 M670 40 V200" class="k-mut"/>
+                <rect x="520" y="40" width="50" height="160" class="f-warm-soft k-warm" stroke-width="2"/>
+                <text x="730" y="124" class="t-mut">Pass 0</text>
+                <text x="190" y="220" text-anchor="middle">6 Tiles → across</text>
+                <text x="570" y="220" text-anchor="middle">6 Tiles → across</text>
+                <text x="190" y="242" text-anchor="middle" class="t-acc">24 Work Units, each 64 samples deep</text>
+                <text x="570" y="242" text-anchor="middle" class="t-warm">6 Work Units, each 256 samples deep</text>
+                <text x="190" y="262" text-anchor="middle" class="t-mut">the same 256 Pixel Samples in every pixel</text>
+                <text x="570" y="262" text-anchor="middle" class="t-mut">the same 256 Pixel Samples in every pixel</text>
+                <text x="26" y="124" text-anchor="middle" class="t-mut" transform="rotate(-90 26 124)">sample index ↓</text>
+            </g>
+        </svg></div>
+        <figcaption>One cell is one Work Unit: one Tile across, one Pass down. <code>--spp</code> sets the height of the whole grid, so how much light every pixel gathers. <code>--spp-per-pass</code> only draws the horizontal cuts. Both grids hold the same work and give the same noise; on the left it comes in pieces four times smaller.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>So the Pass size changes how the work is packaged, never how much of it there is:</p>
+        <ul>
+            <li><b>The cost of one Work Unit</b> is about the Tile's pixels times the Pass's Pixel Samples. A smaller Pass makes it cheaper.</li>
+            <li><b>What a failure loses.</b> A Worker that dies loses its Work Units in flight, which are rendered again elsewhere. Smaller Work Units mean less to redo (<a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> rejected a single Pass for this reason).</li>
+            <li><b>The end of the render.</b> The last Work Units decide when the image is done; when they are small, nobody waits long on one of them, and a speculative copy is cheap.</li>
+            <li><b>Overhead.</b> Every Work Unit costs an assignment, a Work Result buffer and a merge, whatever its size. Very small Passes spend more of the render on that.</li>
+            <li><b>The last bits of the image.</b> The Film adds Pixel Samples Pass by Pass, so another Pass size rounds differently (<a href="#float">section 4</a>). The noise is the same; the bits are not.</li>
+        </ul>
+        <p>The Pass size helps fill the cores only when there are too few Work Units to go round. That happens with a small image (few Tiles) and one Pass, and above all on a Cluster: every Worker wants several Work Units in flight, and a GPU Worker wants about 16 at once for one batch. More Passes multiply the Work Units, Tiles × Passes, without changing the image's statistics. Even then the rows inside each Work Unit keep a CPU Worker's threads busy; the cost is balance between Workers, not idle cores.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">in flight = ⌈threads ⁄ 4⌉</div><div class="mb-d"><b>Work Units a CPU Worker asks for.</b> About two per eight threads, at least one. <code>capacity</code>, <code>umbra-cluster</code></div></div>
+        <div class="mb-row"><div class="mb-f">rows at once ≈ min(in flight, Work Units) × Tile rows</div><div class="mb-d"><b>Pieces the threads share.</b> Enough when it is well above the thread count. <code>par_chunks_mut</code>, section 7</div></div>
+        <div class="mb-row"><div class="mb-f">Work Units = tile_count × ⌈spp ⁄ per_pass⌉</div><div class="mb-d"><b>How many pieces the Render Job has.</b> The only place the Pass size meets parallelism. <code>work_units</code></div></div>
+        <div class="mb-row"><div class="mb-f">cost(Work Unit) ∝ Tile pixels × min(per_pass, spp)</div><div class="mb-d"><b>How big one piece is</b>: what a failure loses and what the end of the render waits on.</div></div>
+    </div>
+
+    <figure class="bench" id="cw">
+        <div class="controls">
+            <div class="ctl"><label for="cw-w">image width</label><div class="row"><input id="cw-w" type="range" min="32" max="3840" step="32" value="1920"><output id="cw-w-o" for="cw-w"></output></div></div>
+            <div class="ctl"><label for="cw-h">image height</label><div class="row"><input id="cw-h" type="range" min="32" max="2160" step="8" value="1080"><output id="cw-h-o" for="cw-h"></output></div></div>
+            <div class="ctl"><label for="cw-t">--tile-size</label><div class="row"><input id="cw-t" type="range" min="8" max="128" step="8" value="32"><output id="cw-t-o" for="cw-t"></output></div></div>
+            <div class="ctl"><label for="cw-spp">--spp</label><div class="row"><input id="cw-spp" type="range" min="0" max="12" step="1" value="8"><output id="cw-spp-o" for="cw-spp"></output></div></div>
+            <div class="ctl"><label for="cw-per">--spp-per-pass</label><div class="row"><input id="cw-per" type="range" min="0" max="12" step="1" value="6"><output id="cw-per-o" for="cw-per"></output></div></div>
+            <div class="ctl"><label for="cw-th">threads per Worker</label><div class="row"><input id="cw-th" type="range" min="1" max="128" step="1" value="64"><output id="cw-th-o" for="cw-th"></output></div></div>
+            <div class="ctl"><label for="cw-wk">CPU Workers</label><div class="row"><input id="cw-wk" type="range" min="1" max="8" step="1" value="1"><output id="cw-wk-o" for="cw-wk"></output></div></div>
+            <div class="ctl"><span class="lbl">try</span><div class="btns">
+                <button type="button" id="cw-hd">1080p</button>
+                <button type="button" id="cw-tiny">tiny image, one Pass</button>
+                <button type="button" id="cw-tinyp">tiny image, many Passes</button>
+            </div></div>
+        </div>
+        <div class="split even">
+            <div>
+                <p class="panel-title">Work Units the Workers ask for, and how many exist</p>
+                <div class="meter"><span id="cw-m1"></span></div>
+                <p class="panel-foot" id="cw-f1"></p>
+                <p class="panel-title">rows each Worker shares among its threads</p>
+                <div class="meter"><span id="cw-m2"></span></div>
+                <p class="panel-foot" id="cw-f2"></p>
+            </div>
+            <dl class="readout" id="cw-read"></dl>
+        </div>
+        <figcaption><b>Try:</b> at 1080p, slide <code>--spp-per-pass</code> from 1 to 4096. The Work Units go from over half a million down to 2040, and every one grows, but the rows to share never drop below the threads: the cores stay full. Then press “tiny image, one Pass” with 8 Workers: there are fewer Work Units than the Workers ask for, so some Workers wait while others work. “Many Passes” fixes that without changing <code>--spp</code>. The figures assume full Tiles shared evenly among the Workers, and count only CPU Workers.</figcaption>
     </figure>
 </section>
 
@@ -1886,6 +1976,55 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
     }
     drawers.push(draw);
     resim();
+})();
+
+/* ================================================================
+    §3 Cores bench: what fills the threads, what the Pass size sets.
+    ================================================================ */
+(() => {
+    const pow2 = (v) => 2 ** v;
+    const ids = ["cw-w", "cw-h", "cw-t", "cw-spp", "cw-per", "cw-th", "cw-wk"];
+    const show = { "cw-spp": pow2, "cw-per": pow2 };
+    const big = (n) => n.toLocaleString("en-GB");
+    function draw() {
+        const [w, h, t, sppE, perE, th, wk] = ids.map((id) => +$(id).value);
+        const spp = pow2(sppE), per = pow2(perE);
+        const tiles = Math.ceil(w / t) * Math.ceil(h / t);
+        const passes = Math.ceil(spp / per);
+        const units = tiles * passes;
+        const inFlight = Math.ceil(th / 4);
+        const wanted = inFlight * wk;
+        const busy = Math.min(units, wanted);
+        const perWorker = Math.min(inFlight, units / wk);
+        const rows = Math.floor(perWorker * Math.min(t, h));
+        const cost = t * t * Math.min(per, spp);
+        const m1 = $("cw-m1"), m2 = $("cw-m2");
+        m1.style.width = `${(100 * busy / wanted).toFixed(1)}%`;
+        m1.classList.toggle("short", busy < wanted);
+        $("cw-f1").textContent = busy < wanted
+            ? `only ${big(units)} Work Units for ${big(wanted)} asked: some Workers wait`
+            : `${big(wanted)} asked, ${big(units)} exist: every Worker is served`;
+        m2.style.width = `${Math.min(100, 100 * rows / (4 * th)).toFixed(1)}%`;
+        m2.classList.toggle("short", rows < th);
+        $("cw-f2").textContent = rows < th
+            ? `about ${big(rows)} rows per Worker for its ${th} threads: threads idle`
+            : `about ${big(rows)} rows per Worker for its ${th} threads: every thread has work (full bar = 4 rows per thread)`;
+        $("cw-read").innerHTML = `<dt>Tiles</dt><dd>${big(tiles)}</dd>
+            <dt>Passes</dt><dd>⌈${spp} ⁄ ${per}⌉ = ${big(passes)}${per >= spp ? " (one Pass)" : ""}</dd>
+            <dt>Work Units</dt><dd class="acc">${big(units)}</dd>
+            <dt>in flight per Worker</dt><dd>⌈${th} ⁄ 4⌉ = ${inFlight}</dd>
+            <dt>Pixel Samples per Work Unit</dt><dd class="acc">${big(cost)}</dd>
+            <dt>Pixel Samples per pixel</dt><dd>${big(spp)}, whatever the Pass size</dd>`;
+    }
+    for (const id of ids) bindRange(id, (v) => (show[id] ? show[id](v) : v), draw);
+    const preset = (o) => {
+        for (const [id, v] of Object.entries(o)) $(id).value = v;
+        for (const id of ids) $(id).dispatchEvent(new Event("input"));
+    };
+    $("cw-hd").addEventListener("click", () => preset({ "cw-w": 1920, "cw-h": 1080, "cw-t": 32, "cw-spp": 8, "cw-per": 6, "cw-th": 64, "cw-wk": 1 }));
+    $("cw-tiny").addEventListener("click", () => preset({ "cw-w": 128, "cw-h": 64, "cw-t": 32, "cw-spp": 10, "cw-per": 12, "cw-th": 16, "cw-wk": 8 }));
+    $("cw-tinyp").addEventListener("click", () => preset({ "cw-w": 128, "cw-h": 64, "cw-t": 32, "cw-spp": 10, "cw-per": 6, "cw-th": 16, "cw-wk": 8 }));
+    draw();
 })();
 
 /* ================================================================

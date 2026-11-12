@@ -28,7 +28,6 @@ let options = RenderJobOptions {
 let identity = BuildIdentity {
     commit: "0000000".to_owned(),
     tree: Tree::Clean,
-    target_cpu: "x86-64-v3".to_owned(),
 };
 let record =
     ReproductionRecord::new(PathBuf::from("scene.pbrt"), ContentHash([0; 32]), &options, identity);

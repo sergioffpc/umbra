@@ -21,12 +21,19 @@ pub(crate) enum Command {
     Render(RenderArgs),
 }
 
-/// `umbra render`: pbrt-v4's overrides keep pbrt-v4's names (ADR 0003).
+/// `umbra render`: pbrt-v4's overrides keep pbrt-v4's names (ADR 0003), and
+/// Umbra's own `--spp-per-pass` is named after `--spp`.
 #[derive(Debug, Args)]
 pub(crate) struct RenderArgs {
     /// The pbrt-v4 Scene File.
     pub(crate) scene_file: PathBuf,
-    /// Pixel Samples per pixel, over the Scene File's.
+    /// How many Pixel Samples every pixel gets (samples per pixel), over the
+    /// Scene File's `pixelsamples`.
+    ///
+    /// This sets the image's quality: each Pixel Sample is one estimate of
+    /// the pixel's light, and the pixel is their weighted average, so more
+    /// Pixel Samples give less noise and a longer render. pbrt-v4's option,
+    /// with pbrt-v4's meaning.
     #[arg(long)]
     pub(crate) spp: Option<NonZeroU32>,
     /// The seed of the samplers, over the Scene File's; 0 by default.
@@ -38,9 +45,21 @@ pub(crate) struct RenderArgs {
     /// The side of a square Tile, in pixels.
     #[arg(long, default_value = "32")]
     pub(crate) tile_size: NonZeroU32,
-    /// The Pixel Samples of a pixel in one Pass.
+    /// How many of each pixel's `--spp` Pixel Samples one Pass holds (samples
+    /// per pixel per Pass): how the work is cut, never how many Pixel Samples
+    /// are taken.
+    ///
+    /// With N Pixel Samples per Pass, Pass p takes the sample indices from
+    /// p × N to (p + 1) × N − 1 in every pixel, and the last Pass stops at
+    /// `--spp`. One Tile for one Pass is a Work Unit. A
+    /// smaller value gives more, smaller Work Units: a failed Worker loses
+    /// less, and the end of the render waits less on one Work Unit. The
+    /// image's noise stays the same, but its last bits can change, because
+    /// the Film adds the Pixel Samples in other groups (ADR 0009, ADR 0022).
+    /// A value of `--spp` or more renders in one Pass.
+    /// Umbra's own option, never in a Scene File.
     #[arg(long, default_value = "64")]
-    pub(crate) pixel_samples_per_pass: NonZeroU32,
+    pub(crate) spp_per_pass: NonZeroU32,
     /// The Local Worker's threads; one per logical CPU by default.
     #[arg(long)]
     pub(crate) nthreads: Option<NonZeroUsize>,

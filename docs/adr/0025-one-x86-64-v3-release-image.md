@@ -6,7 +6,7 @@ A per-CPU target buys almost nothing over `x86-64-v3`. The instructions `znver2`
 
 - **One image.** The `Dockerfile` builds for `x86-64-v3` and takes no `TARGET_CPU` build argument. `release-image.yml` runs one job, with one provenance, SBOM and attestation.
 - **Tags.** The only tag is `X.Y.Z`. There is still no `X.Y` or `latest`: a moving tag would put the Workers of one Cluster on different commits, which the Build Identity handshake refuses ([ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md)).
-- **Development builds are unchanged.** `cargo build` on each host keeps `target-cpu=native` from `.cargo/config.toml`. The Build Identity still records the target CPU, informational only.
+- **Development builds are unchanged.** `cargo build` on each host keeps `target-cpu=native` from `.cargo/config.toml`. The Build Identity does not record the target CPU (amended on 2026-11-12, decided with the owner).
 - **Results.** Every Worker of a release runs the same binary. [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) still promises the same bits only on one machine, but one binary in practice gives the same bits on every `x86-64-v3` CPU.
 
 ## Considered options

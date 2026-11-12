@@ -16,16 +16,14 @@ pub enum Tree {
     Dirty,
 }
 
-/// What a binary was built from (arc42 §7.2, ADR 0012): its commit, whether
-/// the tree was dirty, and the CPU it was compiled for.
+/// What a binary was built from (arc42 §7.2, ADR 0012): its commit, and
+/// whether the tree was dirty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BuildIdentity {
     /// The git commit, in full.
     pub commit: String,
     /// Whether the tree had uncommitted changes.
     pub tree: Tree,
-    /// The `-C target-cpu` it was compiled for.
-    pub target_cpu: String,
 }
 
 /// The Reproduction Record of a Render Job: the Scene File and the content

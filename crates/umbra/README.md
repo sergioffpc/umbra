@@ -13,7 +13,7 @@ how to run Workers on several machines are in the
 [repository's README](https://github.com/sergioffpc/umbra#readme).
 
 ```sh
-umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --pixel-samples-per-pass 64
+umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp-per-pass 64
 ```
 
 ## What is in it
@@ -24,11 +24,10 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --pix
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`       |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                               |
-| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree, target CPU                             |
+| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree                                         |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
-`UMBRA_TREE` where there is no `.git` (a container build), and the target CPU
-from `-C target-cpu` in the compilation's flags.
+`UMBRA_TREE` where there is no `.git` (a container build).
 
 Not here yet: Ctrl-C and exit code 130, `--log` and `--log-format`, with
 [#86](https://github.com/sergioffpc/umbra/issues/86); `trace`, with
@@ -42,8 +41,10 @@ Not here yet: Ctrl-C and exit code 130, `--log` and `--log-format`, with
 ### pbrt-v4's names for pbrt-v4's options
 
 `--spp`, `--seed`, `--outfile` and `--nthreads` mean what they mean to
-pbrt-v4 (ADR 0003); `--tile-size` and `--pixel-samples-per-pass` are
-Umbra's Render Job Options, never in a Scene File.
+pbrt-v4 (ADR 0003); `--tile-size` and `--spp-per-pass` are Umbra's Render
+Job Options, never in a Scene File. `--spp-per-pass` is named after `--spp`
+because it counts the same Pixel Samples: see
+[`--spp` and `--spp-per-pass`](#--spp-and---spp-per-pass).
 
 ### The record names the Scene File by its canonical path
 
@@ -54,6 +55,57 @@ The Reproduction Record holds the Scene File's absolute, canonical path, so
 
 The image and its report are each written to a temporary file in their
 directory, synced, and renamed over the target (arc42 §8.15).
+
+## `--spp` and `--spp-per-pass`
+
+Both count Pixel Samples per pixel, but they answer different questions.
+
+| Option           | Question                                     | Changes the image?                    | Default                                    |
+| ---------------- | -------------------------------------------- | ------------------------------------- | ------------------------------------------ |
+| `--spp`          | How many Pixel Samples does every pixel get? | Yes: more Pixel Samples, less noise   | the Sampler's `pixelsamples`, otherwise 16 |
+| `--spp-per-pass` | How many of them go into one Pass?           | No: the same Pixel Samples, cut apart | 64                                         |
+
+`--spp` sets quality. Each Pixel Sample is one estimate of the light a
+pixel receives, and the pixel is their weighted average, so more of them
+mean less noise and a longer render. It is pbrt-v4's option and overrides
+the Scene File.
+
+`--spp-per-pass` only cuts the work. Pass p holds the sample indices
+`p × spp-per-pass` up to the next Pass, in every pixel; the last Pass stops
+at `--spp`. One Tile for one Pass is a Work Unit, the piece a Worker renders
+and the Film merges. With `--spp 256 --spp-per-pass 64`:
+
+```text
+sample index  0 ........ 63 | 64 ...... 127 | 128 ..... 191 | 192 ..... 255
+              Pass 0        | Pass 1        | Pass 2        | Pass 3
+```
+
+Every pixel still gets 256 Pixel Samples. A 1920 × 1080 image in 32 × 32
+Tiles has 60 × 34 = 2040 Tiles, so 4 × 2040 = 8160 Work Units. With
+`--spp-per-pass 256` it would be one Pass and 2040 larger Work Units.
+
+- **Smaller Passes** give more and smaller Work Units: a Worker that fails
+  loses less work, and the end of the render waits less on one slow Work
+  Unit (ADR 0009). Each Work Unit carries a fixed cost, so very small Passes
+  spend more on overhead.
+- **The noise does not depend on it**, but the image's last bits can: the
+  Film adds the Pixel Samples Pass by Pass, and a different grouping rounds
+  differently. Same options on one machine give the same bits (ADR 0022).
+- **A value of `--spp` or more** renders in one Pass, so the order in which
+  Work Results arrive cannot change the Film. The golden renders of ADR 0022
+  will use one Pass for that reason
+  ([#87](https://github.com/sergioffpc/umbra/issues/87)).
+
+The Reproduction Record in the EXR's header stores them as
+`pixel_samples_per_pixel` and `pixel_samples_per_pass`, the names of the
+`RenderJobOptions` fields they set.
+
+`--spp-per-pass` does not decide how a Worker fills its cores: it asks for
+about two Work Units per eight threads and shares each one's rows among
+them. The Pass size matters there only when Tiles × Passes is smaller than
+what the Workers ask for, as with a small image on a Cluster. The
+[Render Guide](../umbra-render/docs/render-guide.html#cores) shows this with
+an interactive calculator.
 
 ## Things to know when using it
 

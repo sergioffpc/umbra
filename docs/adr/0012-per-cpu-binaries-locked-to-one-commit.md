@@ -7,6 +7,8 @@
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md).** There are two targets, `znver2` and `broadwell`, and no arm64 release. Different target CPUs are no longer promised to give the same results.
 >
 > **Amended by [ADR 0025](0025-one-x86-64-v3-release-image.md).** Releases are one `x86-64-v3` image, `X.Y.Z`, for every Worker. The per-CPU images and the `TARGET_CPU` build argument are gone. Development builds keep `target-cpu=native`, and the commit lock is unchanged.
+>
+> **Amended on 2026-11-12, decided with the owner.** The Build Identity no longer records the target CPU: nothing read it, and the release image is always `x86-64-v3`. It is the commit and whether the tree was dirty.
 
 Each target machine runs a binary compiled for its own CPU, and the Coordinator accepts only Workers built from its own commit. Decided in [Per-machine build and deployment](https://github.com/sergioffpc/umbra/issues/27). This amends [ADR 0005](0005-chiseled-release-container-image.md), which published a single `x86-64-v3` image.
 
