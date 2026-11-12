@@ -18,16 +18,27 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 
 ## What is in it
 
-| Module           | Contents                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `main`           | The exit codes of arc42 §8.13, and a panic hook that exits 1                                                   |
-| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own |
-| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`       |
-| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                               |
-| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree                                         |
+| Module           | Contents                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `main`           | The exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
+| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
+| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`              |
+| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
+| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
 `UMBRA_TREE` where there is no `.git` (a container build).
+
+Every command starts by writing its version line to stderr,
+`umbra 0.1.0 (9bd75ce)`, with `-dirty` after the commit for a dirty tree.
+`umbra --version` (or `-V`) writes it to stderr too, not to stdout as
+`clap` would, followed by the copyright and the licences:
+
+```text
+umbra 0.1.0 (9bd75ce)
+Copyright (c) 2026 Sérgio Carvalho
+MIT License. Includes code from pbrt-v4, under the Apache License 2.0; see NOTICE.
+```
 
 Not here yet: Ctrl-C and exit code 130, `--log` and `--log-format`, with
 [#86](https://github.com/sergioffpc/umbra/issues/86); `trace`, with
@@ -129,7 +140,9 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   precedence; the Film hash is the same with 1 thread and with all; output
   paths resolve as in pbrt-v4; includes resolve and are hashed; unsupported
   Scene Files give located Diagnostics and exit 3, with no image; unused
-  parameters warn; a missing Scene File exits 1 and invalid usage 2.
+  parameters warn; a missing Scene File exits 1 and invalid usage 2; the
+  version line starts every command on stderr, and `--version` adds the
+  copyright and the licences, with nothing on stdout.
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.

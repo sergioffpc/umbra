@@ -4,3 +4,4 @@
 mod cli;
 mod diagnostics;
 mod image;
+mod version;

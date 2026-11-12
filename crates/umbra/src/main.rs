@@ -10,7 +10,9 @@ use std::panic;
 use std::process::ExitCode;
 
 use clap::Parser;
+use clap::error::ErrorKind;
 
+use crate::build_identity::{version_line, version_notice};
 use crate::cli::{Cli, Command};
 use crate::error::Error;
 
@@ -35,8 +37,19 @@ impl From<Exit> for ExitCode {
 
 fn main() -> ExitCode {
     exit_on_panic();
-    let cli = Cli::parse();
     let mut stderr = io::stderr().lock();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // `clap` would write the version to stdout; Umbra writes it to
+        // stderr, as the version line at the start of every command.
+        Err(error) if error.kind() == ErrorKind::DisplayVersion => {
+            let _ = writeln!(stderr, "{}", version_notice());
+            return Exit::Success.into();
+        }
+        Err(error) => error.exit(),
+    };
+    // Informative: a closed stderr does not stop the command.
+    let _ = writeln!(stderr, "{}", version_line());
     let exit = match cli.command {
         Command::Render(args) => match render::render(&args, &mut stderr) {
             Ok(()) => Exit::Success,
