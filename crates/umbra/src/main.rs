@@ -2,6 +2,7 @@
 
 mod build_identity;
 mod cli;
+mod error;
 mod render;
 
 use std::io::{self, Write};
@@ -11,7 +12,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::cli::{Cli, Command};
-use crate::render::RenderFailure;
+use crate::error::Error;
 
 /// How `umbra` exits (arc42 §8.13). Invalid usage exits 2 from `clap`
 /// itself; Ctrl-C's 130 arrives with
@@ -39,19 +40,19 @@ fn main() -> ExitCode {
     let exit = match cli.command {
         Command::Render(args) => match render::render(&args, &mut stderr) {
             Ok(()) => Exit::Success,
-            Err(failure) => report(&failure, &mut stderr),
+            Err(error) => report(&error, &mut stderr),
         },
     };
     exit.into()
 }
 
-/// Writes `failure` to `stderr`, and how `umbra` exits for it.
-fn report(failure: &RenderFailure, stderr: &mut dyn Write) -> Exit {
+/// Writes `error` to `stderr`, and how `umbra` exits for it.
+fn report(error: &Error, stderr: &mut dyn Write) -> Exit {
     // Nothing is left to tell the operator with if stderr is closed.
-    let _ = writeln!(stderr, "{failure}");
-    match failure {
-        RenderFailure::Refused(_) => Exit::Refused,
-        RenderFailure::Failed(_) => Exit::Failure,
+    let _ = writeln!(stderr, "{error}");
+    match error {
+        Error::Refused(_) => Exit::Refused,
+        Error::Unreadable(_) | Error::Io(_) | Error::Cluster(_) => Exit::Failure,
     }
 }
 

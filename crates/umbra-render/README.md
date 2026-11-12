@@ -33,14 +33,15 @@ assert!(film.is_complete());
 
 ## What is in it
 
-| Module          | Contents                                                                                                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `decomposition` | `Decomposition`: the Tiles and Passes of a Render Job, its `WorkUnit`s (`TileIndex`, `PassIndex`) Pass by Pass in raster order, each Tile's `TileBounds` and each Pass's sample indices; `RenderError` |
-| `renderer`      | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`; `Cancellation`                                                                            |
-| `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                                   |
-| `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                                |
-| `image`         | `Image`, the `ImageWriter` seam and its `ExrWriter`, and `write_atomically`                                                                                                                            |
-| `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                                             |
+| Module          | Contents                                                                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `decomposition` | `Decomposition`: the Tiles and Passes of a Render Job, its `WorkUnit`s (`TileIndex`, `PassIndex`) Pass by Pass in raster order, each Tile's `TileBounds` and each Pass's sample indices |
+| `error`         | `Error`: why a Render Job cannot be cut into Work Units                                                                                                                                 |
+| `renderer`      | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`; `Cancellation`                                                             |
+| `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                    |
+| `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                 |
+| `image`         | `Image`, the `ImageWriter` seam and its `ExrWriter`, and `write_atomically`                                                                                                             |
+| `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                              |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); the EXR's `RGBFilm`

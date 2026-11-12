@@ -1,52 +1,23 @@
 //! `umbra render`: parse, apply the overrides, render through
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
-use std::error::Error;
 use std::ffi::OsString;
-use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use umbra_cluster::{CoordinatorOptions, RenderJob, Threads, coordinate};
-use umbra_parser::{Overrides, ParseError, Parsed, ParserError};
+use umbra_parser::{Overrides, Parsed};
 use umbra_render::{ExrWriter, ImageWriter, ReproductionRecord, write_atomically};
 use umbra_scene::{RenderJobOptions, Seed};
 
 use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
-
-/// Why `umbra render` did not write an image.
-#[derive(Debug)]
-pub(crate) enum RenderFailure {
-    /// The Scene File is invalid: every `ParserError`.
-    Refused(Vec<ParserError>),
-    /// Something failed that a retry may fix.
-    Failed(Box<dyn Error>),
-}
-
-impl fmt::Display for RenderFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Refused(diagnostics) => {
-                let mut lines = diagnostics.iter().map(ToString::to_string);
-                write!(f, "{}", lines.next().unwrap_or_default())?;
-                lines.try_for_each(|line| write!(f, "\n{line}"))
-            }
-            Self::Failed(error) => write!(f, "error: {error}"),
-        }
-    }
-}
-
-impl<E: Error + 'static> From<E> for RenderFailure {
-    fn from(error: E) -> Self {
-        Self::Failed(Box::new(error))
-    }
-}
+use crate::error::Error;
 
 /// Renders the Scene File of `args`, writing its warnings and progress to
 /// `stderr`, then the image and its Render Job Report.
-pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), RenderFailure> {
+pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), Error> {
     let parsed = parse(args)?;
     for warning in &parsed.warnings {
         // Warnings are informative: a closed stderr does not fail the render.
@@ -79,15 +50,15 @@ pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), Re
 }
 
 /// The Scene File of `args`, parsed with its overrides.
-fn parse(args: &RenderArgs) -> Result<Parsed, RenderFailure> {
+fn parse(args: &RenderArgs) -> Result<Parsed, Error> {
     let overrides = Overrides {
         spp: args.spp,
         seed: args.seed.map(Seed),
         outfile: args.outfile.clone(),
     };
     umbra_parser::parse(&args.scene_file, &overrides).map_err(|error| match error {
-        ParseError::Invalid(diagnostics) => RenderFailure::Refused(diagnostics),
-        io @ ParseError::Io(_) => io.into(),
+        umbra_parser::Error::Invalid(diagnostics) => Error::Refused(diagnostics),
+        umbra_parser::Error::Io(error) => Error::Unreadable(error),
     })
 }
 

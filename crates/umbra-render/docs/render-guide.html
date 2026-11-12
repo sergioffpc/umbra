@@ -703,13 +703,13 @@ svg .t-small { font-size: 11px; }
     start..(start + <span class="k">self</span>.samples_per_pass).min(<span class="k">self</span>.samples_per_pixel)
 }</pre>
         <p><code>TileBounds</code> is pbrt-v4's <code>Bounds2i</code> as its tiles use it: <code>min</code> is the top-left pixel, and <code>max</code> is one past the bottom-right one, so <code>width()</code> is just <code>max.x − min.x</code>. <code>work_units()</code> lists every Work Unit in the order they are handed out, Pass by Pass and, inside a Pass, by Tile number. <code>contains(unit)</code> says whether a Work Unit belongs to this Render Job at all.</p>
-        <p>The defaults are 32 × 32-pixel Tiles, Passes of 64 Pixel Samples, and pbrt-v4's 16 Pixel Samples per pixel. A default render therefore has a single Pass, <var>[0, 16)</var>, and one Work Unit per Tile. Two things can go wrong, and <code>new</code> returns them as a <code>RenderError</code>: <code>TooManyTiles</code> when the Tile count doesn't fit in a <code>u32</code>, and <code>TileTooLarge</code> when the Tile size doesn't fit in an <code>i32</code>.</p>
+        <p>The defaults are 32 × 32-pixel Tiles, Passes of 64 Pixel Samples, and pbrt-v4's 16 Pixel Samples per pixel. A default render therefore has a single Pass, <var>[0, 16)</var>, and one Work Unit per Tile. Two things can go wrong, and <code>new</code> returns them as a <code>Error</code>: <code>TooManyTiles</code> when the Tile count doesn't fit in a <code>u32</code>, and <code>TileTooLarge</code> when the Tile size doesn't fit in an <code>i32</code>.</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
         <div class="mb-row"><div class="mb-f">across = ⌈W ⁄ T⌉, &nbsp; down = ⌈H ⁄ T⌉</div><div class="mb-d"><b>Tiles per row and per column</b>, for an image <var>W</var> × <var>H</var> and Tile size <var>T</var>. Rounding up makes room for the short Tiles at the edge. <code>div_ceil</code> in <code>Decomposition::new</code></div></div>
-        <div class="mb-row"><div class="mb-f">tile_count = across × down</div><div class="mb-d"><b>How many Tiles.</b> Multiplied with a check: too many is <code>RenderError::TooManyTiles</code>. <code>checked_mul</code></div></div>
+        <div class="mb-row"><div class="mb-f">tile_count = across × down</div><div class="mb-d"><b>How many Tiles.</b> Multiplied with a check: too many is <code>Error::TooManyTiles</code>. <code>checked_mul</code></div></div>
         <div class="mb-row"><div class="mb-f">column = t mod across, &nbsp; row = ⌊t ⁄ across⌋</div><div class="mb-d"><b>Where Tile <var>t</var> sits</b>, counting in raster order. <code>tile_bounds</code></div></div>
         <div class="mb-row"><div class="mb-f">min = (column·T, row·T)<br>max = (min(min<sub>x</sub> + T, W), min(min<sub>y</sub> + T, H))</div><div class="mb-d"><b>Its pixels</b>, from <code>min</code> up to but not including <code>max</code>. The <code>min</code> function cuts the edge Tiles short. <code>tile_bounds</code>, <code>TileBounds::width</code>, <code>height</code>, <code>area</code></div></div>
         <div class="mb-row"><div class="mb-f">pass_count = ⌈spp ⁄ per_pass⌉</div><div class="mb-d"><b>How many Passes</b>, for <var>spp</var> Pixel Samples per pixel. <code>pass_count</code></div></div>
@@ -1295,7 +1295,6 @@ svg .t-small { font-size: 11px; }
                 <rect x="36" y="180" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="79" y="198" text-anchor="middle">TileIndex</text>
                 <rect x="128" y="180" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="171" y="198" text-anchor="middle">PassIndex</text>
                 <rect x="36" y="212" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="79" y="230" text-anchor="middle">TileBounds</text>
-                <rect x="128" y="212" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="171" y="230" text-anchor="middle">RenderError</text>
             </g>
             <rect x="250" y="80" width="230" height="190" rx="8" class="f-warm-soft k-warm"/>
             <text x="264" y="104" class="t-bold">renderer.rs</text>
@@ -1338,7 +1337,7 @@ svg .t-small { font-size: 11px; }
                 <tr><td><code>TileIndex</code>, <code>PassIndex</code></td><td>a Tile's number in raster order, a Pass's number (newtypes over <code>u32</code>)</td><td>–</td></tr>
                 <tr><td><code>WorkUnit</code></td><td><code>{ tile, pass }</code>: one Tile for one Pass</td><td>–</td></tr>
                 <tr><td><code>TileBounds</code></td><td>a Tile's pixels, <code>min</code> included, <code>max</code> excluded; <code>width</code>, <code>height</code>, <code>area</code></td><td><code>Bounds2i</code></td></tr>
-                <tr><td><code>RenderError</code></td><td><code>TooManyTiles</code> or <code>TileTooLarge</code></td><td>–</td></tr>
+                <tr><td><code>Error</code></td><td><code>TooManyTiles</code> or <code>TileTooLarge</code></td><td>–</td></tr>
                 <tr><td><code>Renderer&lt;'s&gt;</code></td><td>renders Work Units of one Scene: <code>new</code>, <code>decomposition</code>, <code>render</code></td><td>–</td></tr>
                 <tr><td><code>Rendered</code></td><td><code>Done(WorkResult)</code> or <code>Cancelled</code></td><td>–</td></tr>
                 <tr><td><code>Cancellation</code></td><td>a shared stop request: <code>new</code>, <code>cancel</code>, <code>is_cancelled</code></td><td>–</td></tr>
@@ -1421,7 +1420,7 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
 <span class="k">pub struct</span> TileIndex(<span class="k">pub</span> u32);
 <span class="k">pub struct</span> PassIndex(<span class="k">pub</span> u32);
 <span class="k">pub struct</span> FilmHash(<span class="k">pub</span> u64);</pre>
-        <p><code>accept</code> could have returned a <code>bool</code>, but <code>true</code> would not say whether it means “merged” or “was a duplicate”. <code>Rendered::Done</code> carries its Work Result, so a cancelled render simply has none to misuse. A <code>TileIndex</code> can't be passed where a <code>PassIndex</code> is expected, although both are a <code>u32</code> inside. <code>RenderError</code> is <code>#[non_exhaustive]</code>, so new errors can join without breaking callers.</p>
+        <p><code>accept</code> could have returned a <code>bool</code>, but <code>true</code> would not say whether it means “merged” or “was a duplicate”. <code>Rendered::Done</code> carries its Work Result, so a cancelled render simply has none to misuse. A <code>TileIndex</code> can't be passed where a <code>PassIndex</code> is expected, although both are a <code>u32</code> inside. <code>Error</code> is <code>#[non_exhaustive]</code>, so new errors can join without breaking callers.</p>
     </div>
 
     <h4>Merge on arrival, duplicates unread, bugs loud</h4>

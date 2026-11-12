@@ -43,7 +43,8 @@ assert_eq!(outcome.image.resolution(), resolution);
 
 | Module         | Contents                                                                                                                                          |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome`, `ClusterError`; the scheduling loop           |
+| `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome`; the scheduling loop                           |
+| `error`        | `Error`: why a Render Job did not finish                                                                                                          |
 | `local_worker` | The CPU Local Worker: renders its Work Units with `umbra-render`'s `Renderer`, several at once on its own rayon pool                              |
 | `transport`    | The in-memory transport: `Assign` and `JobFinished` to the Worker, `RequestWork` and Work Results to the Coordinator, typed and unencoded (§8.13) |
 | `report`       | `RenderJobReport`, so far its schema version, `Outcome` and Film hash                                                                             |

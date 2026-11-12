@@ -393,7 +393,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
                     <li><a href="#view"><span class="n">4</span><span class="t">Lending the Scene to every Pixel Sample</span><span class="c">Scene::view · SceneView · ADR 0014</span></a></li>
                     <li><a href="#options"><span class="n">5</span><span class="t">Render Job Options</span><span class="c">seed · Tiles · Passes · overrides</span></a></li>
                     <li><a href="#replication"><span class="n">6</span><span class="t">One Scene, many Workers</span><span class="c">replication · ADR 0003</span></a></li>
-                    <li><a href="#errors"><span class="n">7</span><span class="t">When a Scene can't be built</span><span class="c">SceneError · Result</span></a></li>
+                    <li><a href="#errors"><span class="n">7</span><span class="t">When a Scene can't be built</span><span class="c">Error · Result</span></a></li>
                 </ol>
             </div>
             <div class="toc-part">
@@ -529,7 +529,7 @@ builder
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
         <div class="mb-row"><div class="mb-f rule">fn film(&amp;mut self, film: FilmParameters) -&gt; &amp;mut Self</div><div class="mb-d"><b>Setters store and chain.</b> Each replaces one group and returns the builder. <code>camera</code> takes its parameters by reference, since they hold a 4 × 4 matrix.</div></div>
-        <div class="mb-row"><div class="mb-f rule">pub fn build(self) -&gt; Result&lt;Scene, SceneError&gt;</div><div class="mb-d"><b>One place checks.</b> <code>build</code> is the only function that validates and the only one that can fail.</div></div>
+        <div class="mb-row"><div class="mb-f rule">pub fn build(self) -&gt; Result&lt;Scene, Error&gt;</div><div class="mb-d"><b>One place checks.</b> <code>build</code> is the only function that validates and the only one that can fail.</div></div>
         <div class="mb-row"><div class="mb-f rule">build(self): the builder moves in</div><div class="mb-d"><b>No changes after freezing.</b> Once <code>build</code> has run there is no builder left to change, and the <code>Scene</code> has no setters.</div></div>
         <div class="mb-row"><div class="mb-f rule">threads share &amp;Scene</div><div class="mb-d"><b>Shared reading.</b> Any number of shared references can read a value at once in Rust. Writing would need exclusive access, and nobody writes.</div></div>
     </div>
@@ -566,7 +566,7 @@ builder
                 <dl class="readout" id="bd-read"></dl>
             </div>
         </div>
-        <figcaption><b>Try:</b> drag the film width to 0 and press <b>build()</b>: you get <code>SceneError::EmptyResolution</code> instead of a Scene. Set a filter radius to 0.030, just under 1⁄32, for the other error. Set <code>shutter_close</code> below <code>shutter_open</code>: <code>build</code> swaps them, as pbrt-v4 does. Press <b>shuffle</b>: the setters run in another order and the Scene comes out the same. Changing a setting after a build marks the result as stale, because the builder you changed is a new one. The figure repeats <code>SceneBuilder::build</code>'s checks and its small computations in JavaScript; it does not build the camera's matrices or the filter's tables.</figcaption>
+        <figcaption><b>Try:</b> drag the film width to 0 and press <b>build()</b>: you get <code>Error::EmptyResolution</code> instead of a Scene. Set a filter radius to 0.030, just under 1⁄32, for the other error. Set <code>shutter_close</code> below <code>shutter_open</code>: <code>build</code> swaps them, as pbrt-v4 does. Press <b>shuffle</b>: the setters run in another order and the Scene comes out the same. Changing a setting after a build marks the result as stale, because the builder you changed is a new one. The figure repeats <code>SceneBuilder::build</code>'s checks and its small computations in JavaScript; it does not build the camera's matrices or the filter's tables.</figcaption>
     </figure>
 </section>
 
@@ -633,7 +633,7 @@ builder
         <div class="mb-head">Rules used here</div>
         <div class="mb-row"><div class="mb-f rule">handle = position in the arena</div><div class="mb-d"><b>Minted in order.</b> <code>push</code> appends the object and returns the handle of its position: 0, 1, 2, … Nothing is ever removed, so a handle never goes stale.</div></div>
         <div class="mb-row"><div class="mb-f rule">get(handle) -&gt; Option&lt;&amp;T&gt;</div><div class="mb-d"><b>Checked look-up.</b> <code>Some(&amp;object)</code> if the position exists, <code>None</code> if it is past the end.</div></div>
-        <div class="mb-row"><div class="mb-f rule">at most u32::MAX objects per arena</div><div class="mb-d"><b>Handles are 32 bits.</b> <code>push</code> refuses with <code>SceneError::TooManyObjects</code> once an arena is full, rather than mint a handle that would wrap around.</div></div>
+        <div class="mb-row"><div class="mb-f rule">at most u32::MAX objects per arena</div><div class="mb-d"><b>Handles are 32 bits.</b> <code>push</code> refuses with <code>Error::TooManyObjects</code> once an arena is full, rather than mint a handle that would wrap around.</div></div>
         <div class="mb-row"><div class="mb-f rule">Handle&lt;A&gt; ≠ Handle&lt;B&gt;</div><div class="mb-d"><b>Typed.</b> The compiler rejects a handle used on the wrong arena. Not checked: a handle from <em>another Scene</em> of the same type (ADR 0008 accepts this).</div></div>
     </div>
 
@@ -897,7 +897,7 @@ builder
 <!-- ================================================================= -->
 <section class="topic" id="errors">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-scene</span> · <a href="../src/error.rs">error.rs</a> · <code>SceneError</code></div>
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-scene</span> · <a href="../src/error.rs">error.rs</a> · <code>Error</code></div>
         <h3>When a Scene can't be built</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>Sometimes the settings make no sense: a film with no pixels, or a filter too small to work with. Instead of crashing, <code>build</code> returns a value that says what went wrong. In Rust such a value is a <code>Result</code>: either <code>Ok</code> with the Scene, or <code>Err</code> with the reason. The caller must look at it before it can use the Scene.</div>
@@ -938,7 +938,7 @@ builder
             <rect x="500" y="204" width="230" height="40" rx="6" class="f-bad-soft k-bad"/>
             <text x="615" y="229" text-anchor="middle" font-size="12">Err(TooManyObjects)</text>
         </svg></div>
-        <figcaption>Where each <code>SceneError</code> comes from. <code>build</code> checks the film first and the filter second, and returns at the first problem. The filter needs a radius of at least 1⁄32 because its table has 32 cells per unit of radius: a smaller radius would make a table with no cells (see the <a href="../../umbra-camera/docs/camera-guide.html">camera guide</a>, “Pixel filters”).</figcaption>
+        <figcaption>Where each <code>Error</code> comes from. <code>build</code> checks the film first and the filter second, and returns at the first problem. The filter needs a radius of at least 1⁄32 because its table has 32 cells per unit of radius: a smaller radius would make a table with no cells (see the <a href="../../umbra-camera/docs/camera-guide.html">camera guide</a>, “Pixel filters”).</figcaption>
     </figure>
 
     <div class="tablewrap">
@@ -954,13 +954,13 @@ builder
 
     <div class="prose" style="margin-top:1.2rem">
         <p>Rust's <code>?</code> operator makes handling these short. Written after a call, it means “if this is an error, return it from my function too; otherwise unwrap the value”. The README's example ends with <code>builder.build()?</code> for this reason.</p>
-        <p><code>SceneError</code> is an enum with one named variant per reason, and each variant carries the data needed to explain it: the bad resolution, or the type whose arena is full. It implements <code>Display</code>, for a human-readable message, and <code>std::error::Error</code>, so it fits Rust's usual error handling. It is marked <code>#[non_exhaustive]</code>: code that matches on it must keep a catch-all branch, so new reasons can be added later without breaking that code.</p>
+        <p><code>Error</code> is an enum with one named variant per reason, and each variant carries the data needed to explain it: the bad resolution, or the type whose arena is full. It derives <code>thiserror::Error</code>, which gives it <code>Display</code>, for a human-readable message, and <code>std::error::Error</code>, so it fits Rust's usual error handling. Every Umbra crate names its error <code>Error</code> and keeps it in <code>error.rs</code>. It is marked <code>#[non_exhaustive]</code>: code that matches on it must keep a catch-all branch, so new reasons can be added later without breaking that code.</p>
         <p>Strictness is a project-wide choice. ADR 0003 rejects any lenient mode: “a wrong image costs more than a refused Render Job”. Nothing is built when there is an error.</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
-        <div class="mb-row"><div class="mb-f rule">Result&lt;Scene, SceneError&gt;</div><div class="mb-d"><b>Errors are values.</b> <code>build</code> never panics on bad settings; the caller decides what to do.</div></div>
+        <div class="mb-row"><div class="mb-f rule">Result&lt;Scene, Error&gt;</div><div class="mb-d"><b>Errors are values.</b> <code>build</code> never panics on bad settings; the caller decides what to do.</div></div>
         <div class="mb-row"><div class="mb-f rule">first problem wins</div><div class="mb-d"><b>Checked in order.</b> The film, then the filter. Arena overflow is reported by <code>push</code>, at the moment it happens.</div></div>
         <div class="mb-row"><div class="mb-f rule">#[non_exhaustive]</div><div class="mb-d"><b>Room to grow.</b> Shapes, lights and materials will bring new reasons to refuse a Scene.</div></div>
     </div>
@@ -992,7 +992,7 @@ builder
             <rect x="40" y="116" width="300" height="62" rx="4" class="f-surf k-ink"/><text x="190" y="138" text-anchor="middle" font-weight="600">scene.rs</text><text x="190" y="160" text-anchor="middle" font-size="11">SceneBuilder · Scene · *Parameters</text>
             <rect x="360" y="116" width="160" height="62" rx="4" class="f-surf k-ink"/><text x="440" y="138" text-anchor="middle" font-weight="600">arena.rs</text><text x="440" y="160" text-anchor="middle" font-size="11">Arena&lt;T&gt;</text>
             <rect x="540" y="116" width="180" height="62" rx="4" class="f-surf k-ink"/><text x="630" y="138" text-anchor="middle" font-weight="600">options.rs</text><text x="630" y="160" text-anchor="middle" font-size="11">RenderJobOptions · Seed</text>
-            <rect x="740" y="116" width="124" height="62" rx="4" class="f-surf k-ink"/><text x="802" y="138" text-anchor="middle" font-weight="600">error.rs</text><text x="802" y="160" text-anchor="middle" font-size="11">SceneError</text>
+            <rect x="740" y="116" width="124" height="62" rx="4" class="f-surf k-ink"/><text x="802" y="138" text-anchor="middle" font-weight="600">error.rs</text><text x="802" y="160" text-anchor="middle" font-size="11">Error</text>
             <rect x="160" y="222" width="260" height="40" rx="4" class="f-surf k-ink"/><text x="290" y="247" text-anchor="middle" font-size="12">umbra-render: Renderer, Film</text>
             <rect x="480" y="222" width="260" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="610" y="247" text-anchor="middle" font-size="12" class="t-mut">umbra-parser (no code yet)</text>
             <path d="M290 220 V198 M610 220 V198" class="k-ink" marker-end="url(#ah-ink)"/>
@@ -1012,7 +1012,7 @@ builder
                 <tr><td><code>Arena&lt;T&gt;</code></td><td>the objects of one type; mints handles</td><td>none: pbrt-v4 links objects by pointer</td></tr>
                 <tr><td><code>RenderJobOptions</code></td><td>seed, Tile size, Pixel Samples per Pass and per pixel</td><td><code>PBRTOptions</code> (<code>seed</code>, <code>pixelSamples</code>); Tiles and Passes are Umbra's</td></tr>
                 <tr><td><code>Seed</code></td><td>the samplers' seed, an <code>i32</code></td><td><code>--seed</code></td></tr>
-                <tr><td><code>SceneError</code></td><td>why a Scene can't be built</td><td>none: pbrt-v4 prints and exits</td></tr>
+                <tr><td><code>Error</code></td><td>why a Scene can't be built</td><td>none: pbrt-v4 prints and exits</td></tr>
             </tbody>
         </table>
     </div>
@@ -1051,14 +1051,14 @@ builder
         <figcaption>What <code>build</code> does with each setting. Two settings feed more than one object: the film's resolution shapes the camera's matrices and screen window, and the camera's shutter interval sets the sensor's imaging ratio. That is why the builder waits for <code>build</code> to compute anything.</figcaption>
     </figure>
     <div class="prose">
-<pre class="code"><span class="k">pub fn</span> build(<span class="k">self</span>) -&gt; Result&lt;Scene, SceneError&gt; {
+<pre class="code"><span class="k">pub fn</span> build(<span class="k">self</span>) -&gt; Result&lt;Scene, Error&gt; {
     <span class="k">let</span> resolution = <span class="k">self</span>.film.resolution;
     <span class="k">if</span> resolution.x &lt; <span class="k">1</span> || resolution.y &lt; <span class="k">1</span> {
-        <span class="k">return</span> Err(SceneError::EmptyResolution { resolution });
+        <span class="k">return</span> Err(Error::EmptyResolution { resolution });
     }
     <span class="k">let</span> GaussianFilterParameters { radius, sigma } = <span class="k">self</span>.filter;
     <span class="k">if</span> radius.x * <span class="k">32.0</span> &lt; <span class="k">1.0</span> || radius.y * <span class="k">32.0</span> &lt; <span class="k">1.0</span> {
-        <span class="k">return</span> Err(SceneError::FilterRadiusTooSmall);
+        <span class="k">return</span> Err(Error::FilterRadiusTooSmall);
     }
     <span class="k">let</span> (shutter_open, shutter_close) = <span class="k">self</span>.camera.shutter();   <span class="c">// swapped if reversed</span>
     Ok(Scene {
@@ -1133,11 +1133,11 @@ builder
         <figcaption>Left: an <code>Arena&lt;T&gt;</code> holds one field, <code>items: Vec&lt;T&gt;</code>; the objects themselves sit next to each other on the heap. Right: a <code>Handle&lt;T&gt;</code> holds one <code>u32</code> and a <code>PhantomData</code> marker that takes no space. <code>#[repr(transparent)]</code> promises the handle has exactly the memory layout of a plain <code>u32</code>.</figcaption>
     </figure>
     <div class="prose">
-<pre class="code"><span class="k">pub fn</span> push(&amp;<span class="k">mut self</span>, item: T) -&gt; Result&lt;Handle&lt;T&gt;, SceneError&gt; {
+<pre class="code"><span class="k">pub fn</span> push(&amp;<span class="k">mut self</span>, item: T) -&gt; Result&lt;Handle&lt;T&gt;, Error&gt; {
     <span class="k">let</span> index = u32::try_from(<span class="k">self</span>.items.len())
         .ok()
         .filter(|&amp;i| i &lt; u32::MAX)
-        .ok_or_else(|| SceneError::TooManyObjects {
+        .ok_or_else(|| Error::TooManyObjects {
             type_name: core::any::type_name::&lt;T&gt;(),
         })?;
     <span class="k">self</span>.items.push(item);
@@ -1475,11 +1475,11 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
     /* SceneBuilder::build, step by step. */
     function build(s) {
         if (s.w < 1 || s.h < 1) {
-            return { err: `SceneError::EmptyResolution { resolution: Point2i(${s.w}, ${s.h}) }`,
+            return { err: `Error::EmptyResolution { resolution: Point2i(${s.w}, ${s.h}) }`,
                 msg: `the film's resolution ${s.w} x ${s.h} has no pixel` };
         }
         if (s.rx * 32 < 1 || s.ry * 32 < 1) {
-            return { err: "SceneError::FilterRadiusTooSmall", msg: "a filter radius is below 1/32" };
+            return { err: "Error::FilterRadiusTooSmall", msg: "a filter radius is below 1/32" };
         }
         const [open, close] = s.close < s.open ? [s.close, s.open] : [s.open, s.close];
         const frame = s.w / s.h;

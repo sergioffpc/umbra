@@ -3,7 +3,7 @@
 
 use umbra_geometry::Handle;
 
-use crate::error::SceneError;
+use crate::error::Error;
 
 /// The objects of one type in a Scene, which refer to one another by
 /// [`Handle`]. Only a `SceneBuilder` pushes; a built Scene's arenas are
@@ -30,13 +30,13 @@ impl<T> Arena<T> {
     ///
     /// # Errors
     ///
-    /// [`SceneError::TooManyObjects`] if the arena already holds `u32::MAX`
+    /// [`Error::TooManyObjects`] if the arena already holds `u32::MAX`
     /// objects: a handle is a `u32` (ADR 0008).
-    pub fn push(&mut self, item: T) -> Result<Handle<T>, SceneError> {
+    pub fn push(&mut self, item: T) -> Result<Handle<T>, Error> {
         let index = u32::try_from(self.items.len())
             .ok()
             .filter(|&i| i < u32::MAX)
-            .ok_or_else(|| SceneError::TooManyObjects {
+            .ok_or_else(|| Error::TooManyObjects {
                 type_name: core::any::type_name::<T>(),
             })?;
         self.items.push(item);

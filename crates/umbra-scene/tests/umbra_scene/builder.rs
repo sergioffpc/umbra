@@ -1,7 +1,7 @@
 //! `SceneBuilder::build`: what it refuses.
 
 use umbra_math::{Point2i, Vector2f};
-use umbra_scene::{FilmParameters, GaussianFilterParameters, SceneBuilder, SceneError};
+use umbra_scene::{Error, FilmParameters, GaussianFilterParameters, SceneBuilder};
 
 #[test]
 fn the_defaults_build() {
@@ -20,7 +20,7 @@ fn a_film_without_pixels_is_refused() {
         builder.film(FilmParameters { resolution });
         assert_eq!(
             builder.build(),
-            Err(SceneError::EmptyResolution { resolution }),
+            Err(Error::EmptyResolution { resolution }),
             "resolution {resolution:?}"
         );
     }
@@ -33,5 +33,5 @@ fn a_filter_too_small_to_tabulate_is_refused() {
         radius: Vector2f::new(1.0, 0.01),
         sigma: 0.5,
     });
-    assert_eq!(builder.build(), Err(SceneError::FilterRadiusTooSmall));
+    assert_eq!(builder.build(), Err(Error::FilterRadiusTooSmall));
 }

@@ -10,7 +10,7 @@ use umbra_math::{Point2f, Point2i, SquareMatrix, Transform, Vector2f};
 use umbra_sampling::RandomizeStrategy;
 use umbra_spectrum::RGBColorSpace;
 
-use crate::error::SceneError;
+use crate::error::Error;
 
 /// The film, as far as the Scene needs it: its full resolution. The other
 /// `RGBFilm` parameters arrive with
@@ -195,17 +195,17 @@ impl SceneBuilder {
     ///
     /// # Errors
     ///
-    /// [`SceneError::EmptyResolution`] if the film has no pixel, and
-    /// [`SceneError::FilterRadiusTooSmall`] if the filter cannot be
+    /// [`Error::EmptyResolution`] if the film has no pixel, and
+    /// [`Error::FilterRadiusTooSmall`] if the filter cannot be
     /// tabulated.
-    pub fn build(self) -> Result<Scene, SceneError> {
+    pub fn build(self) -> Result<Scene, Error> {
         let resolution = self.film.resolution;
         if resolution.x < 1 || resolution.y < 1 {
-            return Err(SceneError::EmptyResolution { resolution });
+            return Err(Error::EmptyResolution { resolution });
         }
         let GaussianFilterParameters { radius, sigma } = self.filter;
         if radius.x * 32.0 < 1.0 || radius.y * 32.0 < 1.0 {
-            return Err(SceneError::FilterRadiusTooSmall);
+            return Err(Error::FilterRadiusTooSmall);
         }
         let (shutter_open, shutter_close) = self.camera.shutter();
         let sensor = PixelSensor::cie1931(imaging_ratio(shutter_close - shutter_open));

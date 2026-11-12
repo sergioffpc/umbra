@@ -755,6 +755,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "thiserror"
+version = "2.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "thousands"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,6 +805,7 @@ dependencies = [
  "rayon",
  "serde_json",
  "tempfile",
+ "thiserror",
  "umbra-cluster",
  "umbra-math",
  "umbra-parser",
@@ -810,6 +831,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "umbra-render",
  "umbra-scene",
@@ -830,6 +852,7 @@ version = "0.1.0"
 dependencies = [
  "cudarc",
  "libloading",
+ "thiserror",
  "umbra-geometry",
  "umbra-gpu",
  "umbra-math",
@@ -871,6 +894,7 @@ dependencies = [
  "nom",
  "nom_locate",
  "sha2",
+ "thiserror",
  "umbra-camera",
  "umbra-geometry",
  "umbra-integrators",
@@ -887,6 +911,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "thiserror",
  "umbra-integrators",
  "umbra-math",
  "umbra-sampling",
@@ -905,6 +930,7 @@ dependencies = [
 name = "umbra-scene"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "umbra-camera",
  "umbra-geometry",
  "umbra-integrators",
