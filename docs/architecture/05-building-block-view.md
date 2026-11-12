@@ -80,12 +80,13 @@ The signatures below are the contracts between crates. Error types and option st
 ### `umbra-parser`
 
 ```rust
-/// Reads a Scene File with its includes and assets, validates it strictly, builds the Scene.
-pub fn parse(scene_file: &Path) -> Result<Parsed, ParserError>;
-pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub content_hash: ContentHash }
+/// Reads a Scene File with its includes and assets, validates it strictly, applies the overrides, builds the Scene.
+pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseError>;
+pub struct Overrides { pub spp: Option<NonZeroU32>, pub seed: Option<i32>, pub outfile: Option<PathBuf> }
+pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub output: PathBuf, pub content_hash: ContentHash, pub warnings: Vec<Diagnostic> }
 ```
 
-`parse` is the only public function. `ParserError` lists every reason with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
+`parse` is the only public function. `ParseError::Invalid` lists every Diagnostic with its file, line and column, and nothing is built when there is one ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). It takes pbrt-v4's overrides because `--outfile` decides whether the output is an EXR, which is a Diagnostic (§8.15). The content hash covers the Scene File, its includes and its assets, for the Reproduction Record (§8.9).
 
 ### `umbra-scene`
 
