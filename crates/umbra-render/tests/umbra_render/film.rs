@@ -127,7 +127,6 @@ fn record() -> ReproductionRecord {
     let identity = BuildIdentity {
         commit: "test".to_owned(),
         tree: Tree::Clean,
-        target_cpu: "test".to_owned(),
     };
     ReproductionRecord::new(
         PathBuf::from("scene.pbrt"),

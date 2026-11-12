@@ -177,7 +177,7 @@ sequenceDiagram
     Note over C: log the rejection (host, NUMA node, reason),<br/>no Scene sent, the Render Job continues
 ```
 
-1. The Coordinator checks the Cluster Name, the commit of the Build Identity and the dirty flag ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)), and the failure count of the Worker Slot ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). The target CPU is informational and never rejects. A Worker of another Cluster normally never connects, because it ignores announcements of other Clusters. The check catches it if it does.
+1. The Coordinator checks the Cluster Name, the commit of the Build Identity and the dirty flag ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)), and the failure count of the Worker Slot ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). A Worker of another Cluster normally never connects, because it ignores announcements of other Clusters. The check catches it if it does.
 2. Nothing of the Scene is sent before `Welcome`, so a rejected Worker costs the Render Job nothing.
 3. `--allow-dirty` admits dirty builds and is recorded in the Render Job Report.
 4. A rejected Worker stays up and joins the next Render Job it can. The Coordinator logs every `CommitMismatch` with the Worker's host, so the operator knows which hosts still need to be rebuilt and restarted for the current commit.

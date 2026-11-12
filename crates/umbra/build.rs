@@ -1,7 +1,6 @@
-//! Embeds the Build Identity (arc42 §7.2, ADR 0012): the git commit, whether
-//! the tree had uncommitted changes, and the CPU the binary is compiled
-//! for, as the `UMBRA_COMMIT`, `UMBRA_TREE` and `UMBRA_TARGET_CPU`
-//! environment variables of the compilation.
+//! Embeds the Build Identity (arc42 §7.2, ADR 0012): the git commit and
+//! whether the tree had uncommitted changes, as the `UMBRA_COMMIT` and
+//! `UMBRA_TREE` environment variables of the compilation.
 //!
 //! A container build has no `.git`: it passes the commit as `UMBRA_COMMIT`,
 //! and `UMBRA_TREE` (`clean` or `dirty`, `clean` by default when the commit
@@ -33,7 +32,6 @@ fn main() {
     };
     println!("cargo::rustc-env=UMBRA_COMMIT={commit}");
     println!("cargo::rustc-env=UMBRA_TREE={tree}");
-    println!("cargo::rustc-env=UMBRA_TARGET_CPU={}", target_cpu());
 }
 
 /// The trimmed output of `git args`, if it succeeds.
@@ -52,21 +50,4 @@ fn git_tree() -> String {
         Some(_) => "dirty".into(),
         None => "unknown".into(),
     }
-}
-
-/// The last `-C target-cpu` of the compilation's flags, or `default`.
-fn target_cpu() -> String {
-    let flags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
-    let flags: Vec<&str> = flags.split('\u{1f}').collect();
-    let joined = flags.windows(2).filter_map(|pair| match pair {
-        ["-C", flag] => Some(*flag),
-        _ => None,
-    });
-    let attached = flags.iter().filter_map(|f| f.strip_prefix("-C"));
-    joined
-        .chain(attached)
-        .filter_map(|flag| flag.strip_prefix("target-cpu="))
-        .next_back()
-        .unwrap_or("default")
-        .to_owned()
 }
