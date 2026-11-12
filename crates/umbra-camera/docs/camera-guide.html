@@ -613,7 +613,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
 
     <div class="prose">
         <ul>
-            <li><b>Screen space</b> is the image plane. The <em>screen window</em> covers it: the shorter side of the image spans −1 to 1, and the longer side is stretched by the aspect ratio. A 16 × 9 image gets [−16⁄9, 16⁄9] × [−1, 1].</li>
+            <li><b>Screen space</b> is the image plane. The <em>screen window</em> covers it: the shorter side of the image spans −1 to 1, and the longer side is stretched by the aspect ratio. An image 16 pixels wide and 9 tall (16 × 9) has an aspect ratio of 16 ÷ 9 = 16⁄9 ≈ 1.78. Its height spans [−1, 1], so its width spans [−16⁄9, 16⁄9].</li>
             <li><b>NDC</b> (normalised device coordinates) squeezes that window into 0 to 1, starting at its top-left corner.</li>
             <li><b>Raster</b> multiplies NDC by the number of pixels and flips <var>y</var> to point down.</li>
         </ul>
@@ -735,7 +735,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
 
     <figure class="bench" id="tl">
         <div class="controls">
-            <div class="ctl"><label for="tl-r">lens radius r</label><div class="row"><input id="tl-r" type="range" min="0" max="0.4" step="0.005" value="0.12"><output id="tl-r-o" for="tl-r"></output></div></div>
+            <div class="ctl"><label for="tl-r">lens radius r</label><div class="row"><input id="tl-r" type="range" min="0" max="0.4" step="0.005" value="0.2"><output id="tl-r-o" for="tl-r"></output></div></div>
             <div class="ctl"><label for="tl-fd">focal distance d<sub>f</sub></label><div class="row"><input id="tl-fd" type="range" min="1.5" max="22" step="0.1" value="5.5"><output id="tl-fd-o" for="tl-fd"></output></div></div>
             <div class="ctl"><label for="tl-fov">fov (°)</label><div class="row"><input id="tl-fov" type="range" min="20" max="100" step="1" value="50"><output id="tl-fov-o" for="tl-fov"></output></div></div>
             <div class="ctl"><label for="tl-z">object depth z</label><div class="row"><input id="tl-z" type="range" min="1" max="24" step="0.1" value="12"><output id="tl-z-o" for="tl-z"></output></div></div>
@@ -752,7 +752,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
                 <dl class="readout" id="tl-read" style="margin-top:0.6rem"></dl>
             </div>
         </div>
-        <figcaption><b>Try:</b> set the lens radius to 0 and everything turns sharp: that's a pinhole. Then raise it and click the far blue ball to move the focus there. The render follows Umbra's steps at 192 × 108 pixels: Gaussian filter sample, time, lens point, <code>generate_ray</code>, weighted average. The scene is lit by one sun, without path tracing. The side view stretches <var>y</var> so the cone of rays is visible, and the amber bar is the cone's width at the object depth.</figcaption>
+        <figcaption><b>Try:</b> the focus starts on the teal ball (z = 5.5): its checker pattern is crisp while the red ball in front and the blue ball behind are blurred. Click the far blue ball to move the focus there, and watch the teal ball blur instead. Set the lens radius to 0 and everything turns sharp: that's a pinhole. The image starts noisy and sharpens as Pixel Samples accumulate (the count is under the image). The render follows Umbra's steps at 320 × 180 pixels: Gaussian filter sample, time, lens point, <code>generate_ray</code>, weighted average. The scene is lit by one sun, without path tracing. The side view stretches <var>y</var> so the cone of rays is visible, and the amber bar is the cone's width at the object depth.</figcaption>
     </figure>
 </section>
 
@@ -1590,7 +1590,7 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
     §3 Thin lens bench: a progressive render and a side view.
     ================================================================ */
 (() => {
-    const RW = 192, RH = 108, MAX_SPP = 512;
+    const RW = 320, RH = 180, MAX_SPP = 256;
     const filter = gaussianFilter(1.5, 0.5);
     const accum = new Float32Array(RW * RH * 3), wsum = new Float32Array(RW * RH);
     let spp = 0, cam, rng = mulberry32(7), running = false, visible = true;
@@ -1620,7 +1620,9 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
                 best = t;
                 const p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
                 n = [(p[0] - s.c[0]) / s.r, (p[1] - s.c[1]) / s.r, (p[2] - s.c[2]) / s.r];
-                a = s.a;
+                // A checker on the sphere, so you can see whether it is sharp.
+                const chk = (Math.floor(Math.atan2(n[2], n[0]) * 4 / Math.PI) + Math.floor(Math.asin(clamp(n[1], -1, 1)) * 4 / Math.PI)) & 1;
+                a = chk ? s.a : s.a.map((c) => c * 0.35);
             }
         }
         if (d[1] < 0) { // ground plane y = -1
@@ -1676,7 +1678,7 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
         const { ctx, w, h } = fit($("tl-render"));
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(off, 0, 0, w, h);
-        $("tl-render-f").textContent = `${spp} Pixel Samples per pixel · filter weight of every sample ${fmt(filter.tableIntegral, 5)}`;
+        $("tl-render-f").textContent = `in focus at z = ${(+$("tl-fd").value).toFixed(1)} · ${spp} Pixel Samples per pixel · filter weight of every sample ${fmt(filter.tableIntegral, 5)}`;
     }
     function frame() {
         if (!visible || spp >= MAX_SPP) { running = false; present(); return; }
