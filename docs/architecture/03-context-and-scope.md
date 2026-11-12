@@ -11,24 +11,22 @@ flowchart LR
     scenes[("mmp/pbrt-v4-scenes<br/>pinned commit")]
     ref[("pbrt-v4 reference<br/>release assets")]
     pbrt["pbrt-v4<br/>pinned commit"]
-    blender["Blender"]
     op -- "Scene File, options" --> umbra
     umbra -- "image, Render Job Report,<br/>status line" --> op
     op -- "umbra trace: pixel" --> umbra
-    umbra -- "Pixel Trace (text, glTF)" --> blender
+    umbra -- "Pixel Trace on stdout" --> op
     scenes -- "Reference Scenes" --> umbra
     scenes -- "Reference Scenes" --> pbrt
     pbrt -- "16-seed renders,<br/>Reference Image" --> ref
     ref -- "umbra validate" --> umbra
 ```
 
-| Partner                     | Input to Umbra                                                                                                                                                        | Output from Umbra                                                                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operator                    | A Scene File with its includes and assets; command-line options and overrides (`render`, `trace`, `bench`, `validate`); Ctrl-C                                        | The final image with its Reproduction Record; the Render Job Report; the status line on stderr; the reasons for an invalid Scene File (§8.2, §8.10) |
-| `mmp/pbrt-v4-scenes`        | The Reference Scenes, downloaded at a pinned commit, never vendored (§8.4)                                                                                            | —                                                                                                                                                   |
-| pbrt-v4                     | Through its published reference release: 16 seeds a side and a Reference Image per Reference Scene and variant (§8.11); its speed on the same machine for QS-5 (§8.4) | —                                                                                                                                                   |
-| Blender, or any glTF viewer | —                                                                                                                                                                     | The resolved Scene and the paths of a Pixel Trace as glTF (§8.9)                                                                                    |
-| Contributor                 | Code, through PRs                                                                                                                                                     | Benchmark and validation results committed to `docs/benchmarks/` and `docs/validation/`, or attached to PRs (§8.4, §8.11)                           |
+| Partner              | Input to Umbra                                                                                                                                                        | Output from Umbra                                                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Operator             | A Scene File with its includes and assets; command-line options and overrides (`render`, `trace`, `bench`, `validate`); Ctrl-C                                        | The final image with its Reproduction Record; the Render Job Report; the status line on stderr; the reasons for an invalid Scene File; the Pixel Trace on stdout (§8.2, §8.9, §8.10) |
+| `mmp/pbrt-v4-scenes` | The Reference Scenes, downloaded at a pinned commit, never vendored (§8.4)                                                                                            | —                                                                                                                                                                                    |
+| pbrt-v4              | Through its published reference release: 16 seeds a side and a Reference Image per Reference Scene and variant (§8.11); its speed on the same machine for QS-5 (§8.4) | —                                                                                                                                                                                    |
+| Contributor          | Code, through PRs                                                                                                                                                     | Benchmark and validation results committed to `docs/benchmarks/` and `docs/validation/`, or attached to PRs (§8.4, §8.11)                                                            |
 
 ## 3.2 Technical context
 

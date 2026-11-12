@@ -1,6 +1,8 @@
 # Milestones defined by the Reference Scenes they unlock
 
 > **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** Each milestone makes its Reference Scenes renderable on the CPU and on the GPU, except those of the CPU-only integrators `bdpt`, `sppm` and `mlt`. The former `v0.2.0 — Distribution` joins `v0.1.0`, and later milestones are renumbered down by one. The rest of this ADR still applies.
+>
+> **Amended on 2026-11-12.** `umbra trace` writes a text report on stdout only. The glTF export is dropped, so `v0.1.0` delivers `umbra trace` without it.
 
 Umbra reaches all of pbrt-v4 on CPU through a sequence of milestones. Each one is defined by the Reference Scenes it makes fully renderable, not by book chapters or by infrastructure layers. Decided in [Milestone sequencing](https://github.com/sergioffpc/umbra/issues/31). The roadmap itself is in [arc42 §4.1](../architecture/04-solution-strategy.md#41-delivery-roadmap).
 
