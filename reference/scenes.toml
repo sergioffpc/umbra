@@ -1,13 +1,10 @@
-# The pinned pbrt-v4 references and the Reference Scenes (ADR 0013, ADR 0019,
-# arc42 §8.4 and §8.11). Read by `scripts/pbrt_reference.py`, which publishes
-# the release `pbrt-v4-reference/<pbrt-v4 commit>`, and by the tools that
-# benchmark and validate Umbra against it.
+# The pinned pbrt-v4 commits and the Reference Scenes (ADR 0019, ADR 0031,
+# arc42 §8.4 and §8.11). Read by `umbra bench`, which measures Umbra on the
+# Reference Scenes, and by the benchmark measurement issue, which renders them
+# with pbrt-v4 for QS-5.
 #
-# Moving either commit is an explicit decision that publishes a new reference
-# release. A Reference Scene, once listed, is never removed. Changing its
-# validation or benchmark settings changes its published reference: the script
-# refuses to mix them, so the release assets of that scene must be deleted and
-# published again.
+# Moving either commit is an explicit decision. A Reference Scene, once listed,
+# is never removed.
 
 [pbrt-v4]
 repository = "https://github.com/mmp/pbrt-v4"
@@ -18,18 +15,10 @@ repository = "https://github.com/mmp/pbrt-v4-scenes"
 commit = "30cf4a0346ae5a80a2d7a530a3ef7d0fa4f70572"
 
 # Each Reference Scene fixes resolution, Pixel Samples per pixel, seed and Tile
-# size for each use:
+# size for `umbra bench`, sized for 10–60 s per target machine.
 #
-# - `benchmark`: `umbra bench`, sized for 10–60 s per target machine. The
-#   Reference Image of QS-1 is rendered at 64 × its Pixel Samples per pixel.
-# - `validation`: `umbra validate` and the published statistics, always with
-#   seeds 0–15.
-# - `golden`: the Golden Film Hashes checked in CI on x86-64, rendered in a
-#   single Pass (ADR 0022).
-#
-# pbrt-v4 has no resolution override, so the benchmark and validation
-# resolution must be the one the Scene File (with its edit) declares; the
-# reference script checks it.
+# pbrt-v4 has no resolution override, so the benchmark resolution must be the
+# one the Scene File (with its edit) declares.
 #
 # A Reference Scene Variant is an entry with an `edit` table: `find` must occur
 # exactly once in its Scene File and is replaced by `replace` before anything
@@ -45,14 +34,3 @@ resolution = [700, 700]
 pixel-samples = 64
 seed = 0
 tile-size = 32
-
-[reference-scene.validation]
-resolution = [700, 700]
-pixel-samples = 64
-tile-size = 32
-
-[reference-scene.golden]
-resolution = [32, 32]
-pixel-samples = 4
-seed = 0
-tile-size = 16

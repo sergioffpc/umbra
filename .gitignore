@@ -27,6 +27,3 @@ flamegraph.svg
 
 # Claude Code personal settings
 .claude/settings.local.json
-
-# Python bytecode of scripts/
-__pycache__/

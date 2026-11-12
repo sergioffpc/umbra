@@ -49,8 +49,11 @@
   "hostRequirements": {
     "cpus": 4,
     "memory": "8gb",
-    // The host's NVIDIA GPUs, where Docker has the NVIDIA Container
-    // Toolkit; elsewhere the container starts without one.
+    // The host's NVIDIA GPUs, where Docker has the NVIDIA Container Toolkit;
+    // elsewhere the container starts without one. Podman hosts
+    // fail the GPU detection, which queries Docker-only `info` fields: set
+    // the VS Code user setting "dev.containers.gpuAvailability" to "all",
+    // which Podman maps to the NVIDIA CDI spec (`nvidia-ctk cdi generate`).
     "gpu": "optional"
   },
 

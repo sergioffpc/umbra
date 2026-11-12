@@ -101,7 +101,7 @@ fn rays_hit_the_sphere_where_the_core_says() {
 
     assert_eq!(hits.len(), rays.len(), "one result per ray");
     for (ray, hit) in rays.iter().zip(&hits) {
-        let expected = sphere.intersect(ray, f32::INFINITY).map(|hit| hit.t_hit);
+        let expected = sphere.intersect(ray, f32::MAX).map(|hit| hit.t_hit);
         match (expected, hit) {
             (None, None) => {}
             (

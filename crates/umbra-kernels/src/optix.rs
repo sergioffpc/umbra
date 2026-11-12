@@ -8,6 +8,11 @@
 //! some program types, given on its wrapper: OptiX rejects a module that
 //! calls one elsewhere, so a misuse fails when the host creates the module,
 //! not at run time.
+//!
+//! OptiX checks the PTX type of every operand, and the `f32` ones must be
+//! `.f32` registers. `asm!` on `nvptx64` has only integer register classes,
+//! so each `f32` operand goes through a `.f32` register declared in the
+//! call's own `{ }` scope, moved bit for bit with `mov.b32`.
 
 use core::arch::asm;
 
@@ -224,7 +229,8 @@ pub(crate) struct TraceRay {
     pub(crate) direction: [f32; 3],
     /// The smallest ray parameter a hit may have.
     pub(crate) tmin: f32,
-    /// The largest ray parameter a hit may have.
+    /// The largest ray parameter a hit may have: finite, since OptiX's
+    /// validation mode reports an infinite one as an invalid ray.
     pub(crate) tmax: f32,
 }
 
@@ -251,13 +257,13 @@ pub(crate) fn trace(handle: u64, ray: TraceRay, payload: [u32; 2]) -> [u32; 2] {
     // pipeline, whose shader binding table has a hit group record 0.
     unsafe {
         asm!(
-            "{{ .reg .f32 %rf<9>;",
-            "mov.b32 %rf0, {ox}; mov.b32 %rf1, {oy}; mov.b32 %rf2, {oz};",
-            "mov.b32 %rf3, {dx}; mov.b32 %rf4, {dy}; mov.b32 %rf5, {dz};",
-            "mov.b32 %rf6, {tmin}; mov.b32 %rf7, {tmax}; mov.b32 %rf8, {time};",
+            "{{ .reg .f32 %f<9>;",
+            "mov.b32 %f0, {ox}; mov.b32 %f1, {oy}; mov.b32 %f2, {oz};",
+            "mov.b32 %f3, {dx}; mov.b32 %f4, {dy}; mov.b32 %f5, {dz};",
+            "mov.b32 %f6, {tmin}; mov.b32 %f7, {tmax}; mov.b32 %f8, {time};",
             "call ({p0},{p1},{p2},{p3},{p4},{p5},{p6},{p7},{p8},{p9},{p10},{p11},{p12},{p13},{p14},{p15},{p16},{p17},{p18},{p19},{p20},{p21},{p22},{p23},{p24},{p25},{p26},{p27},{p28},{p29},{p30},{p31}),",
             "_optix_trace_typed_32,",
-            "({ty},{handle},%rf0,%rf1,%rf2,%rf3,%rf4,%rf5,%rf6,%rf7,%rf8,{mask},{flags},{sbt_offset},{sbt_stride},{miss},{size},{p0},{p1},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero}); }}",
+            "({ty},{handle},%f0,%f1,%f2,%f3,%f4,%f5,%f6,%f7,%f8,{mask},{flags},{sbt_offset},{sbt_stride},{miss},{size},{p0},{p1},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero},{zero}); }}",
             ty = in(reg32) 0u32,
             handle = in(reg64) handle,
             ox = in(reg32) ox,

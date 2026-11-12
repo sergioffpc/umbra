@@ -815,13 +815,13 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="microfacets">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-shading</span> · PBR 4e §9.6 · ADR 0013</div>
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-shading</span> · PBR 4e §9.6 · arc42 §8.11</div>
         <h3>Microfacets: roughness as a distribution of tiny mirrors</h3>
     </div>
     <div class="prose">
         <p>Rough metals and plastics are modelled as many tiny perfect mirrors whose normals <var>ω<sub>m</sub></var> scatter around the surface normal. The microfacet distribution <var>D</var>(<var>ω<sub>m</sub></var>) gives the density of those normals. pbrt-v4 uses Trowbridge–Reitz (also known as GGX). Its isotropic form, with roughness <var>α</var>, is:</p>
         <div class="eq">D(ω<sub>m</sub>) = 1 ⁄ ( π α² cos⁴θ<sub>m</sub> (1 + tan²θ<sub>m</sub> ⁄ α²)² )</div>
-        <p>As <var>α</var> → 0 the surface becomes a mirror, and at <var>α</var> = 1 it is very rough. Whatever <var>α</var> is, the projected microfacet area has to add up to the macro surface: ∫ <var>D</var>(<var>ω<sub>m</sub></var>) cos <var>θ<sub>m</sub></var> d<var>ω<sub>m</sub></var> = 1. Normalisation checks like this are the kind <a href="../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md">ADR 0013</a> asks the crate that owns the routine to test.</p>
+        <p>As <var>α</var> → 0 the surface becomes a mirror, and at <var>α</var> = 1 it is very rough. Whatever <var>α</var> is, the projected microfacet area has to add up to the macro surface: ∫ <var>D</var>(<var>ω<sub>m</sub></var>) cos <var>θ<sub>m</sub></var> d<var>ω<sub>m</sub></var> = 1. Normalisation checks like this are the kind <a href="../architecture/08-crosscutting-concepts.md#811-correctness-checks">arc42 §8.11</a> asks the crate that owns the routine to test.</p>
     </div>
     <figure class="bench" id="mf">
         <div class="controls">
@@ -876,7 +876,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
         <li>Duff et al. <a href="https://jcgt.org/published/0006/01/01/">Building an Orthonormal Basis, Revisited</a>. JCGT 6(1), 2017. The <code>coordinate_system</code> construction.</li>
         <li>Shirley and Chiu. A Low Distortion Map Between Disk and Square. <i>Journal of Graphics Tools</i> 2(3), 1997. The concentric mapping.</li>
         <li>Wyman, Sloan, Shirley. <a href="https://jcgt.org/published/0002/02/01/">Simple Analytic Approximations to the CIE XYZ Color Matching Functions</a>. JCGT 2(2), 2013. Used here for display colours only.</li>
-        <li>In this repository: <a href="../adr/0001-numeric-model.md">ADR 0001</a> (numeric model), <a href="../adr/0002-bit-identical-results-across-architectures.md">ADR 0002</a> (bit-identical results), <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md">ADR 0013</a> (statistical validation), <a href="../architecture/08-crosscutting-concepts.md">arc42 §8.1</a> (numerics and spectral representation).</li>
+        <li>In this repository: <a href="../adr/0001-numeric-model.md">ADR 0001</a> (numeric model), <a href="../adr/0002-bit-identical-results-across-architectures.md">ADR 0002</a> (bit-identical results), <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../adr/0031-renders-checked-by-eye.md">ADR 0031</a> (renders checked by eye), <a href="../architecture/08-crosscutting-concepts.md">arc42 §8.1</a> (numerics and spectral representation).</li>
     </ul>
 </section>
 

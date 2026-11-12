@@ -49,7 +49,7 @@ Arrows point from a dependency to the crate that uses it; the dotted arrow is a 
 | `umbra-render`      | Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces and glTF export; writing and reading the EXR final image                                                      | `rayon`, `exr`               |
 | `umbra-gpu`         | The GPU Worker's renderer: `cudarc`, the OptiX host side (acceleration structures, pipeline, shader binding table), the `SceneView` upload, the wavefront queues; embeds the PTX of `umbra-kernels`       | `cudarc`, `libloading`       |
 | `umbra-cluster`     | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, Local Workers (CPU in-process, GPU in a child process), Build Identity admission, status line, Render Job Report | `tokio`, `quinn`, `postcard` |
-| `umbra`             | The binary: `clap` subcommands `render` (`--render-devices`), `worker` (`--render-device`), `trace`, `bench`, `validate`; `tracing` setup; the statistics of `bench` and `validate`                       | `clap`, `tracing`            |
+| `umbra`             | The binary: `clap` subcommands `render` (`--render-devices`), `worker` (`--render-device`), `trace`, `bench`; `tracing` setup; the statistics of `bench`                                                  | `clap`, `tracing`            |
 
 The final image is an EXR written by `umbra-render` with the `exr` crate, carrying the Reproduction Record in its header (§8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
 
@@ -132,23 +132,23 @@ pub fn work(options: &WorkerOptions) -> Result<(), ClusterError>;
 - `work` runs until the Worker is stopped, joining the Render Jobs of its Cluster one after another (§8.13). `WorkerOptions` carries the Cluster Name, the Render Device, the thread count and the Build Identity. A GPU Worker renders through `umbra-gpu` instead of `umbra-render`'s `Renderer`, behind the same seam.
 - `umbra-cluster` receives a parsed Scene and does not depend on `umbra-parser`.
 - `CoordinatorOptions` carries the listen address, the heartbeat and death timeouts, the Render Devices to start Local Workers on (CPU and every usable GPU by default), `Discovery::{Announce(ClusterName), Off}` and the Build Identity to admit. A Coordinator with `Discovery::Off` announces nothing and renders with its Local Workers alone.
-- A distributed `render`, a single-Worker `bench` and a 16-seed `validate` all go through `coordinate`, with different options.
+- A distributed `render` and a single-Worker `bench` both go through `coordinate`, with different options.
 - The status line goes to the `io::Write` it is given (§8.10). The Render Job Report is returned, not written, and the caller decides where it goes.
 
 ### `umbra` (binary)
 
-The binary has `clap` derive subcommands: `render`, `worker`, `trace`, `bench` and `validate`.
+The binary has `clap` derive subcommands: `render`, `worker`, `trace` and `bench`.
 
 - **Parsing.** The binary parses the Scene File, applies command-line overrides and builds the Reproduction Record. It then calls `umbra-cluster`, or `umbra-render` for `trace`.
-- **`bench` and `validate`.** Their logic is modules of the binary: the statistical tests (Welch, Benjamini–Hochberg, confidence intervals) and the comparison of Render Job Reports and images.
+- **`bench`.** Its logic is modules of the binary: the confidence intervals and the comparison of Render Job Reports.
 
 ## 5.4 Workspace conventions
 
-| Concern     | Rule                                                                                                                                                                                                                                                                                                                                 |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Layout      | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles.                                                                                                                                                                                         |
-| Inheritance | `[workspace.package]` (version, edition, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`.                                                                                                                                          |
-| Versioning  | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)).                                                                                                                                                                         |
-| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. CI checks `std` by building `umbra-kernels` for `nvptx64`, which has none ([ADR 0028](../adr/0028-one-core-for-cpu-and-gpu.md)); `alloc` is kept out by review. No `f64` outside `umbra-math`'s backends.                                              |
-| Tests       | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests ([ADR 0013](../adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md)) live in the crate that owns the sampling routine. Cross-crate tests (golden Film hashes, the trace oracle, the counting allocator) live in `crates/umbra/tests/`. |
-| Benchmarks  | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4).                                                                                                                                                                                                                                 |
+| Concern     | Rule                                                                                                                                                                                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout      | Crates in `crates/<name>/`. The root `Cargo.toml` is a `[workspace]` with `members = ["crates/*"]`, `resolver = "3"` and the build profiles.                                                                                                                                            |
+| Inheritance | `[workspace.package]` (version, edition, license, repository, authors), `[workspace.lints]` (every lint in force) and `[workspace.dependencies]`. Each crate sets `lints.workspace = true`.                                                                                             |
+| Versioning  | One workspace version and `publish = false` everywhere. The Build Identity is the commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)).                                                                                                                            |
+| Core crates | `#![no_std]`, no `extern crate alloc`; every dependency builds without `std`. CI checks `std` by building `umbra-kernels` for `nvptx64`, which has none ([ADR 0028](../adr/0028-one-core-for-cpu-and-gpu.md)); `alloc` is kept out by review. No `f64` outside `umbra-math`'s backends. |
+| Tests       | Unit tests in each crate. χ², `pdf`, normalisation and reciprocity tests (§8.11) live in the crate that owns the sampling routine. Cross-crate tests (the trace oracle, the counting allocator) live in `crates/umbra/tests/`.                                                          |
+| Benchmarks  | `divan` micro-benchmarks in each crate's `benches/`. End-to-end measurement is `umbra bench` (§8.4).                                                                                                                                                                                    |
