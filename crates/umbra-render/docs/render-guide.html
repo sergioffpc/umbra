@@ -1,0 +1,2178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Render Guide</title>
+<meta name="description" content="How umbra-render cuts a Render Job into Tiles and Passes, renders each Work Unit into a Work Result, and merges Work Results into the Film in any order: weighted pixel sums, floating-point order, determinism, with interactive figures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of crates/umbra-camera/docs/camera-guide.html and
+    crates/umbra-math/docs/math-guide.html: same tokens, same layout.
+    One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file it explains. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+
+/* ---------- additions for this guide ---------- */
+svg .k-ok { stroke: var(--exact); }
+svg .t-ok { fill: var(--exact); }
+svg .t-bad { fill: var(--err); }
+svg .f-ok-soft { fill: color-mix(in srgb, var(--exact) 18%, transparent); }
+svg .f-bad-soft { fill: color-mix(in srgb, var(--err) 16%, transparent); }
+svg .t-small { font-size: 11px; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; font: 400 0.7rem/1.3 var(--mono); max-height: 11rem; overflow-y: auto; }
+.chip { padding: 0.15em 0.4em; border: 1px solid var(--rule); border-radius: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip.done { background: color-mix(in srgb, var(--exact) 16%, transparent); border-color: var(--exact); color: var(--ink); }
+.chip.dup { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: var(--err); color: var(--ink); text-decoration: line-through; }
+.chip.next { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip.sel { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+.cv-film { aspect-ratio: 40 / 24; }
+.cv-gantt { aspect-ratio: 16 / 5.5; }
+.cv-tile { aspect-ratio: 16 / 10; }
+@media (max-width: 560px) { .cv-gantt { aspect-ratio: 4 / 3; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-render/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Render Guide</h1>
+    </div>
+    <p class="lede">A picture is not rendered in one go. Umbra cuts the job into small pieces of work, renders the pieces on many cores (and, later, many machines), and adds the answers into one Film as they come back, in whatever order they arrive. <code>umbra-render</code> does the cutting, the rendering of one piece, and the adding up. This guide explains each step in pictures first and formulas second. It assumes only school maths.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The path of a Render Job through umbra-render, in six steps">
+            <!-- step markers -->
+            <g class="step"><circle cx="81" cy="58" r="11"/><text x="81" y="62" text-anchor="middle">1</text></g>
+            <g class="step"><circle cx="267" cy="58" r="11"/><text x="267" y="62" text-anchor="middle">2</text></g>
+            <g class="step"><circle cx="430" cy="58" r="11"/><text x="430" y="62" text-anchor="middle">3</text></g>
+            <g class="step"><circle cx="590" cy="58" r="11"/><text x="590" y="62" text-anchor="middle">4</text></g>
+            <g class="step"><circle cx="735" cy="58" r="11"/><text x="735" y="62" text-anchor="middle">5</text></g>
+            <g class="step"><circle cx="845" cy="58" r="11"/><text x="845" y="62" text-anchor="middle">6</text></g>
+            <!-- 1 scene -->
+            <text x="81" y="88" text-anchor="middle" class="t-bold">the job</text>
+            <rect x="16" y="105" width="130" height="90" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="81" y="133" text-anchor="middle">Scene</text>
+            <text x="81" y="156" text-anchor="middle" class="t-mut">+ Render Job</text>
+            <text x="81" y="174" text-anchor="middle" class="t-mut">Options</text>
+            <line x1="150" y1="150" x2="190" y2="150" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- 2 decomposition -->
+            <text x="267" y="88" text-anchor="middle" class="t-bold">cut</text>
+            <rect x="214" y="94" width="120" height="72" class="f-mut-soft k-mut"/>
+            <rect x="207" y="101" width="120" height="72" class="f-mut-soft k-mut"/>
+            <rect x="200" y="108" width="120" height="72" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M248 108 V180 M296 108 V180 M200 156 H320" class="k-mut"/>
+            <rect x="248" y="156" width="48" height="24" class="f-acc-soft k-acc" stroke-width="2"/>
+            <text x="267" y="205" text-anchor="middle">Tiles × Passes</text>
+            <text x="267" y="223" text-anchor="middle" class="t-mut">3 Passes stacked</text>
+            <line x1="345" y1="150" x2="383" y2="150" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- 3 work units -->
+            <text x="430" y="88" text-anchor="middle" class="t-bold">Work Units</text>
+            <rect x="390" y="100" width="80" height="20" rx="3" class="f-acc-soft k-acc"/><text x="430" y="115" text-anchor="middle" font-size="12">T0 · P0</text>
+            <rect x="390" y="125" width="80" height="20" rx="3" class="f-surf k-mut"/><text x="430" y="140" text-anchor="middle" font-size="12">T1 · P0</text>
+            <rect x="390" y="150" width="80" height="20" rx="3" class="f-surf k-mut"/><text x="430" y="165" text-anchor="middle" font-size="12">T2 · P0</text>
+            <text x="430" y="186" text-anchor="middle" class="t-mut">…</text>
+            <rect x="390" y="194" width="80" height="20" rx="3" class="f-surf k-mut"/><text x="430" y="209" text-anchor="middle" font-size="12">T5 · P2</text>
+            <text x="430" y="235" text-anchor="middle" class="t-mut">Pass by Pass</text>
+            <line x1="478" y1="150" x2="518" y2="150" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- 4 renderer -->
+            <text x="590" y="88" text-anchor="middle" class="t-bold">render</text>
+            <rect x="525" y="100" width="130" height="100" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="590" y="124" text-anchor="middle">Renderer</text>
+            <text x="590" y="142" text-anchor="middle" class="t-acc">::render</text>
+            <path d="M545 160 H630 M545 172 H630 M545 184 H630" class="k-acc" stroke-width="1.4" marker-end="url(#ah-acc)"/>
+            <text x="590" y="218" text-anchor="middle" class="t-mut">rows on threads</text>
+            <line x1="660" y1="150" x2="698" y2="150" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- 5 work result -->
+            <text x="735" y="88" text-anchor="middle" class="t-bold">Work Result</text>
+            <rect x="705" y="120" width="60" height="60" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <path d="M725 120 V180 M745 120 V180 M705 140 H765 M705 160 H765" class="k-warm"/>
+            <text x="735" y="200" text-anchor="middle" class="t-mut">sums per</text>
+            <text x="735" y="216" text-anchor="middle" class="t-mut">pixel</text>
+            <line x1="770" y1="150" x2="800" y2="135" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- 6 film -->
+            <text x="845" y="88" text-anchor="middle" class="t-bold">Film</text>
+            <rect x="805" y="104" width="80" height="48" class="f-surf k-ink" stroke-width="1.5"/>
+            <rect x="805" y="104" width="32" height="32" class="f-ok-soft"/>
+            <rect x="837" y="136" width="32" height="16" class="f-ok-soft"/>
+            <rect x="869" y="104" width="16" height="32" class="f-ok-soft"/>
+            <path d="M837 104 V152 M869 104 V152 M805 136 H885" class="k-mut"/>
+            <text x="845" y="174" text-anchor="middle" class="t-acc">::accept</text>
+            <text x="845" y="192" text-anchor="middle" class="t-mut">any order</text>
+            <line x1="845" y1="202" x2="845" y2="244" class="k-mut" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
+            <text x="892" y="266" text-anchor="end">image = Σ w·c ⁄ Σ w</text>
+            <text x="892" y="284" text-anchor="end" class="t-mut">not here yet (#78)</text>
+        </svg></div>
+        <figcaption id="big-cap">A Render Job's trip through the crate. <b>1</b> the Scene and its options fix everything. <b>2</b> <a href="#decomposition"><code>Decomposition</code></a> cuts the image into Tiles and the samples into Passes. <b>3</b> each Tile × Pass pair is a <a href="#decomposition">Work Unit</a>, handed out Pass by Pass (<a href="#scheduling">section 3</a>). <b>4</b> <a href="#render-unit"><code>Renderer::render</code></a> computes the Work Unit's Pixel Samples. <b>5</b> the answer is a <a href="#sums">Work Result</a>: two sums per pixel. <b>6</b> <a href="#merge"><code>Film::accept</code></a> adds it into the Film, whatever the order. Turning the sums into an image file is the next step and isn't in this crate yet.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="A Render Job through umbra-render, as types and functions">
+        <li><span class="who ext">umbra-scene</span><span class="ty">RenderJobOptions</span><span class="what">Tile size, Pixel Samples per pixel and per Pass, seed</span></li>
+        <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#decomposition">Decomposition::new</a></span><span class="what">options → Tiles × Passes</span></li>
+        <li><span class="who">umbra-render</span><span class="ty"><a href="#decomposition">WorkUnit</a></span><span class="what">one TileIndex, one PassIndex</span></li>
+        <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#render-unit">Renderer::render</a></span><span class="what">Work Unit → Rendered::Done or Cancelled</span></li>
+        <li><span class="who">umbra-render</span><span class="ty"><a href="#sums">WorkResult</a></span><span class="what">one PixelSum per pixel of the Tile</span></li>
+        <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#merge">Film::accept</a></span><span class="what">Merged or Duplicate</span></li>
+        <li><span class="who">umbra-render</span><span class="ty"><a href="#merge">Film</a></span><span class="what">f64 sums of every pixel, FilmHash</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last, where it helps, comes an interactive figure: move the sliders, press the buttons and watch the result change. New to the words? Start with <a href="#vocab">section 0</a>. The figures repeat the Rust code's operations in JavaScript. JavaScript numbers are the same 64-bit floats as the Film's <code>f64</code>, and the figures round each product to 32 bits as the Rust code does, so the sums in the figures follow the same rounding rules. Where a Pixel Sample's light comes from, and how its colour and weight are made, is told in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (<a href="../../umbra-camera/docs/camera-guide.html#filter">filter</a>, <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a>) and the <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>. The Scene itself is in the <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Theory</div>
+                <ol>
+                    <li><a href="#vocab"><span class="n">0</span><span class="t">The words, in pictures</span><span class="c">Tile, Pass, Work Unit, Work Result, Film</span></a></li>
+                    <li><a href="#sums"><span class="n">1</span><span class="t">A pixel is two sums</span><span class="c">PixelSum · weighted average, divided last</span></a></li>
+                    <li><a href="#decomposition"><span class="n">2</span><span class="t">Cutting the job into Work Units</span><span class="c">Decomposition · tile_bounds · sample_indices</span></a></li>
+                    <li><a href="#scheduling"><span class="n">3</span><span class="t">Handing out the work</span><span class="c">Pass-major order · pulling · speculative tail</span></a></li>
+                    <li><a href="#float"><span class="n">4</span><span class="t">Why the order of additions matters</span><span class="c">rounding · not associative</span></a></li>
+                    <li><a href="#determinism"><span class="n">5</span><span class="t">What stays exactly the same</span><span class="c">pure Pixel Samples · 1, 2, 3 Passes</span></a></li>
+                    <li><a href="#merge"><span class="n">6</span><span class="t">Checking and merging a Work Result</span><span class="c">Film::accept · Acceptance · FilmHash</span></a></li>
+                    <li><a href="#render-unit"><span class="n">7</span><span class="t">Rendering one Work Unit</span><span class="c">Renderer::render · rows on threads · Cancellation</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">8</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 names</span></a></li>
+                    <li><a href="#design"><span class="n">9</span><span class="t">Design decisions</span><span class="c">dyn once per Work Unit · allocation · enums · hash</span></a></li>
+                    <li><a href="#tests"><span class="n">10</span><span class="t">How it is tested</span><span class="c">tests/umbra_render · allocation test</span></a></li>
+                    <li><a href="#not-yet"><span class="n">11</span><span class="t">Not here yet</span><span class="c">EXR, Pixel Traces, Anomalous Pixel Samples</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Theory</div>
+    <h2>How an image is put together</h2>
+    <p>A pixel's colour is an average of many guesses, the Pixel Samples. Umbra computes those guesses in pieces, on different threads and later on different machines. This part explains how the pieces are cut, why their answers are kept as sums, and why the order of adding them up is a question at all.</p>
+</div>
+
+<section class="topic" id="vocab">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">0</span>background · <a href="../../../GLOSSARY.md">GLOSSARY.md</a> · used by every section</div>
+        <h3>The words, in pictures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Six words carry this whole guide. A <b>Pixel Sample</b> is one guess at one pixel's colour. A <b>Tile</b> is a rectangle of pixels. A <b>Pass</b> is a run of sample numbers, the same run in every pixel. A <b>Work Unit</b> is one Tile for one Pass: a piece of work small enough to hand to one machine. A <b>Work Result</b> is the answer to one Work Unit. The <b>Film</b> adds all the answers together.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 270" class="dg-wide" role="img" aria-label="An image cut into six Tiles, with three Passes stacked behind it; one Tile of Pass 0 is a Work Unit; one of its pixels holds four Pixel Samples">
+            <rect x="72" y="64" width="240" height="144" class="f-mut-soft k-mut"/>
+            <rect x="56" y="80" width="240" height="144" class="f-mut-soft k-mut"/>
+            <rect x="40" y="96" width="240" height="144" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M136 96 V240 M232 96 V240 M40 192 H280" class="k-mut"/>
+            <rect x="136" y="192" width="96" height="48" class="f-acc-soft k-acc" stroke-width="2"/>
+            <text x="88" y="148" text-anchor="middle">T0</text>
+            <text x="184" y="148" text-anchor="middle">T1</text>
+            <text x="256" y="148" text-anchor="middle">T2</text>
+            <text x="88" y="221" text-anchor="middle">T3</text>
+            <text x="184" y="221" text-anchor="middle" class="t-acc">T4</text>
+            <text x="256" y="221" text-anchor="middle">T5</text>
+            <text x="320" y="72" class="t-mut">Pass 2</text>
+            <text x="304" y="88" class="t-mut">Pass 1</text>
+            <text x="288" y="104">Pass 0</text>
+            <text x="40" y="34" class="t-bold">one image, cut two ways</text>
+            <text x="40" y="54" class="t-mut">in space (Tiles) and in samples (Passes)</text>
+            <!-- zoom -->
+            <line x1="214" y1="214" x2="470" y2="172" class="k-mut" stroke-dasharray="4 4"/>
+            <rect x="470" y="110" width="120" height="120" class="f-surf k-ink" stroke-width="1.5"/>
+            <circle cx="500" cy="140" r="6" class="f-warm"/><text x="510" y="135" class="t-small">0</text>
+            <circle cx="560" cy="152" r="6" class="f-warm"/><text x="570" y="147" class="t-small">1</text>
+            <circle cx="512" cy="200" r="6" class="f-warm"/><text x="522" y="195" class="t-small">2</text>
+            <circle cx="565" cy="206" r="6" class="f-warm"/><text x="575" y="201" class="t-small">3</text>
+            <text x="530" y="98" text-anchor="middle">one pixel of Tile 4</text>
+            <text x="530" y="252" text-anchor="middle" class="t-warm">Pixel Samples 0, 1, 2, 3</text>
+            <text x="610" y="150" class="t-acc">Work Unit =</text>
+            <text x="610" y="168" class="t-acc">Tile 4 × Pass 0</text>
+            <text x="610" y="190" class="t-mut">(4 Pixel Samples</text>
+            <text x="610" y="206" class="t-mut">per Pass)</text>
+        </svg></div>
+        <figcaption>The image of the crate's tests, 40 × 24 pixels, cut into 16-pixel Tiles: three across, two down. The right and bottom Tiles are cut short by the image's edge. Behind it, three Passes. Every pixel of every Tile gets the same Passes, so “Pass 0” means the Pixel Samples numbered 0 to 3 in <em>every</em> pixel.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 200" class="dg-wide" role="img" aria-label="The Coordinator hands Work Units to Workers and receives Work Results into its Film">
+            <rect x="300" y="40" width="160" height="120" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="380" y="62" text-anchor="middle" class="t-bold">Coordinator</text>
+            <rect x="314" y="74" width="132" height="24" rx="3" class="f-surf k-mut"/>
+            <text x="380" y="91" text-anchor="middle" font-size="11">queue: T3·P0 T4·P0 …</text>
+            <rect x="330" y="110" width="100" height="36" rx="3" class="f-surf k-ink"/>
+            <text x="380" y="133" text-anchor="middle">Film</text>
+            <rect x="20" y="60" width="150" height="80" rx="8" class="f-surf k-ink"/>
+            <text x="95" y="84" text-anchor="middle" class="t-bold">Worker A</text>
+            <text x="95" y="106" text-anchor="middle" font-size="12">Renderer::render</text>
+            <text x="95" y="126" text-anchor="middle" class="t-mut" font-size="12">fast machine</text>
+            <rect x="590" y="60" width="150" height="80" rx="8" class="f-surf k-ink"/>
+            <text x="665" y="84" text-anchor="middle" class="t-bold">Worker B</text>
+            <text x="665" y="106" text-anchor="middle" font-size="12">Renderer::render</text>
+            <text x="665" y="126" text-anchor="middle" class="t-mut" font-size="12">slow machine</text>
+            <line x1="298" y1="82" x2="174" y2="82" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+            <text x="236" y="74" text-anchor="middle" class="t-acc" font-size="12">Work Unit</text>
+            <line x1="172" y1="122" x2="296" y2="122" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
+            <text x="236" y="140" text-anchor="middle" class="t-warm" font-size="12">Work Result</text>
+            <line x1="462" y1="82" x2="586" y2="82" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+            <text x="524" y="74" text-anchor="middle" class="t-acc" font-size="12">Work Unit</text>
+            <line x1="588" y1="122" x2="464" y2="122" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
+            <text x="524" y="140" text-anchor="middle" class="t-warm" font-size="12">Work Result</text>
+            <text x="380" y="190" text-anchor="middle" class="t-mut" font-size="12">umbra-render renders and merges · umbra-cluster will move the pieces (not built yet)</text>
+        </svg></div>
+        <figcaption>Who does what. One <b>Coordinator</b> owns the Film and the list of Work Units. Each <b>Worker</b> renders the Work Units it is given and sends back Work Results. On one machine, the Coordinator runs a Local Worker in its own process. This crate holds the rendering (<code>Renderer</code>) and the adding up (<code>Film</code>); the messages between machines are the job of <code>umbra-cluster</code>.</figcaption>
+    </figure>
+
+    <div class="tablewrap" style="max-width: 60rem">
+        <table class="data">
+            <thead><tr><th>word</th><th>in plain words</th><th>in the code</th></tr></thead>
+            <tbody>
+                <tr><td>Render Job</td><td>one request: render this Scene into one image</td><td>one <code>Renderer</code> and one <code>Film</code></td></tr>
+                <tr><td>Render Job Options</td><td>settings given with the request: Tile size, samples, seed</td><td><code>RenderJobOptions</code> (umbra-scene)</td></tr>
+                <tr><td>Pixel Sample</td><td>one guess at one pixel, numbered by its sample index</td><td><code>PixelSampleId</code>, <code>FilmSample</code> (umbra-integrators)</td></tr>
+                <tr><td>Tile</td><td>a rectangle of pixels</td><td><code>TileIndex</code>, <code>TileBounds</code></td></tr>
+                <tr><td>Pass</td><td>a run of sample indices, the same in every pixel</td><td><code>PassIndex</code>, <code>sample_indices</code></td></tr>
+                <tr><td>Work Unit</td><td>one Tile for one Pass</td><td><code>WorkUnit { tile, pass }</code></td></tr>
+                <tr><td>Work Result</td><td>a Work Unit's answer: sums per pixel, not yet divided</td><td><code>WorkResult</code>, <code>PixelSum</code></td></tr>
+                <tr><td>Film</td><td>the one place where all answers are added up</td><td><code>Film</code></td></tr>
+                <tr><td>Coordinator, Worker</td><td>the process that hands out work, and the ones that do it</td><td>umbra-cluster, not built yet</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="tablewrap" style="margin-top:1.4rem; max-width: 52rem">
+        <table class="data symbols">
+            <thead><tr><th>symbol</th><th>read it as</th><th>example in this guide</th></tr></thead>
+            <tbody>
+                <tr><td>Σ</td><td>add up a list</td><td>Σ <var>w</var> = the sum of all weights</td></tr>
+                <tr><td>⌈<var>x</var>⌉</td><td>round up to a whole number</td><td>⌈40 ⁄ 16⌉ = 3 Tiles across</td></tr>
+                <tr><td>⌊<var>x</var>⌋</td><td>round down to a whole number</td><td>⌊5 ⁄ 3⌋ = 1, the row of Tile 5</td></tr>
+                <tr><td><var>a</var> mod <var>b</var></td><td>the remainder after dividing</td><td>5 mod 3 = 2, the column of Tile 5</td></tr>
+                <tr><td>[<var>a</var>, <var>b</var>)</td><td>from <var>a</var>, up to but not including <var>b</var></td><td>Pass 1 = sample indices [4, 8)</td></tr>
+                <tr><td><code>f32</code>, <code>f64</code></td><td>numbers with about 7 and about 16 significant digits</td><td>the Film adds in <code>f64</code></td></tr>
+                <tr><td>ULP</td><td>“unit in the last place”: the gap to the next storable number</td><td>two Films that differ by 1 ULP</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="sums">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-render</span> · <a href="../src/work_result.rs">work_result.rs</a> · <code>PixelSum</code>, <code>WorkResult</code> · <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> · PBR 4e §5.4</div>
+        <h3>A pixel is two sums</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A pixel's colour is a <em>weighted average</em> of its Pixel Samples: multiply each sample's colour by its weight, add those up, and divide by the sum of the weights. The trick is to not divide yet. As long as the two sums are kept apart, answers computed at different times or on different machines can simply be added together. The division happens once, at the very end.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 250" class="dg-wide" role="img" aria-label="Two Work Results for one pixel add their sums; dividing once gives 2.8, averaging the averages gives the wrong 4">
+            <rect x="20" y="30" width="300" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="34" y="56">Work Result, Pass 0: c = 1, 1, 1, 5</text>
+            <text x="34" y="84" class="t-acc">Σ w·c = 8 &#160; Σ w = 4</text>
+            <rect x="20" y="120" width="300" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="34" y="146">Work Result, Pass 1: c = 6</text>
+            <text x="34" y="174" class="t-acc">Σ w·c = 6 &#160; Σ w = 1</text>
+            <line x1="324" y1="72" x2="376" y2="98" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+            <line x1="324" y1="150" x2="376" y2="124" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+            <text x="350" y="116" text-anchor="middle" class="t-acc" font-size="12">add</text>
+            <rect x="380" y="70" width="180" height="80" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="470" y="94" text-anchor="middle" class="t-bold">Film pixel</text>
+            <text x="470" y="116" text-anchor="middle">Σ w·c = 14</text>
+            <text x="470" y="136" text-anchor="middle">Σ w = 5</text>
+            <line x1="564" y1="110" x2="606" y2="110" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="585" y="100" text-anchor="middle" font-size="12">÷</text>
+            <rect x="610" y="85" width="130" height="50" rx="6" class="f-ok-soft k-ok" stroke-width="1.5"/>
+            <text x="675" y="115" text-anchor="middle">14 ⁄ 5 = 2.8</text>
+            <text x="675" y="158" text-anchor="middle" class="t-ok" font-size="12">right</text>
+            <text x="20" y="226" class="t-bad">averaging the averages instead: (8⁄4 + 6⁄1) ⁄ 2 = (2 + 6) ⁄ 2 = 4, wrong:</text>
+            <text x="20" y="244" class="t-bad">Pass 1 has only one sample, yet it would count as much as Pass 0's four.</text>
+        </svg></div>
+        <figcaption>One pixel, two Work Results, every weight <var>w</var> = 1 to keep the numbers small. Adding the sums and dividing once gives the true average of all five samples. Adding averages does not. That's why a <code>WorkResult</code> carries sums, never averages: the glossary calls them “unnormalised”.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>For each pixel the Film keeps two running totals, exactly as pbrt-v4's <code>RGBFilm</code> does: the sum of <var>w</var> × colour for red, green and blue, and the sum of the weights <var>w</var>. In Umbra this pair is a <code>PixelSum</code>:</p>
+<pre class="code"><span class="k">pub struct</span> PixelSum {
+    <span class="k">pub</span> rgb: [f64; <span class="k">3</span>],   <span class="c">// Σ weight · rgb, for red, green, blue</span>
+    <span class="k">pub</span> weight: f64,     <span class="c">// Σ weight</span>
+}</pre>
+        <p>Each Pixel Sample arrives as a <code>FilmSample</code> from <code>umbra-integrators</code>: its colour in the sensor's RGB, and its filter weight. Adding one sample is an <code>+=</code>:</p>
+<pre class="code"><span class="k">impl</span> AddAssign&lt;FilmSample&gt; <span class="k">for</span> PixelSum {
+    <span class="k">fn</span> add_assign(&amp;<span class="k">mut self</span>, sample: FilmSample) {
+        <span class="k">let</span> FilmSample { rgb, weight } = sample;
+        <span class="k">for</span> (sum, c) <span class="k">in self</span>.rgb.iter_mut().zip([rgb.r, rgb.g, rgb.b]) {
+            *sum += f64::from(weight * c);   <span class="c">// multiply in f32, add in f64</span>
+        }
+        <span class="k">self</span>.weight += f64::from(weight);
+    }
+}</pre>
+        <p>The multiplication happens in 32-bit floats (<code>f32</code>), like everything else in the rendering core. Only the running sums are 64-bit (<code>f64</code>). A sum can reach millions of samples, and every addition onto a big total drops some of the small number's digits. With <code>f64</code>'s 16 digits instead of <code>f32</code>'s 7, those losses stay far below what the eye can see (<a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a>). A second <code>+=</code>, between two <code>PixelSum</code>s, merges one Work Result's sums into another's. That is the Film's whole job.</p>
+        <p>With Umbra's filter every Pixel Sample has the <em>same</em> weight (see the camera guide's <a href="../../umbra-camera/docs/camera-guide.html#filter">pixel filters</a>), so Σ <var>w</var> is simply “number of samples × <var>w</var>”. The Film still keeps it as a sum, as pbrt-v4 does, so nothing changes when filters with varying weights arrive.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">pixel = Σ w<sub>i</sub> c<sub>i</sub> ⁄ Σ w<sub>i</sub></div><div class="mb-d"><b>The weighted average.</b> Each sample's colour <var>c</var> counts in proportion to its weight <var>w</var>. Done once, when the image is made: not in this crate yet (<a href="#not-yet">section 11</a>).</div></div>
+        <div class="mb-row"><div class="mb-f">S<sub>rgb</sub> ← S<sub>rgb</sub> + f64(w ⊗ c), &nbsp; S<sub>w</sub> ← S<sub>w</sub> + f64(w)</div><div class="mb-d"><b>Adding one Pixel Sample.</b> ⊗ is a multiplication rounded to <code>f32</code>; the result is widened to <code>f64</code> and added. <code>impl AddAssign&lt;FilmSample&gt; for PixelSum</code></div></div>
+        <div class="mb-row"><div class="mb-f">S ← S + S′</div><div class="mb-d"><b>Merging two sets of sums.</b> Add red to red, green to green, blue to blue, weight to weight. <code>impl AddAssign for PixelSum</code></div></div>
+        <div class="mb-row"><div class="mb-f">(Σ<sub>A</sub> w c + Σ<sub>B</sub> w c) ⁄ (Σ<sub>A</sub> w + Σ<sub>B</sub> w) &nbsp;≠&nbsp; ½ (avg<sub>A</sub> + avg<sub>B</sub>)</div><div class="mb-d"><b>Why sums, not averages.</b> The two sides agree only when groups <var>A</var> and <var>B</var> weigh the same. The last Pass of a pixel can be shorter than the others, and then they don't.</div></div>
+    </div>
+
+    <figure class="bench" id="px">
+        <div class="controls">
+            <div class="ctl"><label for="px-spp">Pixel Samples per pixel</label><div class="row"><input id="px-spp" type="range" min="1" max="24" step="1" value="10"><output id="px-spp-o" for="px-spp"></output></div></div>
+            <div class="ctl"><label for="px-per">Pixel Samples per Pass</label><div class="row"><input id="px-per" type="range" min="1" max="12" step="1" value="4"><output id="px-per-o" for="px-per"></output></div></div>
+            <div class="ctl"><span class="lbl">samples</span><div class="btns"><button type="button" id="px-new">other samples</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">one pixel's Pixel Samples by sample index, coloured by Pass (height = brightness c)</p>
+                <canvas id="px-cv" class="cv-wide" aria-label="Bars of Pixel Sample brightness grouped by Pass, with the true average and the average of Pass averages"></canvas>
+                <div class="legend" style="margin-top:0.4rem">
+                    <span style="--sw: var(--accent)">Σ w·c ⁄ Σ w (what the Film gives)</span>
+                    <span style="--sw: var(--warm)">average of the Pass averages (wrong)</span>
+                </div>
+            </div>
+            <dl class="readout" id="px-read"></dl>
+        </div>
+        <figcaption><b>Try:</b> with 10 samples in Passes of 4, the last Pass holds only 2, and the average of averages drifts away from the true value. Set the Pass size to 5 or 10, so every Pass is full, and the two lines meet. The sums don't care how the samples are grouped: Σ w·c ⁄ Σ w is the same for any Pass size.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="decomposition">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-render</span> · <a href="../src/decomposition.rs">decomposition.rs</a> · <code>Decomposition</code>, <code>WorkUnit</code>, <code>TileBounds</code> · arc42 §8.8 · <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a></div>
+        <h3>Cutting the job into Work Units</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Before anything is rendered, the image is cut into squares (Tiles), and the list of sample numbers is cut into runs (Passes). Every pairing of one Tile with one Pass is a Work Unit. The cut depends only on the image size and the Render Job Options, never on how many machines are helping. So the same job always gives the same Work Units, and each Work Unit always means the same pixels and the same samples.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 260" class="dg-wide" role="img" aria-label="A 40 by 24 image cut into six 16-pixel Tiles, and ten sample indices cut into Passes of four">
+            <rect x="40" y="40" width="280" height="168" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M152 40 V208 M264 40 V208 M40 152 H320" class="k-ink"/>
+            <rect x="264" y="40" width="56" height="112" class="f-warm-soft"/>
+            <rect x="40" y="152" width="224" height="56" class="f-warm-soft"/>
+            <rect x="264" y="152" width="56" height="56" class="f-warm-soft"/>
+            <text x="96" y="92" text-anchor="middle" class="t-bold">T0</text><text x="96" y="112" text-anchor="middle" class="t-mut" font-size="12">16 × 16</text>
+            <text x="208" y="92" text-anchor="middle" class="t-bold">T1</text><text x="208" y="112" text-anchor="middle" class="t-mut" font-size="12">16 × 16</text>
+            <text x="292" y="92" text-anchor="middle" class="t-bold">T2</text><text x="292" y="112" text-anchor="middle" class="t-mut" font-size="12">8×16</text>
+            <text x="96" y="178" text-anchor="middle" class="t-bold">T3</text><text x="96" y="196" text-anchor="middle" class="t-mut" font-size="12">16 × 8</text>
+            <text x="208" y="178" text-anchor="middle" class="t-bold">T4</text><text x="208" y="196" text-anchor="middle" class="t-mut" font-size="12">16 × 8</text>
+            <text x="292" y="178" text-anchor="middle" class="t-bold">T5</text><text x="292" y="196" text-anchor="middle" class="t-mut" font-size="12">8×8</text>
+            <text x="180" y="28" text-anchor="middle">40 pixels across, Tile size 16</text>
+            <text x="30" y="128" text-anchor="end">24</text>
+            <text x="180" y="230" text-anchor="middle" class="t-warm" font-size="12">amber: cut short by the image's edge</text>
+            <text x="180" y="250" text-anchor="middle" class="t-mut" font-size="12">numbered in raster order: left to right, then down</text>
+            <!-- sample strip -->
+            <text x="570" y="52" text-anchor="middle">sample indices of every pixel</text>
+            <text x="570" y="70" text-anchor="middle" class="t-mut" font-size="12">10 per pixel, 4 per Pass</text>
+            <g font-size="12">
+                <rect x="410" y="84" width="32" height="30" class="f-acc-soft k-acc"/><text x="426" y="104" text-anchor="middle">0</text>
+                <rect x="442" y="84" width="32" height="30" class="f-acc-soft k-acc"/><text x="458" y="104" text-anchor="middle">1</text>
+                <rect x="474" y="84" width="32" height="30" class="f-acc-soft k-acc"/><text x="490" y="104" text-anchor="middle">2</text>
+                <rect x="506" y="84" width="32" height="30" class="f-acc-soft k-acc"/><text x="522" y="104" text-anchor="middle">3</text>
+                <rect x="538" y="84" width="32" height="30" class="f-warm-soft k-warm"/><text x="554" y="104" text-anchor="middle">4</text>
+                <rect x="570" y="84" width="32" height="30" class="f-warm-soft k-warm"/><text x="586" y="104" text-anchor="middle">5</text>
+                <rect x="602" y="84" width="32" height="30" class="f-warm-soft k-warm"/><text x="618" y="104" text-anchor="middle">6</text>
+                <rect x="634" y="84" width="32" height="30" class="f-warm-soft k-warm"/><text x="650" y="104" text-anchor="middle">7</text>
+                <rect x="666" y="84" width="32" height="30" class="f-mut-soft k-mut"/><text x="682" y="104" text-anchor="middle">8</text>
+                <rect x="698" y="84" width="32" height="30" class="f-mut-soft k-mut"/><text x="714" y="104" text-anchor="middle">9</text>
+            </g>
+            <path d="M412 124 V130 H536 V124" class="k-acc" fill="none"/>
+            <path d="M540 124 V130 H664 V124" class="k-warm" fill="none"/>
+            <path d="M668 124 V130 H728 V124" class="k-mut" fill="none"/>
+            <text x="474" y="148" text-anchor="middle" class="t-acc" font-size="12">Pass 0: [0, 4)</text>
+            <text x="602" y="148" text-anchor="middle" class="t-warm" font-size="12">Pass 1: [4, 8)</text>
+            <text x="698" y="148" text-anchor="middle" class="t-mut" font-size="12">Pass 2: [8, 10)</text>
+            <text x="698" y="164" text-anchor="middle" class="t-mut" font-size="11">short</text>
+            <text x="570" y="196" text-anchor="middle" class="t-acc">6 Tiles × 3 Passes = 18 Work Units</text>
+            <text x="570" y="220" text-anchor="middle" class="t-mut" font-size="12">order: T0·P0 … T5·P0,</text>
+            <text x="570" y="238" text-anchor="middle" class="t-mut" font-size="12">then T0·P1 … T5·P1, then Pass 2</text>
+        </svg></div>
+        <figcaption>The two cuts. On the left, space: ⌈40 ⁄ 16⌉ = 3 Tiles across and ⌈24 ⁄ 16⌉ = 2 down. On the right, samples: ⌈10 ⁄ 4⌉ = 3 Passes, the last one short. Together they give the list of Work Units, Pass by Pass, and within a Pass by Tile number.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p><code>Decomposition::new</code> takes the image's resolution and the <code>RenderJobOptions</code>, and stores just six numbers: the resolution, the Tile size, the Tiles across, the Tile count, the Pixel Samples per Pass and per pixel. Every question about the cut is then answered by a little arithmetic, without any list in memory:</p>
+<pre class="code"><span class="k">pub fn</span> tile_bounds(&amp;<span class="k">self</span>, tile: TileIndex) -&gt; TileBounds {
+    <span class="k">let</span> column = tile.<span class="k">0</span> % <span class="k">self</span>.tiles_x;          <span class="c">// (each converted to i32)</span>
+    <span class="k">let</span> row = tile.<span class="k">0</span> / <span class="k">self</span>.tiles_x;
+    <span class="k">let</span> min = Point2i::new(column * <span class="k">self</span>.tile_size, row * <span class="k">self</span>.tile_size);
+    <span class="k">let</span> max = Point2i::new(
+        (min.x + <span class="k">self</span>.tile_size).min(<span class="k">self</span>.resolution.x),   <span class="c">// cut short at the edge</span>
+        (min.y + <span class="k">self</span>.tile_size).min(<span class="k">self</span>.resolution.y),
+    );
+    TileBounds { min, max }
+}
+
+<span class="k">pub fn</span> sample_indices(&amp;<span class="k">self</span>, pass: PassIndex) -&gt; Range&lt;u32&gt; {
+    <span class="k">let</span> start = pass.<span class="k">0</span> * <span class="k">self</span>.samples_per_pass;
+    start..(start + <span class="k">self</span>.samples_per_pass).min(<span class="k">self</span>.samples_per_pixel)
+}</pre>
+        <p><code>TileBounds</code> is pbrt-v4's <code>Bounds2i</code> as its tiles use it: <code>min</code> is the top-left pixel, and <code>max</code> is one past the bottom-right one, so <code>width()</code> is just <code>max.x − min.x</code>. <code>work_units()</code> lists every Work Unit in the order they are handed out, Pass by Pass and, inside a Pass, by Tile number. <code>contains(unit)</code> says whether a Work Unit belongs to this Render Job at all.</p>
+        <p>The defaults are 32 × 32-pixel Tiles, Passes of 64 Pixel Samples, and pbrt-v4's 16 Pixel Samples per pixel. A default render therefore has a single Pass, <var>[0, 16)</var>, and one Work Unit per Tile. Two things can go wrong, and <code>new</code> returns them as a <code>RenderError</code>: <code>TooManyTiles</code> when the Tile count doesn't fit in a <code>u32</code>, and <code>TileTooLarge</code> when the Tile size doesn't fit in an <code>i32</code>.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">across = ⌈W ⁄ T⌉, &nbsp; down = ⌈H ⁄ T⌉</div><div class="mb-d"><b>Tiles per row and per column</b>, for an image <var>W</var> × <var>H</var> and Tile size <var>T</var>. Rounding up makes room for the short Tiles at the edge. <code>div_ceil</code> in <code>Decomposition::new</code></div></div>
+        <div class="mb-row"><div class="mb-f">tile_count = across × down</div><div class="mb-d"><b>How many Tiles.</b> Multiplied with a check: too many is <code>RenderError::TooManyTiles</code>. <code>checked_mul</code></div></div>
+        <div class="mb-row"><div class="mb-f">column = t mod across, &nbsp; row = ⌊t ⁄ across⌋</div><div class="mb-d"><b>Where Tile <var>t</var> sits</b>, counting in raster order. <code>tile_bounds</code></div></div>
+        <div class="mb-row"><div class="mb-f">min = (column·T, row·T)<br>max = (min(min<sub>x</sub> + T, W), min(min<sub>y</sub> + T, H))</div><div class="mb-d"><b>Its pixels</b>, from <code>min</code> up to but not including <code>max</code>. The <code>min</code> function cuts the edge Tiles short. <code>tile_bounds</code>, <code>TileBounds::width</code>, <code>height</code>, <code>area</code></div></div>
+        <div class="mb-row"><div class="mb-f">pass_count = ⌈spp ⁄ per_pass⌉</div><div class="mb-d"><b>How many Passes</b>, for <var>spp</var> Pixel Samples per pixel. <code>pass_count</code></div></div>
+        <div class="mb-row"><div class="mb-f">Pass p = [p·per_pass, min((p + 1)·per_pass, spp))</div><div class="mb-d"><b>The sample indices of Pass <var>p</var></b>, the last one possibly short. <code>sample_indices</code></div></div>
+        <div class="mb-row"><div class="mb-f">k = p × tile_count + t</div><div class="mb-d"><b>Position in the hand-out order</b> of the Work Unit (Tile <var>t</var>, Pass <var>p</var>): all of Pass 0 first. <code>work_units</code></div></div>
+    </div>
+
+    <figure class="bench" id="dc">
+        <div class="controls">
+            <div class="ctl"><label for="dc-w">image width W</label><div class="row"><input id="dc-w" type="range" min="8" max="96" step="1" value="40"><output id="dc-w-o" for="dc-w"></output></div></div>
+            <div class="ctl"><label for="dc-h">image height H</label><div class="row"><input id="dc-h" type="range" min="8" max="64" step="1" value="24"><output id="dc-h-o" for="dc-h"></output></div></div>
+            <div class="ctl"><label for="dc-t">Tile size T</label><div class="row"><input id="dc-t" type="range" min="6" max="40" step="1" value="16"><output id="dc-t-o" for="dc-t"></output></div></div>
+            <div class="ctl"><label for="dc-spp">Pixel Samples per pixel</label><div class="row"><input id="dc-spp" type="range" min="1" max="16" step="1" value="10"><output id="dc-spp-o" for="dc-spp"></output></div></div>
+            <div class="ctl"><label for="dc-per">per Pass</label><div class="row"><input id="dc-per" type="range" min="1" max="16" step="1" value="4"><output id="dc-per-o" for="dc-per"></output></div></div>
+            <div class="ctl"><span class="lbl">work_units()</span><div class="btns"><button type="button" id="dc-first">first</button><button type="button" id="dc-next" class="primary">next Work Unit</button></div></div>
+        </div>
+        <div class="split">
+            <div style="display:grid; gap:0.8rem">
+                <div><p class="panel-title">the image's Tiles (click one); the selected Work Unit in blue</p><canvas id="dc-img" class="cv-mid" aria-label="The image cut into Tiles; click a Tile to select it"></canvas></div>
+                <div><p class="panel-title">sample indices of every pixel, cut into Passes</p><canvas id="dc-pass" class="cv-strip" aria-label="The sample indices of a pixel, cut into Passes"></canvas></div>
+            </div>
+            <div style="display:grid; gap:0.9rem; align-content:start">
+                <dl class="readout" id="dc-read"></dl>
+                <div><p class="panel-title">work_units(), in order (blue: the selected one)</p><div class="chips" id="dc-list"></div></div>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> press “next Work Unit” and watch it walk through every Tile of Pass 0 before Pass 1 begins. Click a Tile to jump to it. Make the width 48: the edge Tiles disappear, since 48 is a whole number of 16-pixel Tiles. Set 16 samples per pixel and 16 per Pass, like a default render, and the Passes shrink to one.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="scheduling">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-render</span> · <code>work_units</code>, <code>Cancellation</code>, <code>Acceptance::Duplicate</code> · the scheduler itself: <span class="crate">umbra-cluster</span>, not built yet · <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> · arc42 §8.8</div>
+        <h3>Handing out the work</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The Coordinator keeps the list of Work Units. Each Worker asks for more whenever it has room, so a fast machine simply asks more often: nobody has to measure who is fast. Work goes out Pass by Pass. At the very end, when nothing is left to hand out, an idle Worker gets a copy of the oldest unfinished Work Unit, so one slow machine can't hold up the finish. Whichever copy comes back first counts, and the other is thrown away.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 310" class="dg-wide" role="img" aria-label="Sequence diagram: Workers pull Work Units, the Coordinator copies the last one in flight, the first Work Result wins">
+            <rect x="60" y="14" width="120" height="30" rx="4" class="f-surf k-ink"/><text x="120" y="34" text-anchor="middle">Worker A</text>
+            <rect x="310" y="14" width="140" height="30" rx="4" class="f-acc-soft k-acc"/><text x="380" y="34" text-anchor="middle">Coordinator</text>
+            <rect x="580" y="14" width="120" height="30" rx="4" class="f-surf k-ink"/><text x="640" y="34" text-anchor="middle">Worker B</text>
+            <path d="M120 44 V300 M380 44 V300 M640 44 V300" class="k-mut" stroke-dasharray="4 4"/>
+            <line x1="122" y1="70" x2="376" y2="70" class="k-mut" marker-end="url(#ah-mut)"/><text x="250" y="64" text-anchor="middle" font-size="12" class="t-mut">request Work Units</text>
+            <line x1="378" y1="96" x2="124" y2="96" class="k-acc" stroke-width="1.5" marker-end="url(#ah-acc)"/><text x="250" y="90" text-anchor="middle" font-size="12" class="t-acc">T0·P0, T1·P0</text>
+            <line x1="638" y1="122" x2="384" y2="122" class="k-mut" marker-end="url(#ah-mut)"/><text x="510" y="116" text-anchor="middle" font-size="12" class="t-mut">request Work Units</text>
+            <line x1="382" y1="148" x2="636" y2="148" class="k-acc" stroke-width="1.5" marker-end="url(#ah-acc)"/><text x="510" y="142" text-anchor="middle" font-size="12" class="t-acc">T2·P0, T3·P0</text>
+            <line x1="122" y1="176" x2="376" y2="176" class="k-warm" stroke-width="1.5" marker-end="url(#ah-warm)"/><text x="250" y="170" text-anchor="middle" font-size="12" class="t-warm">Work Result T0·P0</text>
+            <rect x="290" y="188" width="180" height="34" rx="4" class="f-mut-soft k-mut"/>
+            <text x="380" y="202" text-anchor="middle" font-size="11">queue empty, T3·P0 still</text>
+            <text x="380" y="216" text-anchor="middle" font-size="11">in flight on B</text>
+            <line x1="378" y1="240" x2="124" y2="240" class="k-acc" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ah-acc)"/><text x="250" y="234" text-anchor="middle" font-size="12" class="t-acc">copy of T3·P0</text>
+            <line x1="122" y1="266" x2="376" y2="266" class="k-warm" stroke-width="1.5" marker-end="url(#ah-warm)"/><text x="250" y="260" text-anchor="middle" font-size="12" class="t-warm">Work Result T3·P0 → Merged</text>
+            <line x1="382" y1="292" x2="636" y2="292" class="k-bad" stroke-width="1.5" marker-end="url(#ah-ink)"/><text x="510" y="286" text-anchor="middle" font-size="12" class="t-bad">cancel T3·P0</text>
+        </svg></div>
+        <figcaption>The scheduling of arc42 §8.8, with a job of only four Work Units. Workers <b>pull</b>: they ask when they have room. When the queue runs dry, the oldest Work Unit still in flight gets <b>one</b> copy. The first Work Result back is merged. The other copy is cancelled, and if its Work Result arrives anyway, the Film calls it a <code>Duplicate</code> and drops it unread.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The scheduler belongs to <code>umbra-cluster</code>, which is designed (<a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a>) but not built yet. <code>umbra-render</code> already provides the four pieces it will need:</p>
+        <ul>
+            <li><b>The order.</b> <code>Decomposition::work_units()</code> lists the Work Units Pass-major: all Tiles of Pass 0 in raster order, then all of Pass 1, and so on. The whole image improves evenly, and a slow Pass of one Tile never holds back the later Passes of that Tile, as it would if each Tile's Passes went out together (“Tile-major”, rejected in ADR 0009).</li>
+            <li><b>Concurrent rendering.</b> <code>Renderer::render</code> takes <code>&amp;self</code> and the Renderer is <code>Sync</code>, so a Worker can render several Work Units at once from different threads. A CPU Worker keeps about two in flight per eight threads, to hide the network's delay.</li>
+            <li><b>Cancelling a copy.</b> A <code>Cancellation</code> is a shared flag. When the first copy's Work Result wins, the scheduler sets the flag of the other copy, which stops at its next row (<a href="#render-unit">section 7</a>).</li>
+            <li><b>Dropping duplicates.</b> <code>Film::accept</code> remembers every Work Unit it merged and answers <code>Acceptance::Duplicate</code> for a second Work Result of the same one (<a href="#merge">section 6</a>). Every Pixel Sample counts exactly once.</li>
+        </ul>
+        <p>Copies and reassignments after a Worker fails are routine, so duplicates are routine too. Before <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>, two copies' Work Results were compared through a hash, to catch a faulty Worker. Now the Cluster is assumed healthy, and the second one is simply not read.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">in flight ≈ 2 × threads ⁄ 8</div><div class="mb-d"><b>How many Work Units a CPU Worker asks for at once</b> (ADR 0009, as amended by ADR 0026): enough to keep its threads busy while the next Work Unit travels over the network.</div></div>
+        <div class="mb-row"><div class="mb-f">copies per Work Unit ≤ 1</div><div class="mb-d"><b>The speculative tail.</b> Only when the queue is empty, only for the oldest Work Unit in flight, at most once.</div></div>
+        <div class="mb-row"><div class="mb-f">merged Work Results per Work Unit ≤ 1</div><div class="mb-d"><b>Every Pixel Sample counts once</b>, however many copies were rendered. <code>Film::accept</code>, via <code>HashSet&lt;WorkUnit&gt;</code></div></div>
+    </div>
+
+    <figure class="bench" id="sc">
+        <div class="controls">
+            <div class="ctl"><label for="sc-c">Worker C is slower by</label><div class="row"><input id="sc-c" type="range" min="1" max="6" step="0.25" value="3"><output id="sc-c-o" for="sc-c"></output></div></div>
+            <div class="ctl"><label for="sc-tail">speculative tail</label><select id="sc-tail"><option value="on">on (the default)</option><option value="off">off</option></select></div>
+            <div class="ctl"><span class="lbl">run</span><div class="btns"><button type="button" id="sc-new" class="primary">another run</button></div></div>
+        </div>
+        <div>
+            <p class="panel-title">time runs to the right; each box is one Work Unit rendered by one Worker</p>
+            <canvas id="sc-gantt" class="cv-gantt" aria-label="Timeline of three Workers rendering Work Units"></canvas>
+            <div class="legend" style="margin-top:0.4rem">
+                <span style="--sw: var(--accent)">Pass 0</span>
+                <span style="--sw: var(--warm)">Pass 1</span>
+                <span style="--sw: var(--exact)">Pass 2</span>
+                <span style="--sw: var(--err)">copy: cancelled, or arrived second (Duplicate)</span>
+            </div>
+        </div>
+        <dl class="readout" id="sc-read"></dl>
+        <figcaption>A toy version of ADR 0009 for the test image: 6 Tiles × 3 Passes. Three Workers pull one Work Unit at a time (a simplification). A Work Unit's cost depends on its Tile's size, so the short edge Tiles are quicker. <b>Try:</b> make Worker C very slow, then switch the tail off and see the finish move later, while A and B sit idle. The cancel takes a moment to reach the other copy, which then stops at the end of its current row. A copy that finishes before the cancel reaches it sends its Work Result anyway, and the Film calls it a Duplicate: press “another run” a few times to see one.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="float">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span>background · IEEE 754 floating point · <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> · PBR 4e §6.8.1</div>
+        <h3>Why the order of additions matters</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Computers store numbers with a fixed number of digits. After every addition, the answer is rounded to fit. Because of that rounding, adding the same numbers in a different order can give a slightly different answer in the last digit. In school maths, (<var>a</var> + <var>b</var>) + <var>c</var> always equals <var>a</var> + (<var>b</var> + <var>c</var>). On a computer it often doesn't. Swapping just two numbers, <var>a</var> + <var>b</var> versus <var>b</var> + <var>a</var>, is always safe.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 240" class="dg-wide" role="img" aria-label="Exact sums are rounded to the nearest storable number; two orders of the same three numbers give 0.6000000000000001 and 0.6">
+            <text x="40" y="26">the numbers an <tspan class="t-acc">f64</tspan> can hold, near the answer (schematic)</text>
+            <line x1="40" y1="56" x2="720" y2="56" class="k-mut"/>
+            <path d="M40 48 V64 M80 48 V64 M120 48 V64 M160 48 V64 M200 48 V64 M240 48 V64 M280 48 V64 M320 48 V64 M360 48 V64 M400 48 V64 M440 48 V64 M480 48 V64 M520 48 V64 M560 48 V64 M600 48 V64 M640 48 V64 M680 48 V64 M720 48 V64" class="k-acc" stroke-width="1.5"/>
+            <circle cx="372" cy="56" r="5" class="f-warm"/>
+            <path d="M372 64 C 372 82, 362 84, 361 70" class="k-warm" fill="none" stroke-width="1.5" marker-end="url(#ah-warm)"/>
+            <text x="384" y="90" class="t-warm" font-size="12">exact sum, between two storable numbers:</text>
+            <text x="384" y="106" class="t-warm" font-size="12">rounded to the nearest one</text>
+            <text x="40" y="146">(0.1 + 0.2) + 0.3</text>
+            <text x="40" y="170" class="t-mut">= 0.30000000000000004 + 0.3</text>
+            <text x="40" y="194" class="t-bad">= 0.6000000000000001</text>
+            <text x="420" y="146">0.1 + (0.2 + 0.3)</text>
+            <text x="420" y="170" class="t-mut">= 0.1 + 0.5</text>
+            <text x="420" y="194" class="t-ok">= 0.6</text>
+            <text x="380" y="228" text-anchor="middle" class="t-mut">the same three numbers, two orders, two different answers in the last digit</text>
+        </svg></div>
+        <figcaption>Why it happens. 0.1, 0.2 and 0.3 can't be stored exactly in binary, so each is already a tiny bit off. Every addition then rounds its answer to the nearest storable number. On the left the first rounding goes up, and that error survives to the end. On the right, 0.2 + 0.3 lands exactly on 0.5 and the errors cancel. You can check this in any browser's console.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>A 64-bit float stores a number as 53 binary digits times a power of two. Near 1, the gap between neighbouring storable numbers is about 2 × 10<sup>−16</sup>. That gap is called an <b>ULP</b>. It grows with the number: near 1 000 000 it is about 10<sup>−10</sup>. Every addition rounds to the nearest storable number, so it may be off by up to half an ULP.</p>
+        <p>Two facts follow, and the rest of this guide leans on both:</p>
+        <ul>
+            <li><b>Swapping two numbers is safe.</b> <var>a</var> + <var>b</var> and <var>b</var> + <var>a</var> are the same exact sum, rounded the same way. Floating-point addition is <em>commutative</em>.</li>
+            <li><b>Regrouping three or more is not.</b> (<var>a</var> + <var>b</var>) + <var>c</var> rounds after <var>a</var> + <var>b</var>; <var>a</var> + (<var>b</var> + <var>c</var>) rounds after <var>b</var> + <var>c</var>. Different roundings can give different last digits. Floating-point addition is <em>not associative</em>.</li>
+        </ul>
+        <p>The Film adds Work Results onto its pixels as they arrive. If one pixel receives three or more Work Results, the order they arrive in is the order of its additions. Arrival order depends on which machine was faster, on the network, on luck. So a Film that must be the same bits every time has to control the order of additions, or make sure the order cannot matter. <a href="#determinism">Section 5</a> tells how Umbra deals with that.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">fl(a + b) = (a + b)(1 + δ), &nbsp; |δ| ≤ 2<sup>−53</sup></div><div class="mb-d"><b>Every addition rounds.</b> fl(…) means “the computer's result”. It is the exact sum, off by a tiny relative error δ, at most about 1.1 × 10<sup>−16</sup> for <code>f64</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">fl(a + b) = fl(b + a)</div><div class="mb-d"><b>Commutative.</b> The order of two numbers never matters.</div></div>
+        <div class="mb-row"><div class="mb-f">fl(fl(a + b) + c) ≠ fl(a + fl(b + c)), in general</div><div class="mb-d"><b>Not associative.</b> The grouping of three or more numbers can matter, by about an ULP of the result.</div></div>
+        <div class="mb-row"><div class="mb-f">ULP(x) = 2<sup>⌊log₂|x|⌋ − 52</sup></div><div class="mb-d"><b>The gap between neighbouring <code>f64</code> numbers near <var>x</var>.</b> It doubles every time <var>x</var> doubles. 52 is the number of fraction bits of an <code>f64</code>.</div></div>
+    </div>
+
+    <figure class="bench" id="fp">
+        <div class="controls">
+            <div class="ctl"><label for="fp-preset">numbers to add</label><select id="fp-preset">
+                <option value="three">0.1, 0.2, 0.3</option>
+                <option value="sums">8 Work Results' sums for one pixel</option>
+                <option value="fly">the same, one Pass hit a firefly</option>
+            </select></div>
+            <div class="ctl"><span class="lbl">orders</span><div class="btns"><button type="button" id="fp-try" class="primary">try 1000 random orders</button><button type="button" id="fp-clear">clear</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">how often each different answer came out (bars), measured in ULPs from the left-to-right sum</p>
+                <canvas id="fp-hist" class="cv-mid" aria-label="Histogram of the distinct sums obtained from random orders"></canvas>
+            </div>
+            <dl class="readout" id="fp-read"></dl>
+        </div>
+        <figcaption>Real 64-bit additions, the same ones Rust does for <code>f64</code>; each sum starts from zero, like a Film pixel. <b>Try:</b> with 0.1, 0.2, 0.3 there are only six orders, and they give two answers. Then pick the eight Work Results' sums of one pixel: a thousand orders all give the <em>same</em> bits, a surprise that <a href="#determinism">section 5</a> explains. Now let one Pass hit a firefly, a Pixel Sample two billion times brighter than the rest: several answers appear, a few ULPs apart. The bits are shown in hexadecimal, as <code>f64::to_bits</code> would give them.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="determinism">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-render</span> · <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a>, amended by <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> · arc42 §8.3</div>
+        <h3>What stays exactly the same</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra promises that one Pixel Sample, on one machine with one program, always gives exactly the same bits. That lets you re-run a single pixel later to see how it was computed. A Work Result is just as exact: the same Work Unit always gives the same sums, whatever the number of threads. For the whole Film the promise is softer. If a pixel receives three or more Work Results, the order they arrive in may change its last digit. Never the picture you see.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 230" class="dg-wide" role="img" aria-label="With one or two Work Results per pixel the merge order cannot matter; with three or more it can change the last bit">
+            <rect x="20" y="20" width="230" height="190" rx="8" class="f-ok-soft k-ok"/>
+            <text x="135" y="46" text-anchor="middle" class="t-bold">1 Pass</text>
+            <text x="135" y="66" text-anchor="middle" class="t-mut" font-size="12">one Work Result per pixel</text>
+            <text x="135" y="106" text-anchor="middle">0 + a = a</text>
+            <text x="135" y="130" text-anchor="middle" class="t-mut" font-size="12">adding to zero is exact</text>
+            <text x="135" y="186" text-anchor="middle" class="t-ok">any order: same bits</text>
+            <rect x="265" y="20" width="230" height="190" rx="8" class="f-ok-soft k-ok"/>
+            <text x="380" y="46" text-anchor="middle" class="t-bold">2 Passes</text>
+            <text x="380" y="66" text-anchor="middle" class="t-mut" font-size="12">two Work Results per pixel</text>
+            <text x="380" y="98" text-anchor="middle">(0 + a) + b = a + b</text>
+            <text x="380" y="120" text-anchor="middle">(0 + b) + a = b + a</text>
+            <text x="380" y="146" text-anchor="middle" class="t-mut" font-size="12">and a + b = b + a</text>
+            <text x="380" y="186" text-anchor="middle" class="t-ok">any order: same bits</text>
+            <rect x="510" y="20" width="230" height="190" rx="8" class="f-bad-soft k-bad"/>
+            <text x="625" y="46" text-anchor="middle" class="t-bold">3 or more Passes</text>
+            <text x="625" y="66" text-anchor="middle" class="t-mut" font-size="12">three or more per pixel</text>
+            <text x="625" y="98" text-anchor="middle">(a + b) + c</text>
+            <text x="625" y="120" text-anchor="middle">(a + c) + b</text>
+            <text x="625" y="146" text-anchor="middle" class="t-mut" font-size="12">not associative</text>
+            <text x="625" y="186" text-anchor="middle" class="t-bad">last bit may differ</text>
+        </svg></div>
+        <figcaption>What arrival order can do to one pixel of the Film. Every Film pixel starts at zero. With one or two Work Results the order cannot change a bit, from the two facts of <a href="#float">section 4</a>. From three on it can. The README says “several”; strictly, it takes three.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 170" class="dg-wide" role="img" aria-label="Four rules that make a Work Result the same bits every time">
+            <rect x="10" y="30" width="170" height="100" rx="6" class="f-surf k-ink"/>
+            <text x="95" y="54" text-anchor="middle" class="t-bold">pure</text>
+            <text x="95" y="76" text-anchor="middle" font-size="12">a Pixel Sample depends</text>
+            <text x="95" y="92" text-anchor="middle" font-size="12">only on Scene, seed,</text>
+            <text x="95" y="108" text-anchor="middle" font-size="12">pixel, sample index</text>
+            <line x1="182" y1="80" x2="196" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="200" y="30" width="170" height="100" rx="6" class="f-surf k-ink"/>
+            <text x="285" y="54" text-anchor="middle" class="t-bold">ordered</text>
+            <text x="285" y="76" text-anchor="middle" font-size="12">each pixel adds its</text>
+            <text x="285" y="92" text-anchor="middle" font-size="12">samples in ascending</text>
+            <text x="285" y="108" text-anchor="middle" font-size="12">sample index</text>
+            <line x1="372" y1="80" x2="386" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="390" y="30" width="170" height="100" rx="6" class="f-surf k-ink"/>
+            <text x="475" y="54" text-anchor="middle" class="t-bold">split by row</text>
+            <text x="475" y="76" text-anchor="middle" font-size="12">threads share out rows,</text>
+            <text x="475" y="92" text-anchor="middle" font-size="12">never the samples of</text>
+            <text x="475" y="108" text-anchor="middle" font-size="12">one pixel</text>
+            <line x1="562" y1="80" x2="576" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="580" y="30" width="170" height="100" rx="6" class="f-ok-soft k-ok" stroke-width="1.5"/>
+            <text x="665" y="54" text-anchor="middle" class="t-bold">same Work Result</text>
+            <text x="665" y="76" text-anchor="middle" font-size="12">for any thread count,</text>
+            <text x="665" y="92" text-anchor="middle" font-size="12">any time, any order</text>
+            <text x="665" y="108" text-anchor="middle" font-size="12">of Work Units</text>
+            <text x="380" y="160" text-anchor="middle" class="t-mut" font-size="12">on one machine, with one binary (ADR 0022)</text>
+        </svg></div>
+        <figcaption>The rules that make a Work Result exact. The first comes from the sampler and the integrator (other crates). The second and third are in this crate's <a href="#render-unit"><code>Renderer</code></a>.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p><b>Why bother?</b> Exactness turns every difference into a clue. If a pixel looks wrong, <code>umbra trace</code> will compute its Pixel Samples again, with recording switched on (<a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a>). That only helps if the re-run follows the very same path as the render. And the tests can compare whole Films bit for bit, where a 1-in-10<sup>16</sup> difference would otherwise be lost in noise.</p>
+        <p><b>The history.</b> <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> first promised a bit-identical Film for every render of a Render Job, in any arrival order. To keep that promise, the Coordinator would have merged each Tile's Passes in Pass order, holding any Work Result that arrived early. <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> dropped that: the buffer and the waiting were complexity for a property of the last bit. Today the Film merges each Work Result the moment it arrives. What remains exact:</p>
+        <ul>
+            <li>a Pixel Sample, and so a Work Result, on one machine with one binary;</li>
+            <li>a Film whose pixels each receive at most two Work Results, which includes every default render (one Pass);</li>
+            <li>so the invariance tests compare single-Pass Films, or compare Work Results, never multi-Pass Films merged in different orders.</li>
+        </ul>
+        <p>Images from different machines, or multi-Pass Films merged in different orders, are only promised to look the same.</p>
+        <p><b>How often does the order actually matter?</b> Less often than you might fear. Every number the Film adds is built from <code>f32</code> products, which carry 24 significant binary digits, and the Film adds them in <code>f64</code>, which holds 53. The sum of such numbers needs no rounding at all, so the order cannot matter, as long as the running total stays below about 2<sup>29</sup>, roughly half a billion, times the smallest non-zero Pixel Sample contribution. An ordinary pixel stays far inside that. A <em>firefly</em>, a rare Pixel Sample billions of times brighter than its neighbours, or a huge number of Pixel Samples, can step outside it, and only then does the arrival order show in the last bits.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">0 + x = x, exactly</div><div class="mb-d"><b>One addend.</b> A Film pixel starts at zero (<code>PixelSum::default()</code>), so its first Work Result is copied in without any rounding.</div></div>
+        <div class="mb-row"><div class="mb-f">(0 + a) + b = a + b = b + a = (0 + b) + a</div><div class="mb-d"><b>Two addends.</b> Commutativity: the merge order of two Passes cannot change a bit.</div></div>
+        <div class="mb-row"><div class="mb-f">(a + b) + c &nbsp;vs&nbsp; (a + c) + b</div><div class="mb-d"><b>Three or more.</b> Different groupings, possibly different last bits.</div></div>
+        <div class="mb-row"><div class="mb-f">total &lt; 2<sup>29</sup> × smallest non-zero f32 term ⇒ no rounding</div><div class="mb-d"><b>When <code>f64</code> sums of <code>f32</code> numbers are exact.</b> Each term is a whole number of steps of size 2<sup>e−23</sup>, where 2<sup>e</sup> is the smallest term's power of two; an <code>f64</code> holds every such multiple up to 2<sup>53</sup> steps. Inside this window any order gives the same bits.</div></div>
+        <div class="mb-row"><div class="mb-f">S = ((s<sub>k</sub> + s<sub>k+1</sub>) + s<sub>k+2</sub>) + …</div><div class="mb-d"><b>Inside a Work Result the order is fixed:</b> a pixel adds its Pixel Samples <var>s</var> in ascending sample index, starting from zero. <code>render_pixel</code>, a <code>fold</code> over <code>sample_indices</code></div></div>
+    </div>
+    <p class="prose" style="color:var(--muted)">The figure at the end of <a href="#merge">section 6</a> lets you merge Work Results in different orders and compare the Films' hashes.</p>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="merge">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-render</span> · <a href="../src/film.rs">film.rs</a> · <code>Film::accept</code>, <code>Acceptance</code>, <code>Film::hash</code> · <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a></div>
+        <h3>Checking and merging a Work Result</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>When a Work Result arrives, the Film asks three questions. Is it for a Work Unit of this Render Job at all? Has this Work Unit already been merged? Does it hold exactly one sum per pixel of its Tile? If it is new and well formed, the Film adds its sums onto the matching pixels. If it is a second answer for a Work Unit already merged, the Film throws it away without reading it. The other two failures can only be bugs, so they stop the program.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 290" class="dg-wide" role="img" aria-label="Flowchart of Film::accept: two checks that panic, one that returns Duplicate, then merge and return Merged">
+            <rect x="20" y="20" width="170" height="36" rx="6" class="f-warm-soft k-warm"/>
+            <text x="105" y="43" text-anchor="middle">Work Result arrives</text>
+            <line x1="192" y1="38" x2="246" y2="38" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="250" y="20" width="250" height="36" rx="18" class="f-surf k-ink"/>
+            <text x="375" y="43" text-anchor="middle">Work Unit in this Render Job?</text>
+            <rect x="250" y="90" width="250" height="36" rx="18" class="f-surf k-ink"/>
+            <text x="375" y="113" text-anchor="middle">already merged?</text>
+            <rect x="250" y="160" width="250" height="36" rx="18" class="f-surf k-ink"/>
+            <text x="375" y="183" text-anchor="middle">one sum per pixel of the Tile?</text>
+            <rect x="250" y="230" width="250" height="36" rx="6" class="f-acc-soft k-acc"/>
+            <text x="375" y="253" text-anchor="middle">remember it; add each row</text>
+            <line x1="375" y1="58" x2="375" y2="86" class="k-ink" marker-end="url(#ah-ink)"/><text x="384" y="77" font-size="12" class="t-mut">yes</text>
+            <line x1="375" y1="128" x2="375" y2="156" class="k-ink" marker-end="url(#ah-ink)"/><text x="384" y="147" font-size="12" class="t-mut">no</text>
+            <line x1="375" y1="198" x2="375" y2="226" class="k-ink" marker-end="url(#ah-ink)"/><text x="384" y="217" font-size="12" class="t-mut">yes</text>
+            <line x1="502" y1="38" x2="546" y2="38" class="k-bad" marker-end="url(#ah-ink)"/><text x="524" y="30" font-size="12" text-anchor="middle" class="t-mut">no</text>
+            <rect x="550" y="20" width="190" height="36" rx="6" class="f-bad-soft k-bad"/><text x="645" y="43" text-anchor="middle">panic: a bug</text>
+            <line x1="502" y1="108" x2="546" y2="108" class="k-warm" marker-end="url(#ah-warm)"/><text x="524" y="100" font-size="12" text-anchor="middle" class="t-mut">yes</text>
+            <rect x="550" y="84" width="190" height="48" rx="6" class="f-warm-soft k-warm"/><text x="645" y="104" text-anchor="middle">Duplicate</text><text x="645" y="122" text-anchor="middle" class="t-mut" font-size="12">discarded unread</text>
+            <line x1="502" y1="178" x2="546" y2="178" class="k-bad" marker-end="url(#ah-ink)"/><text x="524" y="170" font-size="12" text-anchor="middle" class="t-mut">no</text>
+            <rect x="550" y="160" width="190" height="36" rx="6" class="f-bad-soft k-bad"/><text x="645" y="183" text-anchor="middle">panic: a bug</text>
+            <line x1="502" y1="248" x2="546" y2="248" class="k-ok" marker-end="url(#ah-ink)"/>
+            <rect x="550" y="230" width="190" height="36" rx="6" class="f-ok-soft k-ok"/><text x="645" y="253" text-anchor="middle">Merged</text>
+            <text x="20" y="100" class="t-mut" font-size="12">contains(unit)</text>
+            <text x="20" y="170" class="t-mut" font-size="12">merged.contains(&amp;unit)</text>
+            <text x="20" y="240" class="t-mut" font-size="12">len() == area()</text>
+        </svg></div>
+        <figcaption><code>Film::accept</code> in one picture. The order of the checks matters: a duplicate is recognised by its Work Unit alone, before its pixels are even counted, so a second Work Result is never read. The two <code>panic</code>s guard against bugs, not bad luck: a Work Unit from another Render Job, or a Work Result with the wrong number of pixels.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 220" class="dg-wide" role="img" aria-label="A Work Result's 64 sums, row by row, land on the bottom-right 8 by 8 Tile of the 40 by 24 Film">
+            <text x="180" y="62" text-anchor="middle">Work Result of Tile 5: 64 sums</text>
+            <rect x="20" y="76" width="320" height="26" class="f-warm-soft k-warm"/>
+            <path d="M60 76 V102 M100 76 V102 M140 76 V102 M180 76 V102 M220 76 V102 M260 76 V102 M300 76 V102" class="k-warm"/>
+            <text x="40" y="94" text-anchor="middle" font-size="11">y16</text><text x="80" y="94" text-anchor="middle" font-size="11">y17</text><text x="120" y="94" text-anchor="middle" font-size="11">y18</text><text x="160" y="94" text-anchor="middle" font-size="11">…</text>
+            <text x="320" y="94" text-anchor="middle" font-size="11">y23</text>
+            <text x="180" y="126" text-anchor="middle" class="t-mut" font-size="12">chunks_exact(8): one chunk per row</text>
+            <text x="180" y="154" text-anchor="middle" class="t-acc">start = y · 40 + 32</text>
+            <text x="180" y="174" text-anchor="middle" class="t-mut" font-size="12">then add 8 sums in a row</text>
+            <text x="580" y="20" text-anchor="middle">Film: 40 × 24 sums, row by row</text>
+            <rect x="440" y="30" width="280" height="168" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M552 30 V198 M664 30 V198 M440 142 H720" class="k-mut"/>
+            <rect x="664" y="142" width="56" height="56" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <path d="M664 149 H720 M664 191 H720" class="k-acc"/>
+            <path d="M40 104 C 40 200, 600 215, 662 146" class="k-acc" fill="none" stroke-width="1.4" marker-end="url(#ah-acc)"/>
+            <path d="M320 104 C 380 200, 640 230, 662 193" class="k-acc" fill="none" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah-acc)"/>
+            <text x="692" y="137" text-anchor="middle" font-size="11" class="t-acc">Tile 5</text>
+        </svg></div>
+        <figcaption>Where the sums go. A Work Result stores its Tile's sums row after row, with no gaps. The Film stores the whole image the same way. So the Film cuts the Work Result into rows of the Tile's width and adds each row onto the Film's matching stretch of pixels, starting at index <var>y</var> · <var>W</var> + <var>min<sub>x</sub></var>.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> accept(&amp;<span class="k">mut self</span>, result: &amp;WorkResult) -&gt; Acceptance {
+    <span class="k">let</span> unit = result.unit();
+    assert!(<span class="k">self</span>.decomposition.contains(unit), <span class="c">/* … */</span>);
+    <span class="k">if self</span>.merged.contains(&amp;unit) {
+        <span class="k">return</span> Acceptance::Duplicate;                      <span class="c">// discarded unread</span>
+    }
+    <span class="k">let</span> bounds = <span class="k">self</span>.decomposition.tile_bounds(unit.tile);
+    assert_eq!(result.pixels().len(), bounds.area(), <span class="c">/* … */</span>);
+    <span class="k">self</span>.merged.insert(unit);
+    <span class="k">let</span> width = <span class="k">self</span>.width();
+    <span class="k">let</span> rows = result.pixels().chunks_exact(bounds.width());
+    <span class="k">for</span> (y, row) <span class="k">in</span> (bounds.min.y..).zip(rows) {
+        <span class="k">let</span> start = Self::offset(width, bounds.min.x, y);
+        merge_row(&amp;<span class="k">mut self</span>.pixels[start..start + row.len()], row);
+    }
+    Acceptance::Merged
+}</pre>
+        <p>The Film holds three things: the same <code>Decomposition</code> as the Renderer, one <code>PixelSum</code> per pixel of the image (all zero to start), and a <code>HashSet&lt;WorkUnit&gt;</code> of the Work Units merged so far. <code>merge_row</code> is a <code>zip</code> of the two rows with the <code>+=</code> of <a href="#sums">section 1</a>. <code>is_complete()</code> is true once the set holds as many Work Units as <code>work_units()</code> lists.</p>
+        <p><b>The Film hash.</b> To compare two Films quickly, <code>Film::hash</code> boils every bit of every sum down to one 64-bit number, a <code>FilmHash</code>, printed as 16 hex digits. It uses FNV-1a: start from a fixed number, and for every byte, mix the byte in with XOR and multiply by a fixed prime. Equal Films give equal hashes; Films that differ in a single bit almost surely don't. It is meant for tests and for the Render Job Report, not for security.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">index(x, y) = y · W + x</div><div class="mb-d"><b>Where pixel (<var>x</var>, <var>y</var>) lives</b> in the Film's list: whole rows of width <var>W</var> come first. <code>Film::offset</code></div></div>
+        <div class="mb-row"><div class="mb-f">row j of the Work Result ↔ y = min<sub>y</sub> + j</div><div class="mb-d"><b>Which Film row a chunk lands on.</b> <code>(bounds.min.y..).zip(rows)</code></div></div>
+        <div class="mb-row"><div class="mb-f">h<sub>0</sub> = cbf29ce484222325<sub>16</sub><br>h ← (h XOR b) × 100000001b3<sub>16</sub> mod 2<sup>64</sup></div><div class="mb-d"><b>FNV-1a, 64-bit</b>, over each byte <var>b</var> of each pixel's red, green, blue and weight sums, in little-endian order, pixel by pixel in raster order. “mod 2<sup>64</sup>” means keep the low 64 bits. <code>Film::hash</code></div></div>
+        <div class="mb-row"><div class="mb-f">complete ⇔ |merged| = tile_count × pass_count</div><div class="mb-d"><b>Done when every Work Unit has been merged once.</b> <code>Film::is_complete</code></div></div>
+    </div>
+
+    <figure class="bench" id="mg">
+        <div class="controls">
+            <div class="ctl"><label for="mg-spp">Pixel Samples per pixel</label><div class="row"><input id="mg-spp" type="range" min="1" max="12" step="1" value="6"><output id="mg-spp-o" for="mg-spp"></output></div></div>
+            <div class="ctl"><label for="mg-per">per Pass</label><div class="row"><input id="mg-per" type="range" min="1" max="12" step="1" value="2"><output id="mg-per-o" for="mg-per"></output></div></div>
+            <div class="ctl"><label for="mg-scene">scene</label><select id="mg-scene"><option value="plain">ordinary</option><option value="fly">with fireflies (3 % of samples × 2³¹)</option></select></div>
+            <div class="ctl"><label for="mg-order">arrival order</label><select id="mg-order">
+                <option value="pass">Pass-major, as handed out</option>
+                <option value="rev">reversed</option>
+                <option value="shuf">shuffled</option>
+                <option value="work">3 Workers with the speculative tail</option>
+            </select></div>
+            <div class="ctl"><span class="lbl">Film::accept</span><div class="btns"><button type="button" id="mg-next" class="primary">merge next</button><button type="button" id="mg-all">merge the rest</button><button type="button" id="mg-dup">resend a merged one</button><button type="button" id="mg-reset">start again</button></div></div>
+        </div>
+        <div class="split">
+            <div style="display:grid; gap:0.8rem">
+                <div><p class="panel-title">the Film, shown as Σ w·c ⁄ Σ w (hatched: nothing merged yet); Tile borders and Passes merged per Tile</p><canvas id="mg-film" class="cv-film" aria-label="The Film of the test image as Work Results are merged"></canvas></div>
+                <div><p class="panel-title">Work Results in arrival order (green: Merged, red: Duplicate, blue: next)</p><div class="chips" id="mg-queue"></div></div>
+            </div>
+            <div style="display:grid; gap:0.9rem; align-content:start">
+                <dl class="readout" id="mg-read"></dl>
+                <div><p class="panel-title">completed Films (each run is compared with the first)</p><div class="tablewrap"><table class="data" id="mg-runs"></table></div></div>
+            </div>
+        </div>
+        <figcaption>The test image, 40 × 24 pixels in 16-pixel Tiles, with a made-up scene: each Pixel Sample's colour is a pure function of its pixel and sample index, rounded to <code>f32</code>, and its weight is the Gaussian filter's (<a href="../../umbra-camera/docs/camera-guide.html#filter">camera guide</a>). Each Work Result sums its samples in ascending index; the Film adds Work Results in <code>f64</code> and hashes them with FNV-1a, all as the Rust code does. <b>Try:</b> merge everything, change the arrival order, merge again, and compare the hashes. With the ordinary scene every order gives the same hash, even with many Passes, because its sums never need rounding (<a href="#determinism">section 5</a>). Switch to fireflies, keep 3 or more Passes (6 samples in Passes of 2), and some orders change the last bits of the firefly pixels. Set one Pass per Tile (per Pass ≥ samples) and every order agrees again, fireflies or not. Pick “3 Workers” to see Duplicates arrive and be dropped.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="render-unit">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-render</span> · <a href="../src/renderer.rs">renderer.rs</a> · <code>Renderer::render</code>, <code>Rendered</code>, <code>Cancellation</code> · uses <span class="crate">umbra-integrators</span> <code>evaluate_pixel_sample</code> · arc42 §5.3</div>
+        <h3>Rendering one Work Unit</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Rendering a Work Unit means: for every pixel of the Tile, compute that Pass's Pixel Samples one after another, and add each into the pixel's sums. The Tile's rows are shared out among the CPU's threads. A thread always takes whole rows, so a pixel's sums are never split between threads, and the answer is the same with 1 thread or 64. Before starting each row, a thread checks whether someone asked to stop.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 260" class="dg-wide" role="img" aria-label="The rows of a Tile shared among three threads; inside one pixel the Pixel Samples of the Pass are added in ascending index">
+            <text x="180" y="22" text-anchor="middle">a Tile of 8 rows, shared by 3 threads</text>
+            <g>
+                <rect x="40" y="34" width="280" height="20" class="f-acc-soft k-acc"/>
+                <rect x="40" y="56" width="280" height="20" class="f-warm-soft k-warm"/>
+                <rect x="40" y="78" width="280" height="20" class="f-ok-soft k-ok"/>
+                <rect x="40" y="100" width="280" height="20" class="f-acc-soft k-acc"/>
+                <rect x="40" y="122" width="280" height="20" class="f-ok-soft k-ok"/>
+                <rect x="40" y="144" width="280" height="20" class="f-warm-soft k-warm"/>
+                <rect x="40" y="166" width="280" height="20" class="f-acc-soft k-acc"/>
+                <rect x="40" y="188" width="280" height="20" class="f-ok-soft k-ok"/>
+            </g>
+            <g font-size="12" class="t-mut">
+                <text x="330" y="49">A</text><text x="330" y="71">B</text><text x="330" y="93">C</text><text x="330" y="115">A</text>
+                <text x="330" y="137">C</text><text x="330" y="159">B</text><text x="330" y="181">A</text><text x="330" y="203">C</text>
+            </g>
+            <g class="k-warm" stroke-width="1.5" fill="none">
+                <circle cx="26" cy="44" r="6"/><circle cx="26" cy="66" r="6"/><circle cx="26" cy="88" r="6"/><circle cx="26" cy="110" r="6"/>
+                <circle cx="26" cy="132" r="6"/><circle cx="26" cy="154" r="6"/><circle cx="26" cy="176" r="6"/><circle cx="26" cy="198" r="6"/>
+            </g>
+            <text x="20" y="232" class="t-warm" font-size="12">○ cancelled? checked before each row</text>
+            <text x="20" y="250" class="t-mut" font-size="12">A, B, C: whichever thread was free took the row</text>
+            <!-- one pixel -->
+            <rect x="96" y="100" width="14" height="20" class="k-ink" fill="none" stroke-width="2"/>
+            <line x1="112" y1="110" x2="396" y2="110" class="k-ink" stroke-dasharray="3 3"/>
+            <text x="570" y="62" text-anchor="middle">inside one pixel, Pass 1 = samples [4, 8)</text>
+            <rect x="400" y="90" width="44" height="40" rx="4" class="f-surf k-ink"/><text x="422" y="115" text-anchor="middle">0</text>
+            <rect x="466" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="488" y="115" text-anchor="middle">+s₄</text>
+            <rect x="532" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="554" y="115" text-anchor="middle">+s₅</text>
+            <rect x="598" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="620" y="115" text-anchor="middle">+s₆</text>
+            <rect x="664" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="686" y="115" text-anchor="middle">+s₇</text>
+            <path d="M446 110 H462 M512 110 H528 M578 110 H594 M644 110 H660" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="686" y1="134" x2="686" y2="166" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="620" y="170" width="132" height="34" rx="4" class="f-ok-soft k-ok"/><text x="686" y="192" text-anchor="middle">PixelSum</text>
+            <text x="570" y="160" text-anchor="end" class="t-mut" font-size="12">s<tspan font-size="9" dy="3">i</tspan><tspan dy="-3"> = evaluate_pixel_sample(pixel, i)</tspan></text>
+            <text x="570" y="230" text-anchor="middle" class="t-mut" font-size="12">always in this order, always on one thread</text>
+        </svg></div>
+        <figcaption>Two levels of work. Across the Tile, rayon hands rows to whichever thread is free, so which thread does which row changes from run to run. Inside a pixel nothing changes: the Pass's Pixel Samples are added from the lowest sample index to the highest, starting from zero. Each row's sums depend only on that row, so the Work Result is the same however the rows were shared out.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="c">// PixelLoop::render, slightly shortened</span>
+<span class="k">let</span> bounds = job.decomposition.tile_bounds(unit.tile);
+<span class="k">let</span> samples = job.decomposition.sample_indices(unit.pass);
+<span class="k">let mut</span> pixels = vec![PixelSum::default(); bounds.area()];   <span class="c">// the one allocation</span>
+<span class="k">let</span> rows = pixels.par_chunks_mut(bounds.width()).zip(bounds.min.y..bounds.max.y);
+<span class="k">let</span> outcome = rows.try_for_each(|(row, y)| {
+    <span class="k">self</span>.render_row(job, row, Point2i::new(bounds.min.x, y), &amp;samples)
+});
+<span class="k">match</span> outcome {
+    Ok(()) =&gt; Rendered::Done(WorkResult::new(unit, pixels)),
+    Err(Cancelled) =&gt; Rendered::Cancelled,
+}</pre>
+        <p><code>par_chunks_mut</code> is rayon's way of saying “cut this list into rows and let the threads take them”. Each row gets its own copy of the sampler, a small value, and computes each pixel with a <code>fold</code>:</p>
+<pre class="code">samples.clone().fold(PixelSum::default(), |<span class="k">mut</span> sum, sample_index| {
+    <span class="k">let</span> id = PixelSampleId { pixel, sample_index };
+    sum += evaluate_pixel_sample(&amp;<span class="k">self</span>.<span class="k">0</span>, &amp;job.view, id, state);
+    sum
+})</pre>
+        <p><code>evaluate_pixel_sample</code> lives in <code>umbra-integrators</code>. It resets the sampler for this pixel and sample index, picks the wavelengths, asks the camera for a ray, asks the integrator for the light along it, and converts that light to sensor RGB with its filter weight: a <code>FilmSample</code>. How, is told in the <a href="../../umbra-integrators/docs/integrators-guide.html">integrators guide</a> and the <a href="../../umbra-camera/docs/camera-guide.html#sensor">camera guide</a>. Because the sampler is reset at every Pixel Sample, the row's sampler copy carries nothing over from one sample to the next.</p>
+        <p><b>Stopping early.</b> <code>Cancellation</code> wraps an <code>AtomicBool</code>, a true/false flag that many threads can read and write safely. <code>cancel()</code> sets it, and <code>render_row</code> reads it before doing any work. A row already running finishes first, so a render stops within one row's time. Then the whole render returns <code>Rendered::Cancelled</code>, and whatever was computed is dropped: a Work Result is all of its Work Unit or nothing.</p>
+        <p><code>Renderer::new</code> prepares what every render shares: the <code>Decomposition</code>, the sampler's randomisation for the Render Job's seed (computed once), and the Scene's integrator. <code>render</code> then builds the Render Job's Halton sampler and hands the Work Unit to the integrator. Both are told in <a href="#design">section 9</a>.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">S(p) = Σ<sub>i ∈ Pass</sub> FilmSample(p, i), &nbsp; i ascending</div><div class="mb-d"><b>One pixel's part of a Work Result</b>: the Pass's Pixel Samples of pixel <var>p</var>, added in order from zero. <code>PixelLoop::render_pixel</code></div></div>
+        <div class="mb-row"><div class="mb-f">chunk j ↔ row y = min<sub>y</sub> + j, &nbsp; j = 0 … height − 1</div><div class="mb-d"><b>Rows and threads.</b> The Work Result's buffer is cut into rows of the Tile's width, each paired with its <var>y</var>. <code>par_chunks_mut(bounds.width()).zip(bounds.min.y..bounds.max.y)</code></div></div>
+        <div class="mb-row"><div class="mb-f">Pixel Samples per Work Unit = area × |Pass|</div><div class="mb-d"><b>How much work.</b> A 32 × 32 Tile and a Pass of 16 Pixel Samples: 16 384 Pixel Samples. <code>TileBounds::area</code>, <code>sample_indices</code></div></div>
+    </div>
+
+    <figure class="bench" id="rd">
+        <div class="controls">
+            <div class="ctl"><label for="rd-threads">threads in the pool</label><div class="row"><input id="rd-threads" type="range" min="1" max="8" step="1" value="3"><output id="rd-threads-o" for="rd-threads"></output></div></div>
+            <div class="ctl"><span class="lbl">Renderer::render(Tile 0 · Pass 1)</span><div class="btns"><button type="button" id="rd-go" class="primary">render</button><button type="button" id="rd-cancel">cancel</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">Tile 0's 16 rows; colour = the thread that took the row, fill = progress</p>
+                <canvas id="rd-cv" class="cv-tile" aria-label="Rows of a Tile being rendered by threads"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem; align-content:start">
+                <dl class="readout" id="rd-read"></dl>
+                <div><p class="panel-title">runs (each compared with the first, as assert_eq! would)</p><div class="tablewrap"><table class="data" id="rd-runs"></table></div></div>
+            </div>
+        </div>
+        <figcaption>The Work Unit (Tile 0, Pass 1) of the test image, with 4 Pixel Samples per Pass: 16 × 16 pixels × 4 samples. Free threads take the next row, and rows take varying time, so every run shares the rows out differently. <b>Try:</b> render with 1 thread, then with 8: the rows go to different threads, yet the Work Result is equal, sum for sum. Press “cancel” during a render: running rows finish, no new row starts, and the result is <code>Rendered::Cancelled</code>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-render</code> is a <code>std</code> crate, outside the <code>no_std</code> core: it may allocate, use threads and a hash set. It sits on top of <code>umbra-integrators</code> and <code>umbra-scene</code>, and <code>umbra-cluster</code> and the <code>umbra</code> binary depend on it (arc42 §5.1, ADR 0015).</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-render</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a> · arc42 §5.3</div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 320" class="dg-wide" role="img" aria-label="The four modules of umbra-render, the crates they use and how their types connect">
+            <g font-size="12">
+                <rect x="20" y="14" width="150" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="95" y="33" text-anchor="middle" class="t-mut">umbra-scene</text>
+                <rect x="190" y="14" width="170" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="275" y="33" text-anchor="middle" class="t-mut">umbra-integrators</text>
+                <rect x="380" y="14" width="150" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="455" y="33" text-anchor="middle" class="t-mut">umbra-sampling</text>
+                <rect x="550" y="14" width="130" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="615" y="33" text-anchor="middle" class="t-mut">umbra-math</text>
+                <rect x="700" y="14" width="100" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="750" y="33" text-anchor="middle" class="t-mut">rayon</text>
+            </g>
+            <text x="450" y="64" text-anchor="middle" class="t-mut" font-size="12">Scene, RenderJobOptions · evaluate_pixel_sample, FilmSample · HaltonSampler · Point2i · par_chunks_mut</text>
+            <rect x="20" y="80" width="210" height="190" rx="8" class="f-acc-soft k-acc"/>
+            <text x="34" y="104" class="t-bold">decomposition.rs</text>
+            <g font-size="12">
+                <rect x="36" y="116" width="178" height="26" rx="4" class="f-surf k-ink"/><text x="125" y="134" text-anchor="middle">Decomposition</text>
+                <rect x="36" y="148" width="178" height="26" rx="4" class="f-surf k-ink"/><text x="125" y="166" text-anchor="middle">WorkUnit</text>
+                <rect x="36" y="180" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="79" y="198" text-anchor="middle">TileIndex</text>
+                <rect x="128" y="180" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="171" y="198" text-anchor="middle">PassIndex</text>
+                <rect x="36" y="212" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="79" y="230" text-anchor="middle">TileBounds</text>
+                <rect x="128" y="212" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="171" y="230" text-anchor="middle">RenderError</text>
+            </g>
+            <rect x="250" y="80" width="230" height="190" rx="8" class="f-warm-soft k-warm"/>
+            <text x="264" y="104" class="t-bold">renderer.rs</text>
+            <g font-size="12">
+                <rect x="266" y="116" width="198" height="26" rx="4" class="f-surf k-ink"/><text x="365" y="134" text-anchor="middle">Renderer&lt;'s&gt;</text>
+                <rect x="266" y="148" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="314" y="166" text-anchor="middle">Rendered</text>
+                <rect x="368" y="148" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="416" y="166" text-anchor="middle">Cancellation</text>
+                <rect x="266" y="190" width="198" height="62" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+                <text x="365" y="207" text-anchor="middle" class="t-mut">private:</text>
+                <text x="365" y="224" text-anchor="middle" class="t-mut">dyn Integrator, PixelLoop&lt;I&gt;</text>
+                <text x="365" y="241" text-anchor="middle" class="t-mut">Job, Randomization</text>
+            </g>
+            <rect x="500" y="80" width="170" height="190" rx="8" class="f-mut-soft k-mut"/>
+            <text x="514" y="104" class="t-bold">work_result.rs</text>
+            <g font-size="12">
+                <rect x="516" y="116" width="138" height="26" rx="4" class="f-surf k-ink"/><text x="585" y="134" text-anchor="middle">WorkResult</text>
+                <rect x="516" y="148" width="138" height="26" rx="4" class="f-surf k-ink"/><text x="585" y="166" text-anchor="middle">PixelSum</text>
+                <text x="585" y="200" text-anchor="middle" class="t-mut">+= FilmSample</text>
+                <text x="585" y="218" text-anchor="middle" class="t-mut">+= PixelSum</text>
+            </g>
+            <rect x="690" y="80" width="190" height="190" rx="8" class="f-ok-soft k-ok"/>
+            <text x="704" y="104" class="t-bold">film.rs</text>
+            <g font-size="12">
+                <rect x="706" y="116" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="134" text-anchor="middle">Film</text>
+                <rect x="706" y="148" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="166" text-anchor="middle">Acceptance</text>
+                <rect x="706" y="180" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="198" text-anchor="middle">FilmHash</text>
+            </g>
+            <line x1="464" y1="129" x2="514" y2="129" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="656" y1="129" x2="704" y2="129" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="365" y="292" text-anchor="middle" class="t-mut" font-size="12">Renderer::render → Rendered::Done(WorkResult) → Film::accept → Acceptance</text>
+            <text x="450" y="312" text-anchor="middle" class="t-mut" font-size="12">Renderer and Film each hold their own copy of the same Decomposition</text>
+        </svg></div>
+        <figcaption>Four modules, all re-exported at the crate root. The dashed boxes at the top are the crates it uses. The Renderer produces Work Results, the Film consumes them, and both cut the job the same way because both build their <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>type or function</th><th>what it is</th><th>pbrt-v4 name</th></tr></thead>
+            <tbody>
+                <tr><td><code>Decomposition</code></td><td>the Tiles and Passes of a Render Job: <code>new</code>, <code>resolution</code>, <code>tile_count</code>, <code>pass_count</code>, <code>contains</code>, <code>work_units</code>, <code>tile_bounds</code>, <code>sample_indices</code></td><td>–</td></tr>
+                <tr><td><code>TileIndex</code>, <code>PassIndex</code></td><td>a Tile's number in raster order, a Pass's number (newtypes over <code>u32</code>)</td><td>–</td></tr>
+                <tr><td><code>WorkUnit</code></td><td><code>{ tile, pass }</code>: one Tile for one Pass</td><td>–</td></tr>
+                <tr><td><code>TileBounds</code></td><td>a Tile's pixels, <code>min</code> included, <code>max</code> excluded; <code>width</code>, <code>height</code>, <code>area</code></td><td><code>Bounds2i</code></td></tr>
+                <tr><td><code>RenderError</code></td><td><code>TooManyTiles</code> or <code>TileTooLarge</code></td><td>–</td></tr>
+                <tr><td><code>Renderer&lt;'s&gt;</code></td><td>renders Work Units of one Scene: <code>new</code>, <code>decomposition</code>, <code>render</code></td><td>–</td></tr>
+                <tr><td><code>Rendered</code></td><td><code>Done(WorkResult)</code> or <code>Cancelled</code></td><td>–</td></tr>
+                <tr><td><code>Cancellation</code></td><td>a shared stop request: <code>new</code>, <code>cancel</code>, <code>is_cancelled</code></td><td>–</td></tr>
+                <tr><td><code>WorkResult</code></td><td>the sums of one Work Unit: <code>new</code>, <code>unit</code>, <code>pixels</code></td><td>–</td></tr>
+                <tr><td><code>PixelSum</code></td><td><code>rgb: [f64; 3]</code>, <code>weight: f64</code>, and two <code>+=</code></td><td><code>RGBFilm::RGBPixel</code>, <code>RGBFilm::AddSample</code></td></tr>
+                <tr><td><code>Film</code></td><td>the Render Job's sums: <code>new</code>, <code>accept</code>, <code>is_complete</code>, <code>pixels</code>, <code>hash</code></td><td>the pixel sums of <code>RGBFilm</code></td></tr>
+                <tr><td><code>Acceptance</code></td><td><code>Merged</code> or <code>Duplicate</code></td><td>–</td></tr>
+                <tr><td><code>FilmHash</code></td><td>a 64-bit FNV-1a hash of every sum, shown as 16 hex digits</td><td>–</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="prose" style="margin-top:1.2rem">
+        <p>pbrt-v4 renders in one process and has no Work Units: its <code>RGBFilm</code> both accumulates the sums and writes the image. Umbra splits that in two. The <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a> and the filter live in <code>umbra-camera</code>, inside the core. The sums and their merging live here, outside it. The part of <code>RGBFilm</code> that turns sums into an image file comes later (<a href="#not-yet">section 11</a>).</p>
+    </div>
+</section>
+
+<section class="topic" id="design">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-render</span> · <a href="../src/renderer.rs">renderer.rs</a>, <a href="../src/film.rs">film.rs</a> · <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a></div>
+        <h3>Design decisions</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Most of what's interesting here is what the code is careful <em>not</em> to do. It makes one flexible, slower call per Work Unit and millions of fast, fixed ones inside it. It reserves memory once per Work Unit and never per Pixel Sample. It names every outcome instead of returning true or false. And it reads the second answer for a Work Unit not at all.</div>
+
+    <h4>One <code>dyn</code> call per Work Unit, a static loop inside</h4>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 170" class="dg-wide" role="img" aria-label="Renderer calls a dyn Integrator once per Work Unit; inside, PixelLoop calls evaluate_pixel_sample statically for every Pixel Sample">
+            <rect x="20" y="50" width="140" height="56" rx="6" class="f-surf k-ink"/>
+            <text x="90" y="74" text-anchor="middle">Renderer</text><text x="90" y="94" text-anchor="middle" class="t-mut" font-size="12">::render</text>
+            <line x1="162" y1="78" x2="246" y2="78" class="k-warm" stroke-width="2" marker-end="url(#ah-warm)"/>
+            <text x="204" y="68" text-anchor="middle" class="t-warm" font-size="12">dyn, ×1</text>
+            <rect x="250" y="40" width="200" height="76" rx="8" class="f-warm-soft k-warm"/>
+            <text x="350" y="64" text-anchor="middle">Box&lt;dyn Integrator&gt;</text>
+            <text x="350" y="86" text-anchor="middle" font-size="12">= PixelLoop&lt;I&gt;</text>
+            <text x="350" y="104" text-anchor="middle" class="t-mut" font-size="12">I: RayIntegrator</text>
+            <line x1="452" y1="78" x2="536" y2="78" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="494" y="68" text-anchor="middle" class="t-acc" font-size="12">static</text>
+            <rect x="540" y="40" width="200" height="76" rx="8" class="f-acc-soft k-acc"/>
+            <text x="640" y="64" text-anchor="middle" font-size="12">evaluate_pixel_sample</text>
+            <text x="640" y="84" text-anchor="middle" font-size="12">&lt;I, NoRecorder&gt;</text>
+            <text x="640" y="104" text-anchor="middle" class="t-mut" font-size="12">× area × |Pass|</text>
+            <text x="380" y="150" text-anchor="middle" class="t-mut" font-size="12">one indirect call per Work Unit; thousands of inlined calls per Work Unit</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">trait</span> Integrator: Sync + fmt::Debug {
+    <span class="k">fn</span> render(&amp;<span class="k">self</span>, job: &amp;Job&lt;'_&gt;, unit: WorkUnit) -&gt; Rendered;
+}
+<span class="k">struct</span> PixelLoop&lt;I&gt;(I);
+<span class="k">impl</span>&lt;I: RayIntegrator + Sync + fmt::Debug&gt; Integrator <span class="k">for</span> PixelLoop&lt;I&gt; { <span class="c">/* … */</span> }
+
+<span class="c">// in Renderer::new</span>
+integrator: Box::new(PixelLoop(scene.integrator())),</pre>
+        <p>The core avoids <code>dyn</code> on the per-ray path: there, every choice is a closed <code>enum</code> (<a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a>). A seam called at most once per Work Unit may be <code>dyn</code>, because one indirect call is nothing next to thousands of Pixel Samples. So the Renderer holds a private <code>Box&lt;dyn Integrator&gt;</code>, and behind it <code>PixelLoop&lt;I&gt;</code> is generic over the core's <code>RayIntegrator</code>: the compiler builds one specialised pixel loop per integrator type. This seam is also where a different driver, such as a GPU's wavefront batch, can plug in later.</p>
+    </div>
+
+    <h4>Memory: per Work Unit, never per Pixel Sample</h4>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 180" class="dg-wide" role="img" aria-label="What is allocated at each level: once per Render Job, once per Work Unit, nothing per row or per Pixel Sample">
+            <g font-size="12">
+                <rect x="20" y="16" width="200" height="34" rx="4" class="f-acc-soft k-acc"/><text x="120" y="38" text-anchor="middle">per Render Job</text>
+                <text x="240" y="38">digit permutations of the seed, in Renderer::new</text>
+                <rect x="20" y="58" width="200" height="34" rx="4" class="f-acc-soft k-acc"/><text x="120" y="80" text-anchor="middle">per Work Unit</text>
+                <text x="240" y="80">vec![PixelSum::default(); area], the Work Result's buffer</text>
+                <rect x="20" y="100" width="200" height="34" rx="4" class="f-mut-soft k-mut"/><text x="120" y="122" text-anchor="middle">per row</text>
+                <text x="240" y="122" class="t-mut">a copy of the sampler (a small value) and NoRecorder: no heap</text>
+                <rect x="20" y="142" width="200" height="34" rx="4" class="f-ok-soft k-ok"/><text x="120" y="164" text-anchor="middle">per Pixel Sample</text>
+                <text x="240" y="164" class="t-ok">nothing</text>
+            </g>
+        </svg></div>
+    </figure>
+    <div class="prose">
+        <p>Asking the operating system for memory is slow and, with many threads, contended. <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> allows it per Render Job and per Work Unit, never per Pixel Sample. The sampler's digit permutations, a table that depends only on the seed, are built once by <code>Renderer::new</code> into a private <code>Randomization</code> enum (<code>None</code>, <code>PermuteDigits</code>, <code>Owen</code>), and lent to each render's Halton sampler as a borrowed view. A test in <code>crates/umbra/tests/allocation.rs</code> counts heap blocks while rendering a Work Unit with 4 and with 8 Pixel Samples per pixel, and checks that the counts are equal.</p>
+        <p>The sampler is built for the Render Job's full Pixel Samples per pixel, not for the Pass. Pixel Sample 5 of a pixel is the same Pixel Sample whether it falls in Pass 1 or, with bigger Passes, in Pass 0: the Passes only group the samples, they never change them.</p>
+    </div>
+
+    <h4>Outcomes are enums, identifiers are newtypes</h4>
+    <div class="prose">
+<pre class="code"><span class="k">pub enum</span> Acceptance { Merged, Duplicate }
+<span class="k">pub enum</span> Rendered { Done(WorkResult), Cancelled }
+<span class="k">pub struct</span> TileIndex(<span class="k">pub</span> u32);
+<span class="k">pub struct</span> PassIndex(<span class="k">pub</span> u32);
+<span class="k">pub struct</span> FilmHash(<span class="k">pub</span> u64);</pre>
+        <p><code>accept</code> could have returned a <code>bool</code>, but <code>true</code> would not say whether it means “merged” or “was a duplicate”. <code>Rendered::Done</code> carries its Work Result, so a cancelled render simply has none to misuse. A <code>TileIndex</code> can't be passed where a <code>PassIndex</code> is expected, although both are a <code>u32</code> inside. <code>RenderError</code> is <code>#[non_exhaustive]</code>, so new errors can join without breaking callers.</p>
+    </div>
+
+    <h4>Merge on arrival, duplicates unread, bugs loud</h4>
+    <div class="prose">
+        <p>The Film keeps a <code>HashSet&lt;WorkUnit&gt;</code> of what it has merged, and nothing else about history: no early-arrival buffer, no per-Pass copies (one Film-sized buffer per Pass was rejected in ADR 0004 for its memory). A duplicate is spotted from its <code>WorkUnit</code> alone. A Work Unit outside the job, or a Work Result of the wrong size, can only come from a bug in Umbra, so <code>accept</code> panics instead of returning an error that someone might ignore.</p>
+    </div>
+
+    <h4>The Film hash</h4>
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> hash(&amp;<span class="k">self</span>) -&gt; FilmHash {
+    <span class="k">const</span> OFFSET_BASIS: u64 = <span class="k">0xcbf2_9ce4_8422_2325</span>;
+    <span class="k">const</span> PRIME: u64 = <span class="k">0x0100_0000_01b3</span>;
+    <span class="k">let</span> bytes = <span class="k">self</span>.pixels.iter().flat_map(|p| {
+        [p.rgb[<span class="k">0</span>], p.rgb[<span class="k">1</span>], p.rgb[<span class="k">2</span>], p.weight]
+            .into_iter()
+            .flat_map(|v| v.to_bits().to_le_bytes())
+    });
+    FilmHash(bytes.fold(OFFSET_BASIS, |h, b| (h ^ u64::from(b)).wrapping_mul(PRIME)))
+}</pre>
+        <p>An iterator over every byte of every sum, folded into one number. <code>to_bits</code> gives the float's exact bit pattern, so <code>0.6</code> and <code>0.6000000000000001</code> hash differently. FNV-1a is short, fast and needs no dependency; it is not meant to resist someone forging a collision.</p>
+    </div>
+</section>
+
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-render</span> · <a href="../tests/umbra_render/">tests/umbra_render</a> · <code>crates/umbra/tests/allocation.rs</code></div>
+        <h3>How it is tested</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The tests treat the crate as a black box with two doors: Work Units go in through the Renderer and Work Results come out, and Work Results go into the Film. They use a camera-only Scene of 40 × 24 pixels, which renders black: no light reaches the camera, but every Pixel Sample still gets its filter weight.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 210" class="dg-wide" role="img" aria-label="The test image's six Tiles and which tests use Tiles 0, 4 and 5">
+            <rect x="40" y="20" width="280" height="168" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M152 20 V188 M264 20 V188 M40 132 H320" class="k-mut"/>
+            <rect x="40" y="20" width="112" height="112" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <rect x="152" y="132" width="112" height="56" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <rect x="264" y="132" width="56" height="56" class="f-ok-soft k-ok" stroke-width="1.5"/>
+            <text x="96" y="80" text-anchor="middle" class="t-bold">T0</text>
+            <text x="208" y="80" text-anchor="middle" class="t-mut">T1</text>
+            <text x="292" y="80" text-anchor="middle" class="t-mut">T2</text>
+            <text x="96" y="165" text-anchor="middle" class="t-mut">T3</text>
+            <text x="208" y="165" text-anchor="middle" class="t-bold">T4</text>
+            <text x="292" y="165" text-anchor="middle" class="t-bold">T5</text>
+            <text x="350" y="50" class="t-acc">Tile 0: Passes 1 then 0, sums 0.25 and 0.5,</text>
+            <text x="350" y="68" class="t-acc">add up to 0.75 (the_passes_of_a_tile_add_up)</text>
+            <text x="350" y="110" class="t-warm">Tile 4 (16 × 8): a second Work Result with other</text>
+            <text x="350" y="128" class="t-warm">sums is a Duplicate (a_duplicate_leaves_…)</text>
+            <text x="350" y="170" class="t-ok">Tile 5 (8 × 8): sums land on x 32..40, y 16..24</text>
+            <text x="350" y="188" class="t-ok">only (a_work_result_lands_on_its_tile)</text>
+        </svg></div>
+        <figcaption>The test image and the Tiles the Film tests aim at. 0.25 and 0.5 are exact in binary, so their sum 0.75 is exact too, and the test can compare with <code>==</code>.</figcaption>
+    </figure>
+    <div class="prose">
+        <ul>
+            <li><a href="../tests/umbra_render/film.rs"><code>film.rs</code></a>, the Film's door:
+                <ul>
+                    <li><code>single_pass_work_results_merge_to_the_same_film_in_any_order</code>: four orders (in order, reversed, interleaved, rotated), the same <code>FilmHash</code> and the same pixels.</li>
+                    <li><code>a_duplicate_leaves_the_film_unchanged</code>, <code>a_work_result_lands_on_its_tile</code>, <code>the_passes_of_a_tile_add_up</code>: see the diagram.</li>
+                </ul></li>
+            <li><a href="../tests/umbra_render/renderer.rs"><code>renderer.rs</code></a>, the Renderer's door:
+                <ul>
+                    <li><code>a_camera_only_scene_renders_black</code>: 3 × 2 Tiles, every sum black, every weight positive.</li>
+                    <li><code>a_tile_cut_short_by_the_image_has_only_its_pixels</code>: Tile 5 is 8 × 8.</li>
+                    <li><code>work_results_do_not_depend_on_the_thread_count</code>: Work Results on 1 and 4 threads are equal, and so are the single-Pass Film hashes.</li>
+                    <li><code>a_render_is_a_pure_function_of_its_work_unit</code>: rendering the Work Units again, in reverse order, gives equal Work Results.</li>
+                    <li><code>a_cancelled_render_returns_no_work_result</code>: cancel first, get <code>Rendered::Cancelled</code>.</li>
+                </ul></li>
+            <li><a href="../tests/umbra_render/scenes.rs"><code>scenes.rs</code></a> builds the Scene with <code>SceneBuilder</code>, the options (seed 0, 16-pixel Tiles), and <code>render_all</code>.</li>
+            <li><code>crates/umbra/tests/allocation.rs</code>: the counting-allocator test of <a href="#design">section 9</a>.</li>
+        </ul>
+        <p>Note what the tests avoid: they never compare multi-Pass Films merged in different orders, for the reason in <a href="#determinism">section 5</a>. Run them with <code>cargo nextest run -p umbra-render</code>.</p>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-render</span> · roadmap · arc42 §5.3</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="prose">
+        <ul>
+            <li><b>The final image.</b> Dividing each pixel's sums (Σ <var>w</var>·<var>c</var> ⁄ Σ <var>w</var>), and writing the EXR file with its Reproduction Record, atomically, on the Coordinator (<a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a>), with <a href="https://github.com/sergioffpc/umbra/issues/78">#78</a>. arc42 sketches it as <code>Film::finish</code>.</li>
+            <li><b>Pixel Traces.</b> <code>Renderer::trace</code> and its <code>TraceRecorder</code>, re-running chosen Pixel Samples through the same code path with recording on (<a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a>), with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Today the pixel loop always uses <code>NoRecorder</code>.</li>
+            <li><b>Anomalous Pixel Samples.</b> Leaving a Pixel Sample that is NaN, infinite or negative out of the sums, and reporting it in the Work Result, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>.</li>
+            <li><b>The scheduler, the network and the Workers</b> of <a href="#scheduling">section 3</a>, in <code>umbra-cluster</code>.</li>
+            <li><b>Splat accumulators</b> for integrators whose Pixel Samples land on other pixels (BDPT, light tracing), merged on arrival like the rest (ADR 0022, risk RK-5).</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> §5.4 (film and <code>RGBFilm</code>), §1.3.4 (the pixel loop, <code>EvaluatePixelSample</code>), §6.8.1 (floating-point arithmetic).</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/film.h</code> and <code>film.cpp</code> (<code>RGBFilm::AddSample</code>, <code>RGBPixel</code>), <code>cpu/integrators.cpp</code> (<code>ImageTileIntegrator::Render</code>).</li>
+        <li>Goldberg. What Every Computer Scientist Should Know About Floating-Point Arithmetic. <i>ACM Computing Surveys</i> 23(1), 1991. Rounding and why addition is not associative.</li>
+        <li>Fowler, Noll, Vo. The FNV non-cryptographic hash, <a href="https://datatracker.ietf.org/doc/draft-eastlake-fnv/">IETF draft “The FNV Non-Cryptographic Hash Algorithm”</a>.</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>; <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Tile, Pass, Pixel Sample, Work Unit, Work Result, Film, Coordinator, Worker); arc42 <a href="../../../docs/architecture/05-building-block-view.md">§5</a>, <a href="../../../docs/architecture/06-runtime-view.md">§6</a>, <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8</a>; <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (f64 sums, filter importance sampling), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (dyn only at coarse seams), <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> (allocation), <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> (scheduling), <a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a> (EXR), <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> (merge on arrival).</li>
+        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>, <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</li>
+    </ul>
+</section>
+
+<footer>Umbra Render Guide · crates/umbra-render/docs/render-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+function shuffle(a, rng) {
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+}
+const passColour = (p) => ["--accent", "--warm", "--exact", "--cx", "--muted"][p % 5];
+
+/* ================================================================
+    64-bit float bits, ULP distance and FNV-1a, as Film::hash.
+    ================================================================ */
+const dv = new DataView(new ArrayBuffer(8));
+const bitsOf = (x) => { dv.setFloat64(0, x); return dv.getBigUint64(0); };
+const hex64 = (x) => bitsOf(x).toString(16).padStart(16, "0");
+const ordered = (x) => { const b = bitsOf(x); return b >> 63n ? -(b & 0x7fffffffffffffffn) : b; };
+const ulpDist = (a, b) => { const d = ordered(a) - ordered(b); return Number(d < 0n ? -d : d); };
+const sameBits = (a, b) => bitsOf(a) === bitsOf(b);
+/* FNV-1a over the little-endian bytes of each f64, in order: r, g, b, weight per pixel. */
+function fnv1a(values) {
+    const MASK = 0xffffffffffffffffn, PRIME = 0x100000001b3n;
+    let h = 0xcbf29ce484222325n;
+    for (const v of values) {
+        dv.setFloat64(0, v, true);
+        for (let i = 0; i < 8; i++) h = ((h ^ BigInt(dv.getUint8(i))) * PRIME) & MASK;
+    }
+    return h.toString(16).padStart(16, "0");
+}
+
+/* ================================================================
+    Decomposition, as decomposition.rs.
+    ================================================================ */
+function decomposition(W, H, T, spp, per) {
+    const tilesX = Math.ceil(W / T), tilesY = Math.ceil(H / T);
+    const tileCount = tilesX * tilesY, passCount = Math.ceil(spp / per);
+    return {
+        W, H, T, spp, per, tilesX, tilesY, tileCount, passCount,
+        contains: (u) => u.tile < tileCount && u.pass < passCount,
+        workUnits() {
+            const list = [];
+            for (let pass = 0; pass < passCount; pass++) for (let tile = 0; tile < tileCount; tile++) list.push({ tile, pass });
+            return list;
+        },
+        tileBounds(t) {
+            const col = t % tilesX, row = Math.floor(t / tilesX);
+            const min = [col * T, row * T];
+            const max = [Math.min(min[0] + T, W), Math.min(min[1] + T, H)];
+            const width = max[0] - min[0], height = max[1] - min[1];
+            return { min, max, width, height, area: width * height };
+        },
+        sampleIndices(p) { const s = p * per; return [s, Math.min(s + per, spp)]; },
+    };
+}
+const unitLabel = (u) => `T${u.tile}·P${u.pass}`;
+
+/* ================================================================
+    A made-up Scene: each Pixel Sample is a pure function of
+    (pixel, sample index), in f32, with the Gaussian filter's weight.
+    ================================================================ */
+const mix32 = (h) => {
+    h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15; h = Math.imul(h, 0x846ca68b); h ^= h >>> 16;
+    return h >>> 0;
+};
+const hashU = (a, b, c, d = 0) => mix32(mix32(mix32(mix32(a + 0x2545f491) + b) + c) + d) / 4294967296;
+/* The weight of every Pixel Sample: the Gaussian filter table's area (r = 1.5, sigma = 0.5), in f32. */
+const FILTER_WEIGHT = (() => {
+    const r = 1.5, s = 0.5;
+    const g = (x) => Math.exp(-(x * x) / (2 * s * s)) / Math.sqrt(2 * Math.PI * s * s);
+    const e = g(r), n = Math.trunc(32 * r), cell = (2 * r / n) ** 2;
+    let sum = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const cx = -r + 2 * r * (x + 0.5) / n, cy = -r + 2 * r * (y + 0.5) / n;
+        sum += Math.max(0, g(cx) - e) * Math.max(0, g(cy) - e) * cell;
+    }
+    return Math.fround(sum);
+})();
+function sceneSample(x, y, i, fireflies = false) {
+    const u = (x + 0.5) / 40, v = (y + 0.5) / 24;
+    let base;
+    const dx = (u - 0.62) * 40 / 24, dy = v - 0.42, d = Math.hypot(dx, dy);
+    if (d < 0.3) base = [1.0 - 0.8 * d, 0.62 - d, 0.3 - 0.5 * d];
+    else if (v > 0.78) base = ((Math.floor(u * 10) + Math.floor(v * 12)) & 1) ? [0.55, 0.52, 0.48] : [0.16, 0.16, 0.18];
+    else base = [0.25 + 0.3 * v, 0.38 + 0.3 * v, 0.68 + 0.2 * v];
+    // A firefly: a rare Pixel Sample 2^31 (about two billion) times brighter.
+    const k = (0.25 + 1.5 * hashU(x, y, i)) * (fireflies && hashU(x, y, i, 9) < 0.03 ? 2 ** 31 : 1);
+    return base.map((c, ch) => Math.fround(c * k * (0.9 + 0.2 * hashU(x, y, i, ch + 1))));
+}
+/* PixelLoop::render: every pixel of the Tile, its Pass's Pixel Samples in ascending index. */
+function renderRow(dec, unit, y, out, j, fireflies = false) {
+    const b = dec.tileBounds(unit.tile), [s0, s1] = dec.sampleIndices(unit.pass), w = FILTER_WEIGHT;
+    for (let k = 0; k < b.width; k++) {
+        const x = b.min[0] + k;
+        let r = 0, g = 0, bl = 0, ws = 0;
+        for (let i = s0; i < s1; i++) {
+            const c = sceneSample(x, y, i, fireflies);
+            r += Math.fround(w * c[0]); g += Math.fround(w * c[1]); bl += Math.fround(w * c[2]); ws += w;
+        }
+        const o = (j * b.width + k) * 4;
+        out[o] = r; out[o + 1] = g; out[o + 2] = bl; out[o + 3] = ws;
+    }
+}
+function renderUnit(dec, unit, fireflies = false) {
+    const b = dec.tileBounds(unit.tile), data = new Float64Array(b.area * 4);
+    for (let j = 0; j < b.height; j++) renderRow(dec, unit, b.min[1] + j, data, j, fireflies);
+    return { unit, data };
+}
+/* Film, as film.rs: f64 sums, a set of merged Work Units, accept, hash. */
+function makeFilm(dec) {
+    const px = new Float64Array(dec.W * dec.H * 4), merged = new Set();
+    return {
+        dec, px, merged,
+        accept(result) {
+            const u = result.unit, key = u.tile + "," + u.pass;
+            if (!dec.contains(u)) throw new Error(`${unitLabel(u)} is not in this Render Job`);
+            if (merged.has(key)) return "Duplicate";
+            const b = dec.tileBounds(u.tile);
+            if (result.data.length !== b.area * 4) throw new Error("one sum per pixel");
+            merged.add(key);
+            for (let j = 0; j < b.height; j++) {
+                const start = (b.min[1] + j) * dec.W + b.min[0];
+                for (let k = 0; k < b.width; k++) for (let c = 0; c < 4; c++) px[(start + k) * 4 + c] += result.data[(j * b.width + k) * 4 + c];
+            }
+            return "Merged";
+        },
+        isComplete: () => merged.size === dec.tileCount * dec.passCount,
+        hash: () => fnv1a(px),
+    };
+}
+
+/* ================================================================
+    A toy scheduler after ADR 0009: Workers pull one Work Unit at a
+    time, Pass-major; when the queue is empty the oldest Work Unit in
+    flight gets one copy; a cancel reaches the copy after a delay and
+    stops it at the end of its current row.
+    ================================================================ */
+function simulate(dec, slowness, seed, tail) {
+    const units = dec.workUnits();
+    const cost = (k) => {
+        const u = units[k], b = dec.tileBounds(u.tile), [s0, s1] = dec.sampleIndices(u.pass);
+        return b.area / 256 * (s1 - s0) * (0.7 + 0.6 * hashU(k, seed, 7));
+    };
+    const meanCost = units.reduce((s, _, k) => s + cost(k), 0) / units.length;
+    const delay = 0.35 * meanCost;
+    const queue = units.map((_, k) => k), running = [], bars = [], arrivals = [];
+    const busy = slowness.map(() => false), done = new Set(), copied = new Set();
+    let t = 0, seq = 0;
+    for (;;) {
+        slowness.forEach((sl, w) => {
+            if (busy[w]) return;
+            let k = null, copy = false;
+            if (queue.length) k = queue.shift();
+            else if (tail) {
+                const c = running.filter((j) => !j.copy && !done.has(j.k) && !copied.has(j.k) && j.w !== w).sort((a, b) => a.seq - b.seq)[0];
+                if (c) { k = c.k; copy = true; copied.add(k); }
+            }
+            if (k === null) return;
+            const rows = dec.tileBounds(units[k].tile).height;
+            running.push({ k, w, copy, seq: seq++, start: t, end: t + cost(k) * sl, rows, status: "pending" });
+            busy[w] = true;
+        });
+        if (!running.length) break;
+        running.sort((a, b) => a.end - b.end);
+        const j = running.shift();
+        t = j.end; busy[j.w] = false;
+        if (j.status === "cancelled") { bars.push(j); continue; }
+        if (!done.has(j.k)) {
+            done.add(j.k); j.status = "first";
+            arrivals.push({ k: j.k, w: j.w, t, kind: "first" });
+            for (const o of running.filter((r) => r.k === j.k)) {
+                const tc = t + delay;
+                if (o.end <= tc) continue; // its Work Result is on its way: a Duplicate
+                const rowTime = (o.end - o.start) / o.rows;
+                o.end = Math.min(o.end, o.start + (Math.floor((tc - o.start) / rowTime) + 1) * rowTime);
+                o.status = "cancelled";
+            }
+        } else {
+            j.status = "dup";
+            arrivals.push({ k: j.k, w: j.w, t, kind: "dup" });
+        }
+        bars.push(j);
+    }
+    return { units, bars, arrivals, end: t };
+}
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================================================================
+    §1 One pixel: sums against the average of averages.
+    ================================================================ */
+(() => {
+    let seed = 1;
+    bindRange("px-spp", (v) => v, draw);
+    bindRange("px-per", (v) => v, draw);
+    $("px-new").addEventListener("click", () => { seed++; draw(); });
+    function draw() {
+        const spp = +$("px-spp").value, per = +$("px-per").value, w = FILTER_WEIGHT;
+        const c = Array.from({ length: spp }, (_, i) => Math.fround(0.15 + 1.7 * hashU(seed, i, 99)));
+        let swc = 0, sw = 0;
+        const passes = [];
+        for (let p = 0; p * per < spp; p++) {
+            let a = 0, b = 0;
+            for (let i = p * per; i < Math.min((p + 1) * per, spp); i++) { a += Math.fround(w * c[i]); b += w; }
+            passes.push({ swc: a, sw: b, n: Math.min((p + 1) * per, spp) - p * per });
+            swc += a; sw += b;
+        }
+        const truth = swc / sw;
+        const avgOfAvgs = passes.reduce((s, p) => s + p.swc / p.sw, 0) / passes.length;
+        const { ctx, w: cw, h } = fit($("px-cv"));
+        const pad = 16, vmax = 2, slot = (cw - 2 * pad) / spp;
+        const Y = (v) => h - pad - v / vmax * (h - 2 * pad - 10);
+        ctx.strokeStyle = tok("--rule"); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(cw - pad, Y(0)); ctx.stroke();
+        ctx.font = `11px ${tok("--mono")}`; ctx.textAlign = "center";
+        c.forEach((v, i) => {
+            const p = Math.floor(i / per);
+            ctx.fillStyle = tok(passColour(p)); ctx.globalAlpha = 0.7;
+            ctx.fillRect(pad + i * slot + slot * 0.15, Y(v), slot * 0.7, Y(0) - Y(v));
+            ctx.globalAlpha = 1;
+            if (slot > 14) { ctx.fillStyle = tok("--muted"); ctx.fillText(String(i), pad + (i + 0.5) * slot, h - 3); }
+        });
+        passes.forEach((p, k) => {
+            ctx.fillStyle = tok(passColour(k));
+            ctx.fillText(`Pass ${k}`, pad + (k * per + p.n / 2) * slot, 12);
+        });
+        const line = (v, colour, dash) => {
+            ctx.strokeStyle = colour; ctx.lineWidth = 2; ctx.setLineDash(dash);
+            ctx.beginPath(); ctx.moveTo(pad, Y(v)); ctx.lineTo(cw - pad, Y(v)); ctx.stroke(); ctx.setLineDash([]);
+        };
+        line(truth, tok("--accent"), []);
+        line(avgOfAvgs, tok("--warm"), [6, 4]);
+        ctx.textAlign = "left";
+        $("px-read").innerHTML = `
+            <dt>weight w</dt><dd>${fmt(w, 6)} <span class="mut">(every sample)</span></dd>
+            <dt>Passes</dt><dd>⌈${spp} ⁄ ${per}⌉ = ${passes.length}, sizes ${passes.map((p) => p.n).join(", ")}</dd>
+            <dt>Σ w·c</dt><dd>${fmt(swc, 6)}</dd>
+            <dt>Σ w</dt><dd>${fmt(sw, 6)}</dd>
+            <dt>Σ w·c ⁄ Σ w</dt><dd class="acc">${fmt(truth, 6)}</dd>
+            <dt>Pass averages</dt><dd>${passes.map((p) => fmt(p.swc / p.sw, 3)).join(", ")}</dd>
+            <dt>their average</dt><dd class="${Math.abs(avgOfAvgs - truth) > 1e-9 ? "bad" : "ok"}">${fmt(avgOfAvgs, 6)}</dd>
+            <dt>difference</dt><dd>${fmt(avgOfAvgs - truth, 6)}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §2 Decomposition bench.
+    ================================================================ */
+(() => {
+    let dec, k = 0;
+    const rebuild = () => {
+        dec = decomposition(+$("dc-w").value, +$("dc-h").value, +$("dc-t").value, +$("dc-spp").value, +$("dc-per").value);
+        k = Math.min(k, dec.tileCount * dec.passCount - 1);
+        draw();
+    };
+    for (const id of ["dc-w", "dc-h", "dc-t", "dc-spp", "dc-per"]) bindRange(id, (v) => v, rebuild);
+    $("dc-first").addEventListener("click", () => { k = 0; draw(); });
+    $("dc-next").addEventListener("click", () => { k = (k + 1) % (dec.tileCount * dec.passCount); draw(); });
+    const layout = (w, h) => {
+        const pad = 22, s = Math.min((w - 2 * pad) / dec.W, (h - 2 * pad) / dec.H);
+        return { s, ox: (w - s * dec.W) / 2, oy: (h - s * dec.H) / 2 };
+    };
+    $("dc-img").addEventListener("click", (ev) => {
+        const r = ev.currentTarget.getBoundingClientRect(), L = layout(r.width, r.height);
+        const x = Math.floor((ev.clientX - r.left - L.ox) / L.s), y = Math.floor((ev.clientY - r.top - L.oy) / L.s);
+        if (x < 0 || y < 0 || x >= dec.W || y >= dec.H) return;
+        const tile = Math.floor(y / dec.T) * dec.tilesX + Math.floor(x / dec.T);
+        k = Math.floor(k / dec.tileCount) * dec.tileCount + tile;
+        draw();
+    });
+    function draw() {
+        const unit = { tile: k % dec.tileCount, pass: Math.floor(k / dec.tileCount) };
+        const b = dec.tileBounds(unit.tile), [s0, s1] = dec.sampleIndices(unit.pass);
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--grid"), rule = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        /* image */
+        {
+            const { ctx, w, h } = fit($("dc-img"));
+            const L = layout(w, h), X = (x) => L.ox + x * L.s, Y = (y) => L.oy + y * L.s;
+            if (L.s >= 5) {
+                ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.beginPath();
+                for (let x = 0; x <= dec.W; x++) { ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x), Y(dec.H)); }
+                for (let y = 0; y <= dec.H; y++) { ctx.moveTo(X(0), Y(y)); ctx.lineTo(X(dec.W), Y(y)); }
+                ctx.stroke();
+            }
+            ctx.font = `${clamp(L.s * dec.T / 4, 9, 13)}px ${tok("--mono")}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            for (let t = 0; t < dec.tileCount; t++) {
+                const tb = dec.tileBounds(t);
+                const short = tb.width < dec.T || tb.height < dec.T;
+                if (short) { ctx.fillStyle = warm; ctx.globalAlpha = 0.18; ctx.fillRect(X(tb.min[0]), Y(tb.min[1]), tb.width * L.s, tb.height * L.s); }
+                if (t === unit.tile) { ctx.fillStyle = acc; ctx.globalAlpha = 0.3; ctx.fillRect(X(tb.min[0]), Y(tb.min[1]), tb.width * L.s, tb.height * L.s); }
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = t === unit.tile ? acc : rule; ctx.lineWidth = t === unit.tile ? 2.5 : 1.2;
+                ctx.strokeRect(X(tb.min[0]), Y(tb.min[1]), tb.width * L.s, tb.height * L.s);
+                if (tb.width * L.s > 18 && tb.height * L.s > 12) {
+                    ctx.fillStyle = t === unit.tile ? acc : mut;
+                    ctx.fillText(String(t), X(tb.min[0] + tb.width / 2), Y(tb.min[1] + tb.height / 2));
+                }
+            }
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.strokeRect(X(0), Y(0), dec.W * L.s, dec.H * L.s);
+            ctx.textBaseline = "alphabetic"; ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText(`${dec.W} × ${dec.H} pixels, ${dec.tilesX} × ${dec.tilesY} Tiles`, w / 2, L.oy - 7);
+            ctx.textAlign = "left";
+        }
+        /* pass strip */
+        {
+            const { ctx, w, h } = fit($("dc-pass"));
+            const pad = 10, cell = (w - 2 * pad) / dec.spp, top = 6, ch = h - 28;
+            ctx.font = `11px ${tok("--mono")}`; ctx.textAlign = "center";
+            for (let i = 0; i < dec.spp; i++) {
+                const p = Math.floor(i / dec.per);
+                ctx.fillStyle = tok(passColour(p)); ctx.globalAlpha = p === unit.pass ? 0.55 : 0.15;
+                ctx.fillRect(pad + i * cell + 1, top, cell - 2, ch);
+                ctx.globalAlpha = 1;
+                if (cell > 14) { ctx.fillStyle = ink; ctx.fillText(String(i), pad + (i + 0.5) * cell, top + ch / 2 + 4); }
+            }
+            for (let p = 0; p < dec.passCount; p++) {
+                const [a, z] = dec.sampleIndices(p);
+                ctx.fillStyle = tok(passColour(p));
+                if ((z - a) * cell > 40 || p === unit.pass) ctx.fillText(`P${p} [${a}, ${z})`, pad + (a + z) / 2 * cell, h - 6);
+            }
+            ctx.strokeStyle = acc; ctx.lineWidth = 2;
+            ctx.strokeRect(pad + s0 * cell, top - 1, (s1 - s0) * cell, ch + 2);
+            ctx.textAlign = "left";
+        }
+        const total = dec.tileCount * dec.passCount;
+        $("dc-read").innerHTML = `
+            <dt>Tiles</dt><dd>⌈${dec.W}⁄${dec.T}⌉ × ⌈${dec.H}⁄${dec.T}⌉ = ${dec.tilesX} × ${dec.tilesY} = ${dec.tileCount}</dd>
+            <dt>Passes</dt><dd>⌈${dec.spp}⁄${dec.per}⌉ = ${dec.passCount}</dd>
+            <dt>Work Units</dt><dd>${dec.tileCount} × ${dec.passCount} = ${total}</dd>
+            <dt>selected, k</dt><dd class="acc">${k} = ${unit.pass} × ${dec.tileCount} + ${unit.tile} → ${unitLabel(unit)}</dd>
+            <dt>column, row</dt><dd>${unit.tile} mod ${dec.tilesX} = ${unit.tile % dec.tilesX}, ⌊${unit.tile}⁄${dec.tilesX}⌋ = ${Math.floor(unit.tile / dec.tilesX)}</dd>
+            <dt>tile_bounds</dt><dd>min (${b.min}), max (${b.max})</dd>
+            <dt>width × height</dt><dd>${b.width} × ${b.height} = ${b.area} pixels${b.width < dec.T || b.height < dec.T ? ' <span class="t-warm" style="color:var(--warm)">(cut short)</span>' : ""}</dd>
+            <dt>sample_indices</dt><dd>[${s0}, ${s1})${s1 - s0 < dec.per ? ' <span style="color:var(--warm)">(short Pass)</span>' : ""}</dd>
+            <dt>Pixel Samples</dt><dd>${b.area} × ${s1 - s0} = ${b.area * (s1 - s0)}</dd>`;
+        const from = Math.max(0, k - 30), to = Math.min(total, from + 90);
+        let chips = from > 0 ? `<span class="chip">… ${from} before</span>` : "";
+        for (let i = from; i < to; i++) {
+            const u = { tile: i % dec.tileCount, pass: Math.floor(i / dec.tileCount) };
+            chips += `<span class="chip${i === k ? " sel" : ""}">${unitLabel(u)}</span>`;
+        }
+        if (to < total) chips += `<span class="chip">… ${total - to} more</span>`;
+        $("dc-list").innerHTML = chips;
+    }
+    dec = decomposition(+$("dc-w").value, +$("dc-h").value, +$("dc-t").value, +$("dc-spp").value, +$("dc-per").value);
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §3 Scheduling bench: three Workers on 6 Tiles × 3 Passes.
+    ================================================================ */
+(() => {
+    const dec = decomposition(40, 24, 16, 12, 4);
+    let run = 1, sim;
+    const resim = () => {
+        sim = simulate(dec, [1, 1.6, +$("sc-c").value], run, $("sc-tail").value === "on");
+        draw();
+    };
+    bindRange("sc-c", (v) => "×" + v.toFixed(2), resim);
+    $("sc-tail").addEventListener("change", resim);
+    $("sc-new").addEventListener("click", () => { run++; resim(); });
+    function draw() {
+        const { ctx, w, h } = fit($("sc-gantt"));
+        const names = ["A ×1", "B ×1.6", `C ×${(+$("sc-c").value).toFixed(2)}`];
+        const left = 64, right = 10, top = 8, bottom = 22, rowH = (h - top - bottom) / 3;
+        const X = (t) => left + t / sim.end * (w - left - right);
+        const mut = tok("--muted"), err = tok("--err"), rule = tok("--rule"), ink = tok("--ink");
+        ctx.font = `11px ${tok("--mono")}`;
+        names.forEach((n, i) => { ctx.fillStyle = mut; ctx.fillText(n, 4, top + (i + 0.5) * rowH + 4); });
+        ctx.strokeStyle = rule; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(left, h - bottom); ctx.lineTo(w - right, h - bottom); ctx.stroke();
+        for (const b of sim.bars) {
+            const u = sim.units[b.k], y = top + b.w * rowH + 3, bh = rowH - 6;
+            const x0 = X(b.start), x1 = X(b.end);
+            ctx.fillStyle = tok(passColour(u.pass)); ctx.globalAlpha = b.copy ? 0.18 : 0.38;
+            ctx.fillRect(x0, y, Math.max(1, x1 - x0 - 1), bh);
+            ctx.globalAlpha = 1;
+            const bad = b.status === "cancelled" || b.status === "dup";
+            ctx.strokeStyle = bad ? err : tok(passColour(u.pass)); ctx.lineWidth = bad ? 2 : 1;
+            ctx.setLineDash(b.copy ? [4, 3] : []);
+            ctx.strokeRect(x0 + 0.5, y + 0.5, Math.max(1, x1 - x0 - 2), bh - 1);
+            ctx.setLineDash([]);
+            if (x1 - x0 > 40) {
+                ctx.fillStyle = ink;
+                ctx.fillText(unitLabel(u) + (b.status === "cancelled" ? " ✕" : b.status === "dup" ? " dup" : ""), x0 + 4, y + bh / 2 + 4);
+            }
+        }
+        ctx.fillStyle = mut; ctx.textAlign = "right";
+        ctx.fillText(`finished at t = ${sim.end.toFixed(1)}`, w - right, h - 6);
+        ctx.textAlign = "left";
+        const copies = sim.bars.filter((b) => b.copy).length;
+        const cancelled = sim.bars.filter((b) => b.status === "cancelled").length;
+        const dups = sim.arrivals.filter((a) => a.kind === "dup").length;
+        const perWorker = [0, 1, 2].map((i) => sim.arrivals.filter((a) => a.w === i && a.kind === "first").length);
+        $("sc-read").innerHTML = `
+            <dt>Work Units</dt><dd>${dec.tileCount} Tiles × ${dec.passCount} Passes = ${sim.units.length}</dd>
+            <dt>merged from A, B, C</dt><dd>${perWorker.join(", ")}</dd>
+            <dt>copies started</dt><dd>${copies}</dd>
+            <dt>copies cancelled</dt><dd>${cancelled}</dd>
+            <dt>Duplicates arrived</dt><dd class="${dups ? "bad" : ""}">${dups} (dropped unread by Film::accept)</dd>
+            <dt>finish time</dt><dd class="acc">${sim.end.toFixed(2)}</dd>`;
+    }
+    drawers.push(draw);
+    resim();
+})();
+
+/* ================================================================
+    §4 Floating-point bench: many orders of the same numbers.
+    ================================================================ */
+(() => {
+    /* The red sums of pixel (20, 12)'s 8 Work Results, 4 Pixel Samples each; sample 9 scaled by `fly`. */
+    const passSums = (fly) => Array.from({ length: 8 }, (_, p) => {
+        let s = 0;
+        for (let i = 4 * p; i < 4 * p + 4; i++) s += Math.fround(FILTER_WEIGHT * Math.fround(sceneSample(20, 12, i)[0] * (i === 9 ? fly : 1)));
+        return s;
+    });
+    const presets = {
+        three: [0.1, 0.2, 0.3],
+        sums: passSums(1),
+        fly: passSums(2 ** 31),
+    };
+    let results = new Map(), tried = 0, rng = mulberry32(17);
+    const nums = () => presets[$("fp-preset").value];
+    const leftToRight = (a) => a.reduce((s, v) => s + v, 0);
+    const clear = () => { results = new Map(); tried = 0; rng = mulberry32(17); draw(); };
+    $("fp-preset").addEventListener("change", clear);
+    $("fp-clear").addEventListener("click", clear);
+    $("fp-try").addEventListener("click", () => {
+        for (let n = 0; n < 1000; n++) {
+            const s = leftToRight(shuffle(nums().slice(), rng));
+            const key = hex64(s);
+            const e = results.get(key) || { v: s, n: 0 };
+            e.n++; results.set(key, e);
+        }
+        tried += 1000;
+        draw();
+    });
+    function draw() {
+        const a = nums(), ref = leftToRight(a), rev = leftToRight(a.slice().reverse());
+        const entries = [...results.values()].sort((p, q) => p.v - q.v);
+        const { ctx, w, h } = fit($("fp-hist"));
+        const pad = 20, mut = tok("--muted"), acc = tok("--accent"), warm = tok("--warm");
+        ctx.font = `11px ${tok("--mono")}`; ctx.textAlign = "center";
+        if (!entries.length) {
+            ctx.fillStyle = mut; ctx.fillText("press “try 1000 random orders”", w / 2, h / 2);
+        } else {
+            const maxN = Math.max(...entries.map((e) => e.n));
+            const slot = (w - 2 * pad) / entries.length, bw = Math.min(60, slot * 0.7);
+            entries.forEach((e, i) => {
+                const bh = e.n / maxN * (h - 3 * pad - 10), x = pad + (i + 0.5) * slot;
+                ctx.fillStyle = sameBits(e.v, ref) ? acc : warm; ctx.globalAlpha = 0.75;
+                ctx.fillRect(x - bw / 2, h - 2 * pad - bh, bw, bh);
+                ctx.globalAlpha = 1; ctx.fillStyle = mut;
+                if (slot > 26) ctx.fillText(String(e.n), x, h - 2 * pad - bh - 4);
+                const d = ulpDist(e.v, ref) * Math.sign(e.v - ref);
+                if (slot > 22) ctx.fillText((d > 0 ? "+" : "") + d, x, h - pad - 4);
+            });
+            ctx.fillStyle = mut; ctx.fillText("ULPs from the left-to-right sum (blue)", w / 2, h - 4);
+        }
+        ctx.textAlign = "left";
+        const list = a.length > 4 ? a.slice(0, 3).map((v) => v.toPrecision(6)).join(", ") + `, … (${a.length} numbers)` : a.join(", ");
+        const spread = entries.length ? ulpDist(entries[0].v, entries[entries.length - 1].v) : 0;
+        $("fp-read").innerHTML = `
+            <dt>numbers</dt><dd>${list}</dd>
+            <dt>left to right</dt><dd class="acc">${ref.toPrecision(17)}</dd>
+            <dt>its bits</dt><dd>0x${hex64(ref)}</dd>
+            <dt>right to left</dt><dd>${rev.toPrecision(17)} ${sameBits(rev, ref) ? '<span class="ok">same bits</span>' : `<span class="bad">${ulpDist(rev, ref)} ULP off</span>`}</dd>
+            <dt>orders tried</dt><dd>${tried}</dd>
+            <dt>different answers</dt><dd>${entries.length || "–"}</dd>
+            <dt>spread</dt><dd>${entries.length ? spread + " ULP, " + (entries[entries.length - 1].v - entries[0].v).toExponential(2) : "–"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §6 Merge bench: Work Results into the Film, in any order.
+    ================================================================ */
+(() => {
+    let dec, results, order, pos, film, runs = [], seed = 1, log, recorded;
+    const img = { off: document.createElement("canvas") };
+    img.off.width = 40; img.off.height = 24;
+    const offCtx = img.off.getContext("2d"), image = offCtx.createImageData(40, 24);
+    const orderNames = { pass: "Pass-major", rev: "reversed", shuf: "shuffled", work: "3 Workers" };
+    function makeOrder() {
+        const kind = $("mg-order").value, n = results.length;
+        const ks = Array.from({ length: n }, (_, k) => k);
+        if (kind === "rev") return ks.reverse().map((k) => ({ k }));
+        if (kind === "shuf") return shuffle(ks, mulberry32(seed * 7919)).map((k) => ({ k }));
+        if (kind === "work") return simulate(dec, [1, 1.6, 3], seed, true).arrivals.map((a) => ({ k: a.k }));
+        return ks.map((k) => ({ k }));
+    }
+    function rebuild() {
+        dec = decomposition(40, 24, 16, +$("mg-spp").value, +$("mg-per").value);
+        results = dec.workUnits().map((u) => renderUnit(dec, u, $("mg-scene").value === "fly"));
+        runs = [];
+        restart();
+    }
+    function restart() {
+        film = makeFilm(dec); order = makeOrder(); pos = 0; log = []; recorded = false;
+        draw();
+    }
+    function step() {
+        if (pos >= order.length) return false;
+        log[pos] = film.accept(results[order[pos].k]);
+        pos++;
+        if (film.isComplete() && !recorded) {
+            recorded = true;
+            const ref = runs[0];
+            let differ = 0, maxUlp = 0;
+            if (ref) for (let i = 0; i < film.px.length; i += 4) {
+                let d = false;
+                for (let c = 0; c < 4; c++) if (!sameBits(film.px[i + c], ref.px[i + c])) { d = true; maxUlp = Math.max(maxUlp, ulpDist(film.px[i + c], ref.px[i + c])); }
+                if (d) differ++;
+            }
+            runs.push({ name: `${orderNames[$("mg-order").value]}${$("mg-order").value === "shuf" || $("mg-order").value === "work" ? " #" + seed : ""}`, hash: film.hash(), px: film.px.slice(), differ, maxUlp });
+        }
+        return true;
+    }
+    bindRange("mg-spp", (v) => v, rebuild);
+    bindRange("mg-per", (v) => v, rebuild);
+    $("mg-order").addEventListener("change", () => { seed++; restart(); });
+    $("mg-scene").addEventListener("change", rebuild);
+    $("mg-next").addEventListener("click", () => { step(); draw(); });
+    $("mg-all").addEventListener("click", () => { while (step()); draw(); });
+    $("mg-reset").addEventListener("click", () => { seed++; restart(); });
+    $("mg-dup").addEventListener("click", () => {
+        const merged = order.slice(0, pos).filter((_, i) => log[i] === "Merged");
+        if (!merged.length) return;
+        const pick = merged[Math.floor(hashU(seed, pos, 3) * merged.length)];
+        order.splice(pos, 0, { k: pick.k, resent: true });
+        step(); draw();
+    });
+    const enc = (v) => { v = clamp(v, 0, 1); return 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055); };
+    function draw() {
+        const px = film.px;
+        for (let i = 0; i < 40 * 24; i++) {
+            const wsum = px[4 * i + 3];
+            if (wsum > 0) {
+                image.data[4 * i] = enc(px[4 * i] / wsum); image.data[4 * i + 1] = enc(px[4 * i + 1] / wsum);
+                image.data[4 * i + 2] = enc(px[4 * i + 2] / wsum); image.data[4 * i + 3] = 255;
+            } else image.data[4 * i + 3] = 0;
+        }
+        offCtx.putImageData(image, 0, 0);
+        const { ctx, w, h } = fit($("mg-film"));
+        const s = Math.min(w / 40, h / 24), ox = (w - 40 * s) / 2, oy = (h - 24 * s) / 2;
+        ctx.lineWidth = 1;
+        ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, 40 * s, 24 * s); ctx.clip();
+        ctx.strokeStyle = tok("--rule");
+        ctx.beginPath();
+        for (let d = -24 * s; d < 40 * s; d += 8) { ctx.moveTo(ox + d, oy + 24 * s); ctx.lineTo(ox + d + 24 * s, oy); }
+        ctx.stroke(); ctx.restore();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img.off, ox, oy, 40 * s, 24 * s);
+        ctx.font = `11px ${tok("--mono")}`;
+        for (let t = 0; t < dec.tileCount; t++) {
+            const b = dec.tileBounds(t);
+            ctx.strokeStyle = tok("--ink"); ctx.lineWidth = 1.5;
+            ctx.strokeRect(ox + b.min[0] * s, oy + b.min[1] * s, b.width * s, b.height * s);
+            let n = 0;
+            for (let p = 0; p < dec.passCount; p++) if (film.merged.has(t + "," + p)) n++;
+            const label = `T${t} ${n}/${dec.passCount}`;
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+            ctx.fillRect(ox + b.min[0] * s + 2, oy + b.min[1] * s + 2, 7 * label.length + 6, 15);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(label, ox + b.min[0] * s + 5, oy + b.min[1] * s + 13);
+        }
+        $("mg-queue").innerHTML = order.map((o, i) => {
+            const u = results[o.k].unit;
+            const cls = i < pos ? (log[i] === "Merged" ? "done" : "dup") : i === pos ? "next" : "";
+            return `<span class="chip ${cls}" title="${o.resent ? "resent" : ""}">${unitLabel(u)}${o.resent ? "↺" : ""}</span>`;
+        }).join("");
+        const last = pos ? log[pos - 1] : null;
+        $("mg-read").innerHTML = `
+            <dt>decomposition</dt><dd>${dec.tileCount} Tiles × ${dec.passCount} Passes = ${results.length} Work Units</dd>
+            <dt>Work Results per pixel</dt><dd>${dec.passCount} ${dec.passCount <= 2 ? '<span class="ok">(order cannot matter)</span>' : '<span class="bad">(order can matter)</span>'}</dd>
+            <dt>last accept</dt><dd class="${last === "Merged" ? "ok" : last ? "bad" : ""}">${last ? "Acceptance::" + last : "–"}</dd>
+            <dt>merged</dt><dd>${film.merged.size} of ${results.length}</dd>
+            <dt>is_complete()</dt><dd>${film.isComplete()}</dd>
+            <dt>Film::hash()</dt><dd class="acc">${film.hash()}</dd>`;
+        $("mg-runs").innerHTML = runs.length
+            ? `<thead><tr><th>#</th><th>order</th><th>FilmHash</th><th>pixels ≠ run 1</th><th>max ULPs</th></tr></thead><tbody>${runs.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td class="${i && r.hash !== runs[0].hash ? "bad" : "ok"}">${r.hash}</td><td>${i ? r.differ : "–"}</td><td>${i ? r.maxUlp : "–"}</td></tr>`).join("")}</tbody>`
+            : `<tbody><tr><td class="mut">merge every Work Result to record a run</td></tr></tbody>`;
+    }
+    drawers.push(draw);
+    rebuild();
+})();
+
+/* ================================================================
+    §7 Renderer bench: rows of one Work Unit on N threads.
+    ================================================================ */
+(() => {
+    const dec = decomposition(40, 24, 16, 8, 4);
+    const unit = { tile: 0, pass: 1 };
+    const b = dec.tileBounds(unit.tile);
+    let anim = null, runs = [], runNo = 0, outcome = null, reference = null;
+    function plan(threads, seedN) {
+        const rng = mulberry32(seedN * 104729 + threads);
+        const free = new Array(threads).fill(0), rows = [];
+        for (let j = 0; j < b.height; j++) {
+            let th = 0;
+            for (let i = 1; i < threads; i++) if (free[i] < free[th]) th = i;
+            const start = free[th], cost = 1 + 0.8 * rng();
+            rows.push({ j, th, start, end: start + cost });
+            free[th] = start + cost;
+        }
+        return { threads, rows, end: Math.max(...free) };
+    }
+    function finish(cancelAt) {
+        const p = anim.plan;
+        const started = p.rows.filter((r) => r.start < cancelAt);
+        if (started.length < p.rows.length) {
+            outcome = { kind: "Cancelled", rowsDone: started.length };
+            runs.push({ threads: p.threads, kind: "Cancelled", share: "–", equal: "no Work Result" });
+        } else {
+            // Each row is computed on its own, in the order the threads finished them.
+            const data = new Float64Array(b.area * 4);
+            for (const r of p.rows.slice().sort((x, y) => x.end - y.end)) renderRow(dec, unit, b.min[1] + r.j, data, r.j);
+            if (!reference) reference = data;
+            const equal = data.every((v, i) => sameBits(v, reference[i]));
+            const share = Array.from({ length: p.threads }, (_, t) => p.rows.filter((r) => r.th === t).length).join(" / ");
+            outcome = { kind: "Done", equal };
+            runs.push({ threads: p.threads, kind: "Done", share, equal: equal ? "equal" : "DIFFERENT" });
+        }
+        anim = null;
+        draw();
+    }
+    function frame() {
+        if (!anim) return;
+        const t = (performance.now() - anim.t0) / 1400 * anim.plan.end;
+        anim.t = t;
+        const stopAt = anim.cancelAt ?? Infinity;
+        const lastEnd = Math.max(...anim.plan.rows.filter((r) => r.start < stopAt).map((r) => r.end));
+        if (t >= Math.min(anim.plan.end, lastEnd)) { finish(stopAt); return; }
+        draw();
+        requestAnimationFrame(frame);
+    }
+    bindRange("rd-threads", (v) => v, () => { if (!anim) draw(); });
+    $("rd-go").addEventListener("click", () => {
+        if (anim) return;
+        runNo++; outcome = null;
+        anim = { plan: plan(+$("rd-threads").value, runNo), t0: performance.now(), t: 0, cancelAt: null };
+        requestAnimationFrame(frame);
+        draw();
+    });
+    $("rd-cancel").addEventListener("click", () => {
+        if (!anim || anim.cancelAt !== null) return;
+        anim.cancelAt = anim.t;
+        draw();
+    });
+    function draw() {
+        const { ctx, w, h } = fit($("rd-cv"));
+        const left = 34, pad = 6, rowH = (h - 2 * pad) / b.height;
+        const mut = tok("--muted"), rule = tok("--rule"), warm = tok("--warm");
+        const hue = (i) => `hsl(${(i * 137.508 + 210) % 360}, 60%, 52%)`;
+        ctx.font = `10px ${tok("--mono")}`;
+        for (let j = 0; j < b.height; j++) {
+            const y = pad + j * rowH;
+            ctx.fillStyle = mut; ctx.fillText(`y${b.min[1] + j}`, 2, y + rowH / 2 + 3);
+            ctx.strokeStyle = rule; ctx.lineWidth = 1;
+            ctx.strokeRect(left, y + 1, w - left - pad, rowH - 2);
+            const r = anim ? anim.plan.rows[j] : null;
+            if (r) {
+                const stopAt = anim.cancelAt ?? Infinity;
+                let f = 0;
+                if (r.start < stopAt) f = clamp((anim.t - r.start) / (r.end - r.start), 0, 1);
+                ctx.fillStyle = hue(r.th); ctx.globalAlpha = 0.65;
+                ctx.fillRect(left, y + 1, (w - left - pad) * f, rowH - 2);
+                ctx.globalAlpha = 1;
+                if (f > 0) { ctx.fillStyle = "#fff"; ctx.fillText(`thread ${r.th}`, left + 4, y + rowH / 2 + 3); }
+                if (r.start >= stopAt) { ctx.fillStyle = warm; ctx.fillText("not started: cancelled", left + 4, y + rowH / 2 + 3); }
+            }
+        }
+        const state = anim ? (anim.cancelAt !== null ? "cancelling: running rows finish" : "rendering…")
+            : outcome ? `Rendered::${outcome.kind}` : "press “render”";
+        $("rd-read").innerHTML = `
+            <dt>Work Unit</dt><dd>Tile ${unit.tile} · Pass ${unit.pass}</dd>
+            <dt>tile_bounds</dt><dd>${b.width} × ${b.height} pixels</dd>
+            <dt>sample_indices</dt><dd>[${dec.sampleIndices(unit.pass).join(", ")})</dd>
+            <dt>threads</dt><dd>${anim ? anim.plan.threads : +$("rd-threads").value}</dd>
+            <dt>state</dt><dd class="${outcome && outcome.kind === "Cancelled" ? "bad" : "acc"}">${state}</dd>
+            <dt>Work Result</dt><dd>${outcome ? (outcome.kind === "Done" ? (outcome.equal ? '<span class="ok">equal to the first finished run, sum for sum</span>' : '<span class="bad">different</span>') : `none (${outcome.rowsDone} of ${b.height} rows ran, then dropped)`) : "–"}</dd>`;
+        $("rd-runs").innerHTML = runs.length
+            ? `<thead><tr><th>#</th><th>threads</th><th>rows per thread</th><th>outcome</th><th>vs first Done</th></tr></thead><tbody>${runs.map((r, i) => `<tr><td>${i + 1}</td><td>${r.threads}</td><td>${r.share}</td><td>${r.kind}</td><td class="${r.equal === "equal" ? "ok" : r.equal === "DIFFERENT" ? "bad" : "mut"}">${r.equal}</td></tr>`).join("")}</tbody>`
+            : `<tbody><tr><td class="mut">no runs yet</td></tr></tbody>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+})();
+</script>
+</body>
+</html>

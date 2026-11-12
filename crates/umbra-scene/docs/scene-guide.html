@@ -1,0 +1,1780 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Scene Guide</title>
+<meta name="description" content="How umbra-scene describes what is rendered: the Scene and its builder, per-type arenas with typed handles instead of pointers, the building and rendering phases, the view that per-sample code reads, Render Job Options, replication to Workers and errors, with interactive figures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of crates/umbra-camera/docs/camera-guide.html and
+    crates/umbra-math/docs/math-guide.html: same tokens, same layout.
+    One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file it describes. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+pre.code .w { color: var(--warm); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: from a Scene File to a Pixel Sample */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+input[type="text"] {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; width: 9rem; max-width: 62vw;
+}
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0; max-width: 100%;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) {
+    .split, .split.even { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-arena { aspect-ratio: 16 / 6; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } .cv-arena { aspect-ratio: 4 / 3; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.bench pre.code { margin: 0; max-width: none; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+.tablewrap { overflow-x: auto; }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, rules and maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .t-bad { fill: var(--err); }
+svg .t-ok { fill: var(--exact); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-bad { stroke: var(--err); }
+svg .k-ok { stroke: var(--exact); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-bad { fill: var(--err); }
+svg .f-ok { fill: var(--exact); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-bad-soft { fill: color-mix(in srgb, var(--err) 18%, transparent); }
+svg .f-ok-soft { fill: color-mix(in srgb, var(--exact) 18%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); max-width: 60rem; }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mb-f.rule { font: 400 0.84rem/1.55 var(--mono); }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+        <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-bad"/></marker>
+        <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ok"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-scene/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Scene Guide</h1>
+    </div>
+    <p class="lede">Before a renderer can draw anything, it needs a complete, checked description of what to draw: the camera, the film, the filter, the sampler, and later the shapes, lights and materials. In Umbra that description is the <b>Scene</b>, and <code>umbra-scene</code> is the crate that builds it, stores it and lends it to the rendering code. This guide explains how, in pictures first. It assumes no computer-science background.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 330" class="dg-wide" role="img" aria-label="The Scene's life: settings go into a SceneBuilder, build() freezes them into a Scene, view() lends it to every Pixel Sample, and the Render Job Options go alongside">
+            <!-- Scene File -->
+            <text x="85" y="58" text-anchor="middle" class="t-bold">Scene File</text>
+            <path d="M20 70 H132 L150 88 V180 H20 Z" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M132 70 V88 H150" class="k-ink" fill="none" stroke-width="1.2"/>
+            <text x="30" y="104" font-size="11">Film "rgb" …</text>
+            <text x="30" y="124" font-size="11">Camera …</text>
+            <text x="30" y="144" font-size="11">PixelFilter …</text>
+            <text x="30" y="164" font-size="11">Sampler …</text>
+            <rect x="20" y="200" width="130" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/>
+            <text x="85" y="225" text-anchor="middle" font-size="12" class="t-mut">or a Rust test</text>
+            <line x1="152" y1="125" x2="196" y2="125" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="152" y1="218" x2="196" y2="160" class="k-mut" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+            <!-- SceneBuilder -->
+            <rect x="200" y="80" width="170" height="110" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="285" y="104" text-anchor="middle" class="t-bold">SceneBuilder</text>
+            <text x="285" y="128" text-anchor="middle" font-size="12">film, camera,</text>
+            <text x="285" y="146" text-anchor="middle" font-size="12">filter, sampler,</text>
+            <text x="285" y="164" text-anchor="middle" font-size="12">integrator</text>
+            <text x="285" y="182" text-anchor="middle" font-size="11" class="t-mut">settings you can change</text>
+            <!-- build -->
+            <line x1="372" y1="135" x2="436" y2="135" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="404" y="124" text-anchor="middle" class="t-acc" font-size="12">build()</text>
+            <!-- Scene -->
+            <rect x="440" y="50" width="200" height="180" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="540" y="74" text-anchor="middle" class="t-bold">Scene</text>
+            <rect x="455" y="84" width="170" height="22" rx="3" class="f-surf k-ink"/><text x="540" y="99" text-anchor="middle" font-size="11">resolution</text>
+            <rect x="455" y="110" width="170" height="22" rx="3" class="f-surf k-ink"/><text x="540" y="125" text-anchor="middle" font-size="11">camera · sensor</text>
+            <rect x="455" y="136" width="170" height="22" rx="3" class="f-surf k-ink"/><text x="540" y="151" text-anchor="middle" font-size="11">filter tables</text>
+            <rect x="455" y="162" width="170" height="22" rx="3" class="f-surf k-ink"/><text x="540" y="177" text-anchor="middle" font-size="11">sampler · integrator</text>
+            <rect x="455" y="192" width="170" height="26" rx="3" class="k-mut" fill="none" stroke-dasharray="4 3"/><text x="540" y="209" text-anchor="middle" font-size="11" class="t-mut">arenas: Shapes… (later)</text>
+            <!-- view -->
+            <line x1="642" y1="110" x2="696" y2="110" class="k-warm" stroke-width="2" marker-end="url(#ah-warm)"/>
+            <text x="669" y="100" text-anchor="middle" class="t-warm" font-size="12">view()</text>
+            <rect x="700" y="70" width="180" height="80" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="790" y="96" text-anchor="middle" class="t-bold">SceneView</text>
+            <text x="790" y="118" text-anchor="middle" font-size="12">borrows camera,</text>
+            <text x="790" y="136" text-anchor="middle" font-size="12">filter, sensor</text>
+            <line x1="790" y1="152" x2="790" y2="186" class="k-warm" marker-end="url(#ah-warm)"/>
+            <rect x="700" y="190" width="180" height="40" rx="6" class="f-surf k-mut" stroke-dasharray="4 3"/>
+            <text x="790" y="215" text-anchor="middle" font-size="12">every Pixel Sample</text>
+            <!-- options -->
+            <rect x="440" y="262" width="200" height="56" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="540" y="284" text-anchor="middle" class="t-bold">RenderJobOptions</text>
+            <text x="540" y="305" text-anchor="middle" font-size="11">seed · Tiles · Passes · spp</text>
+            <line x1="642" y1="290" x2="696" y2="290" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="700" y="262" width="180" height="56" rx="6" class="f-mut-soft k-mut"/>
+            <text x="790" y="284" text-anchor="middle" class="t-bold">umbra-render</text>
+            <text x="790" y="305" text-anchor="middle" font-size="11">Renderer, Film</text>
+            <!-- steps -->
+            <g class="step"><circle cx="215" cy="60" r="11"/><text x="215" y="64" text-anchor="middle">1</text></g>
+            <text x="233" y="64" font-size="12">fill in settings</text>
+            <g class="step"><circle cx="404" cy="160" r="11"/><text x="404" y="164" text-anchor="middle">2</text></g>
+            <text x="404" y="188" text-anchor="middle" font-size="11">check,</text>
+            <text x="404" y="202" text-anchor="middle" font-size="11">freeze</text>
+            <g class="step"><circle cx="669" cy="136" r="11"/><text x="669" y="140" text-anchor="middle">3</text></g>
+            <text x="669" y="164" text-anchor="middle" font-size="11">lend</text>
+            <g class="step"><circle cx="418" cy="290" r="11"/><text x="418" y="294" text-anchor="middle">4</text></g>
+            <text x="400" y="294" text-anchor="end" font-size="12">settings of this Render Job</text>
+        </svg></div>
+        <figcaption id="big-cap">The Scene's life in four steps. <b>①</b> A <a href="#phases"><code>SceneBuilder</code></a> collects the settings, from a Scene File or straight from Rust code. <b>②</b> <code>build()</code> checks them and freezes them into a <a href="#scene"><code>Scene</code></a>, which never changes again. <b>③</b> <a href="#view"><code>view()</code></a> lends the parts a Pixel Sample needs to the rendering code. <b>④</b> The <a href="#options">Render Job Options</a> travel next to the Scene: they say how to cut up the work, not what to draw.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="From a Scene File to a Pixel Sample, as types and functions">
+        <li><span class="who ext">umbra-parser (to come)</span><span class="ty">Scene File</span><span class="what">.pbrt text</span></li>
+        <li><span class="who">umbra-scene</span><span class="ty"><a href="#phases">SceneBuilder</a></span><span class="what">settings at pbrt-v4 defaults</span></li>
+        <li class="fn"><span class="who">umbra-scene</span><span class="ty"><a href="#errors">build()</a></span><span class="what">checks, then freezes</span></li>
+        <li><span class="who">umbra-scene</span><span class="ty"><a href="#scene">Scene</a></span><span class="what">immutable, shared as &amp;Scene</span></li>
+        <li class="fn"><span class="who">umbra-scene</span><span class="ty"><a href="#view">view()</a></span><span class="what">lends borrowed parts</span></li>
+        <li><span class="who ext">umbra-integrators</span><span class="ty">SceneView</span><span class="what">what a Pixel Sample reads</span></li>
+        <li><span class="who">umbra-scene</span><span class="ty"><a href="#options">RenderJobOptions</a></span><span class="what">seed, Tiles, Passes, spp</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail. This crate is about organising data, not about formulas, so most sections end with a <b>Rules used here</b> box: the promises the code keeps, each next to the Rust that keeps it. Some sections have an interactive figure that repeats the Rust code's steps in JavaScript: build a Scene, push into an arena, cut an image into Work Units. Words with a capital letter (Scene, Render Job, Pixel Sample, Tile, Pass, Worker) are defined in the project's <a href="../../../GLOSSARY.md">GLOSSARY.md</a>. The camera, filter and sensor that a Scene holds are explained in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>; the <code>Handle</code> type lives in <code>umbra-geometry</code> (<a href="../../umbra-geometry/docs/geometry-guide.html">Umbra Geometry Guide</a>); how a Scene is rendered is in the <a href="../../umbra-render/docs/render-guide.html">Umbra Render Guide</a>.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Concepts</div>
+                <ol>
+                    <li><a href="#scene"><span class="n">1</span><span class="t">What a Scene is</span><span class="c">a checked description, not a file</span></a></li>
+                    <li><a href="#phases"><span class="n">2</span><span class="t">Building, then rendering</span><span class="c">SceneBuilder · build() · &amp;Scene</span></a></li>
+                    <li><a href="#arenas"><span class="n">3</span><span class="t">Arenas and handles instead of pointers</span><span class="c">Arena&lt;T&gt; · Handle&lt;T&gt; · ADR 0008</span></a></li>
+                    <li><a href="#view"><span class="n">4</span><span class="t">Lending the Scene to every Pixel Sample</span><span class="c">Scene::view · SceneView · ADR 0014</span></a></li>
+                    <li><a href="#options"><span class="n">5</span><span class="t">Render Job Options</span><span class="c">seed · Tiles · Passes · overrides</span></a></li>
+                    <li><a href="#replication"><span class="n">6</span><span class="t">One Scene, many Workers</span><span class="c">replication · ADR 0003</span></a></li>
+                    <li><a href="#errors"><span class="n">7</span><span class="t">When a Scene can't be built</span><span class="c">SceneError · Result</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">8</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 names</span></a></li>
+                    <li><a href="#builder-impl"><span class="n">9</span><span class="t">Settings in, core objects out</span><span class="c">SceneBuilder::build · defaults</span></a></li>
+                    <li><a href="#arena-impl"><span class="n">10</span><span class="t">Inside Arena&lt;T&gt; and Handle&lt;T&gt;</span><span class="c">push · get · PhantomData</span></a></li>
+                    <li><a href="#scene-impl"><span class="n">11</span><span class="t">Inside Scene and its view</span><span class="c">owned tables, borrowed views</span></a></li>
+                    <li><a href="#options-impl"><span class="n">12</span><span class="t">Inside RenderJobOptions and Seed</span><span class="c">NonZeroU32 · newtype · From</span></a></li>
+                    <li><a href="#tests"><span class="n">13</span><span class="t">Tests</span><span class="c">tests/umbra_scene</span></a></li>
+                    <li><a href="#not-yet"><span class="n">14</span><span class="t">Not here yet</span><span class="c">what later milestones add</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Concepts</div>
+    <h2>Describing what to render</h2>
+    <p>A renderer runs the same small piece of code billions of times, once per Pixel Sample. Every one of those runs asks the Scene questions: where is the camera, how is the filter shaped, and later, what does this ray hit. This part explains how the Scene is organised so that those questions are fast, safe and identical on every machine.</p>
+</div>
+
+<section class="topic" id="scene">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>Scene</code> · <a href="../../../GLOSSARY.md">GLOSSARY.md</a> “Scene”, “Scene File”</div>
+        <h3>What a Scene is</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A Scene File is like a written recipe: plain text that a person wrote, maybe with mistakes. The Scene is the kitchen after someone has read the recipe, checked it and laid out every ingredient, measured and ready. The rendering code never reads the recipe. It only reaches into the prepared kitchen.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 240" class="dg-wide" role="img" aria-label="A Scene File as text on the left becomes an organised, checked Scene on the right">
+            <text x="170" y="22" text-anchor="middle" class="t-bold">Scene File: text</text>
+            <rect x="20" y="32" width="300" height="196" rx="4" class="f-surf k-ink" stroke-width="1.2"/>
+            <text x="32" y="54" font-size="11">Film "rgb"</text>
+            <text x="32" y="76" font-size="11">  "integer xresolution" [64]</text>
+            <text x="32" y="98" font-size="11">Camera "perspective"</text>
+            <text x="32" y="120" font-size="11">  "float fov" [60]</text>
+            <text x="32" y="142" font-size="11">PixelFilter "gaussian"</text>
+            <text x="32" y="164" font-size="11">Sampler "halton"</text>
+            <text x="32" y="186" font-size="11">Integrator "volpath"</text>
+            <text x="32" y="210" font-size="11" class="t-mut">Shape "sphere" …  (later)</text>
+            <line x1="326" y1="128" x2="394" y2="128" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="360" y="116" text-anchor="middle" font-size="11" class="t-acc">read,</text>
+            <text x="360" y="148" text-anchor="middle" font-size="11" class="t-acc">check</text>
+            <text x="570" y="22" text-anchor="middle" class="t-bold">Scene: organised, checked</text>
+            <rect x="400" y="32" width="340" height="196" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <rect x="420" y="46" width="300" height="28" rx="4" class="f-surf k-ink"/><text x="570" y="65" text-anchor="middle" font-size="12">resolution: 64 × 48</text>
+            <rect x="420" y="80" width="300" height="28" rx="4" class="f-surf k-ink"/><text x="570" y="99" text-anchor="middle" font-size="12">camera (matrices, lens) · sensor</text>
+            <rect x="420" y="114" width="300" height="28" rx="4" class="f-surf k-ink"/><text x="570" y="133" text-anchor="middle" font-size="12">filter (sampling tables)</text>
+            <rect x="420" y="148" width="300" height="28" rx="4" class="f-surf k-ink"/><text x="570" y="167" text-anchor="middle" font-size="12">sampler randomisation · integrator</text>
+            <rect x="420" y="184" width="300" height="30" rx="4" class="k-mut" fill="none" stroke-dasharray="5 4"/><text x="570" y="204" text-anchor="middle" font-size="12" class="t-mut">Shapes · lights · materials (later)</text>
+        </svg></div>
+        <figcaption>On the left, a few lines of a pbrt-v4 Scene File (the parser that reads them is not written yet). On the right, the Scene those lines describe. Everything in it has a final value: defaults filled in, matrices computed, filter tables prepared. The dashed row is what later milestones add.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The project's glossary defines the <b>Scene</b> as “the complete, validated description of what is rendered: geometry, materials, lights, media, camera and render settings, independent of the file format it was read from. Every Worker holds an identical replica.” Each part of that sentence is a design choice:</p>
+        <ul>
+            <li><b>Complete.</b> Nothing is left for later. Every setting the file did not give takes pbrt-v4's default, so the rendering code never has to ask “was this set?”.</li>
+            <li><b>Validated.</b> Mistakes are caught once, before any pixel is rendered. A Scene that exists is a Scene that makes sense (<a href="#errors">section 7</a>).</li>
+            <li><b>Independent of the file format.</b> A Scene does not remember that it came from a <code>.pbrt</code> file. Tests build Scenes directly in Rust, with no file at all.</li>
+            <li><b>The same everywhere.</b> Many machines may render one image together. Each holds its own copy of the Scene, and the copies must be identical (<a href="#replication">section 6</a>).</li>
+        </ul>
+        <p>On this branch the Scene is still small. It holds the film's resolution, one perspective camera, one Gaussian pixel filter, the CIE 1931 pixel sensor, the Halton sampler's randomisation and the volumetric path integrator. Shapes, lights and materials come with later milestones (<a href="#not-yet">section 14</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">only SceneBuilder::build makes a Scene</div><div class="mb-d"><b>No half-made Scenes.</b> <code>Scene</code>'s fields are private, so other code can't assemble one by hand and skip the checks.</div></div>
+        <div class="mb-row"><div class="mb-f rule">Scene has no setters</div><div class="mb-d"><b>Immutable.</b> Once built, a Scene only answers questions: <code>full_resolution()</code>, <code>randomize_strategy()</code>, <code>integrator()</code>, <code>view()</code>.</div></div>
+        <div class="mb-row"><div class="mb-f rule">one Scene per Render Job</div><div class="mb-d"><b>Short-lived.</b> A Scene lives for exactly one Render Job and is then dropped all at once (ADR 0008).</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="phases">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>SceneBuilder</code>, <code>build</code> · <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a></div>
+        <h3>Building, then rendering</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A Scene's life has two phases. First, while it is being built, you may change anything, in any order. Then <code>build()</code> is called and the Scene is frozen. From then on many threads read it at the same time. Since nobody can change it, nobody has to wait for anybody else.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 230" class="dg-wide" role="img" aria-label="Timeline: a mutable building phase, build(), a read-only rendering phase shared by threads, then the Scene is dropped">
+            <line x1="20" y1="200" x2="840" y2="200" class="k-mut" marker-end="url(#ah-mut)"/>
+            <text x="836" y="220" text-anchor="end" class="t-mut" font-size="12">time in one Render Job →</text>
+            <!-- phase 1 -->
+            <rect x="20" y="40" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="145" y="30" text-anchor="middle" class="t-bold">1 · building</text>
+            <text x="145" y="68" text-anchor="middle" font-size="12">SceneBuilder: changeable</text>
+            <text x="145" y="92" text-anchor="middle" font-size="12">builder.film(…)</text>
+            <text x="145" y="112" text-anchor="middle" font-size="12">builder.camera(…)</text>
+            <text x="145" y="132" text-anchor="middle" font-size="12">… any order</text>
+            <text x="145" y="164" text-anchor="middle" font-size="11" class="t-mut">may allocate memory</text>
+            <!-- build -->
+            <line x1="272" y1="110" x2="318" y2="110" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="295" y="100" text-anchor="middle" font-size="11" class="t-acc">build()</text>
+            <!-- phase 2 -->
+            <rect x="322" y="40" width="330" height="140" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="487" y="30" text-anchor="middle" class="t-bold">2 · rendering</text>
+            <rect x="437" y="52" width="100" height="30" rx="4" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="487" y="72" text-anchor="middle" font-size="12">Scene</text>
+            <rect x="340" y="118" width="62" height="24" rx="3" class="f-surf k-mut"/><text x="371" y="134" text-anchor="middle" font-size="11">thread</text>
+            <rect x="420" y="118" width="62" height="24" rx="3" class="f-surf k-mut"/><text x="451" y="134" text-anchor="middle" font-size="11">thread</text>
+            <rect x="500" y="118" width="62" height="24" rx="3" class="f-surf k-mut"/><text x="531" y="134" text-anchor="middle" font-size="11">thread</text>
+            <rect x="580" y="118" width="62" height="24" rx="3" class="f-surf k-mut"/><text x="611" y="134" text-anchor="middle" font-size="11">thread</text>
+            <path d="M371 116 L462 86 M451 116 L480 86 M531 116 L494 86 M611 116 L512 86" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="487" y="166" text-anchor="middle" font-size="11">read-only, shared as &amp;Scene: no locks</text>
+            <!-- phase 3 -->
+            <line x1="654" y1="110" x2="696" y2="110" class="k-mut" marker-end="url(#ah-mut)"/>
+            <rect x="700" y="40" width="140" height="140" rx="8" class="f-mut-soft k-mut" stroke-width="1.5"/>
+            <text x="770" y="30" text-anchor="middle" class="t-bold">3 · done</text>
+            <text x="770" y="100" text-anchor="middle" font-size="12">Scene dropped,</text>
+            <text x="770" y="120" text-anchor="middle" font-size="12">all at once</text>
+        </svg></div>
+        <figcaption>The three phases of a Scene within one Render Job. Changing things and reading things never overlap: the builder is gone before any thread starts reading. That is why the threads need no lock, no <code>Arc</code> and no shared mutable state (ADR 0008).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>A <b>builder</b> is a common pattern: an object whose only purpose is to collect settings and then make something else. <code>SceneBuilder</code> starts with every setting at pbrt-v4's default. Each setter replaces one group of settings and hands the builder back, so calls can be chained:</p>
+<pre class="code"><span class="k">let mut</span> builder = SceneBuilder::new();
+builder
+    .film(FilmParameters { resolution: Point2i::new(<span class="k">64</span>, <span class="k">48</span>) })
+    .filter(GaussianFilterParameters { radius: Vector2f::new(<span class="k">2.0</span>, <span class="k">2.0</span>), sigma: <span class="k">0.5</span> });
+<span class="k">let</span> scene = builder.build()?;   <span class="c">// the builder is used up here</span></pre>
+        <p>The setters only <em>store</em> settings. All the real work, and all the checking, happens in <code>build</code>. This is why the order of the setters doesn't matter. The camera, for example, needs the film's resolution to compute its matrices, but it only gets it inside <code>build</code>, when every setting is known.</p>
+        <p><code>build</code> takes the builder by value (<code>self</code>, not <code>&amp;self</code>). In Rust that means the builder is <em>moved</em> into the function and can't be used afterwards. The compiler itself enforces the end of the building phase.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">fn film(&amp;mut self, film: FilmParameters) -&gt; &amp;mut Self</div><div class="mb-d"><b>Setters store and chain.</b> Each replaces one group and returns the builder. <code>camera</code> takes its parameters by reference, since they hold a 4 × 4 matrix.</div></div>
+        <div class="mb-row"><div class="mb-f rule">pub fn build(self) -&gt; Result&lt;Scene, SceneError&gt;</div><div class="mb-d"><b>One place checks.</b> <code>build</code> is the only function that validates and the only one that can fail.</div></div>
+        <div class="mb-row"><div class="mb-f rule">build(self): the builder moves in</div><div class="mb-d"><b>No changes after freezing.</b> Once <code>build</code> has run there is no builder left to change, and the <code>Scene</code> has no setters.</div></div>
+        <div class="mb-row"><div class="mb-f rule">threads share &amp;Scene</div><div class="mb-d"><b>Shared reading.</b> Any number of shared references can read a value at once in Rust. Writing would need exclusive access, and nobody writes.</div></div>
+    </div>
+
+    <figure class="bench" id="bd">
+        <div class="controls">
+            <div class="ctl"><label for="bd-w">film width (px)</label><div class="row"><input id="bd-w" type="range" min="0" max="1920" step="10" value="1280"><output id="bd-w-o" for="bd-w"></output></div></div>
+            <div class="ctl"><label for="bd-h">film height (px)</label><div class="row"><input id="bd-h" type="range" min="-10" max="1080" step="10" value="720"><output id="bd-h-o" for="bd-h"></output></div></div>
+            <div class="ctl"><label for="bd-fov">camera fov (°)</label><div class="row"><input id="bd-fov" type="range" min="10" max="150" step="1" value="90"><output id="bd-fov-o" for="bd-fov"></output></div></div>
+            <div class="ctl"><label for="bd-open">shutter_open</label><div class="row"><input id="bd-open" type="range" min="0" max="2" step="0.05" value="0"><output id="bd-open-o" for="bd-open"></output></div></div>
+            <div class="ctl"><label for="bd-close">shutter_close</label><div class="row"><input id="bd-close" type="range" min="0" max="2" step="0.05" value="1"><output id="bd-close-o" for="bd-close"></output></div></div>
+            <div class="ctl"><label for="bd-rx">filter radius x</label><div class="row"><input id="bd-rx" type="range" min="0" max="2.5" step="0.005" value="1.5"><output id="bd-rx-o" for="bd-rx"></output></div></div>
+            <div class="ctl"><label for="bd-ry">filter radius y</label><div class="row"><input id="bd-ry" type="range" min="0" max="2.5" step="0.005" value="1.5"><output id="bd-ry-o" for="bd-ry"></output></div></div>
+            <div class="ctl"><label for="bd-sigma">filter sigma</label><div class="row"><input id="bd-sigma" type="range" min="0.1" max="1.2" step="0.01" value="0.5"><output id="bd-sigma-o" for="bd-sigma"></output></div></div>
+            <div class="ctl"><label for="bd-rand">sampler randomize</label><select id="bd-rand">
+                <option value="PermuteDigits">PermuteDigits (default)</option>
+                <option value="None">None</option>
+                <option value="Owen">Owen</option>
+            </select></div>
+            <div class="ctl"><label for="bd-depth">integrator max depth</label><div class="row"><input id="bd-depth" type="range" min="0" max="12" step="1" value="5"><output id="bd-depth-o" for="bd-depth"></output></div></div>
+            <div class="ctl"><span class="lbl">builder</span><div class="btns"><button type="button" id="bd-build" class="primary">build()</button><button type="button" id="bd-shuffle">shuffle setter order</button><button type="button" id="bd-reset">SceneBuilder::new()</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">the Rust these settings stand for (only settings that differ from the defaults)</p>
+                <pre class="code" id="bd-code"></pre>
+                <p class="panel-foot" id="bd-state"></p>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div>
+                    <p class="panel-title">what build() computed: the screen window and the shutter</p>
+                    <canvas id="bd-cv" class="cv-mid" aria-label="The screen window and the shutter interval of the built Scene"></canvas>
+                </div>
+                <dl class="readout" id="bd-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> drag the film width to 0 and press <b>build()</b>: you get <code>SceneError::EmptyResolution</code> instead of a Scene. Set a filter radius to 0.030, just under 1⁄32, for the other error. Set <code>shutter_close</code> below <code>shutter_open</code>: <code>build</code> swaps them, as pbrt-v4 does. Press <b>shuffle</b>: the setters run in another order and the Scene comes out the same. Changing a setting after a build marks the result as stale, because the builder you changed is a new one. The figure repeats <code>SceneBuilder::build</code>'s checks and its small computations in JavaScript; it does not build the camera's matrices or the filter's tables.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="arenas">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-scene</span> · <a href="../src/arena.rs">arena.rs</a> · <code>Arena&lt;T&gt;</code> · uses <span class="crate">umbra-geometry</span> <code>Handle&lt;T&gt;</code> · <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a></div>
+        <h3>Arenas and handles instead of pointers</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Objects in a scene refer to each other: a sphere uses a material, a triangle belongs to a mesh. One way is to store the other object's address in memory, a <em>pointer</em>. Umbra does something simpler. It keeps all objects of one kind in one numbered row, an <em>arena</em>, and refers to an object by its number in that row, a <em>handle</em>. Like a seat number in a theatre: “row materials, seat 2”.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 840 270" class="dg-wide" role="img" aria-label="Left: objects scattered in memory joined by pointers. Right: two arenas, rows of numbered slots, where spheres refer to materials by number">
+            <text x="180" y="22" text-anchor="middle" class="t-bold">pointers (not used)</text>
+            <rect x="30" y="50" width="100" height="36" rx="4" class="f-surf k-mut"/><text x="80" y="73" text-anchor="middle" font-size="12">sphere</text>
+            <text x="80" y="102" text-anchor="middle" font-size="10" class="t-mut">at 0x7f3a…10</text>
+            <rect x="210" y="40" width="110" height="36" rx="4" class="f-surf k-mut"/><text x="265" y="63" text-anchor="middle" font-size="12">material</text>
+            <text x="265" y="92" text-anchor="middle" font-size="10" class="t-mut">at 0x5c01…a8</text>
+            <rect x="60" y="160" width="100" height="36" rx="4" class="f-surf k-mut"/><text x="110" y="183" text-anchor="middle" font-size="12">triangle</text>
+            <text x="110" y="212" text-anchor="middle" font-size="10" class="t-mut">at 0x7f3b…40</text>
+            <rect x="220" y="170" width="100" height="36" rx="4" class="f-surf k-mut"/><text x="270" y="193" text-anchor="middle" font-size="12">mesh</text>
+            <text x="270" y="222" text-anchor="middle" font-size="10" class="t-mut">at 0x6e00…08</text>
+            <path d="M132 64 L206 58" class="k-mut" marker-end="url(#ah-mut)"/>
+            <path d="M160 175 L216 185" class="k-mut" marker-end="url(#ah-mut)"/>
+            <path d="M150 158 L230 80" class="k-mut" marker-end="url(#ah-mut)"/>
+            <text x="180" y="252" text-anchor="middle" font-size="11" class="t-mut">addresses: different on every run and machine</text>
+
+            <line x1="380" y1="20" x2="380" y2="250" class="k-mut" stroke-dasharray="3 5"/>
+
+            <text x="620" y="22" text-anchor="middle" class="t-bold">arenas and handles (Umbra)</text>
+            <text x="420" y="94" class="t-mut" font-size="11" text-anchor="middle">materials</text>
+            <g font-size="11">
+                <text x="500" y="56" text-anchor="middle" class="t-mut">0</text><text x="580" y="56" text-anchor="middle" class="t-mut">1</text><text x="660" y="56" text-anchor="middle" class="t-mut">2</text><text x="740" y="56" text-anchor="middle" class="t-mut">3</text>
+            </g>
+            <rect x="460" y="64" width="80" height="44" class="f-acc-soft k-acc"/><text x="500" y="91" text-anchor="middle" font-size="12">matte</text>
+            <rect x="540" y="64" width="80" height="44" class="f-acc-soft k-acc"/><text x="580" y="91" text-anchor="middle" font-size="12">glass</text>
+            <rect x="620" y="64" width="80" height="44" class="f-acc-soft k-acc"/><text x="660" y="91" text-anchor="middle" font-size="12">metal</text>
+            <rect x="700" y="64" width="80" height="44" class="f-acc-soft k-acc"/><text x="740" y="91" text-anchor="middle" font-size="12">plastic</text>
+            <text x="420" y="204" class="t-mut" font-size="11" text-anchor="middle">spheres</text>
+            <g font-size="11">
+                <text x="500" y="236" text-anchor="middle" class="t-mut">0</text><text x="580" y="236" text-anchor="middle" class="t-mut">1</text><text x="660" y="236" text-anchor="middle" class="t-mut">2</text>
+            </g>
+            <rect x="460" y="176" width="80" height="44" class="f-warm-soft k-warm"/><text x="500" y="203" text-anchor="middle" font-size="12">mat 1</text>
+            <rect x="540" y="176" width="80" height="44" class="f-warm-soft k-warm"/><text x="580" y="203" text-anchor="middle" font-size="12">mat 0</text>
+            <rect x="620" y="176" width="80" height="44" class="f-warm-soft k-warm"/><text x="660" y="203" text-anchor="middle" font-size="12">mat 1</text>
+            <path d="M500 174 L574 112 M580 174 L506 112 M660 174 L590 112" class="k-warm" stroke-width="1.5" marker-end="url(#ah-warm)"/>
+            <text x="790" y="150" text-anchor="end" font-size="11" class="t-warm">a handle is just a number</text>
+        </svg></div>
+        <figcaption>Two ways to link objects. On the left, each link is a memory address, and the objects sit wherever the memory allocator put them. On the right, objects of one kind sit side by side in an arena, and a link is the position in that arena. The materials and spheres here are illustrations: on this branch the Scene has no arena yet, and Shapes bring the first one (<a href="#not-yet">section 14</a>).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Why go to this trouble? A number has properties a pointer lacks:</p>
+        <ul>
+            <li><b>It means the same thing everywhere.</b> “Material 1” is the second material on every machine and in every copy of the Scene. A memory address means nothing once the data is copied to another machine or to a GPU (<a href="#replication">section 6</a>).</li>
+            <li><b>It is small and simple.</b> A handle is a 32-bit number. It can be copied freely, it needs no lifetime annotations in Rust, and it doesn't keep anything alive.</li>
+            <li><b>It is checked.</b> Looking up a handle checks that the number is inside the arena. A bad number gives “nothing” (<code>None</code>), never a crash or garbage.</li>
+            <li><b>It is typed.</b> A <code>Handle&lt;T&gt;</code> remembers, at compile time, which type it points to. You can't use a material's handle in the spheres' arena by mistake: the program does not compile.</li>
+        </ul>
+        <p>ADR 0008 records the alternatives Umbra rejected: references into one big memory block (<code>&amp;'scene T</code>), whose lifetimes spread through every function signature, and <code>Arc&lt;T&gt;</code>, which counts references on the hottest code path.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">handle = position in the arena</div><div class="mb-d"><b>Minted in order.</b> <code>push</code> appends the object and returns the handle of its position: 0, 1, 2, … Nothing is ever removed, so a handle never goes stale.</div></div>
+        <div class="mb-row"><div class="mb-f rule">get(handle) -&gt; Option&lt;&amp;T&gt;</div><div class="mb-d"><b>Checked look-up.</b> <code>Some(&amp;object)</code> if the position exists, <code>None</code> if it is past the end.</div></div>
+        <div class="mb-row"><div class="mb-f rule">at most u32::MAX objects per arena</div><div class="mb-d"><b>Handles are 32 bits.</b> <code>push</code> refuses with <code>SceneError::TooManyObjects</code> once an arena is full, rather than mint a handle that would wrap around.</div></div>
+        <div class="mb-row"><div class="mb-f rule">Handle&lt;A&gt; ≠ Handle&lt;B&gt;</div><div class="mb-d"><b>Typed.</b> The compiler rejects a handle used on the wrong arena. Not checked: a handle from <em>another Scene</em> of the same type (ADR 0008 accepts this).</div></div>
+    </div>
+
+    <figure class="bench" id="ar">
+        <div class="controls">
+            <div class="ctl"><label for="ar-word">a word to push</label><input id="ar-word" type="text" value="c" maxlength="10" spellcheck="false"></div>
+            <div class="ctl"><span class="lbl">push</span><div class="btns"><button type="button" id="ar-push-w" class="primary">words.push(word)</button><button type="button" id="ar-push-n">numbers.push(x)</button><button type="button" id="ar-clear">Arena::new()</button></div></div>
+            <div class="ctl"><label for="ar-limit">pretend u32::MAX is</label><div class="row"><input id="ar-limit" type="range" min="2" max="12" step="1" value="8"><output id="ar-limit-o" for="ar-limit"></output></div></div>
+        </div>
+        <div class="controls">
+            <div class="ctl"><label for="ar-h">look up handle</label><div class="row"><input id="ar-h" type="range" min="0" max="12" step="1" value="0"><output id="ar-h-o" for="ar-h"></output></div></div>
+            <div class="ctl"><label for="ar-which">with</label><select id="ar-which">
+                <option value="w">words.get(Handle&lt;&amp;str&gt;)</option>
+                <option value="n">numbers.get(Handle&lt;f32&gt;)</option>
+                <option value="x">numbers.get(Handle&lt;&amp;str&gt;): wrong type</option>
+            </select></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">two arenas, Arena&lt;&amp;str&gt; and Arena&lt;f32&gt; (dashed: room left before the limit)</p>
+                <canvas id="ar-cv" class="cv-arena" aria-label="Two arenas drawn as rows of numbered slots, with the looked-up slot highlighted"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <dl class="readout" id="ar-read"></dl>
+                <pre class="code" id="ar-log"></pre>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> push a few words and watch each one get the next handle. Look up a handle past the end: <code>get</code> answers <code>None</code>. Choose the wrong-type look-up: in Rust that line would not even compile. Lower the pretend limit and keep pushing until <code>push</code> refuses with <code>TooManyObjects</code>. The real limit is <code>u32::MAX</code>, about 4.3 billion objects. The two arenas mirror the crate's own test, which pushes <code>"a"</code>, <code>"b"</code> and <code>1.0_f32</code>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="view">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>Scene::view</code> · uses <span class="crate">umbra-integrators</span> <code>SceneView</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
+        <h3>Lending the Scene to every Pixel Sample</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The rendering code that runs per Pixel Sample lives in special crates, the <em>core</em>, that are not allowed to reserve memory. That way the same code can run on a graphics card later. So the core can't own a Scene, because a Scene owns memory. Instead the Scene <em>lends</em> it a small bundle of read-only references, the <code>SceneView</code>. Borrowing costs nothing and allocates nothing.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 840 240" class="dg-wide" role="img" aria-label="The Scene on the std side owns its parts; view() makes a SceneView on the core side that borrows them; every Pixel Sample reads the view">
+            <text x="150" y="22" text-anchor="middle" class="t-mut" font-size="12">std: may allocate</text>
+            <text x="570" y="22" text-anchor="middle" class="t-mut" font-size="12">no_std core: never allocates</text>
+            <line x1="300" y1="10" x2="300" y2="230" class="k-mut" stroke-dasharray="6 5"/>
+            <rect x="20" y="40" width="250" height="170" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="145" y="64" text-anchor="middle" class="t-bold">Scene (owns)</text>
+            <rect x="35" y="80" width="220" height="30" rx="4" class="f-surf k-ink"/><text x="145" y="100" text-anchor="middle" font-size="12">camera: CameraKind</text>
+            <rect x="35" y="118" width="220" height="30" rx="4" class="f-surf k-ink"/><text x="145" y="138" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
+            <rect x="35" y="156" width="220" height="30" rx="4" class="f-surf k-ink"/><text x="145" y="176" text-anchor="middle" font-size="12">sensor: PixelSensor</text>
+            <rect x="330" y="40" width="240" height="170" rx="8" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <text x="450" y="64" text-anchor="middle" class="t-bold">SceneView&lt;'_&gt; (borrows)</text>
+            <rect x="345" y="80" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="100" text-anchor="middle" font-size="12">&amp;CameraKind</text>
+            <rect x="345" y="118" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="138" text-anchor="middle" font-size="12">FilterKind&lt;&amp;[f32]&gt;</text>
+            <rect x="345" y="156" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="176" text-anchor="middle" font-size="12">&amp;PixelSensor</text>
+            <path d="M343 95 H257 M343 133 H257 M343 171 H257" class="k-warm" stroke-dasharray="4 3" marker-end="url(#ah-warm)"/>
+            <text x="300" y="226" text-anchor="middle" font-size="11" class="t-warm">scene.view(): points back, copies no table</text>
+            <rect x="620" y="56" width="200" height="34" rx="4" class="f-surf k-mut"/><text x="720" y="78" text-anchor="middle" font-size="12">Pixel Sample (0,0) #0</text>
+            <rect x="620" y="106" width="200" height="34" rx="4" class="f-surf k-mut"/><text x="720" y="128" text-anchor="middle" font-size="12">Pixel Sample (0,0) #1</text>
+            <rect x="620" y="156" width="200" height="34" rx="4" class="f-surf k-mut"/><text x="720" y="178" text-anchor="middle" font-size="12">… billions more</text>
+            <path d="M572 110 L616 74 M572 125 L616 123 M572 140 L616 172" class="k-ink" marker-end="url(#ah-ink)"/>
+        </svg></div>
+        <figcaption>The dashed line is a crate boundary. <code>umbra-scene</code> is a <code>std</code> crate and may allocate. <code>SceneView</code> is defined in <code>umbra-integrators</code>, a core crate built without <code>alloc</code>. The view holds only references and a borrowed filter, so making one is as cheap as copying a few addresses and numbers. The filter's tables are explained in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (“A filter table without an allocator”).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Rust's word for a temporary loan is a <b>borrow</b>, written <code>&amp;</code>. The <code>'_</code> in <code>SceneView&lt;'_&gt;</code> is a <em>lifetime</em>: the compiler's note that the view may not outlive the Scene it borrows from. If someone tried to drop the Scene while a view still existed, the program would not compile.</p>
+<pre class="code"><span class="k">pub fn</span> view(&amp;<span class="k">self</span>) -&gt; SceneView&lt;<span class="k">'_</span>&gt; {
+    SceneView::new(&amp;<span class="k">self</span>.camera, <span class="k">self</span>.filter.view(), &amp;<span class="k">self</span>.sensor)
+}</pre>
+        <p>ADR 0008 first said that per-sample code reads <code>&amp;Scene</code>. ADR 0014 changed that to a <code>SceneView</code>, because a <code>Scene</code> contains <code>Vec</code>s and a crate without <code>alloc</code> can't even name a <code>Vec</code>. On a graphics card, the same view will point into device memory instead (ADR 0028).</p>
+        <p>Not reserving memory per Pixel Sample is a tested promise, not a hope. A test in the <code>umbra</code> binary crate, <code>rendering_allocates_per_work_unit_not_per_pixel_sample</code>, builds a Scene with <code>SceneBuilder</code>, renders a Work Unit with N and then 2N Pixel Samples, and checks that both runs reserve memory the same number of times.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">per-sample code gets SceneView, never &amp;Scene</div><div class="mb-d"><b>The core sees borrowed slices.</b> The owning <code>Scene</code> stays outside the core (ADR 0014).</div></div>
+        <div class="mb-row"><div class="mb-f rule">allocations per Work Unit, never per Pixel Sample</div><div class="mb-d"><b>The allocation boundary.</b> Memory is reserved per Render Job (the Scene), per Work Unit (the result buffer) and outside rendering. Checked by a counting-allocator test (ADR 0008).</div></div>
+        <div class="mb-row"><div class="mb-f rule">SceneView&lt;'a&gt; cannot outlive the Scene</div><div class="mb-d"><b>Lifetimes.</b> The borrow checker proves every view is gone before its Scene is dropped.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="options">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-scene</span> · <a href="../src/options.rs">options.rs</a> · <code>RenderJobOptions</code>, <code>Seed</code> · <a href="../../../docs/architecture/08-crosscutting-concepts.md">arc42 §8.2, §8.8</a></div>
+        <h3>Render Job Options</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The Scene says <em>what</em> to draw. The Render Job Options say <em>how to organise the work</em> of drawing it: how many Pixel Samples per pixel, how big the pieces of image handed out to Workers are, how many samples go in each round, and which random seed to start from. Two renders with the same Scene can use different options. Tiles and Passes organise the work; the number of samples and the seed decide the noise you see.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 250" class="dg-wide" role="img" aria-label="What the Scene File says versus what the Render Job Options say, with command-line overrides on top">
+            <text x="205" y="22" text-anchor="middle" class="t-bold">Scene: what</text>
+            <rect x="20" y="34" width="370" height="140" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="36" y="62" font-size="12">film resolution, camera, lens</text>
+            <text x="36" y="88" font-size="12">pixel filter, sensor</text>
+            <text x="36" y="114" font-size="12">sampler type and randomisation</text>
+            <text x="36" y="140" font-size="12">integrator and its max depth</text>
+            <text x="36" y="162" font-size="11" class="t-mut">later: Shapes, lights, materials</text>
+            <text x="615" y="22" text-anchor="middle" class="t-bold">RenderJobOptions: how</text>
+            <rect x="430" y="34" width="370" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="446" y="62" font-size="12">seed: Seed(0)</text>
+            <text x="446" y="88" font-size="12">tile_size: 32</text>
+            <text x="446" y="114" font-size="12">pixel_samples_per_pass: 64</text>
+            <text x="446" y="140" font-size="12">pixel_samples_per_pixel: 16</text>
+            <text x="446" y="162" font-size="11" class="t-mut">the defaults: RenderJobOptions::default()</text>
+            <rect x="430" y="200" width="370" height="38" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
+            <text x="615" y="224" text-anchor="middle" font-size="12">command line: --spp 64 --seed 7</text>
+            <line x1="615" y1="198" x2="615" y2="178" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
+            <text x="626" y="192" font-size="11" class="t-warm">overrides win (to come)</text>
+            <rect x="20" y="200" width="370" height="38" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
+            <text x="205" y="224" text-anchor="middle" font-size="12">Scene File: Sampler "integer pixelsamples"</text>
+            <path d="M390 219 C 410 219, 410 140, 428 140" class="k-mut" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+        </svg></div>
+        <figcaption>Two kinds of setting. The Scene holds what is drawn; <code>RenderJobOptions</code> holds how the Render Job is run. In pbrt-v4 the number of Pixel Samples sits on the Scene File's <code>Sampler</code> line, and <code>--spp</code> and <code>--seed</code> on the command line override the file. Umbra keeps those meanings, but neither the parser nor the command line exists yet (dashed): today a <code>RenderJobOptions</code> is built in Rust.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The options use three words from the glossary. A <b>Tile</b> is a square block of pixels. A <b>Pass</b> is a range of sample numbers, the same range in every pixel: with 64 per Pass, Pass 0 is samples 0 to 63 of every pixel, Pass 1 is samples 64 to 127. A <b>Work Unit</b> is one Tile for one Pass: the piece of work the Coordinator gives a Worker.</p>
+    </div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 240" class="dg-wide" role="img" aria-label="An image of 200 by 120 pixels cut into Tiles of 64, with short Tiles at the right and bottom, and 16 Pixel Samples cut into Passes of 6">
+            <text x="180" y="20" text-anchor="middle" class="t-bold">Tiles: an image of 200 × 120, tile_size 64</text>
+            <g>
+                <rect x="30" y="34" width="96" height="96" class="f-acc-soft k-acc"/>
+                <rect x="126" y="34" width="96" height="96" class="f-acc-soft k-acc"/>
+                <rect x="222" y="34" width="96" height="96" class="f-acc-soft k-acc"/>
+                <rect x="318" y="34" width="12" height="96" class="f-warm-soft k-warm"/>
+                <rect x="30" y="130" width="96" height="84" class="f-warm-soft k-warm"/>
+                <rect x="126" y="130" width="96" height="84" class="f-warm-soft k-warm"/>
+                <rect x="222" y="130" width="96" height="84" class="f-warm-soft k-warm"/>
+                <rect x="318" y="130" width="12" height="84" class="f-warm-soft k-warm"/>
+            </g>
+            <text x="78" y="88" text-anchor="middle" font-size="12">64 × 64</text>
+            <text x="336" y="88" font-size="11" class="t-warm">8 wide</text>
+            <text x="78" y="178" text-anchor="middle" font-size="12" class="t-warm">64 × 56</text>
+            <text x="180" y="232" text-anchor="middle" font-size="11" class="t-mut">4 × 2 = 8 Tiles; amber: cut short by the image's edge</text>
+
+            <text x="600" y="20" text-anchor="middle" class="t-bold">Passes: 16 Pixel Samples, 6 per Pass</text>
+            <g font-size="10" class="t-mut">
+                <text x="412" y="66" text-anchor="middle">0</text><text x="508" y="66" text-anchor="middle">4</text><text x="604" y="66" text-anchor="middle">8</text><text x="700" y="66" text-anchor="middle">12</text><text x="772" y="66" text-anchor="middle">15</text>
+            </g>
+            <path d="M400 74 h144 v30 h-144 Z" class="f-acc-soft k-acc"/>
+            <path d="M544 74 h144 v30 h-144 Z" class="f-ok-soft k-ok"/>
+            <path d="M688 74 h96 v30 h-96 Z" class="f-warm-soft k-warm"/>
+            <path d="M424 74 V104 M448 74 V104 M472 74 V104 M496 74 V104 M520 74 V104 M568 74 V104 M592 74 V104 M616 74 V104 M640 74 V104 M664 74 V104 M712 74 V104 M736 74 V104 M760 74 V104" class="k-mut" stroke-width="0.8"/>
+            <text x="472" y="126" text-anchor="middle" font-size="12">Pass 0</text>
+            <text x="616" y="126" text-anchor="middle" font-size="12">Pass 1</text>
+            <text x="736" y="126" text-anchor="middle" font-size="12" class="t-warm">Pass 2: 4</text>
+            <text x="592" y="166" text-anchor="middle" font-size="12">Work Units = Tiles × Passes</text>
+            <text x="592" y="188" text-anchor="middle" font-size="12" class="t-acc">8 × 3 = 24</text>
+        </svg></div>
+        <figcaption>How the options cut the work. <code>tile_size</code> cuts the image: the Tiles on the right and bottom edges are cut short by the image. <code>pixel_samples_per_pass</code> cuts the sample numbers: the last Pass is shorter when the total is not a multiple of it. Each (Tile, Pass) pair is one Work Unit. The cutting itself happens in <code>umbra-render</code> (see the <a href="../../umbra-render/docs/render-guide.html">Umbra Render Guide</a>); <code>umbra-scene</code> only holds the numbers.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The <b>seed</b> chooses which random numbers the samplers use. With the Scene, the pixel and the sample number, it fixes every Pixel Sample exactly (ADR 0022): render twice with the same seed and you get the same image; change the seed and the noise changes. <code>Seed</code> wraps an <code>i32</code>, as pbrt-v4's <code>--seed</code> is an <code>int</code>, and converts to the <code>u32</code> the samplers take by keeping its bits.</p>
+        <p>The options live in <code>umbra-scene</code> although the Scene doesn't use them, because three other parts need them: the renderer, the cluster and the binary (arc42 §5.3). Putting them next to the Scene avoids a crate just for one struct.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">Tiles = ⌈W ⁄ t⌉ × ⌈H ⁄ t⌉</div><div class="mb-d"><b>How many Tiles.</b> ⌈ ⌉ means “round up”: 200 ⁄ 64 = 3.1, so 4 columns. <var>W</var>, <var>H</var>: the film's resolution; <var>t</var>: <code>tile_size</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">Passes = ⌈spp ⁄ p⌉, &nbsp; last = spp − (Passes − 1) · p</div><div class="mb-d"><b>How many Passes, and the length of the last.</b> <var>spp</var>: <code>pixel_samples_per_pixel</code>; <var>p</var>: <code>pixel_samples_per_pass</code>. With the defaults, 16 and 64, there is one Pass of 16.</div></div>
+        <div class="mb-row"><div class="mb-f">Work Units = Tiles × Passes</div><div class="mb-d"><b>How many pieces of work.</b> The default film and options give 40 × 23 Tiles and one Pass: 920 Work Units.</div></div>
+        <div class="mb-row"><div class="mb-f">u = s if s ≥ 0, else s + 2<sup>32</sup></div><div class="mb-d"><b>The seed's bits.</b> An <code>i32</code> read as a <code>u32</code>: −1 becomes 4 294 967 295. <code>From&lt;Seed&gt; for u32</code>, via <code>cast_unsigned</code>.</div></div>
+    </div>
+
+    <figure class="bench" id="op">
+        <div class="controls">
+            <div class="ctl"><label for="op-w">film width</label><div class="row"><input id="op-w" type="range" min="16" max="1920" step="1" value="1280"><output id="op-w-o" for="op-w"></output></div></div>
+            <div class="ctl"><label for="op-h">film height</label><div class="row"><input id="op-h" type="range" min="16" max="1080" step="1" value="720"><output id="op-h-o" for="op-h"></output></div></div>
+            <div class="ctl"><label for="op-tile">tile_size</label><div class="row"><input id="op-tile" type="range" min="0" max="256" step="1" value="32"><output id="op-tile-o" for="op-tile"></output></div></div>
+            <div class="ctl"><label for="op-pass">pixel_samples_per_pass</label><div class="row"><input id="op-pass" type="range" min="0" max="128" step="1" value="64"><output id="op-pass-o" for="op-pass"></output></div></div>
+            <div class="ctl"><label for="op-spp">pixel_samples_per_pixel</label><div class="row"><input id="op-spp" type="range" min="0" max="512" step="1" value="16"><output id="op-spp-o" for="op-spp"></output></div></div>
+            <div class="ctl"><label for="op-seed">seed</label><div class="row"><input id="op-seed" type="range" min="-8" max="8" step="1" value="0"><output id="op-seed-o" for="op-seed"></output></div></div>
+            <div class="ctl"><span class="lbl">presets</span><div class="btns"><button type="button" id="op-default">RenderJobOptions::default()</button><button type="button" id="op-small">a 200 × 120 film</button></div></div>
+        </div>
+        <div class="split">
+            <div style="display:grid; gap:0.9rem">
+                <div>
+                    <p class="panel-title">the film cut into Tiles (amber: cut short by the edge)</p>
+                    <canvas id="op-tiles" class="cv-wide" aria-label="The film divided into Tiles"></canvas>
+                </div>
+                <div>
+                    <p class="panel-title">the Pixel Sample numbers of every pixel, cut into Passes</p>
+                    <canvas id="op-passes" class="cv-strip" aria-label="Pixel Sample indices divided into Passes"></canvas>
+                </div>
+            </div>
+            <dl class="readout" id="op-read"></dl>
+        </div>
+        <figcaption><b>Try:</b> start from the defaults and note that 16 samples with Passes of 64 make a single short Pass. Raise the samples to 200 for four Passes, the last of 8. Pick a Tile size that doesn't divide the width and watch the amber edge column appear. Drag a size to 0: <code>NonZeroU32::new(0)</code> is <code>None</code>, so a zero can't even be stored in the options. Move the seed below 0 to see its bits as a <code>u32</code>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="replication">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-scene</span> · design, not built yet · <a href="../../../docs/adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md">ADR 0003</a> · <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5.3</a>, <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8.2</a></div>
+        <h3>One Scene, many Workers</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra is built to render one image on many machines at once. Only one machine, the <em>Coordinator</em>, reads the Scene File. It builds the Scene and sends a copy to every other machine, the <em>Workers</em>. Each Worker then has an identical Scene and renders its share of the work. Because objects refer to each other by numbers rather than memory addresses, the copy works as-is on the other side.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 270" class="dg-wide" role="img" aria-label="The Coordinator parses the Scene File once and sends the Scene to three Workers, each of which builds its own BVH">
+            <rect x="20" y="60" width="240" height="150" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="140" y="86" text-anchor="middle" class="t-bold">Coordinator</text>
+            <text x="140" y="112" text-anchor="middle" font-size="12">reads the Scene File once</text>
+            <text x="140" y="134" text-anchor="middle" font-size="12">builds the Scene</text>
+            <text x="140" y="156" text-anchor="middle" font-size="12">applies the overrides</text>
+            <text x="140" y="178" text-anchor="middle" font-size="12">keeps the Film</text>
+            <rect x="560" y="20" width="280" height="64" rx="6" class="f-warm-soft k-warm"/>
+            <text x="700" y="44" text-anchor="middle" class="t-bold">Worker 1</text>
+            <text x="700" y="66" text-anchor="middle" font-size="12">Scene replica · own BVH</text>
+            <rect x="560" y="104" width="280" height="64" rx="6" class="f-warm-soft k-warm"/>
+            <text x="700" y="128" text-anchor="middle" class="t-bold">Worker 2</text>
+            <text x="700" y="150" text-anchor="middle" font-size="12">Scene replica · own BVH</text>
+            <rect x="560" y="188" width="280" height="64" rx="6" class="f-warm-soft k-warm"/>
+            <text x="700" y="212" text-anchor="middle" class="t-bold">Worker 3</text>
+            <text x="700" y="234" text-anchor="middle" font-size="12">Scene replica · own BVH</text>
+            <path d="M262 110 C 400 60, 450 52, 556 52 M262 135 H556 M262 160 C 400 210, 450 220, 556 220" class="k-acc" fill="none" stroke-width="1.8" stroke-dasharray="7 5" marker-end="url(#ah-acc)"/>
+            <text x="410" y="124" text-anchor="middle" font-size="11" class="t-acc">options + Scene structure</text>
+            <text x="410" y="152" text-anchor="middle" font-size="11" class="t-acc">+ asset hashes</text>
+            <text x="20" y="250" font-size="11" class="t-warm">dashed: designed, not built yet</text>
+        </svg></div>
+        <figcaption>Replication as the architecture describes it (ADR 0003, arc42 §8.2 and §8.13). The Coordinator sends the Render Job Options a Worker needs, the Scene's structure, and a list of the assets (meshes, images) by content hash; the Worker asks only for the assets it doesn't already have. Each Worker builds its own acceleration structure (the BVH, a search tree over the Shapes) instead of receiving one, which would be more data to send.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 190" class="dg-mid" role="img" aria-label="A memory address copied to another machine points to garbage; a handle copied to another machine still names the same object">
+            <text x="190" y="22" text-anchor="middle" class="t-bold">machine A</text>
+            <text x="570" y="22" text-anchor="middle" class="t-bold">machine B</text>
+            <rect x="40" y="40" width="300" height="40" rx="4" class="f-surf k-mut"/>
+            <text x="190" y="65" text-anchor="middle" font-size="12">0x5c01…a8 → the glass material</text>
+            <rect x="420" y="40" width="300" height="40" rx="4" class="f-bad-soft k-bad"/>
+            <text x="570" y="65" text-anchor="middle" font-size="12">0x5c01…a8 → ??? (someone else's data)</text>
+            <line x1="342" y1="60" x2="416" y2="60" class="k-bad" marker-end="url(#ah-bad)"/>
+            <rect x="40" y="110" width="300" height="40" rx="4" class="f-surf k-acc"/>
+            <text x="190" y="135" text-anchor="middle" font-size="12">handle 1 → materials[1]: glass</text>
+            <rect x="420" y="110" width="300" height="40" rx="4" class="f-ok-soft k-ok"/>
+            <text x="570" y="135" text-anchor="middle" font-size="12">handle 1 → materials[1]: glass</text>
+            <line x1="342" y1="130" x2="416" y2="130" class="k-ok" marker-end="url(#ah-ok)"/>
+            <text x="380" y="178" text-anchor="middle" font-size="11" class="t-mut">copy the bytes across: only the handle survives</text>
+        </svg></div>
+        <figcaption>Why handles make replication easy. Copying a Scene to another machine copies its bytes. A pointer is the address of something in one machine's memory, so on the other machine it points at whatever happens to be there. A handle is a position in an arena, and the arena is copied too.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Arc42 §5.3 adds one detail: what is sent is the <em>builder's</em> arenas, not a finished Scene. Each Worker then calls <code>build</code> itself. So the code that checks a Scene and builds its BVH runs the same way on every machine, and the BVH, which is large, never crosses the network.</p>
+        <div class="callout"><b>Status on this branch.</b> None of this is built yet. The README lists “serialising a Scene for replication, with remote Workers” under <em>not here yet</em>. What is in place is the groundwork: arenas with handles, a <code>Scene</code> that is <code>Clone</code> and holds no pointers between objects, and <code>umbra-scene</code>'s dependency on <code>umbra-integrators</code> with the core's <code>serde</code> feature switched on. That feature is wired through the core crates, but no type derives <code>Serialize</code> yet.</div>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">replicate the Scene, never the Scene File</div><div class="mb-d"><b>Parsed once.</b> Workers need no files and no <code>.pbrt</code> grammar, and all start from identical data (ADR 0003).</div></div>
+        <div class="mb-row"><div class="mb-f rule">send the builder's arenas; each Worker calls build</div><div class="mb-d"><b>No BVH on the wire.</b> Building it locally is cheaper than sending it (ADR 0003, arc42 §5.3).</div></div>
+        <div class="mb-row"><div class="mb-f rule">no pointers between Scene objects</div><div class="mb-d"><b>Copyable as-is.</b> The same property lets a GPU Worker copy arena slices to device memory byte for byte (ADR 0028).</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="errors">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-scene</span> · <a href="../src/error.rs">error.rs</a> · <code>SceneError</code></div>
+        <h3>When a Scene can't be built</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Sometimes the settings make no sense: a film with no pixels, or a filter too small to work with. Instead of crashing, <code>build</code> returns a value that says what went wrong. In Rust such a value is a <code>Result</code>: either <code>Ok</code> with the Scene, or <code>Err</code> with the reason. The caller must look at it before it can use the Scene.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 250" class="dg-wide" role="img" aria-label="build() checks the resolution, then the filter radius, and returns Ok(Scene) or an error; Arena::push can return TooManyObjects">
+            <rect x="20" y="40" width="110" height="40" rx="20" class="f-acc-soft k-acc"/>
+            <text x="75" y="65" text-anchor="middle" font-size="13">build()</text>
+            <line x1="132" y1="60" x2="176" y2="60" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="180" y="36" width="210" height="48" rx="6" class="f-surf k-ink"/>
+            <text x="285" y="56" text-anchor="middle" font-size="12">at least 1 × 1 pixel?</text>
+            <text x="285" y="74" text-anchor="middle" font-size="11" class="t-mut">x ≥ 1 and y ≥ 1</text>
+            <line x1="392" y1="60" x2="436" y2="60" class="k-ok" marker-end="url(#ah-ok)"/>
+            <text x="414" y="52" text-anchor="middle" font-size="11" class="t-ok">yes</text>
+            <rect x="440" y="36" width="210" height="48" rx="6" class="f-surf k-ink"/>
+            <text x="545" y="56" text-anchor="middle" font-size="12">filter radius ≥ 1⁄32?</text>
+            <text x="545" y="74" text-anchor="middle" font-size="11" class="t-mut">in x and in y</text>
+            <line x1="652" y1="60" x2="696" y2="60" class="k-ok" marker-end="url(#ah-ok)"/>
+            <text x="674" y="52" text-anchor="middle" font-size="11" class="t-ok">yes</text>
+            <rect x="700" y="36" width="140" height="48" rx="24" class="f-ok-soft k-ok"/>
+            <text x="770" y="65" text-anchor="middle" font-size="13">Ok(Scene)</text>
+            <line x1="285" y1="86" x2="285" y2="126" class="k-bad" marker-end="url(#ah-bad)"/>
+            <text x="295" y="110" font-size="11" class="t-bad">no</text>
+            <rect x="170" y="130" width="230" height="44" rx="6" class="f-bad-soft k-bad"/>
+            <text x="285" y="157" text-anchor="middle" font-size="12">Err(EmptyResolution)</text>
+            <line x1="545" y1="86" x2="545" y2="126" class="k-bad" marker-end="url(#ah-bad)"/>
+            <text x="555" y="110" font-size="11" class="t-bad">no</text>
+            <rect x="430" y="130" width="230" height="44" rx="6" class="f-bad-soft k-bad"/>
+            <text x="545" y="157" text-anchor="middle" font-size="12">Err(FilterRadiusTooSmall)</text>
+            <line x1="20" y1="196" x2="840" y2="196" class="k-mut" stroke-dasharray="3 5"/>
+            <rect x="20" y="206" width="150" height="36" rx="18" class="f-acc-soft k-acc"/>
+            <text x="95" y="229" text-anchor="middle" font-size="12">Arena::push</text>
+            <line x1="172" y1="224" x2="216" y2="224" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="220" y="204" width="230" height="40" rx="6" class="f-surf k-ink"/>
+            <text x="335" y="229" text-anchor="middle" font-size="12">room for one more handle?</text>
+            <line x1="452" y1="224" x2="496" y2="224" class="k-bad" marker-end="url(#ah-bad)"/>
+            <text x="474" y="216" text-anchor="middle" font-size="11" class="t-bad">no</text>
+            <rect x="500" y="204" width="230" height="40" rx="6" class="f-bad-soft k-bad"/>
+            <text x="615" y="229" text-anchor="middle" font-size="12">Err(TooManyObjects)</text>
+        </svg></div>
+        <figcaption>Where each <code>SceneError</code> comes from. <code>build</code> checks the film first and the filter second, and returns at the first problem. The filter needs a radius of at least 1⁄32 because its table has 32 cells per unit of radius: a smaller radius would make a table with no cells (see the <a href="../../umbra-camera/docs/camera-guide.html">camera guide</a>, “Pixel filters”).</figcaption>
+    </figure>
+
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>variant</th><th>when</th><th>its message (Display)</th></tr></thead>
+            <tbody>
+                <tr><td><code>EmptyResolution { resolution }</code></td><td><code>build</code>: a side of the film is below 1</td><td>the film's resolution 0 x 10 has no pixel</td></tr>
+                <tr><td><code>FilterRadiusTooSmall</code></td><td><code>build</code>: a filter radius is below 1⁄32</td><td>a filter radius is below 1/32</td></tr>
+                <tr><td><code>TooManyObjects { type_name }</code></td><td><code>Arena::push</code>: the arena is full</td><td>more than 4294967294 objects of type `f32`</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="prose" style="margin-top:1.2rem">
+        <p>Rust's <code>?</code> operator makes handling these short. Written after a call, it means “if this is an error, return it from my function too; otherwise unwrap the value”. The README's example ends with <code>builder.build()?</code> for this reason.</p>
+        <p><code>SceneError</code> is an enum with one named variant per reason, and each variant carries the data needed to explain it: the bad resolution, or the type whose arena is full. It implements <code>Display</code>, for a human-readable message, and <code>std::error::Error</code>, so it fits Rust's usual error handling. It is marked <code>#[non_exhaustive]</code>: code that matches on it must keep a catch-all branch, so new reasons can be added later without breaking that code.</p>
+        <p>Strictness is a project-wide choice. ADR 0003 rejects any lenient mode: “a wrong image costs more than a refused Render Job”. Nothing is built when there is an error.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">Result&lt;Scene, SceneError&gt;</div><div class="mb-d"><b>Errors are values.</b> <code>build</code> never panics on bad settings; the caller decides what to do.</div></div>
+        <div class="mb-row"><div class="mb-f rule">first problem wins</div><div class="mb-d"><b>Checked in order.</b> The film, then the filter. Arena overflow is reported by <code>push</code>, at the moment it happens.</div></div>
+        <div class="mb-row"><div class="mb-f rule">#[non_exhaustive]</div><div class="mb-d"><b>Room to grow.</b> Shapes, lights and materials will bring new reasons to refuse a Scene.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-scene</code> is a <code>std</code> crate outside the core. It depends on five core crates and is used by <code>umbra-render</code> and, once it has code, <code>umbra-parser</code> (ADR 0015, arc42 §5.1). It is small: under 500 lines of Rust in four modules.</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-scene</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a> · <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a></div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Four files, each with one job: the Scene and its builder, the arena, the options, and the errors. Above them sit the core crates whose objects the Scene stores. Below them sit the crates that use a Scene.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 270" class="dg-wide" role="img" aria-label="The four modules of umbra-scene, the core crates it uses and the crates that use it">
+            <rect x="20" y="16" width="160" height="40" rx="4" class="f-mut-soft k-mut"/><text x="100" y="34" text-anchor="middle" font-size="12">umbra-math</text><text x="100" y="49" text-anchor="middle" font-size="10" class="t-mut">Point2i, Transform</text>
+            <rect x="195" y="16" width="160" height="40" rx="4" class="f-mut-soft k-mut"/><text x="275" y="34" text-anchor="middle" font-size="12">umbra-sampling</text><text x="275" y="49" text-anchor="middle" font-size="10" class="t-mut">RandomizeStrategy</text>
+            <rect x="370" y="16" width="160" height="40" rx="4" class="f-mut-soft k-mut"/><text x="450" y="34" text-anchor="middle" font-size="12">umbra-geometry</text><text x="450" y="49" text-anchor="middle" font-size="10" class="t-mut">Handle&lt;T&gt;, Bounds2f</text>
+            <rect x="545" y="16" width="160" height="40" rx="4" class="f-mut-soft k-mut"/><text x="625" y="34" text-anchor="middle" font-size="12">umbra-camera</text><text x="625" y="49" text-anchor="middle" font-size="10" class="t-mut">camera, filter, sensor</text>
+            <rect x="720" y="16" width="160" height="40" rx="4" class="f-mut-soft k-mut"/><text x="800" y="34" text-anchor="middle" font-size="12">umbra-integrators</text><text x="800" y="49" text-anchor="middle" font-size="10" class="t-mut">SceneView, VolPath…</text>
+            <path d="M100 82 V60 M275 82 V60 M450 82 V60 M625 82 V60 M800 82 V60" class="k-mut" marker-end="url(#ah-mut)"/>
+            <rect x="20" y="84" width="860" height="110" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="36" y="106" class="t-bold">umbra-scene</text>
+            <rect x="40" y="116" width="300" height="62" rx="4" class="f-surf k-ink"/><text x="190" y="138" text-anchor="middle" font-weight="600">scene.rs</text><text x="190" y="160" text-anchor="middle" font-size="11">SceneBuilder · Scene · *Parameters</text>
+            <rect x="360" y="116" width="160" height="62" rx="4" class="f-surf k-ink"/><text x="440" y="138" text-anchor="middle" font-weight="600">arena.rs</text><text x="440" y="160" text-anchor="middle" font-size="11">Arena&lt;T&gt;</text>
+            <rect x="540" y="116" width="180" height="62" rx="4" class="f-surf k-ink"/><text x="630" y="138" text-anchor="middle" font-weight="600">options.rs</text><text x="630" y="160" text-anchor="middle" font-size="11">RenderJobOptions · Seed</text>
+            <rect x="740" y="116" width="124" height="62" rx="4" class="f-surf k-ink"/><text x="802" y="138" text-anchor="middle" font-weight="600">error.rs</text><text x="802" y="160" text-anchor="middle" font-size="11">SceneError</text>
+            <rect x="160" y="222" width="260" height="40" rx="4" class="f-surf k-ink"/><text x="290" y="247" text-anchor="middle" font-size="12">umbra-render: Renderer, Film</text>
+            <rect x="480" y="222" width="260" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="610" y="247" text-anchor="middle" font-size="12" class="t-mut">umbra-parser (no code yet)</text>
+            <path d="M290 220 V198 M610 220 V198" class="k-ink" marker-end="url(#ah-ink)"/>
+        </svg></div>
+        <figcaption>Arrows point from a crate to the crate it uses. Every public type is re-exported at the crate root, so users write <code>umbra_scene::SceneBuilder</code>. <code>Handle&lt;T&gt;</code> is defined in <code>umbra-geometry</code> rather than here, because the core's interactions will carry handles and the core can't depend on a <code>std</code> crate.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>type or function</th><th>what it is</th><th>pbrt-v4 counterpart</th></tr></thead>
+            <tbody>
+                <tr><td><code>SceneBuilder</code></td><td>collects settings; <code>build</code> checks them and makes a Scene</td><td><code>BasicSceneBuilder</code></td></tr>
+                <tr><td><code>Scene</code></td><td>the immutable result; <code>view</code>, <code>full_resolution</code>, <code>randomize_strategy</code>, <code>integrator</code></td><td><code>BasicScene</code>, roughly</td></tr>
+                <tr><td><code>FilmParameters</code></td><td>the film's resolution</td><td><code>Film "rgb"</code>: <code>xresolution</code>, <code>yresolution</code></td></tr>
+                <tr><td><code>PerspectiveCameraParameters</code></td><td>transform, fov, lens, screen window, frame aspect ratio, shutter</td><td><code>PerspectiveCamera::Create</code></td></tr>
+                <tr><td><code>GaussianFilterParameters</code></td><td>radius and sigma</td><td><code>GaussianFilter::Create</code></td></tr>
+                <tr><td><code>HaltonSamplerParameters</code></td><td>the sampler's randomisation</td><td><code>HaltonSampler::Create</code>: <code>randomization</code></td></tr>
+                <tr><td><code>Arena&lt;T&gt;</code></td><td>the objects of one type; mints handles</td><td>none: pbrt-v4 links objects by pointer</td></tr>
+                <tr><td><code>RenderJobOptions</code></td><td>seed, Tile size, Pixel Samples per Pass and per pixel</td><td><code>PBRTOptions</code> (<code>seed</code>, <code>pixelSamples</code>); Tiles and Passes are Umbra's</td></tr>
+                <tr><td><code>Seed</code></td><td>the samplers' seed, an <code>i32</code></td><td><code>--seed</code></td></tr>
+                <tr><td><code>SceneError</code></td><td>why a Scene can't be built</td><td>none: pbrt-v4 prints and exits</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="topic" id="builder-impl">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>SceneBuilder::build</code>, <code>build_camera</code>, <code>imaging_ratio</code>, <code>default_screen_window</code></div>
+        <h3>Settings in, core objects out</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The builder holds settings in the shape a Scene File gives them: numbers and choices. <code>build</code> turns each group into the ready-to-use object the core needs: matrices for the camera, tables for the filter, response curves for the sensor. After that, nobody has to look at the raw settings again.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 290" class="dg-wide" role="img" aria-label="Each parameter type of the builder and the core object build() makes from it">
+            <text x="155" y="12" text-anchor="middle" class="t-mut" font-size="12">SceneBuilder fields (settings)</text>
+            <text x="745" y="12" text-anchor="middle" class="t-mut" font-size="12">Scene fields (core objects)</text>
+            <rect x="20" y="22" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="44" text-anchor="middle" font-size="12">FilmParameters</text>
+            <rect x="20" y="66" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="88" text-anchor="middle" font-size="12">PerspectiveCameraParameters</text>
+            <rect x="20" y="154" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="176" text-anchor="middle" font-size="12">GaussianFilterParameters</text>
+            <rect x="20" y="198" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="220" text-anchor="middle" font-size="12">HaltonSamplerParameters</text>
+            <rect x="20" y="242" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="264" text-anchor="middle" font-size="12">VolPathIntegrator</text>
+            <rect x="610" y="22" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="44" text-anchor="middle" font-size="12">resolution: Point2i</text>
+            <rect x="610" y="66" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="88" text-anchor="middle" font-size="12">camera: CameraKind</text>
+            <rect x="610" y="110" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="132" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;'static&gt;</text>
+            <rect x="610" y="154" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="176" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
+            <rect x="610" y="198" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="220" text-anchor="middle" font-size="12">randomize: RandomizeStrategy</text>
+            <rect x="610" y="242" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="264" text-anchor="middle" font-size="12">integrator: VolPathIntegrator</text>
+            <line x1="292" y1="39" x2="606" y2="39" class="k-ink" marker-end="url(#ah-ink)"/><text x="450" y="33" text-anchor="middle" font-size="11">checked: at least 1 × 1</text>
+            <line x1="292" y1="83" x2="606" y2="83" class="k-ink" marker-end="url(#ah-ink)"/><text x="450" y="77" text-anchor="middle" font-size="11">PerspectiveCamera::new(…).into()</text>
+            <path d="M200 58 C 230 62, 230 66, 236 66" class="k-mut" fill="none" stroke-dasharray="3 3"/>
+            <text x="300" y="62" font-size="10" class="t-mut">needs the resolution</text>
+            <path d="M292 94 C 420 100, 480 127, 606 127" class="k-ink" fill="none" marker-end="url(#ah-ink)"/><text x="450" y="128" text-anchor="middle" font-size="11">shutter → PixelSensor::cie1931</text>
+            <line x1="292" y1="171" x2="606" y2="171" class="k-ink" marker-end="url(#ah-ink)"/><text x="450" y="165" text-anchor="middle" font-size="11">checked, then GaussianFilter::new_in</text>
+            <line x1="292" y1="215" x2="606" y2="215" class="k-ink" marker-end="url(#ah-ink)"/><text x="450" y="209" text-anchor="middle" font-size="11">copied: .randomize</text>
+            <line x1="292" y1="259" x2="606" y2="259" class="k-ink" marker-end="url(#ah-ink)"/><text x="450" y="253" text-anchor="middle" font-size="11">copied</text>
+        </svg></div>
+        <figcaption>What <code>build</code> does with each setting. Two settings feed more than one object: the film's resolution shapes the camera's matrices and screen window, and the camera's shutter interval sets the sensor's imaging ratio. That is why the builder waits for <code>build</code> to compute anything.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> build(<span class="k">self</span>) -&gt; Result&lt;Scene, SceneError&gt; {
+    <span class="k">let</span> resolution = <span class="k">self</span>.film.resolution;
+    <span class="k">if</span> resolution.x &lt; <span class="k">1</span> || resolution.y &lt; <span class="k">1</span> {
+        <span class="k">return</span> Err(SceneError::EmptyResolution { resolution });
+    }
+    <span class="k">let</span> GaussianFilterParameters { radius, sigma } = <span class="k">self</span>.filter;
+    <span class="k">if</span> radius.x * <span class="k">32.0</span> &lt; <span class="k">1.0</span> || radius.y * <span class="k">32.0</span> &lt; <span class="k">1.0</span> {
+        <span class="k">return</span> Err(SceneError::FilterRadiusTooSmall);
+    }
+    <span class="k">let</span> (shutter_open, shutter_close) = <span class="k">self</span>.camera.shutter();   <span class="c">// swapped if reversed</span>
+    Ok(Scene {
+        resolution,
+        camera: <span class="k">self</span>.build_camera(shutter_open, shutter_close),
+        filter: GaussianFilter::new_in(radius, sigma, |n| vec![<span class="k">0.0</span>; n]).into(),
+        sensor: PixelSensor::cie1931(imaging_ratio(shutter_close - shutter_open)),
+        randomize: <span class="k">self</span>.sampler.randomize,
+        integrator: <span class="k">self</span>.integrator,
+    })
+}</pre>
+        <p>The checks come first, so the core constructors are only ever called with values they accept. <code>GaussianFilter::new_in</code> would itself panic on a radius below 1⁄32 (its <code>FilterSampler::new_in</code> documents this); checking here turns that panic into an ordinary error. The <code>|n| vec![0.0; n]</code> closure is how the Scene lends memory to a core crate that can't allocate: the filter asks for <var>n</var> floats and the Scene hands over a <code>Vec</code>.</p>
+        <p><code>build_camera</code> follows pbrt-v4's <code>PerspectiveCamera::Create</code>: it moves the camera to the rendering space with <code>CameraTransform::new</code>, picks the screen window, and calls <code>PerspectiveCamera::new</code>. The result is converted into the closed enum <code>CameraKind</code> with <code>.into()</code>. Both steps are explained in the <a href="../../umbra-camera/docs/camera-guide.html">camera guide</a>.</p>
+    </div>
+    <div class="tablewrap" style="max-width: 52rem">
+        <table class="data">
+            <thead><tr><th>setting</th><th>default</th><th>source of the default</th></tr></thead>
+            <tbody>
+                <tr><td><code>FilmParameters::resolution</code></td><td>1280 × 720</td><td>pbrt-v4</td></tr>
+                <tr><td><code>fov</code></td><td>90°</td><td>pbrt-v4</td></tr>
+                <tr><td><code>lens</code></td><td>radius 0 (pinhole), focal distance 10<sup>6</sup></td><td>pbrt-v4</td></tr>
+                <tr><td><code>shutter_open</code>, <code>shutter_close</code></td><td>0, 1</td><td>pbrt-v4</td></tr>
+                <tr><td><code>screen_window</code>, <code>frame_aspect_ratio</code></td><td><code>None</code>: from the film</td><td>pbrt-v4</td></tr>
+                <tr><td><code>GaussianFilterParameters</code></td><td>radius 1.5, sigma 0.5</td><td>pbrt-v4</td></tr>
+                <tr><td>sampler</td><td><code>halton</code>, <code>RandomizeStrategy::PermuteDigits</code></td><td>Umbra: pbrt-v4 defaults to <code>zsobol</code>, which Umbra doesn't have yet</td></tr>
+                <tr><td><code>VolPathIntegrator</code></td><td>max depth 5</td><td>pbrt-v4</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">a = W ⁄ H; &nbsp; a &gt; 1: [−a, a] × [−1, 1], &nbsp; else [−1, 1] × [−1⁄a, 1⁄a]</div><div class="mb-d"><b>The default screen window.</b> The shorter side of the image spans −1 to 1, the longer side is stretched by the aspect ratio <var>a</var>. <code>default_screen_window</code>, used when <code>screen_window</code> is <code>None</code>; <var>a</var> is <code>frame_aspect_ratio</code> if given.</div></div>
+        <div class="mb-row"><div class="mb-f">k = (t<sub>close</sub> − t<sub>open</sub>) · ISO ⁄ 100, &nbsp; ISO = 100</div><div class="mb-d"><b>The imaging ratio.</b> How strongly the sensor responds: the exposure time at an ISO of 100. With the default shutter, <var>k</var> = 1. <code>imaging_ratio</code>, after pbrt-v4's <code>PixelSensor::Create</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">(t<sub>open</sub>, t<sub>close</sub>) ← (min, max)</div><div class="mb-d"><b>A reversed shutter is swapped</b>, as pbrt-v4 does (it also prints a warning). <code>PerspectiveCameraParameters::shutter</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">32 · r ≥ 1 in x and in y</div><div class="mb-d"><b>The filter can be tabulated.</b> Its table has int(32 · <var>r</var>) cells per axis, which must be at least one.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="arena-impl">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-scene</span> · <a href="../src/arena.rs">arena.rs</a> · <span class="crate">umbra-geometry</span> <a href="../../umbra-geometry/src/handle.rs">handle.rs</a> · <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a></div>
+        <h3>Inside Arena&lt;T&gt; and Handle&lt;T&gt;</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>An arena is a thin wrapper around Rust's growable list, <code>Vec</code>, that only allows adding and reading. A handle is a 32-bit number with an invisible label saying which type it points to. The label costs zero bytes: it exists only for the compiler.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 210" class="dg-wide" role="img" aria-label="Arena holds a Vec: pointer, length and capacity pointing to a row of items. Handle is four bytes of index plus a zero-byte type marker">
+            <text x="200" y="22" text-anchor="middle" class="t-bold">Arena&lt;T&gt; = one Vec&lt;T&gt;</text>
+            <rect x="20" y="40" width="70" height="34" class="f-surf k-ink"/><text x="55" y="62" text-anchor="middle" font-size="12">ptr</text>
+            <rect x="90" y="40" width="70" height="34" class="f-surf k-ink"/><text x="125" y="62" text-anchor="middle" font-size="12">len 3</text>
+            <rect x="160" y="40" width="70" height="34" class="f-surf k-ink"/><text x="195" y="62" text-anchor="middle" font-size="12">cap 4</text>
+            <text x="125" y="92" text-anchor="middle" font-size="11" class="t-mut">items: Vec&lt;T&gt;</text>
+            <path d="M55 76 V130 H96" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <rect x="100" y="112" width="70" height="38" class="f-acc-soft k-acc"/><text x="135" y="136" text-anchor="middle" font-size="12">T</text>
+            <rect x="170" y="112" width="70" height="38" class="f-acc-soft k-acc"/><text x="205" y="136" text-anchor="middle" font-size="12">T</text>
+            <rect x="240" y="112" width="70" height="38" class="f-acc-soft k-acc"/><text x="275" y="136" text-anchor="middle" font-size="12">T</text>
+            <rect x="310" y="112" width="70" height="38" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="135" y="170" text-anchor="middle" font-size="11" class="t-mut">0</text><text x="205" y="170" text-anchor="middle" font-size="11" class="t-mut">1</text><text x="275" y="170" text-anchor="middle" font-size="11" class="t-mut">2</text><text x="345" y="170" text-anchor="middle" font-size="11" class="t-mut">spare</text>
+            <text x="240" y="196" text-anchor="middle" font-size="11" class="t-mut">on the heap, side by side</text>
+
+            <line x1="430" y1="20" x2="430" y2="200" class="k-mut" stroke-dasharray="3 5"/>
+
+            <text x="630" y="22" text-anchor="middle" class="t-bold">Handle&lt;T&gt;, #[repr(transparent)]</text>
+            <rect x="470" y="50" width="200" height="44" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="570" y="77" text-anchor="middle" font-size="12">index: u32 (4 bytes)</text>
+            <rect x="670" y="50" width="130" height="44" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="735" y="70" text-anchor="middle" font-size="11" class="t-mut">PhantomData</text>
+            <text x="735" y="86" text-anchor="middle" font-size="11" class="t-mut">0 bytes</text>
+            <text x="630" y="126" text-anchor="middle" font-size="12">in memory: exactly a u32</text>
+            <text x="630" y="150" text-anchor="middle" font-size="12">to the compiler: “a T's position”</text>
+            <text x="630" y="180" text-anchor="middle" font-size="11" class="t-acc">usize::from(handle) → index into items</text>
+        </svg></div>
+        <figcaption>Left: an <code>Arena&lt;T&gt;</code> holds one field, <code>items: Vec&lt;T&gt;</code>; the objects themselves sit next to each other on the heap. Right: a <code>Handle&lt;T&gt;</code> holds one <code>u32</code> and a <code>PhantomData</code> marker that takes no space. <code>#[repr(transparent)]</code> promises the handle has exactly the memory layout of a plain <code>u32</code>.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> push(&amp;<span class="k">mut self</span>, item: T) -&gt; Result&lt;Handle&lt;T&gt;, SceneError&gt; {
+    <span class="k">let</span> index = u32::try_from(<span class="k">self</span>.items.len())
+        .ok()
+        .filter(|&amp;i| i &lt; u32::MAX)
+        .ok_or_else(|| SceneError::TooManyObjects {
+            type_name: core::any::type_name::&lt;T&gt;(),
+        })?;
+    <span class="k">self</span>.items.push(item);
+    Ok(Handle::new(index))
+}
+
+<span class="k">pub fn</span> get(&amp;<span class="k">self</span>, handle: Handle&lt;T&gt;) -&gt; Option&lt;&amp;T&gt; {
+    <span class="k">self</span>.items.get(usize::from(handle))
+}</pre>
+        <p>The new object's handle is the arena's current length: the first object gets 0, the second 1. <code>push</code> reads as a chain of small steps on an <code>Option</code>: convert the length to a <code>u32</code> (<code>try_from</code> fails if it doesn't fit), keep it only if it is below <code>u32::MAX</code>, and otherwise turn the missing value into an error naming the type. The last <code>?</code> returns that error early. <code>get</code> is <code>Vec::get</code>, which returns <code>None</code> past the end instead of panicking.</p>
+        <p>The rest of the interface is <code>new</code>, <code>as_slice</code> (every object in handle order: what a <code>SceneView</code> will borrow), <code>len</code> and <code>is_empty</code>. There is no way to remove or replace an object, so a handle stays valid for the arena's whole life.</p>
+        <p>In <code>umbra-geometry</code>, <code>Handle&lt;T&gt;</code> implements <code>Clone</code>, <code>Copy</code>, <code>PartialEq</code>, <code>Eq</code>, <code>PartialOrd</code>, <code>Ord</code>, <code>Hash</code> and <code>Debug</code> by hand. Deriving them would demand that <code>T</code> implement them too, which makes no sense for a number. The marker is <code>PhantomData&lt;fn() -&gt; T&gt;</code> rather than <code>PhantomData&lt;T&gt;</code>, which keeps a handle <code>Send</code> and <code>Sync</code> whatever <code>T</code> is.</p>
+        <p>Why does <code>Arena</code> exist when the Scene has no arena yet? The camera, the filter and the sampler are one per Render Job and are held by value (ADR 0008), so a camera-only Scene has nothing to put in an arena. The type was written ahead, with its tests, so that Shapes can use it as soon as they arrive (README, “Per-type arenas before their first type”).</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">only a SceneBuilder pushes</div><div class="mb-d"><b>Handles are minted in one place.</b> A built Scene's arenas are immutable and per-sample code reads them as slices (the doc comment of <code>Arena</code>; ADR 0008).</div></div>
+        <div class="mb-row"><div class="mb-f rule">Handle::new(index) is public</div><div class="mb-d"><b>A handle is not proof of existence.</b> Anyone can make <code>Handle::new(7)</code>; that is why <code>get</code> checks and returns an <code>Option</code>. The crate's test does exactly this.</div></div>
+        <div class="mb-row"><div class="mb-f rule">usize::from(handle)</div><div class="mb-d"><b>A lossless conversion.</b> A <code>u32</code> always fits a <code>usize</code> on Umbra's targets; <code>From</code> is the idiomatic Rust way to say “this can't fail”.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="scene-impl">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>Scene</code>, <code>Scene::view</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
+        <h3>Inside Scene and its view</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The Scene is a plain struct of six private fields. Most are small values. One, the filter, owns its tables on the heap. Another, the sensor, refers to colour curves that are built into the program. The view is a second, lighter struct that points at three of those fields.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 840 250" class="dg-wide" role="img" aria-label="The Scene's six fields, the filter's heap tables, the sensor's static curves and the SceneView pointing at three fields">
+            <text x="150" y="20" text-anchor="middle" class="t-bold">struct Scene</text>
+            <rect x="20" y="30" width="260" height="210" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <rect x="34" y="42" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="60" text-anchor="middle" font-size="12">resolution: Point2i</text>
+            <rect x="34" y="74" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="92" text-anchor="middle" font-size="12">camera: CameraKind</text>
+            <rect x="34" y="106" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="124" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
+            <rect x="34" y="138" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="156" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;'static&gt;</text>
+            <rect x="34" y="170" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="188" text-anchor="middle" font-size="12">randomize: RandomizeStrategy</text>
+            <rect x="34" y="202" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="220" text-anchor="middle" font-size="12">integrator: VolPathIntegrator</text>
+            <rect x="340" y="60" width="180" height="40" rx="4" class="f-warm-soft k-warm"/><text x="430" y="78" text-anchor="middle" font-size="11">heap: filter table and</text><text x="430" y="92" text-anchor="middle" font-size="11">its distribution (f32s)</text>
+            <path d="M268 119 C 300 119, 300 90, 336 84" class="k-warm" fill="none" marker-end="url(#ah-warm)"/>
+            <rect x="340" y="140" width="180" height="40" rx="4" class="f-mut-soft k-mut"/><text x="430" y="158" text-anchor="middle" font-size="11">static: CIE 1931</text><text x="430" y="172" text-anchor="middle" font-size="11">curves in the binary</text>
+            <path d="M268 151 C 300 151, 310 160, 336 160" class="k-mut" fill="none" marker-end="url(#ah-mut)"/>
+            <text x="700" y="20" text-anchor="middle" class="t-bold">SceneView&lt;'_&gt;</text>
+            <rect x="580" y="30" width="240" height="120" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <rect x="594" y="44" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="62" text-anchor="middle" font-size="12">camera: &amp;CameraKind</text>
+            <rect x="594" y="76" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="94" text-anchor="middle" font-size="12">filter: FilterKind&lt;&amp;[f32]&gt;</text>
+            <rect x="594" y="108" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="126" text-anchor="middle" font-size="12">sensor: &amp;PixelSensor</text>
+            <path d="M592 57 C 450 40, 320 70, 268 86" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
+            <path d="M592 89 C 560 89, 540 82, 524 82" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
+            <path d="M592 121 C 450 200, 320 160, 268 152" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
+            <text x="700" y="176" text-anchor="middle" font-size="11" class="t-acc">built by scene.view()</text>
+            <text x="700" y="194" text-anchor="middle" font-size="11" class="t-mut">filter.view() borrows the tables</text>
+        </svg></div>
+        <figcaption>The owned Scene and the borrowed view. The view's camera and sensor point at the Scene's fields. Its filter is a small value whose tables are borrowed slices of the Scene's heap memory, made by <code>FilterKind::view</code> in <code>umbra-camera</code>. The other three fields are read outside per-sample code: the renderer reads the resolution, the randomisation and the integrator once per Render Job.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub struct</span> Scene {
+    resolution: Point2i,
+    camera: CameraKind,
+    filter: FilterKind&lt;Vec&lt;f32&gt;&gt;,
+    sensor: PixelSensor&lt;<span class="k">'static</span>&gt;,
+    randomize: RandomizeStrategy,
+    integrator: VolPathIntegrator,
+}</pre>
+        <p>The fields are private. Outside the crate, a Scene can only be made by <code>SceneBuilder::build</code> and read through four methods: <code>view</code>, <code>full_resolution</code> (“both sides are positive”, which <code>build</code> guarantees), <code>randomize_strategy</code> and <code>integrator</code>. <code>Scene</code> derives <code>Clone</code>: a copy per NUMA node inside one Worker remains possible later (ADR 0008, arc42 §8.14).</p>
+        <p><code>FilterKind&lt;S&gt;</code> is generic over its storage <code>S</code>. The Scene picks <code>Vec&lt;f32&gt;</code>, owned memory; the view gets <code>&amp;[f32]</code>, borrowed slices. Same filter code, two kinds of storage. The sensor's lifetime is <code>'static</code> because the CIE 1931 colour-matching curves are constant tables compiled into the program.</p>
+        <p>One part of the Scene's job is not in this struct: the sampler's seed and its number of Pixel Samples. Those are <a href="#options-impl">Render Job Options</a>. The digit permutations that a seed chooses are computed by <code>umbra-render</code>'s <code>Renderer</code>, once per Render Job.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">std crate, outside the core</div><div class="mb-d"><b>Owns, so may allocate.</b> The owning Scene, the builder and (later) BVH construction live outside the seven <code>no_std</code> core crates (ADR 0014, ADR 0015).</div></div>
+        <div class="mb-row"><div class="mb-f rule">umbra-integrators with features = ["serde"]</div><div class="mb-d"><b>Ready for replication.</b> <code>umbra-scene</code> turns on the core's <code>serde</code> feature (arc42 §5.2); the derives come with replication.</div></div>
+        <div class="mb-row"><div class="mb-f rule">no Film in the Scene</div><div class="mb-d"><b>Only the resolution.</b> The Film lives in <code>umbra-render</code>; the other <code>RGBFilm</code> parameters arrive with <a href="https://github.com/sergioffpc/umbra/issues/84">#84</a>.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="options-impl">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-scene</span> · <a href="../src/options.rs">options.rs</a> · <code>RenderJobOptions</code>, <code>Seed</code></div>
+        <h3>Inside RenderJobOptions and Seed</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Two small Rust tricks keep the options safe. Sizes use a number type that can't hold zero, so “zero samples” or “Tiles of size zero” can't even be written down. And the seed gets its own named type, so it can't be mixed up with any other number.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 210" class="dg-wide" role="img" aria-label="Seed(-1) as 32 bits all set reads as u32 4294967295; NonZeroU32 has no value zero">
+            <text x="240" y="22" text-anchor="middle" class="t-bold">Seed(i32) → u32: same bits</text>
+            <text x="20" y="58" font-size="12">Seed(7)</text>
+            <g class="k-mut">
+                <rect x="110" y="42" width="320" height="24" class="f-surf"/>
+            </g>
+            <path d="M120 42 V66 M130 42 V66 M140 42 V66 M150 42 V66 M160 42 V66 M170 42 V66 M180 42 V66 M190 42 V66 M200 42 V66 M210 42 V66 M220 42 V66 M230 42 V66 M240 42 V66 M250 42 V66 M260 42 V66 M270 42 V66 M280 42 V66 M290 42 V66 M300 42 V66 M310 42 V66 M320 42 V66 M330 42 V66 M340 42 V66 M350 42 V66 M360 42 V66 M370 42 V66 M380 42 V66 M390 42 V66 M400 42 V66 M410 42 V66 M420 42 V66" class="k-mut" stroke-width="0.6"/>
+            <rect x="400" y="42" width="30" height="24" class="f-acc"/>
+            <text x="446" y="58" font-size="12">→ 7</text>
+            <text x="20" y="108" font-size="12">Seed(−1)</text>
+            <rect x="110" y="92" width="320" height="24" class="f-warm"/>
+            <path d="M120 92 V116 M130 92 V116 M140 92 V116 M150 92 V116 M160 92 V116 M170 92 V116 M180 92 V116 M190 92 V116 M200 92 V116 M210 92 V116 M220 92 V116 M230 92 V116 M240 92 V116 M250 92 V116 M260 92 V116 M270 92 V116 M280 92 V116 M290 92 V116 M300 92 V116 M310 92 V116 M320 92 V116 M330 92 V116 M340 92 V116 M350 92 V116 M360 92 V116 M370 92 V116 M380 92 V116 M390 92 V116 M400 92 V116 M410 92 V116 M420 92 V116" class="k-ink" stroke-width="0.6" opacity="0.5"/>
+            <text x="446" y="108" font-size="12">→ 4 294 967 295</text>
+            <text x="270" y="140" text-anchor="middle" font-size="11" class="t-mut">32 bits; filled = 1. Read as i32 the top bit means “negative”; read as u32 it is worth 2³¹.</text>
+
+            <line x1="600" y1="20" x2="600" y2="190" class="k-mut" stroke-dasharray="3 5"/>
+            <text x="710" y="22" text-anchor="middle" class="t-bold">NonZeroU32</text>
+            <rect x="640" y="42" width="40" height="30" rx="3" class="f-bad-soft k-bad"/><text x="660" y="62" text-anchor="middle" font-size="12" class="t-bad">0</text>
+            <path d="M642 44 L678 70 M678 44 L642 70" class="k-bad" stroke-width="1.5"/>
+            <rect x="690" y="42" width="40" height="30" rx="3" class="f-ok-soft k-ok"/><text x="710" y="62" text-anchor="middle" font-size="12">1</text>
+            <rect x="740" y="42" width="40" height="30" rx="3" class="f-ok-soft k-ok"/><text x="760" y="62" text-anchor="middle" font-size="12">2</text>
+            <text x="710" y="96" text-anchor="middle" font-size="12">1 … u32::MAX</text>
+            <text x="710" y="122" text-anchor="middle" font-size="11" class="t-mut">NonZeroU32::new(0)</text>
+            <text x="710" y="138" text-anchor="middle" font-size="11" class="t-mut">is None</text>
+        </svg></div>
+        <figcaption>Left: how <code>From&lt;Seed&gt; for u32</code> converts. The 32 bits are kept as they are, so non-negative seeds keep their value and negative ones wrap around, as in pbrt-v4, which passes its <code>int</code> seed where a <code>uint32_t</code> is expected. Right: <code>NonZeroU32</code>, the standard library's 32-bit number that cannot be zero.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub struct</span> Seed(<span class="k">pub</span> i32);
+
+<span class="k">impl</span> From&lt;Seed&gt; <span class="k">for</span> u32 {
+    <span class="k">fn</span> from(seed: Seed) -&gt; <span class="k">Self</span> {
+        seed.<span class="k">0</span>.cast_unsigned()
+    }
+}
+
+<span class="k">pub struct</span> RenderJobOptions {
+    <span class="k">pub</span> seed: Seed,
+    <span class="k">pub</span> tile_size: NonZeroU32,
+    <span class="k">pub</span> pixel_samples_per_pass: NonZeroU32,
+    <span class="k">pub</span> pixel_samples_per_pixel: NonZeroU32,
+}</pre>
+        <p><code>Seed</code> is a <b>newtype</b>: a struct around a single value, which gives that value its own type. A function that takes a <code>Seed</code> can't be handed a Tile size by mistake. Its conversion is a <code>From</code> implementation, so the renderer writes <code>options.seed.into()</code> where a <code>u32</code> is wanted.</p>
+        <p>The sizes are <code>NonZeroU32</code>. A zero Tile size would mean dividing the image by zero; zero Pixel Samples would mean an image with nothing in it. With this type, the check happens once, wherever an option is made, and code that reads the options never has to check again. <code>tile_size.get()</code> gives the plain <code>u32</code> back.</p>
+        <p><code>Default</code> gives seed 0, 32 × 32 Tiles and Passes of 64 Pixel Samples (arc42 §8.8), and pbrt-v4's default of 16 Pixel Samples per pixel. The <code>expect("32 is not zero")</code> calls inside it can never fail; they exist because <code>NonZeroU32::new</code> returns an <code>Option</code> and the reason it can't be <code>None</code> deserves to be written down.</p>
+        <p>The fields are public and the struct is <code>Copy</code>: options are a plain bundle of numbers, with no rule linking one field to another. Command-line overrides such as <code>--spp</code> are not implemented yet; arc42 §5.3 assigns them to the <code>umbra</code> binary, which will apply them on top of what the Scene File gives.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f rule">NonZeroU32 for every size</div><div class="mb-d"><b>Make the bad value unrepresentable.</b> No zero Tiles, Passes or sample counts can exist.</div></div>
+        <div class="mb-row"><div class="mb-f rule">Seed(pub i32)</div><div class="mb-d"><b>A newtype for an identifier.</b> pbrt-v4's <code>--seed</code> is an <code>int</code>, so Umbra accepts the same values.</div></div>
+        <div class="mb-row"><div class="mb-f rule">Workers are not an option</div><div class="mb-d"><b>Options never include the machine list.</b> Which Workers join is not a Render Job Option and never changes the Film (ADR 0003 as amended, arc42 §8.2).</div></div>
+    </div>
+</section>
+
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-scene</span> · <a href="../tests/umbra_scene/">tests/umbra_scene</a></div>
+        <h3>Tests</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The crate's tests check two things through its public interface: that an arena gives every object its own handle and gives nothing for a bad handle, and that <code>build</code> accepts the defaults and refuses the two kinds of bad settings. Rendering a Scene is tested where rendering lives, in <code>umbra-render</code>.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 180" class="dg-wide" role="img" aria-label="The five tests, grouped by file">
+            <text x="20" y="20" class="t-bold">arena.rs</text>
+            <rect x="20" y="30" width="290" height="50" rx="5" class="f-ok-soft k-ok"/>
+            <text x="165" y="51" text-anchor="middle" font-size="11">each_handle_gets_its_object</text>
+            <text x="165" y="69" text-anchor="middle" font-size="10" class="t-mut">push "a", "b": two handles, get, as_slice, len</text>
+            <rect x="330" y="30" width="290" height="50" rx="5" class="f-ok-soft k-ok"/>
+            <text x="475" y="51" text-anchor="middle" font-size="11">a_handle_past_the_end_gets_nothing</text>
+            <text x="475" y="69" text-anchor="middle" font-size="10" class="t-mut">get(Handle::new(1)) on one item: None</text>
+            <text x="20" y="110" class="t-bold">builder.rs</text>
+            <rect x="20" y="120" width="250" height="50" rx="5" class="f-ok-soft k-ok"/>
+            <text x="145" y="141" text-anchor="middle" font-size="11">the_defaults_build</text>
+            <text x="145" y="159" text-anchor="middle" font-size="10" class="t-mut">full_resolution() = 1280 × 720</text>
+            <rect x="285" y="120" width="290" height="50" rx="5" class="f-ok-soft k-ok"/>
+            <text x="430" y="141" text-anchor="middle" font-size="11">a_film_without_pixels_is_refused</text>
+            <text x="430" y="159" text-anchor="middle" font-size="10" class="t-mut">0 × 10 and 10 × −1: EmptyResolution</text>
+            <rect x="590" y="120" width="300" height="50" rx="5" class="f-ok-soft k-ok"/>
+            <text x="740" y="141" text-anchor="middle" font-size="11">a_filter_too_small_to_tabulate_is_refused</text>
+            <text x="740" y="159" text-anchor="middle" font-size="10" class="t-mut">radius (1.0, 0.01): FilterRadiusTooSmall</text>
+        </svg></div>
+        <figcaption>The five tests in <code>tests/umbra_scene/</code>, one test binary with two modules. Each test name is a sentence that says what it checks.</figcaption>
+    </figure>
+    <div class="prose">
+        <ul>
+            <li><a href="../tests/umbra_scene/arena.rs"><code>arena.rs</code></a>: handles are minted in order, each gives back its own object, slices come in handle order, and a handle past the end gets <code>None</code>.</li>
+            <li><a href="../tests/umbra_scene/builder.rs"><code>builder.rs</code></a>: the defaults build to pbrt-v4's 1280 × 720 film; a film with a zero or negative side, and a filter radius of 0.01, are refused with the exact error expected.</li>
+            <li>Elsewhere, Scenes built with <code>SceneBuilder</code> feed <code>umbra-render</code>'s tests and the counting-allocator test in the <code>umbra</code> crate (<a href="#view">section 4</a>).</li>
+        </ul>
+        <p>Run them with <code>cargo nextest run -p umbra-scene</code>. The README's example is also a doc test, since <code>lib.rs</code> includes the README as the crate's documentation.</p>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-scene</span> · roadmap</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Today's Scene describes a camera looking at nothing. The crate is shaped for what comes next: arenas waiting for Shapes, a builder waiting for more directives, a Scene waiting to be sent over the network.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 190" class="dg-wide" role="img" aria-label="Today's Scene next to the Scene planned for later milestones">
+            <text x="190" y="20" text-anchor="middle" class="t-bold">Scene today</text>
+            <rect x="20" y="30" width="340" height="150" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="40" y="60" font-size="12">resolution · camera · sensor</text>
+            <text x="40" y="86" font-size="12">Gaussian filter</text>
+            <text x="40" y="112" font-size="12">Halton randomisation</text>
+            <text x="40" y="138" font-size="12">volpath integrator</text>
+            <text x="40" y="164" font-size="11" class="t-mut">no arena in use</text>
+            <line x1="366" y1="105" x2="436" y2="105" class="k-mut" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
+            <text x="620" y="20" text-anchor="middle" class="t-bold">Scene later</text>
+            <rect x="440" y="30" width="360" height="150" rx="8" class="k-mut" fill="none" stroke-dasharray="6 5" stroke-width="1.5"/>
+            <text x="460" y="60" font-size="12">+ arenas: Shapes, lights, materials</text>
+            <text x="460" y="86" font-size="12">+ deterministic BVH in build()</text>
+            <text x="460" y="112" font-size="12">+ the full RGBFilm parameters</text>
+            <text x="460" y="138" font-size="12">+ serialised for replication</text>
+            <text x="460" y="164" font-size="11" class="t-mut">+ more cameras, filters, samplers</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+        <ul>
+            <li><b>Shapes, lights and materials</b>, each in its own arena, from <a href="https://github.com/sergioffpc/umbra/issues/79">#79</a> on. Arc42 §5.3 sketches one <code>add_*</code> method per arena on the builder (for example <code>add_shape</code>), which is where handles will be minted.</li>
+            <li><b>The BVH</b>, built deterministically inside <code>build</code> (ADR 0004), with a check that its depth fits the fixed traversal stack.</li>
+            <li><b>The other <code>RGBFilm</code> parameters</b> (crop window, sensor, ISO, white balance, …) with <a href="https://github.com/sergioffpc/umbra/issues/84">#84</a>.</li>
+            <li><b>Serialising a Scene for replication</b> to remote Workers (<a href="#replication">section 6</a>).</li>
+            <li><b>The parser</b> as the first real adapter in front of <code>SceneBuilder</code>, and <b>command-line overrides</b> of the Render Job Options.</li>
+            <li><b>pbrt-v4's default sampler</b>, <code>zsobol</code>; until then the builder defaults to <code>halton</code>.</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>In this crate: <a href="../README.md">the README</a> and the sources in <a href="../src/">src/</a>.</li>
+        <li><a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a>: index-handle arenas and allocation-free rendering.</li>
+        <li><a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>: a GPU-ready <code>no_std</code> rendering core, and the <code>SceneView</code>.</li>
+        <li><a href="../../../docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md">ADR 0015</a>: the layered workspace, and why <code>umbra-scene</code> sits outside the core.</li>
+        <li><a href="../../../docs/adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md">ADR 0003</a>: Scene Files parsed once on the Coordinator; replication; Render Job Options and overrides.</li>
+        <li><a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>: what the seed fixes.</li>
+        <li>arc42: <a href="../../../docs/architecture/05-building-block-view.md">§5 building blocks</a> (crate map, <code>umbra-scene</code>'s contract) and <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8 cross-cutting concepts</a> (§8.2 Scene input, §8.7 memory, §8.8 Tiles and Passes, §8.13 Scene transfer).</li>
+        <li><a href="../../../GLOSSARY.md">GLOSSARY.md</a>: Scene, Scene File, Render Job, Render Job Options, Tile, Pass, Work Unit, Worker, Coordinator.</li>
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a>, and the <a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/scene.h</code> and <code>scene.cpp</code> (<code>BasicSceneBuilder</code>, <code>BasicScene</code>), <code>options.h</code> (<code>PBRTOptions</code>).</li>
+        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, <a href="../../umbra-geometry/docs/geometry-guide.html">Umbra Geometry Guide</a>, <a href="../../umbra-render/docs/render-guide.html">Umbra Render Guide</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</li>
+    </ul>
+</section>
+
+<footer>Umbra Scene Guide · crates/umbra-scene/docs/scene-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/* A Rust f32 literal: always with a decimal point. */
+const f32lit = (x) => { const s = String(+(+x).toFixed(4)); return /[.e]/.test(s) ? s : s + ".0"; };
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+function setRange(id, v) {
+    const el = $(id);
+    el.value = String(v);
+    el.dispatchEvent(new Event("input"));
+}
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================================================================
+    §2 Builder bench: SceneBuilder's setters and build(), as scene.rs.
+    ================================================================ */
+(() => {
+    const DEF = { w: 1280, h: 720, fov: 90, open: 0, close: 1, rx: 1.5, ry: 1.5, sigma: 0.5, rand: "PermuteDigits", depth: 5 };
+    const ids = { w: "bd-w", h: "bd-h", fov: "bd-fov", open: "bd-open", close: "bd-close", rx: "bd-rx", ry: "bd-ry", sigma: "bd-sigma", depth: "bd-depth" };
+    let order = ["film", "camera", "filter", "sampler", "integrator"];
+    let built = null, stale = false, rng = mulberry32(17);
+
+    const read = () => ({
+        w: +$("bd-w").value, h: +$("bd-h").value, fov: +$("bd-fov").value,
+        open: +$("bd-open").value, close: +$("bd-close").value,
+        rx: +$("bd-rx").value, ry: +$("bd-ry").value, sigma: +$("bd-sigma").value,
+        rand: $("bd-rand").value, depth: +$("bd-depth").value,
+    });
+
+    /* The setter calls that differ from SceneBuilder::new(). */
+    function setterLines(s) {
+        const out = {};
+        if (s.w !== DEF.w || s.h !== DEF.h)
+            out.film = `builder.film(FilmParameters { resolution: Point2i::new(${s.w}, ${s.h}) });`;
+        const cam = [];
+        if (s.fov !== DEF.fov) cam.push(`    fov: ${f32lit(s.fov)},`);
+        if (s.open !== DEF.open) cam.push(`    shutter_open: ${f32lit(s.open)},`);
+        if (s.close !== DEF.close) cam.push(`    shutter_close: ${f32lit(s.close)},`);
+        if (cam.length) out.camera = `builder.camera(&amp;PerspectiveCameraParameters {\n${cam.join("\n")}\n    ..Default::default()\n});`;
+        if (s.rx !== DEF.rx || s.ry !== DEF.ry || s.sigma !== DEF.sigma)
+            out.filter = `builder.filter(GaussianFilterParameters {\n    radius: Vector2f::new(${f32lit(s.rx)}, ${f32lit(s.ry)}),\n    sigma: ${f32lit(s.sigma)},\n});`;
+        if (s.rand !== DEF.rand)
+            out.sampler = `builder.sampler(HaltonSamplerParameters { randomize: RandomizeStrategy::${s.rand} });`;
+        if (s.depth !== DEF.depth)
+            out.integrator = `builder.integrator(VolPathIntegrator::new(${s.depth}));`;
+        return out;
+    }
+    function showCode() {
+        const lines = setterLines(read());
+        const body = order.filter((k) => lines[k]).map((k) => lines[k]);
+        $("bd-code").innerHTML =
+            `<span class="k">let mut</span> builder = SceneBuilder::new();\n` +
+            (body.length ? body.join("\n") + "\n" : `<span class="c">// every setting at its default</span>\n`) +
+            `<span class="k">let</span> scene = builder.build()?;`;
+    }
+
+    /* SceneBuilder::build, step by step. */
+    function build(s) {
+        if (s.w < 1 || s.h < 1) {
+            return { err: `SceneError::EmptyResolution { resolution: Point2i(${s.w}, ${s.h}) }`,
+                msg: `the film's resolution ${s.w} x ${s.h} has no pixel` };
+        }
+        if (s.rx * 32 < 1 || s.ry * 32 < 1) {
+            return { err: "SceneError::FilterRadiusTooSmall", msg: "a filter radius is below 1/32" };
+        }
+        const [open, close] = s.close < s.open ? [s.close, s.open] : [s.open, s.close];
+        const frame = s.w / s.h;
+        const half = frame > 1 ? [frame, 1] : [1, 1 / frame];
+        return {
+            s, open, close, swapped: s.close < s.open,
+            screen: { pMin: [-half[0], -half[1]], pMax: half },
+            imaging: (close - open) * 100 / 100,
+            table: [Math.trunc(32 * s.rx), Math.trunc(32 * s.ry)],
+        };
+    }
+    function doBuild() { built = build(read()); stale = false; draw(); }
+
+    function draw() {
+        showCode();
+        $("bd-state").innerHTML = built === null ? "press build()"
+            : stale ? `<span class="bad">the settings changed since the last build(): that builder is gone, press build() again</span>`
+            : `built from the settings shown · setter order: ${order.join(" → ")}`;
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm"), bad = tok("--err");
+        const { ctx, w, h } = fit($("bd-cv"));
+        ctx.font = `11px ${tok("--mono")}`;
+        if (!built || built.err) {
+            ctx.fillStyle = built ? bad : mut; ctx.textAlign = "center";
+            ctx.fillText(built ? "Err: no Scene" : "no Scene yet", w / 2, h / 2);
+            ctx.textAlign = "left";
+        } else {
+            const { screen, open, close, s } = built;
+            /* screen window, in screen space */
+            const H2 = h - 46;
+            const ext = Math.max(screen.pMax[0], screen.pMax[1]) * 1.15;
+            const k = Math.min(w, H2) / (2 * ext);
+            const X = (x) => w / 2 + x * k, Y = (y) => H2 / 2 + 4 - y * k;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), H2 + 4); ctx.stroke();
+            ctx.fillStyle = acc; ctx.globalAlpha = 0.12;
+            ctx.fillRect(X(screen.pMin[0]), Y(screen.pMax[1]), (screen.pMax[0] - screen.pMin[0]) * k, (screen.pMax[1] - screen.pMin[1]) * k);
+            ctx.globalAlpha = 1; ctx.strokeStyle = acc; ctx.lineWidth = 1.5;
+            ctx.strokeRect(X(screen.pMin[0]), Y(screen.pMax[1]), (screen.pMax[0] - screen.pMin[0]) * k, (screen.pMax[1] - screen.pMin[1]) * k);
+            ctx.fillStyle = mut;
+            ctx.fillText(`screen window for ${s.w} × ${s.h}`, 6, 14);
+            ctx.fillText(`(${fmt(screen.pMax[0], 3)}, ${fmt(screen.pMax[1], 3)})`, Math.min(X(screen.pMax[0]) + 4, w - 110), Math.max(Y(screen.pMax[1]) - 4, 26));
+            /* shutter interval on [0, 2] */
+            const y0 = h - 20, L = 12, R = w - 12, T = (t) => L + t / 2 * (R - L);
+            ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(L, y0); ctx.lineTo(R, y0); ctx.stroke();
+            ctx.strokeStyle = warm; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(T(open), y0); ctx.lineTo(T(close) + (close === open ? 1 : 0), y0); ctx.stroke();
+            ctx.lineWidth = 1; ctx.fillStyle = mut;
+            ctx.fillText("0", L, h - 4); ctx.textAlign = "right"; ctx.fillText("2", R, h - 4);
+            ctx.textAlign = "center"; ctx.fillStyle = ink;
+            ctx.fillText(`shutter [${fmt(open, 2)}, ${fmt(close, 2)}]`, w / 2, y0 - 8);
+            ctx.textAlign = "left";
+        }
+        let rows;
+        if (!built) rows = `<dt>result</dt><dd class="mut">–</dd>`;
+        else if (built.err) rows = `<dt>result</dt><dd class="bad">Err(${esc(built.err)})</dd><dt>Display</dt><dd class="bad">${esc(built.msg)}</dd>`;
+        else rows = `
+            <dt>result</dt><dd class="ok">Ok(Scene)</dd>
+            <dt>full_resolution()</dt><dd>${built.s.w} × ${built.s.h}</dd>
+            <dt>screen window</dt><dd>[${fmt(built.screen.pMin[0], 3)}, ${fmt(built.screen.pMax[0], 3)}] × [${fmt(built.screen.pMin[1], 3)}, ${fmt(built.screen.pMax[1], 3)}]</dd>
+            <dt>shutter</dt><dd>${fmt(built.open, 2)} to ${fmt(built.close, 2)}${built.swapped ? ' <span class="acc">(swapped)</span>' : ""}</dd>
+            <dt>sensor imaging ratio</dt><dd>${fmt(built.imaging, 2)}</dd>
+            <dt>filter table</dt><dd>${built.table[0]} × ${built.table[1]} cells</dd>
+            <dt>randomize_strategy()</dt><dd>RandomizeStrategy::${built.s.rand}</dd>
+            <dt>integrator()</dt><dd>max_depth ${built.s.depth}</dd>`;
+        $("bd-read").innerHTML = rows;
+    }
+
+    const onChange = () => { if (built !== null) stale = true; draw(); };
+    bindRange("bd-w", (v) => v, onChange);
+    bindRange("bd-h", (v) => v, onChange);
+    bindRange("bd-fov", (v) => v + "°", onChange);
+    bindRange("bd-open", (v) => v.toFixed(2), onChange);
+    bindRange("bd-close", (v) => v.toFixed(2), onChange);
+    bindRange("bd-rx", (v) => v.toFixed(3), onChange);
+    bindRange("bd-ry", (v) => v.toFixed(3), onChange);
+    bindRange("bd-sigma", (v) => v.toFixed(2), onChange);
+    bindRange("bd-depth", (v) => v, onChange);
+    $("bd-rand").addEventListener("change", onChange);
+    $("bd-build").addEventListener("click", doBuild);
+    $("bd-shuffle").addEventListener("click", () => {
+        /* Fisher-Yates: the setters only store, so any order builds the same Scene. */
+        for (let i = order.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1));
+            [order[i], order[j]] = [order[j], order[i]];
+        }
+        doBuild();
+    });
+    $("bd-reset").addEventListener("click", () => {
+        for (const [key, id] of Object.entries(ids)) setRange(id, DEF[key]);
+        $("bd-rand").value = DEF.rand;
+        order = ["film", "camera", "filter", "sampler", "integrator"];
+        doBuild();
+    });
+    drawers.push(draw);
+    doBuild();
+})();
+
+/* ================================================================
+    §3 Arena bench: Arena::push and Arena::get, as arena.rs.
+    ================================================================ */
+(() => {
+    let words, nums, log;
+    const rng = mulberry32(23);
+    const limit = () => +$("ar-limit").value;
+    function fresh() { words = ["a", "b"]; nums = [1]; log = ['words.push("a")?; // Handle(0)', 'words.push("b")?; // Handle(1)', "numbers.push(1.0)?; // Handle(0)"]; }
+    const say = (s) => { log.push(s); if (log.length > 6) log = log.slice(-6); };
+
+    /* Arena::push: the new handle is the current length, if it is below the limit. */
+    function push(arena, item, typeName, label, lit) {
+        if (arena.length < limit()) {
+            arena.push(item);
+            say(`${label}.push(${lit})?; // Handle(${arena.length - 1})`);
+        } else {
+            say(`${label}.push(${lit}) // Err: more than ${limit() - 1} objects of type \`${typeName}\``);
+        }
+        draw();
+    }
+    $("ar-push-w").addEventListener("click", () => {
+        const v = String($("ar-word").value || "").trim().slice(0, 10) || "word";
+        push(words, v, "&str", "words", `"${v}"`);
+    });
+    $("ar-push-n").addEventListener("click", () => {
+        const v = Math.round(rng() * 1000) / 100;
+        push(nums, v, "f32", "numbers", f32lit(v));
+    });
+    $("ar-clear").addEventListener("click", () => { words = []; nums = []; log = ["let mut words = Arena::new();", "let mut numbers = Arena::new();"]; draw(); });
+    bindRange("ar-limit", (v) => v, () => {
+        if (words.length > limit() || nums.length > limit()) {
+            words = words.slice(0, limit()); nums = nums.slice(0, limit());
+            say("// the figure drops objects past the new limit");
+        }
+        draw();
+    });
+    bindRange("ar-h", (v) => `Handle(${v})`, draw);
+    $("ar-which").addEventListener("change", draw);
+
+    function lookup() {
+        const i = +$("ar-h").value, which = $("ar-which").value;
+        if (which === "x") return { code: `numbers.get(Handle::&lt;&amp;str&gt;::new(${i}))`, res: "does not compile: expected `Handle&lt;f32&gt;`, found `Handle&lt;&amp;str&gt;`", cls: "bad", row: -1, i };
+        const arena = which === "w" ? words : nums;
+        const label = which === "w" ? "words" : "numbers";
+        const v = arena[i];
+        const shown = v === undefined ? "None" : which === "w" ? `Some(&amp;"${esc(v)}")` : `Some(&amp;${f32lit(v)})`;
+        return { code: `${label}.get(Handle::new(${i}))`, res: shown, cls: v === undefined ? "bad" : "ok", row: which === "w" ? 0 : 1, i, hit: v !== undefined };
+    }
+
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm"), bad = tok("--err");
+        const { ctx, w, h } = fit($("ar-cv"));
+        const L = limit(), q = lookup();
+        const left = 90, cell = Math.min(64, (w - left - 12) / Math.max(L, 1)), ch = Math.min(40, h / 4);
+        const rowsY = [h * 0.22, h * 0.62];
+        ctx.font = `11px ${tok("--mono")}`; ctx.textBaseline = "middle";
+        [[words, "words", "&str"], [nums, "numbers", "f32"]].forEach(([arena, name, ty], r) => {
+            const y = rowsY[r];
+            ctx.fillStyle = ink; ctx.fillText(name, 6, y + ch / 2 - 7);
+            ctx.fillStyle = mut; ctx.fillText(`Arena<${ty}>`, 6, y + ch / 2 + 8);
+            for (let i = 0; i < L; i++) {
+                const x = left + i * cell;
+                if (i < arena.length) {
+                    ctx.fillStyle = r === 0 ? acc : warm; ctx.globalAlpha = 0.16; ctx.fillRect(x, y, cell - 3, ch); ctx.globalAlpha = 1;
+                    ctx.strokeStyle = r === 0 ? acc : warm; ctx.lineWidth = 1.2; ctx.strokeRect(x, y, cell - 3, ch);
+                    ctx.fillStyle = ink; ctx.textAlign = "center";
+                    const label = r === 0 ? `"${arena[i]}"` : f32lit(arena[i]);
+                    ctx.fillText(label.length * 7 > cell - 4 ? label.slice(0, Math.max(1, Math.floor((cell - 6) / 7) - 1)) + "…" : label, x + (cell - 3) / 2, y + ch / 2);
+                } else {
+                    ctx.setLineDash([4, 3]); ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.strokeRect(x, y, cell - 3, ch); ctx.setLineDash([]);
+                }
+                ctx.fillStyle = mut; ctx.textAlign = "center"; ctx.fillText(String(i), x + (cell - 3) / 2, y - 9);
+            }
+            ctx.textAlign = "left";
+        });
+        /* the looked-up handle */
+        if (q.row >= 0) {
+            const x = left + q.i * cell, y = rowsY[q.row];
+            if (q.i < L) {
+                ctx.strokeStyle = q.hit ? ink : bad; ctx.lineWidth = 2.5; ctx.setLineDash(q.hit ? [] : [3, 3]);
+                ctx.strokeRect(x - 2, y - 2, cell + 1, ch + 4); ctx.setLineDash([]);
+            }
+            ctx.fillStyle = q.hit ? ink : bad; ctx.textAlign = "center";
+            ctx.fillText(q.hit ? "▲ get" : "▲ None", Math.min(x + (cell - 3) / 2, w - 24), y + ch + 12);
+            ctx.textAlign = "left";
+        } else {
+            ctx.fillStyle = bad; ctx.textAlign = "center";
+            ctx.fillText("Handle<&str> on Arena<f32>: rejected by the compiler", w / 2, h - 8);
+            ctx.textAlign = "left";
+        }
+        ctx.textBaseline = "alphabetic";
+        $("ar-read").innerHTML = `
+            <dt>words.len()</dt><dd>${words.length}${words.length >= L ? ' <span class="bad">(full)</span>' : ""}</dd>
+            <dt>numbers.len()</dt><dd>${nums.length}${nums.length >= L ? ' <span class="bad">(full)</span>' : ""}</dd>
+            <dt>look-up</dt><dd>${q.code}</dd>
+            <dt>answer</dt><dd class="${q.cls}">${q.res}</dd>
+            <dt>words.as_slice()</dt><dd>[${words.map((v) => `"${esc(v)}"`).join(", ")}]</dd>`;
+        $("ar-log").textContent = log.join("\n");
+    }
+    fresh();
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §5 Options bench: RenderJobOptions and how they cut the work.
+    ================================================================ */
+(() => {
+    const DEF = { w: 1280, h: 720, tile: 32, pass: 64, spp: 16, seed: 0 };
+    const ceilDiv = (a, b) => Math.ceil(a / b);
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm"), bad = tok("--err"), ok = tok("--exact");
+        const W = +$("op-w").value, H = +$("op-h").value, t = +$("op-tile").value, p = +$("op-pass").value, spp = +$("op-spp").value, seed = +$("op-seed").value;
+        const zero = [["tile_size", t], ["pixel_samples_per_pass", p], ["pixel_samples_per_pixel", spp]].filter(([, v]) => v === 0).map(([n]) => n);
+        /* tiles */
+        {
+            const { ctx, w, h } = fit($("op-tiles"));
+            const pad = 10, k = Math.min((w - 2 * pad) / W, (h - 2 * pad) / H);
+            const ox = (w - W * k) / 2, oy = (h - H * k) / 2;
+            ctx.font = `11px ${tok("--mono")}`;
+            if (t === 0) {
+                ctx.strokeStyle = grid; ctx.strokeRect(ox, oy, W * k, H * k);
+                ctx.fillStyle = bad; ctx.textAlign = "center"; ctx.fillText("tile_size 0: NonZeroU32::new(0) is None", w / 2, h / 2); ctx.textAlign = "left";
+            } else {
+                const cols = ceilDiv(W, t), rows = ceilDiv(H, t);
+                for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+                    const x0 = c * t, y0 = r * t, tw = Math.min(t, W - x0), th = Math.min(t, H - y0);
+                    const short = tw < t || th < t;
+                    ctx.fillStyle = short ? warm : acc;
+                    ctx.globalAlpha = short ? 0.35 : ((r + c) % 2 ? 0.12 : 0.22);
+                    ctx.fillRect(ox + x0 * k, oy + y0 * k, tw * k, th * k);
+                }
+                ctx.globalAlpha = 1;
+                if (t * k >= 3) {
+                    ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.beginPath();
+                    for (let c = 1; c < cols; c++) { ctx.moveTo(ox + c * t * k, oy); ctx.lineTo(ox + c * t * k, oy + H * k); }
+                    for (let r = 1; r < rows; r++) { ctx.moveTo(ox, oy + r * t * k); ctx.lineTo(ox + W * k, oy + r * t * k); }
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.strokeRect(ox, oy, W * k, H * k);
+            }
+        }
+        /* passes */
+        {
+            const { ctx, w, h } = fit($("op-passes"));
+            const pad = 12, y = h * 0.28, bh = h * 0.34;
+            ctx.font = `11px ${tok("--mono")}`;
+            if (spp === 0 || p === 0) {
+                ctx.fillStyle = bad; ctx.textAlign = "center";
+                ctx.fillText(`${spp === 0 ? "pixel_samples_per_pixel" : "pixel_samples_per_pass"} 0: not a NonZeroU32`, w / 2, h / 2); ctx.textAlign = "left";
+            } else {
+                const n = ceilDiv(spp, p), X = (i) => pad + i / spp * (w - 2 * pad);
+                const cols = [acc, ok, warm];
+                for (let j = 0; j < n; j++) {
+                    const a = j * p, b = Math.min(spp, a + p);
+                    ctx.fillStyle = cols[j % 3]; ctx.globalAlpha = 0.28; ctx.fillRect(X(a), y, X(b) - X(a), bh); ctx.globalAlpha = 1;
+                    ctx.strokeStyle = cols[j % 3]; ctx.lineWidth = 1.2; ctx.strokeRect(X(a), y, X(b) - X(a), bh);
+                    if (X(b) - X(a) > 46) { ctx.fillStyle = ink; ctx.textAlign = "center"; ctx.fillText(`Pass ${j}: ${b - a}`, (X(a) + X(b)) / 2, y + bh / 2 + 4); ctx.textAlign = "left"; }
+                }
+                if ((w - 2 * pad) / spp >= 4) {
+                    ctx.strokeStyle = grid; ctx.lineWidth = 0.6; ctx.beginPath();
+                    for (let i = 1; i < spp; i++) { ctx.moveTo(X(i), y); ctx.lineTo(X(i), y + bh); }
+                    ctx.stroke();
+                }
+                ctx.fillStyle = mut;
+                ctx.fillText("sample 0", pad, y - 6); ctx.textAlign = "right"; ctx.fillText(`sample ${spp - 1}`, w - pad, y - 6); ctx.textAlign = "left";
+            }
+        }
+        const u = seed < 0 ? seed + 4294967296 : seed;
+        let rows = "";
+        if (zero.length) {
+            rows = `<dt>RenderJobOptions</dt><dd class="bad">can't be made: ${zero.join(", ")} would be 0</dd>`;
+        } else {
+            const cols = ceilDiv(W, t), rws = ceilDiv(H, t), n = ceilDiv(spp, p), last = spp - (n - 1) * p;
+            rows = `
+                <dt>Tiles</dt><dd>${cols} × ${rws} = ${cols * rws}</dd>
+                <dt>edge Tiles</dt><dd>${W % t ? `right column ${W % t} px wide` : "right column full"}, ${H % t ? `bottom row ${H % t} px tall` : "bottom row full"}</dd>
+                <dt>Passes</dt><dd>${n}${last < p ? ` <span class="mut">(last: ${last} Pixel Sample${last === 1 ? "" : "s"})</span>` : ""}</dd>
+                <dt>Work Units</dt><dd class="acc">${cols * rws} × ${n} = ${(cols * rws * n).toLocaleString("en-US")}</dd>
+                <dt>Pixel Samples in all</dt><dd>${(W * H * spp).toLocaleString("en-US")}</dd>`;
+        }
+        rows += `
+            <dt>seed</dt><dd>Seed(${seed})</dd>
+            <dt>u32::from(seed)</dt><dd>${u} <span class="mut">(0x${u.toString(16).padStart(8, "0")})</span></dd>`;
+        $("op-read").innerHTML = rows;
+    }
+    bindRange("op-w", (v) => v, draw);
+    bindRange("op-h", (v) => v, draw);
+    bindRange("op-tile", (v) => v, draw);
+    bindRange("op-pass", (v) => v, draw);
+    bindRange("op-spp", (v) => v, draw);
+    bindRange("op-seed", (v) => v, draw);
+    const preset = (o) => { for (const [k, v] of Object.entries(o)) setRange("op-" + k, v); };
+    $("op-default").addEventListener("click", () => preset(DEF));
+    $("op-small").addEventListener("click", () => preset({ w: 200, h: 120, tile: 64, pass: 6, spp: 16 }));
+    drawers.push(draw);
+    draw();
+})();
+})();
+</script>
+</body>
+</html>

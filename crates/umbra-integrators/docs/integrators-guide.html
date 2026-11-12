@@ -1,0 +1,2181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Integrators Guide</title>
+<meta name="description" content="How umbra-integrators computes one Pixel Sample from start to end: the rendering equation in plain words, what an integrator is, the five steps of evaluate_pixel_sample, the Recorder behind Pixel Traces, the SceneView, and where the volumetric path tracer stands today, with interactive figures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of crates/umbra-camera/docs/camera-guide.html and crates/umbra-math/docs/math-guide.html:
+    same tokens, same layout. One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file and PBR 4e section. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+/* ---------- additions for this guide: the recorder's log ---------- */
+ol.log { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.35rem; font: 400 0.78rem/1.45 var(--mono); counter-reset: ev; }
+ol.log li { counter-increment: ev; display: grid; grid-template-columns: 1.8em minmax(0, 1fr); gap: 0.5rem; padding: 0.4rem 0.6rem; background: var(--paper); border: 1px solid var(--grid); border-radius: 4px; overflow-wrap: anywhere; }
+ol.log li::before { content: counter(ev); color: var(--accent); font-weight: 600; }
+ol.log li.none { grid-template-columns: minmax(0, 1fr); color: var(--muted); font-style: italic; }
+ol.log li.none::before { content: none; }
+ol.log b { color: var(--accent); font-weight: 600; }
+.status { display: inline-block; padding: 0.1em 0.5em; border-radius: 3px; font: 600 0.68rem/1.5 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
+.status.done { background: color-mix(in srgb, var(--exact) 18%, transparent); color: var(--exact); }
+.status.stub { background: color-mix(in srgb, var(--warm) 22%, transparent); color: var(--warm); }
+.status.later { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-integrators/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Integrators Guide</h1>
+    </div>
+    <p class="lede">A rendered image is an average of many small measurements, one per Pixel Sample. <code>umbra-integrators</code> is the crate that takes one Pixel Sample from start to end: it picks colours of light, asks the camera for a ray, asks the integrator how much light comes back along that ray, and hands the Film a colour and a weight. It also lets a <em>recorder</em> watch every step, so a single pixel can be inspected later. This guide explains each step in pictures first and formulas second. It assumes only school maths.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 330" class="dg-wide" role="img" aria-label="One Pixel Sample in five steps, watched by a recorder">
+            <!-- the sampler -->
+            <rect x="180" y="16" width="420" height="30" rx="4" class="f-mut-soft k-mut"/>
+            <text x="390" y="36" text-anchor="middle" font-size="12">sampler, restarted for this id: u₀ u₁ u₂ u₃ u₄ u₅ …</text>
+            <line x1="240" y1="46" x2="240" y2="76" class="k-mut" marker-end="url(#ah-mut)"/>
+            <line x1="390" y1="46" x2="390" y2="76" class="k-mut" marker-end="url(#ah-mut)"/>
+            <path d="M600 31 C 660 31, 690 45, 690 76" class="k-mut" fill="none" stroke-dasharray="4 4" marker-end="url(#ah-mut)"/>
+            <text x="700" y="40" font-size="11" class="t-mut">later: one draw per bounce</text>
+            <!-- step boxes -->
+            <rect x="20" y="80" width="130" height="92" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="85" y="102" text-anchor="middle" class="t-bold">PixelSampleId</text>
+            <text x="85" y="128" text-anchor="middle" font-size="12">pixel (3, 4)</text>
+            <text x="85" y="148" text-anchor="middle" font-size="12">sample_index 2</text>
+
+            <rect x="180" y="80" width="120" height="92" rx="6" class="f-acc-soft k-acc"/>
+            <text x="240" y="98" text-anchor="middle" font-size="12">① wavelengths</text>
+            <line x1="207" y1="160" x2="207" y2="122" style="stroke:hsl(270,70%,58%)" stroke-width="5"/>
+            <line x1="229" y1="160" x2="229" y2="112" style="stroke:hsl(150,60%,40%)" stroke-width="5"/>
+            <line x1="251" y1="160" x2="251" y2="116" style="stroke:hsl(55,85%,45%)" stroke-width="5"/>
+            <line x1="273" y1="160" x2="273" y2="130" style="stroke:hsl(5,75%,52%)" stroke-width="5"/>
+
+            <rect x="330" y="80" width="120" height="92" rx="6" class="f-acc-soft k-acc"/>
+            <text x="390" y="98" text-anchor="middle" font-size="12">② camera sample</text>
+            <rect x="365" y="110" width="50" height="50" class="f-surf k-ink"/>
+            <circle cx="390" cy="135" r="24" class="k-acc" fill="none" stroke-dasharray="3 3"/>
+            <circle cx="398" cy="128" r="4.5" class="f-warm"/>
+
+            <rect x="480" y="80" width="120" height="92" rx="6" class="f-acc-soft k-acc"/>
+            <text x="540" y="98" text-anchor="middle" font-size="12">③ camera ray</text>
+            <rect x="494" y="126" width="22" height="16" rx="2" class="f-surf k-ink"/>
+            <path d="M516 129 L526 124 V144 L516 139 Z" class="f-surf k-ink"/>
+            <line x1="528" y1="134" x2="588" y2="116" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+
+            <rect x="630" y="80" width="120" height="92" rx="6" class="f-warm-soft k-warm"/>
+            <text x="690" y="98" text-anchor="middle" font-size="12">④ radiance L(λ)</text>
+            <text x="690" y="122" text-anchor="middle" font-size="12" class="t-warm">integrator.li(…)</text>
+            <line x1="650" y1="160" x2="730" y2="160" class="k-ink"/>
+            <text x="690" y="152" text-anchor="middle" font-size="11" class="t-mut">today: 0 0 0 0</text>
+
+            <rect x="780" y="80" width="100" height="92" rx="6" class="f-acc-soft k-acc"/>
+            <text x="830" y="98" text-anchor="middle" font-size="12">⑤ FilmSample</text>
+            <text x="830" y="128" text-anchor="middle" font-size="12">rgb</text>
+            <text x="830" y="150" text-anchor="middle" font-size="12">weight</text>
+            <text x="830" y="192" text-anchor="middle" font-size="11" class="t-mut">→ the Film</text>
+            <text x="830" y="206" text-anchor="middle" font-size="11" class="t-mut">(umbra-render)</text>
+
+            <line x1="150" y1="126" x2="176" y2="126" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="300" y1="126" x2="326" y2="126" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="450" y1="126" x2="476" y2="126" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="600" y1="126" x2="626" y2="126" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="750" y1="126" x2="776" y2="126" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- recorder taps -->
+            <path d="M240 172 V258 M390 172 V258 M540 172 V258 M690 172 V258 M830 214 V258" class="k-warm" stroke-dasharray="4 4" stroke-width="1.4"/>
+            <text x="246" y="232" font-size="11" class="t-warm">wavelengths</text>
+            <text x="396" y="232" font-size="11" class="t-warm">camera_sample</text>
+            <text x="546" y="232" font-size="11" class="t-warm">camera_ray</text>
+            <text x="696" y="232" font-size="11" class="t-warm">radiance</text>
+            <text x="836" y="244" font-size="11" class="t-warm">film_sample</text>
+            <rect x="180" y="260" width="700" height="52" rx="6" class="f-warm-soft k-warm"/>
+            <text x="200" y="282" class="t-bold">Recorder</text>
+            <text x="290" y="282" font-size="12">watches every step. Rendering: NoRecorder, records nothing, costs nothing.</text>
+            <text x="290" y="300" font-size="12">A Pixel Trace: a recorder that writes it all down, through the same code.</text>
+            <!-- step numbers -->
+            <g class="step"><circle cx="85" cy="200" r="11"/><text x="85" y="204" text-anchor="middle">id</text></g>
+            <text x="85" y="232" text-anchor="middle" font-size="11" class="t-mut">which Pixel Sample</text>
+        </svg></div>
+        <figcaption id="big-cap">One Pixel Sample, the whole job of <a href="#pixel-sample"><code>evaluate_pixel_sample</code></a>. Steps ①, ② and ③ borrow code from other crates (spectrum, camera). Step ④ is the <a href="#integrator">integrator</a>, the heart of a renderer; Umbra's is still a stub that returns no light, see <a href="#volpath-today">section 11</a>. Step ⑤ turns light into a colour and a weight. The <a href="#recorder">recorder</a> at the bottom is how a Pixel Trace sees exactly what was rendered.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="One Pixel Sample through umbra-integrators, as types and functions">
+        <li><span class="who">umbra-integrators</span><span class="ty"><a href="#pixel-sample">PixelSampleId</a></span><span class="what">pixel + sample index</span></li>
+        <li class="fn"><span class="who ext">umbra-spectrum</span><span class="ty">SampledWavelengths::sample_visible</span><span class="what">one number → 4 wavelengths</span></li>
+        <li class="fn"><span class="who ext">umbra-camera</span><span class="ty">get_camera_sample · generate_ray</span><span class="what">pixel → camera sample → ray</span></li>
+        <li class="fn"><span class="who">umbra-integrators</span><span class="ty"><a href="#integrator">RayIntegrator::li</a></span><span class="what">ray → radiance L(λ)</span></li>
+        <li class="fn"><span class="who ext">umbra-camera</span><span class="ty">PixelSensor::to_sensor_rgb</span><span class="what">L(λ) → sensor RGB</span></li>
+        <li><span class="who">umbra-integrators</span><span class="ty"><a href="#pixel-sample">FilmSample</a></span><span class="what">rgb, weight</span></li>
+        <li><span class="who ext">umbra-render</span><span class="ty">Film</span><span class="what">Σ weight·rgb ⁄ Σ weight</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to a plain explanation and the Rust function that computes it. Some sections end with an interactive figure: move the sliders, press the buttons and watch the result change. New to the symbols? Start with <a href="#toolkit">section 0</a>. The figures repeat the Rust code's steps in JavaScript (in double precision, and with a stand-in for the Halton sampler, so the numbers are not Umbra's bit for bit). Section references (“PBR 4e §13.1”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows. This crate leans on its neighbours: the <a href="../../umbra-camera/docs/camera-guide.html">Camera Guide</a> explains the camera sample, the ray and the sensor in depth, and the <a href="../../umbra-sampling/docs/sampling-guide.html">Sampling</a>, <a href="../../umbra-spectrum/docs/spectrum-guide.html">Spectrum</a>, <a href="../../umbra-geometry/docs/geometry-guide.html">Geometry</a> and <a href="../../umbra-math/docs/math-guide.html">Math</a> guides cover the rest. This guide does not repeat them.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Theory</div>
+                <ol>
+                    <li><a href="#toolkit"><span class="n">0</span><span class="t">The maths toolkit, in pictures</span><span class="c">averages, wavelengths, radiance, pure functions</span></a></li>
+                    <li><a href="#rendering-equation"><span class="n">1</span><span class="t">The rendering equation, in plain words</span><span class="c">emitted + reflected light</span></a></li>
+                    <li><a href="#integrator"><span class="n">2</span><span class="t">What an integrator is</span><span class="c">RayIntegrator::li</span></a></li>
+                    <li><a href="#pixel-sample"><span class="n">3</span><span class="t">Evaluating one Pixel Sample</span><span class="c">evaluate_pixel_sample · FilmSample</span></a></li>
+                    <li><a href="#recorder"><span class="n">4</span><span class="t">The recorder and Pixel Traces</span><span class="c">Recorder · NoRecorder · ADR 0011</span></a></li>
+                    <li><a href="#scene-view"><span class="n">5</span><span class="t">The scene view</span><span class="c">SceneView · borrowed, never &amp;Scene</span></a></li>
+                    <li><a href="#path-tracing"><span class="n">6</span><span class="t">Path tracing: the theory behind volpath</span><span class="c">bounces, throughput, max_depth, media</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">7</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 sources</span></a></li>
+                    <li><a href="#one-path"><span class="n">8</span><span class="t">One function for rendering and tracing</span><span class="c">evaluate_pixel_sample · ADR 0011, 0022</span></a></li>
+                    <li><a href="#values"><span class="n">9</span><span class="t">Values in, values out</span><span class="c">PixelSampleState · FilmSample · ADR 0028</span></a></li>
+                    <li><a href="#generic"><span class="n">10</span><span class="t">Generic, not dyn</span><span class="c">RayIntegrator · ADR 0006</span></a></li>
+                    <li><a href="#volpath-today"><span class="n">11</span><span class="t">VolPathIntegrator today</span><span class="c">max_depth · a stub that returns 0</span></a></li>
+                    <li><a href="#tests"><span class="n">12</span><span class="t">How it is tested</span><span class="c">black frame, threads, allocations</span></a></li>
+                    <li><a href="#not-yet"><span class="n">13</span><span class="t">Not here yet</span><span class="c">#79, #80, #85, #88 and beyond</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Theory</div>
+    <h2>How a renderer measures light</h2>
+    <p>A renderer answers one question millions of times: how much light arrives along this ray? This part explains the question, the physics behind it, and the five steps Umbra takes to answer it once.</p>
+</div>
+
+<section class="topic" id="toolkit">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">0</span>background · used by every section</div>
+        <h3>The maths toolkit, in pictures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>This guide needs four ideas: estimating a total by averaging random guesses, carrying light as four colours at once, the word <em>radiance</em> for “how bright along this ray”, and a <em>pure function</em> that always gives the same answer for the same question. Vectors, angles, matrices and the filter are explained in the <a href="../../umbra-camera/docs/camera-guide.html#toolkit">Camera Guide's toolkit</a> and the <a href="../../umbra-math/docs/math-guide.html">Math Guide</a>; this section does not repeat them.</div>
+
+    <div class="cards">
+        <div class="card">
+            <svg viewBox="0 0 520 200" role="img" aria-label="Random guesses jump around; their running average settles on the true value">
+                <line x1="30" y1="170" x2="500" y2="170" class="k-mut"/>
+                <line x1="30" y1="90" x2="500" y2="90" class="k-acc" stroke-dasharray="6 5"/>
+                <text x="496" y="82" text-anchor="end" class="t-acc">true value</text>
+                <circle cx="50" cy="40" r="4" class="f-mut"/><circle cx="80" cy="140" r="4" class="f-mut"/><circle cx="110" cy="65" r="4" class="f-mut"/>
+                <circle cx="140" cy="125" r="4" class="f-mut"/><circle cx="170" cy="100" r="4" class="f-mut"/><circle cx="200" cy="55" r="4" class="f-mut"/>
+                <circle cx="230" cy="150" r="4" class="f-mut"/><circle cx="260" cy="80" r="4" class="f-mut"/><circle cx="290" cy="110" r="4" class="f-mut"/>
+                <circle cx="320" cy="70" r="4" class="f-mut"/><circle cx="350" cy="120" r="4" class="f-mut"/><circle cx="380" cy="95" r="4" class="f-mut"/>
+                <circle cx="410" cy="60" r="4" class="f-mut"/><circle cx="440" cy="115" r="4" class="f-mut"/><circle cx="470" cy="88" r="4" class="f-mut"/>
+                <polyline points="50,40 80,90 110,82 140,93 170,94 200,88 230,97 260,95 290,97 320,94 350,96 380,96 410,93 440,95 470,94" class="k-warm" fill="none" stroke-width="2.4"/>
+                <text x="30" y="192" class="t-mut">grey: single guesses</text>
+                <text x="300" y="192" class="t-warm">amber: their running average</text>
+            </svg>
+            <h4>Averages of random guesses (Monte Carlo)</h4>
+            <p>Some totals are too hard to add up exactly, like all the light reaching a pixel. <b>Monte Carlo</b> estimates them: make a random guess, then another, and average. Each guess is noisy, but the average settles on the truth. A Pixel Sample is one such guess. Each guess is divided by how likely its random choice was, the <b>probability density</b> <var>p</var>, so that likely choices don't count twice. The <a href="../../umbra-camera/docs/camera-guide.html#toolkit">Camera Guide</a> has a longer picture of this.</p>
+            <div class="f">total ≈ (1⁄N) Σ f(x<sub>i</sub>) ⁄ p(x<sub>i</sub>)</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 200" role="img" aria-label="A light spectrum checked at four wavelengths">
+                <defs><linearGradient id="rainbow" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0" stop-color="hsl(275,70%,45%)"/><stop offset="0.2" stop-color="hsl(230,70%,55%)"/><stop offset="0.38" stop-color="hsl(150,60%,45%)"/><stop offset="0.55" stop-color="hsl(60,85%,50%)"/><stop offset="0.72" stop-color="hsl(25,85%,52%)"/><stop offset="1" stop-color="hsl(0,70%,40%)"/>
+                </linearGradient></defs>
+                <rect x="30" y="160" width="460" height="10" fill="url(#rainbow)"/>
+                <path d="M30 120 C 120 60, 200 40, 280 60 S 420 120, 490 110" class="k-ink" fill="none" stroke-width="2"/>
+                <path d="M110 160 V77 M215 160 V48 M320 160 V75 M425 160 V110" class="k-warm" stroke-width="4"/>
+                <text x="30" y="190" class="t-mut">360 nm</text><text x="490" y="190" class="t-mut" text-anchor="end">830 nm</text>
+                <text x="290" y="34" class="t-mut">light at every wavelength L(λ)</text>
+                <text x="140" y="140" class="t-warm">λ₁</text><text x="245" y="140" class="t-warm">λ₂</text><text x="350" y="140" class="t-warm">λ₃</text><text x="436" y="140" class="t-warm">λ₄</text>
+            </svg>
+            <h4>Light as four wavelengths</h4>
+            <p>Light is a mix of colours, one amount for every <b>wavelength</b> λ (lambda) from violet, about 360 nm, to deep red, about 830 nm. Umbra never stores RGB while light travels. Each Pixel Sample picks <b>four</b> wavelengths at random and tracks the light at just those four: a <code>SampledWavelengths</code> and a <code>SampledSpectrum</code>, each four numbers. Over many Pixel Samples every colour gets its turn. The <a href="../../umbra-spectrum/docs/spectrum-guide.html">Spectrum Guide</a> explains these types.</p>
+            <div class="f">L = (L(λ₁), L(λ₂), L(λ₃), L(λ₄))</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 200" role="img" aria-label="Radiance: the light arriving at a point from one direction, the same anywhere along a ray in empty space">
+                <circle cx="440" cy="100" r="26" class="f-warm"/>
+                <path d="M440 64 V56 M476 100 H484 M466 74 L472 68 M466 126 L472 132" class="k-warm" stroke-width="2.4"/>
+                <path d="M70 100 L410 88 L410 112 Z" class="f-warm-soft"/>
+                <line x1="70" y1="100" x2="408" y2="100" class="k-acc" stroke-width="2"/>
+                <circle cx="70" cy="100" r="6" class="f-ink"/>
+                <text x="70" y="128" text-anchor="middle">point p</text>
+                <circle cx="230" cy="100" r="4.5" class="f-acc"/>
+                <text x="230" y="80" text-anchor="middle" class="t-acc">L here …</text>
+                <text x="330" y="80" text-anchor="middle" class="t-acc">… = L here</text>
+                <circle cx="330" cy="100" r="4.5" class="f-acc"/>
+                <line x1="70" y1="155" x2="140" y2="155" class="k-ink" marker-end="url(#ah-ink)"/>
+                <text x="150" y="160">direction ω (omega)</text>
+                <text x="30" y="190" class="t-mut">in empty space radiance does not fade along a ray</text>
+            </svg>
+            <h4>Radiance: how bright, along one ray</h4>
+            <p><b>Radiance</b> <var>L</var>(<var>p</var>, <var>ω</var>) is how much light arrives at a point <var>p</var> from one direction <var>ω</var>, per unit of area and per unit of angle. Think of looking through a very thin straw: radiance is what you see. In empty space it stays the same all along the straw. That is why a renderer can follow a ray backwards from the camera and ask what is at the other end. The integrator's answer, <code>RayIntegrator::li</code>, is a radiance.</p>
+            <div class="f">L(p, ω): watts per square metre per steradian, at each wavelength</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 200" role="img" aria-label="A pure function: the same inputs give the same output every time">
+                <rect x="30" y="40" width="150" height="110" rx="6" class="f-surf k-mut"/>
+                <text x="105" y="64" text-anchor="middle" font-size="12">Scene</text>
+                <text x="105" y="86" text-anchor="middle" font-size="12">seed</text>
+                <text x="105" y="108" text-anchor="middle" font-size="12">pixel</text>
+                <text x="105" y="130" text-anchor="middle" font-size="12">sample index</text>
+                <line x1="182" y1="95" x2="228" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+                <rect x="232" y="60" width="110" height="70" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+                <text x="287" y="92" text-anchor="middle" font-size="12">evaluate_</text>
+                <text x="287" y="108" text-anchor="middle" font-size="12">pixel_sample</text>
+                <line x1="344" y1="95" x2="388" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+                <rect x="392" y="60" width="100" height="70" rx="6" class="f-surf k-ink"/>
+                <text x="442" y="92" text-anchor="middle" font-size="12">FilmSample</text>
+                <text x="442" y="110" text-anchor="middle" font-size="11" class="t-mut">same bits</text>
+                <text x="260" y="180" text-anchor="middle" class="t-mut">run it twice, on any thread: identical answers</text>
+            </svg>
+            <h4>A pure function</h4>
+            <p>A <b>pure function</b> depends only on its inputs: no clock, no hidden counter, no randomness of its own. Umbra makes every Pixel Sample a pure function of the Scene, the seed, the pixel and the sample index (<a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>). The “random” numbers come from a sampler that is restarted from those inputs, so they are the same each time. This is what lets a Pixel Sample be <a href="#recorder">computed again later</a> to see how it was made.</p>
+            <div class="f">same (Scene, seed, pixel, sample index) ⇒ same FilmSample</div>
+        </div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:1.4rem; max-width: 52rem">
+        <table class="data symbols">
+            <thead><tr><th>symbol</th><th>read it as</th><th>example in this guide</th></tr></thead>
+            <tbody>
+                <tr><td><var>L</var></td><td>radiance: brightness along a ray</td><td>what <code>li</code> returns</td></tr>
+                <tr><td><var>L<sub>e</sub></var>, <var>L<sub>i</sub></var>, <var>L<sub>o</sub></var></td><td>emitted, incoming, outgoing radiance</td><td>a lamp's glow is <var>L<sub>e</sub></var></td></tr>
+                <tr><td><var>λ</var> (lambda)</td><td>a wavelength of light, in nanometres</td><td>four per Pixel Sample</td></tr>
+                <tr><td><var>ω</var> (omega)</td><td>a direction, an arrow of length 1</td><td>the way a ray points</td></tr>
+                <tr><td><var>θ</var> (theta)</td><td>the angle from the surface's normal (straight up)</td><td>cos <var>θ</var> dims slanted light</td></tr>
+                <tr><td><var>f</var></td><td>how a surface reflects (the BSDF)</td><td>matte, shiny, glass</td></tr>
+                <tr><td><var>p</var>(<var>x</var>)</td><td>how likely the random choice <var>x</var> was</td><td>a wavelength's or a direction's density</td></tr>
+                <tr><td><var>β</var> (beta)</td><td>the throughput: how much of the light still survives</td><td>multiplied at every bounce</td></tr>
+                <tr><td>∫ … d<var>ω</var></td><td>add up over all directions</td><td>all light arriving at a point</td></tr>
+                <tr><td>Σ</td><td>add up a list</td><td>Σ weight · rgb in the Film</td></tr>
+                <tr><td><var>u</var>, <var>u<sub>i</sub></var></td><td>a number from the sampler, in [0, 1)</td><td>u₀ picks the wavelengths</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="rendering-equation">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span>theory · PBR 4e §4.1 (radiance), §13.1 (the light transport equation)</div>
+        <h3>The rendering equation, in plain words</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The light leaving any point toward your eye is two things added together. First, the light the point gives off itself, if it glows. Second, all the light arriving at it from every direction, times how much the surface bounces each of those toward you. The catch: the light arriving from each direction is itself light leaving some other point, which follows the same rule. Light bounces around. That is the whole difficulty of rendering.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 290" class="dg-wide" role="img" aria-label="A surface point with light arriving from the half-sphere above, emitted light, and the outgoing ray toward the eye">
+            <line x1="40" y1="230" x2="480" y2="230" class="k-ink" stroke-width="2"/>
+            <path d="M40 230 L60 244 M90 230 L110 244 M140 230 L160 244 M190 230 L210 244 M240 230 L260 244 M290 230 L310 244 M340 230 L360 244 M390 230 L410 244 M440 230 L460 244" class="k-mut"/>
+            <path d="M100 230 A160 160 0 0 1 420 230" class="k-mut" fill="none" stroke-dasharray="5 5"/>
+            <text x="420" y="110" class="t-mut">all directions above:</text>
+            <text x="420" y="126" class="t-mut">the half-sphere H²</text>
+            <line x1="260" y1="230" x2="260" y2="80" class="k-mut" marker-end="url(#ah-mut)"/>
+            <text x="266" y="80" class="t-mut">normal n</text>
+            <!-- incoming -->
+            <line x1="140" y1="112" x2="254" y2="224" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <line x1="180" y1="84" x2="256" y2="222" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <line x1="110" y1="190" x2="250" y2="226" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="60" y="110" class="t-acc">incoming L<tspan font-size="10" dy="3">i</tspan></text>
+            <path d="M260 180 A50 50 0 0 0 226 196" class="k-acc" fill="none"/>
+            <text x="222" y="178" class="t-acc">θ</text>
+            <!-- emitted -->
+            <path d="M246 236 Q 260 250 274 236" class="k-warm" fill="none" stroke-width="3"/>
+            <text x="260" y="270" text-anchor="middle" class="t-warm">emitted L<tspan font-size="10" dy="3">e</tspan><tspan dy="-3"> (if it glows)</tspan></text>
+            <!-- outgoing -->
+            <line x1="262" y1="228" x2="620" y2="70" class="k-warm" stroke-width="2.6" marker-end="url(#ah-warm)"/>
+            <text x="470" y="200" class="t-warm">outgoing L<tspan font-size="10" dy="3">o</tspan><tspan dy="-3"> toward the eye</tspan></text>
+            <circle cx="650" cy="58" r="16" class="f-surf k-ink" stroke-width="1.5"/>
+            <circle cx="644" cy="62" r="5" class="f-ink"/>
+            <text x="650" y="100" text-anchor="middle">eye / camera</text>
+            <circle cx="260" cy="230" r="5" class="f-ink"/>
+            <text x="268" y="222">p</text>
+        </svg></div>
+        <figcaption>A point <var>p</var> on a surface. Blue: light arriving from many directions in the half-sphere above it, each at an angle <var>θ</var> from the normal. Amber: what leaves toward the eye, made of what <var>p</var> emits and what it reflects.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 170" class="dg-wide" role="img" aria-label="The rendering equation with each term labelled">
+            <text x="20" y="70" font-size="24" class="t-warm" style="font-family:var(--text);font-style:italic">L<tspan font-size="15" dy="6">o</tspan></text>
+            <text x="56" y="70" font-size="24" style="font-family:var(--text)">=</text>
+            <text x="90" y="70" font-size="24" class="t-warm" style="font-family:var(--text);font-style:italic">L<tspan font-size="15" dy="6">e</tspan></text>
+            <text x="130" y="70" font-size="24" style="font-family:var(--text)">+</text>
+            <text x="165" y="76" font-size="34" style="font-family:var(--text)">∫</text>
+            <text x="183" y="88" font-size="12">H²</text>
+            <text x="215" y="70" font-size="24" class="t-acc" style="font-family:var(--text);font-style:italic">f</text>
+            <text x="240" y="70" font-size="24" style="font-family:var(--text)">·</text>
+            <text x="265" y="70" font-size="24" class="t-acc" style="font-family:var(--text);font-style:italic">L<tspan font-size="15" dy="6">i</tspan></text>
+            <text x="305" y="70" font-size="24" style="font-family:var(--text)">·</text>
+            <text x="330" y="70" font-size="24" style="font-family:var(--text);font-style:italic">cos θ</text>
+            <text x="410" y="70" font-size="24" style="font-family:var(--text);font-style:italic">dω</text>
+            <path d="M20 90 V104 H48 V90" class="k-warm" fill="none"/><text x="34" y="124" text-anchor="middle" font-size="11" class="t-warm">leaves</text>
+            <path d="M90 90 V104 H118 V90" class="k-warm" fill="none"/><text x="104" y="124" text-anchor="middle" font-size="11" class="t-warm">glows</text>
+            <path d="M165 98 V112 H195 V98" class="k-ink" fill="none"/><text x="180" y="132" text-anchor="middle" font-size="11">add over</text><text x="180" y="146" text-anchor="middle" font-size="11">directions</text>
+            <path d="M213 90 V104 H232 V90" class="k-acc" fill="none"/><text x="222" y="124" text-anchor="middle" font-size="11" class="t-acc">bounce</text>
+            <path d="M265 90 V104 H295 V90" class="k-acc" fill="none"/><text x="280" y="124" text-anchor="middle" font-size="11" class="t-acc">arrives</text>
+            <path d="M330 90 V104 H392 V90" class="k-ink" fill="none"/><text x="361" y="124" text-anchor="middle" font-size="11">slant</text>
+            <line x1="470" y1="62" x2="540" y2="62" class="k-mut" marker-end="url(#ah-mut)"/>
+            <text x="560" y="50">L<tspan font-size="10" dy="3">i</tspan><tspan dy="-3"> at p, from direction ω,</tspan></text>
+            <text x="560" y="70">is L<tspan font-size="10" dy="3">o</tspan><tspan dy="-3"> of the next point along ω:</tspan></text>
+            <text x="560" y="90" class="t-warm">the same equation again, inside itself</text>
+        </svg></div>
+        <figcaption>The rendering equation, term by term. The unknown <var>L</var> appears on both sides: to know the light leaving one point you need the light leaving every point it can see. No formula solves this for a real scene, so renderers estimate it by Monte Carlo.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Each piece in words:</p>
+        <ul>
+            <li><var>L<sub>o</sub></var>(<var>p</var>, <var>ω<sub>o</sub></var>) is the light leaving point <var>p</var> in direction <var>ω<sub>o</sub></var>. This is what the camera ray wants to know.</li>
+            <li><var>L<sub>e</sub></var> is light the point makes itself: a lamp, the sun's disc, a glowing sphere. Most points emit nothing.</li>
+            <li>The ∫ adds up over every direction <var>ω<sub>i</sub></var> in the half-sphere <var>H</var>² above the surface.</li>
+            <li><var>f</var>(<var>p</var>, <var>ω<sub>o</sub></var>, <var>ω<sub>i</sub></var>), the BSDF, says what fraction of light arriving from <var>ω<sub>i</sub></var> leaves toward <var>ω<sub>o</sub></var>. A matte wall spreads light evenly; a mirror sends it all one way.</li>
+            <li>cos <var>θ</var> accounts for slant: light arriving at a grazing angle is spread over more area, like low winter sun, so it lights each bit of surface less.</li>
+        </ul>
+        <p>On the camera ray itself nothing happens until it hits something. If it hits nothing at all, it “escapes” and sees only lights at infinity, such as a sky. In Umbra today every camera ray escapes and there is no sky, which is why every image is black (<a href="#volpath-today">section 11</a>). The full equation, with media such as fog added, is what <code>VolPathIntegrator</code> will estimate once Shapes and lights arrive (<a href="https://github.com/sergioffpc/umbra/issues/79">#79</a>, <a href="https://github.com/sergioffpc/umbra/issues/80">#80</a>).</p>
+        <p>How do you estimate the ∫? Exactly like any other Monte Carlo total: pick a random direction, measure <var>f</var> · <var>L<sub>i</sub></var> · cos <var>θ</var> there, and divide by how likely that direction was. The figure below does this at one point, in a flat 2D world so it fits on a screen.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">L<sub>o</sub>(p, ω<sub>o</sub>) = L<sub>e</sub>(p, ω<sub>o</sub>) + ∫<sub>H²</sub> f(p, ω<sub>o</sub>, ω<sub>i</sub>) L<sub>i</sub>(p, ω<sub>i</sub>) |cos θ<sub>i</sub>| dω<sub>i</sub></div><div class="mb-d"><b>The rendering equation</b> (pbrt calls it the light transport equation). Light leaving = light made + light bounced. Not in the code yet: <code>RayIntegrator::li</code> will estimate it once intersections and shading arrive (#79, #80).</div></div>
+        <div class="mb-row"><div class="mb-f">L<sub>i</sub>(p, ω) = L<sub>o</sub>(first point hit from p along ω, −ω)</div><div class="mb-d"><b>Why it is recursive.</b> The light arriving from a direction is the light leaving whatever you see in that direction. With nothing in the way, it is the light of the lights at infinity, or 0.</div></div>
+        <div class="mb-row"><div class="mb-f">L<sub>o</sub> ≈ L<sub>e</sub> + f(ω′) L<sub>i</sub>(ω′) cos θ′ ⁄ p(ω′)</div><div class="mb-d"><b>One Monte Carlo guess.</b> Pick one direction <var>ω′</var> at random with density <var>p</var>, measure there, divide by <var>p</var>. Averaged over many Pixel Samples this gives the true value.</div></div>
+        <div class="mb-row"><div class="mb-f">flatland: L<sub>o</sub> = ∫<sub>−π⁄2</sub><sup>π⁄2</sup> (ρ⁄2) L<sub>i</sub>(θ) cos θ dθ</div><div class="mb-d"><b>The figure's 2D version</b> for a matte surface of brightness ρ (rho, the albedo, between 0 and 1). The ρ⁄2 makes a white wall under uniform light 1 reflect exactly ρ, because ∫ cos θ dθ = 2.</div></div>
+        <div class="mb-row"><div class="mb-f">uniform: p(θ) = 1⁄π &nbsp; · &nbsp; cosine: p(θ) = cos θ ⁄ 2, θ = asin(2u − 1)</div><div class="mb-d"><b>Two ways to pick a direction.</b> Uniform picks every angle equally. Cosine-weighted picks steep angles more often, matching the cos θ in the integral, so the guesses vary less. This is importance sampling, as in the <a href="../../umbra-sampling/docs/sampling-guide.html">Sampling Guide</a>.</div></div>
+    </div>
+
+    <figure class="bench" id="re">
+        <div class="controls">
+            <div class="ctl"><label for="re-sun">sun angle θ<sub>s</sub> (°)</label><div class="row"><input id="re-sun" type="range" min="-85" max="85" step="1" value="35"><output id="re-sun-o" for="re-sun"></output></div></div>
+            <div class="ctl"><label for="re-rho">albedo ρ</label><div class="row"><input id="re-rho" type="range" min="0" max="1" step="0.05" value="0.7"><output id="re-rho-o" for="re-rho"></output></div></div>
+            <div class="ctl"><label for="re-mode">pick directions</label><select id="re-mode"><option value="uniform">uniformly</option><option value="cosine">cosine-weighted</option></select></div>
+            <div class="ctl"><span class="lbl">random directions</span><div class="btns"><button type="button" id="re-one" class="primary">1 guess</button><button type="button" id="re-many">+ 100</button><button type="button" id="re-reset">reset</button></div></div>
+        </div>
+        <div class="split">
+            <div><p class="panel-title">the point, its sky and the directions picked (newest bold)</p><canvas id="re-scene" class="cv-wide" aria-label="A surface point under a sky with a sun, and sampled directions"></canvas></div>
+            <div style="display:grid; gap:0.9rem">
+                <div><p class="panel-title">running average (amber) against the true value (dashed)</p><canvas id="re-conv" class="cv-strip" aria-label="Convergence of the reflected-light estimate"></canvas></div>
+                <dl class="readout" id="re-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> make single guesses: a direction that hits the sun gives a huge guess, one that misses gives a small one. Add 100 and the average settles on the dashed line. Switch to cosine-weighted and reset: the guesses spread less, so the average settles faster. Turn the sun toward the horizon and watch the true value drop, because of the cos <var>θ</var>. The sky is 0.2 everywhere, the sun 8 over a 16° patch. This is the job <code>li</code> will do at every bounce once surfaces exist.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="integrator">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <code>RayIntegrator</code> · PBR 4e §1.3.4</div>
+        <h3>What an integrator is</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>An integrator is the part of a renderer that answers “how much light comes back along this ray?”. It gets a ray and the four wavelengths, and returns four numbers: the radiance at each wavelength. How it finds the answer is its strategy. Different integrators chase light in different ways, but they all answer the same question. The name comes from the ∫ of the rendering equation: an integrator estimates that integral.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 230" class="dg-wide" role="img" aria-label="The RayIntegrator li method as a box with its inputs and output">
+            <text x="20" y="44" font-size="12">view: &amp;SceneView</text>
+            <text x="20" y="84" font-size="12">ray: &amp;Ray</text>
+            <text x="20" y="124" font-size="12">lambda: &amp;mut SampledWavelengths</text>
+            <text x="20" y="164" font-size="12">state: &amp;mut PixelSampleState&lt;R&gt;</text>
+            <text x="20" y="62" font-size="11" class="t-mut">the camera, filter, sensor (later: shapes, lights)</text>
+            <text x="20" y="102" font-size="11" class="t-mut">where to look, in rendering space</text>
+            <text x="20" y="142" font-size="11" class="t-mut">the four colours; may be changed</text>
+            <text x="20" y="182" font-size="11" class="t-mut">the sampler to draw from, the recorder</text>
+            <path d="M300 40 C 330 40, 330 110, 360 110 M300 80 C 330 80, 330 110, 360 110 M300 120 C 330 120, 330 110, 360 110 M300 160 C 330 160, 330 110, 360 110" class="k-mut" fill="none"/>
+            <rect x="364" y="60" width="200" height="100" rx="10" class="f-warm-soft k-warm" stroke-width="1.8"/>
+            <text x="464" y="96" text-anchor="middle" class="t-bold">RayIntegrator::li</text>
+            <text x="464" y="120" text-anchor="middle" font-size="12">the strategy:</text>
+            <text x="464" y="138" text-anchor="middle" font-size="12">follow light around</text>
+            <line x1="566" y1="110" x2="612" y2="110" class="k-warm" stroke-width="2" marker-end="url(#ah-warm)"/>
+            <text x="620" y="100" font-size="12">SampledSpectrum</text>
+            <text x="620" y="118" font-size="11" class="t-mut">radiance at the</text>
+            <text x="620" y="134" font-size="11" class="t-mut">4 wavelengths</text>
+            <text x="464" y="200" text-anchor="middle" class="t-mut">fn li&lt;R: Recorder&gt;(&amp;self, view, ray, lambda, state) -&gt; SampledSpectrum</text>
+        </svg></div>
+        <figcaption>The one method of the <code>RayIntegrator</code> trait. Everything it needs comes in as arguments; it keeps nothing between calls. <code>lambda</code> is <code>&amp;mut</code> because, in pbrt-v4, hitting glass that splits colours keeps only the first wavelength and drops the other three.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 200" class="dg-wide" role="img" aria-label="Integrators in pbrt-v4 and which Umbra has">
+            <text x="20" y="24" class="t-bold">pbrt-v4's integrators, and what Umbra has so far</text>
+            <rect x="20" y="44" width="220" height="56" rx="6" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <text x="130" y="68" text-anchor="middle" font-size="12">VolPathIntegrator</text>
+            <text x="130" y="88" text-anchor="middle" font-size="11" class="t-warm">here: a stub, returns 0</text>
+            <rect x="260" y="44" width="150" height="56" rx="6" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="335" y="68" text-anchor="middle" font-size="12" class="t-mut">BDPT</text>
+            <text x="335" y="88" text-anchor="middle" font-size="11" class="t-mut">roadmap</text>
+            <rect x="430" y="44" width="150" height="56" rx="6" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="505" y="68" text-anchor="middle" font-size="12" class="t-mut">SPPM</text>
+            <text x="505" y="88" text-anchor="middle" font-size="11" class="t-mut">roadmap</text>
+            <rect x="600" y="44" width="140" height="56" rx="6" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+            <text x="670" y="68" text-anchor="middle" font-size="12" class="t-mut">MLT</text>
+            <text x="670" y="88" text-anchor="middle" font-size="11" class="t-mut">roadmap</text>
+            <path d="M20 120 H240" class="k-acc" stroke-width="3"/>
+            <text x="20" y="142" font-size="12" class="t-acc">a RayIntegrator: one camera ray in,</text>
+            <text x="20" y="158" font-size="12" class="t-acc">one radiance out</text>
+            <path d="M260 120 H740" class="k-mut" stroke-width="3" stroke-dasharray="6 5"/>
+            <text x="260" y="142" font-size="12" class="t-mut">these also trace from the lights or keep state across</text>
+            <text x="260" y="158" font-size="12" class="t-mut">Pixel Samples, so they do not fit one ray in, one radiance out</text>
+            <text x="20" y="190" font-size="11" class="t-mut">pbrt-v4 also has simpler teaching integrators (random walk, simple path, ambient occlusion); Umbra skips them.</text>
+        </svg></div>
+        <figcaption>Umbra follows pbrt-v4, whose default integrator is <code>volpath</code>. It is the only one in the crate so far. The others are on the architecture's roadmap, with drivers of their own.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The trait, as it is in <a href="../src/pixel_sample.rs"><code>pixel_sample.rs</code></a>:</p>
+<pre class="code"><span class="k">pub trait</span> RayIntegrator {
+    <span class="k">fn</span> li&lt;R: Recorder&gt;(
+        &amp;<span class="k">self</span>,
+        view: &amp;SceneView&lt;'_&gt;,
+        ray: &amp;Ray,
+        lambda: &amp;<span class="k">mut</span> SampledWavelengths,
+        state: &amp;<span class="k">mut</span> PixelSampleState&lt;'_, R&gt;,
+    ) -&gt; SampledSpectrum;
+}</pre>
+        <p>The name <code>li</code> is pbrt-v4's <code>Li</code>: “<var>L</var> incoming”, the radiance arriving at the ray's origin. A ray integrator does not decide <em>which</em> rays to shoot; <a href="#pixel-sample"><code>evaluate_pixel_sample</code></a> does that and calls <code>li</code> once per Pixel Sample. Splitting it this way lets every ray integrator share the same front half: wavelengths, camera sample, camera ray, and the same back half: sensor RGB, film sample.</p>
+        <p>The <code>R: Recorder</code> parameter is what makes Pixel Traces possible (<a href="#recorder">section 4</a>), and why <code>li</code> is generic rather than callable through a trait object (<a href="#generic">section 10</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">L(λ<sub>1..4</sub>) ≈ L<sub>i</sub>(o, −d) at λ<sub>1..4</sub></div><div class="mb-d"><b>What li estimates.</b> The radiance arriving at the ray's origin <var>o</var>, travelling against its direction <var>d</var>, at each of the four wavelengths. One call gives one noisy guess; the Film's average over Pixel Samples removes the noise. <code>RayIntegrator::li</code></div></div>
+        <div class="mb-row"><div class="mb-f">E[ guess ] = true value</div><div class="mb-d"><b>Unbiased.</b> The average (E, the “expected value”) of a good integrator's guesses is the exact answer, so more Pixel Samples always get closer. A path cut short at <code>max_depth</code> bounces is the one known exception: it leaves out light that needs more bounces.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="pixel-sample">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <code>evaluate_pixel_sample</code>, <code>PixelSampleId</code>, <code>FilmSample</code> · PBR 4e §1.3.4, §5.4.2, §8.8.4</div>
+        <h3>Evaluating one Pixel Sample</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A Pixel Sample is named by two numbers: which pixel, and which sample of that pixel (the 0th, the 1st, …). From that name alone, <code>evaluate_pixel_sample</code> runs five steps. Restart the random numbers for this name. Pick four colours of light. Pick a spot in the pixel and make a ray through it. Ask the integrator how much light comes back. Turn that light into a colour and hand it to the Film with a weight. Same name in, same answer out, every time.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 980 300" class="dg-chain" role="img" aria-label="The steps of evaluate_pixel_sample, with the function each step calls">
+            <rect x="10" y="50" width="140" height="110" rx="6" class="f-mut-soft k-mut"/>
+            <text x="80" y="72" text-anchor="middle" class="t-bold">restart</text>
+            <text x="80" y="96" text-anchor="middle" font-size="11">start_pixel_</text>
+            <text x="80" y="110" text-anchor="middle" font-size="11">sample(pixel,</text>
+            <text x="80" y="124" text-anchor="middle" font-size="11">sample_index, 0)</text>
+            <text x="80" y="148" text-anchor="middle" font-size="11" class="t-mut">umbra-sampling</text>
+
+            <rect x="170" y="50" width="140" height="110" rx="6" class="f-acc-soft k-acc"/>
+            <text x="240" y="72" text-anchor="middle" class="t-bold">① wavelengths</text>
+            <text x="240" y="96" text-anchor="middle" font-size="11">SampledWavelengths</text>
+            <text x="240" y="110" text-anchor="middle" font-size="11">::sample_visible(</text>
+            <text x="240" y="124" text-anchor="middle" font-size="11">sampler.get_1d())</text>
+            <text x="240" y="148" text-anchor="middle" font-size="11" class="t-mut">umbra-spectrum</text>
+
+            <rect x="330" y="50" width="140" height="110" rx="6" class="f-acc-soft k-acc"/>
+            <text x="400" y="72" text-anchor="middle" class="t-bold">② camera sample</text>
+            <text x="400" y="96" text-anchor="middle" font-size="11">get_camera_sample(</text>
+            <text x="400" y="110" text-anchor="middle" font-size="11">sampler, pixel,</text>
+            <text x="400" y="124" text-anchor="middle" font-size="11">view.filter())</text>
+            <text x="400" y="148" text-anchor="middle" font-size="11" class="t-mut">umbra-camera</text>
+
+            <rect x="490" y="50" width="140" height="110" rx="6" class="f-acc-soft k-acc"/>
+            <text x="560" y="72" text-anchor="middle" class="t-bold">③ camera ray</text>
+            <text x="560" y="96" text-anchor="middle" font-size="11">view.camera()</text>
+            <text x="560" y="110" text-anchor="middle" font-size="11">.generate_ray(</text>
+            <text x="560" y="124" text-anchor="middle" font-size="11">sample, &amp;lambda)</text>
+            <text x="560" y="148" text-anchor="middle" font-size="11" class="t-mut">umbra-camera</text>
+
+            <rect x="650" y="50" width="140" height="110" rx="6" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <text x="720" y="72" text-anchor="middle" class="t-bold">④ radiance</text>
+            <text x="720" y="96" text-anchor="middle" font-size="11">camera_ray.weight</text>
+            <text x="720" y="110" text-anchor="middle" font-size="11">* integrator.li(</text>
+            <text x="720" y="124" text-anchor="middle" font-size="11">view, ray, λ, state)</text>
+            <text x="720" y="148" text-anchor="middle" font-size="11" class="t-warm">this crate</text>
+
+            <rect x="810" y="50" width="160" height="110" rx="6" class="f-acc-soft k-acc"/>
+            <text x="890" y="72" text-anchor="middle" class="t-bold">⑤ film sample</text>
+            <text x="890" y="96" text-anchor="middle" font-size="11">rgb: view.sensor()</text>
+            <text x="890" y="110" text-anchor="middle" font-size="11">.to_sensor_rgb(l, &amp;λ)</text>
+            <text x="890" y="124" text-anchor="middle" font-size="11">weight: filter_weight</text>
+            <text x="890" y="148" text-anchor="middle" font-size="11" class="t-mut">umbra-camera</text>
+
+            <line x1="150" y1="105" x2="166" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="310" y1="105" x2="326" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="470" y1="105" x2="486" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="630" y1="105" x2="646" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="638" y="98" text-anchor="middle" font-size="10" class="t-acc">Some</text>
+            <line x1="790" y1="105" x2="806" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <!-- None branch -->
+            <path d="M560 160 V200 H890 V164" class="k-mut" fill="none" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
+            <text x="725" y="194" text-anchor="middle" font-size="11" class="t-mut">None: L = SampledSpectrum::splat(0.0), li is not called</text>
+            <!-- inputs -->
+            <text x="80" y="30" text-anchor="middle" font-size="12">PixelSampleId</text>
+            <line x1="80" y1="34" x2="80" y2="46" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="890" y="30" text-anchor="middle" font-size="12" class="t-acc">FilmSample { rgb, weight }</text>
+            <line x1="890" y1="50" x2="890" y2="36" class="k-acc" marker-end="url(#ah-acc)"/>
+            <!-- recorder row -->
+            <rect x="170" y="236" width="800" height="40" rx="6" class="f-warm-soft k-warm"/>
+            <text x="186" y="261" font-size="12">after each step: state.recorder.wavelengths · .camera_sample · .camera_ray (only if Some) · .radiance · .film_sample</text>
+        </svg></div>
+        <figcaption>The whole of <code>evaluate_pixel_sample</code>. Only step ④ is this crate's own work; the others call the camera, spectrum and sampling crates in pbrt-v4's order. Umbra's <code>PerspectiveCamera</code> always returns <code>Some</code>; the <code>None</code> branch is there for cameras that can fail to make a ray, such as pbrt-v4's realistic lens camera, when a ray is blocked inside the lens.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 170" class="dg-wide" role="img" aria-label="Which step reads which sampler number">
+            <text x="380" y="20" text-anchor="middle" class="t-mut">the sampler's numbers for one Pixel Sample, in the order they are read</text>
+            <rect x="20" y="36" width="96" height="40" rx="4" class="f-acc-soft k-acc"/><text x="68" y="61" text-anchor="middle">u₀</text>
+            <rect x="130" y="36" width="96" height="40" rx="4" class="f-mut-soft k-mut"/><text x="178" y="61" text-anchor="middle">u₁</text>
+            <rect x="240" y="36" width="96" height="40" rx="4" class="f-mut-soft k-mut"/><text x="288" y="61" text-anchor="middle">u₂</text>
+            <rect x="350" y="36" width="96" height="40" rx="4" class="f-mut-soft k-mut"/><text x="398" y="61" text-anchor="middle">u₃</text>
+            <rect x="460" y="36" width="96" height="40" rx="4" class="f-mut-soft k-mut"/><text x="508" y="61" text-anchor="middle">u₄</text>
+            <rect x="570" y="36" width="96" height="40" rx="4" class="f-mut-soft k-mut"/><text x="618" y="61" text-anchor="middle">u₅</text>
+            <rect x="680" y="36" width="60" height="40" rx="4" class="k-warm" fill="none" stroke-dasharray="4 3"/><text x="710" y="61" text-anchor="middle" class="t-warm">…</text>
+            <path d="M20 88 V96 H116 V88" class="k-acc" fill="none" stroke-width="1.5"/>
+            <path d="M130 88 V96 H336 V88" class="k-mut" fill="none" stroke-width="1.5"/>
+            <path d="M350 88 V96 H446 V88" class="k-mut" fill="none" stroke-width="1.5"/>
+            <path d="M460 88 V96 H666 V88" class="k-mut" fill="none" stroke-width="1.5"/>
+            <text x="68" y="118" text-anchor="middle" class="t-acc">get_1d()</text>
+            <text x="68" y="136" text-anchor="middle">→ 4 λ</text>
+            <text x="233" y="118" text-anchor="middle">get_pixel_2d()</text>
+            <text x="233" y="136" text-anchor="middle">→ filter offset</text>
+            <text x="398" y="118" text-anchor="middle">get_1d()</text>
+            <text x="398" y="136" text-anchor="middle">→ time</text>
+            <text x="563" y="118" text-anchor="middle">get_2d()</text>
+            <text x="563" y="136" text-anchor="middle">→ lens point</text>
+            <text x="710" y="118" text-anchor="middle" class="t-warm">li</text>
+            <text x="710" y="136" text-anchor="middle" class="t-warm">today: none</text>
+            <text x="20" y="162" font-size="11" class="t-mut">u₁ … u₅ are read inside get_camera_sample (see the Camera Guide). Reading in pbrt-v4's order keeps Umbra's rays equal to pbrt-v4's.</text>
+        </svg></div>
+        <figcaption>Why the wavelengths come first: pbrt-v4's <code>EvaluatePixelSample</code> draws them before the camera sample, and a sampler such as Halton spreads its numbers evenly <em>position by position</em>. Reading in another order would give other rays. Umbra's <code>VolPathIntegrator::li</code> reads nothing yet; it will read numbers for each bounce.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The function, complete, from <a href="../src/pixel_sample.rs"><code>pixel_sample.rs</code></a>:</p>
+<pre class="code"><span class="k">pub fn</span> evaluate_pixel_sample&lt;I: RayIntegrator, R: Recorder&gt;(
+    integrator: &amp;I,
+    view: &amp;SceneView&lt;'_&gt;,
+    id: PixelSampleId,
+    state: &amp;<span class="k">mut</span> PixelSampleState&lt;'_, R&gt;,
+) -&gt; FilmSample {
+    state.sampler.start_pixel_sample(id.pixel, id.sample_index, <span class="k">0</span>);       <span class="c">// restart</span>
+    <span class="k">let mut</span> lambda = SampledWavelengths::sample_visible(state.sampler.get_1d());  <span class="c">// ①</span>
+    state.recorder.wavelengths(&amp;lambda);
+
+    <span class="k">let</span> camera_sample = get_camera_sample(&amp;<span class="k">mut</span> state.sampler, id.pixel, view.filter()); <span class="c">// ②</span>
+    state.recorder.camera_sample(&amp;camera_sample);
+
+    <span class="k">let</span> l = <span class="k">match</span> view.camera().generate_ray(camera_sample, &amp;lambda) {         <span class="c">// ③</span>
+        Some(camera_ray) =&gt; {
+            state.recorder.camera_ray(&amp;camera_ray);
+            camera_ray.weight * integrator.li(view, &amp;camera_ray.ray, &amp;<span class="k">mut</span> lambda, state) <span class="c">// ④</span>
+        }
+        None =&gt; SampledSpectrum::splat(<span class="k">0.0</span>),
+    };
+    state.recorder.radiance(&amp;l);
+
+    <span class="k">let</span> sample = FilmSample {                                                   <span class="c">// ⑤</span>
+        rgb: view.sensor().to_sensor_rgb(l, &amp;lambda),
+        weight: camera_sample.filter_weight,
+    };
+    state.recorder.film_sample(&amp;sample);
+    sample
+}</pre>
+        <p>Three things to notice. <b>The sampler restarts first.</b> <code>start_pixel_sample</code> rebuilds the sampler's state from the pixel and the sample index, starting at dimension 0, so nothing carries over from the previous Pixel Sample. Callers never call it themselves. <b>The wavelengths go to the sensor after <code>li</code>.</b> <code>lambda</code> is passed to <code>li</code> as <code>&amp;mut</code>, so the sensor sees any change the integrator made. <b>Nothing is written anywhere.</b> The result is returned as a <code>FilmSample</code>, and the caller adds it to its pixel (<a href="#values">section 9</a>).</p>
+        <p>Compared with pbrt-v4's <code>RayIntegrator::EvaluatePixelSample</code>, three things are missing on purpose, each waiting for the feature that needs it: ray differentials (which the camera does not make yet), the check that turns a NaN or infinite radiance into zero (Anomalous Pixel Samples, <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>), and the visible-surface record of pbrt-v4's G-buffer film.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">id = (pixel, sample_index)</div><div class="mb-d"><b>The name of a Pixel Sample.</b> Unique within a Render Job. <code>PixelSampleId { pixel, sample_index }</code></div></div>
+        <div class="mb-row"><div class="mb-f">λ<sub>i</sub> = λ(u₀ + i⁄4, wrapped into [0, 1]), &nbsp; i = 0, 1, 2, 3<br>λ(u) = 538 − 138.888889 · atanh(0.85691062 − 1.82750197 u)</div><div class="mb-d"><b>Four wavelengths from one number.</b> Spread a quarter apart so they never bunch up, and placed most often near 538 nm, where the eye is most sensitive. <code>SampledWavelengths::sample_visible</code> (umbra-spectrum), <code>sample_visible_wavelengths</code> (umbra-sampling)</div></div>
+        <div class="mb-row"><div class="mb-f">p(λ) = 0.0039398042 ⁄ cosh²(0.0072 (λ − 538)) on [360, 830] nm</div><div class="mb-d"><b>How likely each wavelength was.</b> Kept in the <code>SampledWavelengths</code> and used by the sensor in step ⑤. <code>visible_wavelengths_pdf</code></div></div>
+        <div class="mb-row"><div class="mb-f">p<sub>film</sub> = pixel + (½, ½) + δ, &nbsp; w = f(δ) ⁄ p(δ)</div><div class="mb-d"><b>The camera sample.</b> A spot near the pixel's centre, offset by δ drawn from the filter, and its weight <var>w</var>. For the default Gaussian (radius 1.5, σ 0.5) <var>w</var> is about 0.94 for every Pixel Sample. <code>get_camera_sample</code>, explained in the <a href="../../umbra-camera/docs/camera-guide.html#camera-sample">Camera Guide §5</a></div></div>
+        <div class="mb-row"><div class="mb-f">L = W<sub>ray</sub> · li(ray, λ)</div><div class="mb-d"><b>The radiance, weighted by the camera ray.</b> <var>W<sub>ray</sub></var> is 1 at every wavelength for the perspective camera. <code>CameraRay::weight</code>, <code>RayIntegrator::li</code></div></div>
+        <div class="mb-row"><div class="mb-f">rgb<sub>c</sub> = k · ¼ Σ<sub>i</sub> c̄(λ<sub>i</sub>) L(λ<sub>i</sub>) ⁄ p(λ<sub>i</sub>)</div><div class="mb-d"><b>Light to colour</b>, for each channel <var>c</var> with sensor curve <var>c̄</var>, and imaging ratio <var>k</var> (1 by default). The default sensor's curves are the CIE 1931 <var>x̄</var>, <var>ȳ</var>, <var>z̄</var>, so its RGB is XYZ. <code>PixelSensor::to_sensor_rgb</code>, see the <a href="../../umbra-camera/docs/camera-guide.html#sensor">Camera Guide §6</a></div></div>
+        <div class="mb-row"><div class="mb-f">pixel value = Σ w · rgb ⁄ Σ w</div><div class="mb-d"><b>What the Film does with FilmSamples</b> (in <code>umbra-render</code>, summed in <code>f64</code>). A FilmSample carries exactly these two parts. <code>FilmSample { rgb, weight }</code></div></div>
+    </div>
+
+    <figure class="bench" id="ps">
+        <div class="controls">
+            <div class="ctl"><label for="ps-x">pixel x</label><div class="row"><input id="ps-x" type="range" min="0" max="7" step="1" value="3"><output id="ps-x-o" for="ps-x"></output></div></div>
+            <div class="ctl"><label for="ps-y">pixel y</label><div class="row"><input id="ps-y" type="range" min="0" max="7" step="1" value="4"><output id="ps-y-o" for="ps-y"></output></div></div>
+            <div class="ctl"><label for="ps-i">sample_index</label><div class="row"><input id="ps-i" type="range" min="0" max="31" step="1" value="2"><output id="ps-i-o" for="ps-i"></output></div></div>
+            <div class="ctl"><label for="ps-light">what li returns</label><select id="ps-light">
+                <option value="today">Umbra today: VolPathIntegrator, 0</option>
+                <option value="white">what if: radiance 1 at every λ</option>
+            </select></div>
+            <div class="ctl"><span class="lbl">pure function?</span><div class="btns"><button type="button" id="ps-again" class="primary">evaluate again</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">the 8 × 8 film of the README's camera (dashed circle: the filter's reach)</p>
+                <canvas id="ps-film" class="cv-sq" style="max-width:26rem" aria-label="The film, the chosen pixel and the camera sample's film position"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div><p class="panel-title">the four wavelengths, on the density p(λ)</p><canvas id="ps-spec" class="cv-strip" aria-label="The four sampled wavelengths over the wavelength density"></canvas></div>
+                <div class="tablewrap"><table class="data" id="ps-tape"></table></div>
+                <dl class="readout" id="ps-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> move the sample index and watch every number change; move it back and every number returns. “Evaluate again” runs the whole thing a second time and compares. With Umbra today the radiance and the colour are 0, but the weight is not, so the Film still counts the Pixel Sample: a black pixel, not a missing one. Pick “what if” to see step ⑤ at work: white light of radiance 1 gives about 107 in each channel on average, because the CIE curves are not divided by their area (about 106.86). The camera is the README's: 8 × 8 pixels, 90° field of view, a pinhole; the filter the Gaussian of radius 1.5. The sampler here is a seeded stand-in, not Halton, so the numbers are not Umbra's own, but the steps and their order are.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="recorder">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-integrators</span> · <a href="../src/recorder.rs">recorder.rs</a> · <code>Recorder</code>, <code>NoRecorder</code> · <a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a></div>
+        <h3>The recorder and Pixel Traces</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Sometimes one pixel looks wrong, and you want to see exactly how it was computed. Umbra doesn't save that during a render; that would be slow and huge. Instead it computes the same Pixel Sample again later, with a <em>recorder</em> attached that writes down every step. Because a Pixel Sample is a pure function, the second run is the same as the first. While rendering, the recorder is <code>NoRecorder</code>: it writes nothing, takes no memory, and the compiler removes it entirely.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 250" class="dg-wide" role="img" aria-label="One code path used with two recorders: NoRecorder for rendering, a recording one for a Pixel Trace">
+            <rect x="20" y="40" width="190" height="60" rx="6" class="f-surf k-ink"/>
+            <text x="115" y="66" text-anchor="middle" font-size="12">rendering: umbra-render</text>
+            <text x="115" y="84" text-anchor="middle" font-size="11" class="t-mut">Renderer, every pixel</text>
+            <rect x="20" y="150" width="190" height="60" rx="6" class="k-mut" fill="none" stroke-dasharray="5 4"/>
+            <text x="115" y="176" text-anchor="middle" font-size="12" class="t-mut">umbra trace (#88)</text>
+            <text x="115" y="194" text-anchor="middle" font-size="11" class="t-mut">one pixel, afterwards</text>
+            <line x1="212" y1="70" x2="300" y2="112" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="230" y="76" font-size="11" class="t-acc">R = NoRecorder</text>
+            <line x1="212" y1="180" x2="300" y2="140" class="k-mut" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
+            <text x="222" y="194" font-size="11" class="t-warm">R = TraceRecorder</text>
+            <rect x="304" y="86" width="230" height="80" rx="10" class="f-acc-soft k-acc" stroke-width="1.8"/>
+            <text x="419" y="116" text-anchor="middle" class="t-bold">evaluate_pixel_sample</text>
+            <text x="419" y="138" text-anchor="middle" font-size="12">the same source code,</text>
+            <text x="419" y="154" text-anchor="middle" font-size="12">compiled once per R</text>
+            <line x1="536" y1="110" x2="610" y2="70" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="536" y1="142" x2="610" y2="182" class="k-mut" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
+            <rect x="614" y="40" width="186" height="60" rx="6" class="f-surf k-ink"/>
+            <text x="707" y="66" text-anchor="middle" font-size="12">FilmSample → the Film</text>
+            <text x="707" y="84" text-anchor="middle" font-size="11" class="t-mut">no record; calls compiled away</text>
+            <rect x="614" y="150" width="186" height="60" rx="6" class="f-warm-soft k-warm"/>
+            <text x="707" y="176" text-anchor="middle" font-size="12">FilmSample + Pixel Trace</text>
+            <text x="707" y="194" text-anchor="middle" font-size="11" class="t-mut">bit-identical FilmSample</text>
+            <text x="410" y="236" text-anchor="middle" class="t-mut">recording only reads values already computed, so it cannot change the result</text>
+        </svg></div>
+        <figcaption>One code path, two recorders (ADR 0011). The trait <code>Recorder</code> and the do-nothing <code>NoRecorder</code> live here, in the core. The recording <code>TraceRecorder</code> may allocate, so it will live outside the core, in <code>umbra-render</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Dashed: not built yet.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 150" class="dg-wide" role="img" aria-label="The five recorder events of one Pixel Sample in time order">
+            <line x1="30" y1="70" x2="790" y2="70" class="k-mut" marker-end="url(#ah-mut)"/>
+            <text x="790" y="92" text-anchor="end" font-size="11" class="t-mut">time</text>
+            <g class="step"><circle cx="90" cy="70" r="12"/><text x="90" y="74" text-anchor="middle">1</text></g>
+            <g class="step"><circle cx="240" cy="70" r="12"/><text x="240" y="74" text-anchor="middle">2</text></g>
+            <circle cx="390" cy="70" r="12" class="f-surf k-acc" stroke-width="2" stroke-dasharray="3 3"/><text x="390" y="74" text-anchor="middle" font-size="12" class="t-acc">3</text>
+            <g class="step"><circle cx="540" cy="70" r="12"/><text x="540" y="74" text-anchor="middle">4</text></g>
+            <g class="step"><circle cx="690" cy="70" r="12"/><text x="690" y="74" text-anchor="middle">5</text></g>
+            <text x="90" y="40" text-anchor="middle" font-size="12">wavelengths</text>
+            <text x="240" y="40" text-anchor="middle" font-size="12">camera_sample</text>
+            <text x="390" y="40" text-anchor="middle" font-size="12">camera_ray</text>
+            <text x="540" y="40" text-anchor="middle" font-size="12">radiance</text>
+            <text x="690" y="40" text-anchor="middle" font-size="12">film_sample</text>
+            <text x="90" y="108" text-anchor="middle" font-size="11" class="t-mut">&amp;SampledWavelengths</text>
+            <text x="240" y="108" text-anchor="middle" font-size="11" class="t-mut">&amp;CameraSample</text>
+            <text x="390" y="108" text-anchor="middle" font-size="11" class="t-mut">&amp;CameraRay</text>
+            <text x="390" y="124" text-anchor="middle" font-size="11" class="t-acc">only if a ray was made</text>
+            <text x="540" y="108" text-anchor="middle" font-size="11" class="t-mut">&amp;SampledSpectrum</text>
+            <text x="690" y="108" text-anchor="middle" font-size="11" class="t-mut">&amp;FilmSample</text>
+            <text x="410" y="146" text-anchor="middle" font-size="11" class="t-warm">later: path vertices, light samples, BSDF samples, Russian roulette, BVH visits join between 3 and 4</text>
+        </svg></div>
+        <figcaption>The <code>Recorder</code> trait has one method per step, called in this order, each at most once per Pixel Sample so far. Every argument is a shared reference to a value the computation already made.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The trait and the recorder used for rendering, from <a href="../src/recorder.rs"><code>recorder.rs</code></a> (one method shown of five):</p>
+<pre class="code"><span class="k">pub trait</span> Recorder {
+    <span class="k">fn</span> wavelengths(&amp;<span class="k">mut self</span>, lambda: &amp;SampledWavelengths);
+    <span class="k">fn</span> camera_sample(&amp;<span class="k">mut self</span>, sample: &amp;CameraSample);
+    <span class="k">fn</span> camera_ray(&amp;<span class="k">mut self</span>, ray: &amp;CameraRay);
+    <span class="k">fn</span> radiance(&amp;<span class="k">mut self</span>, l: &amp;SampledSpectrum);
+    <span class="k">fn</span> film_sample(&amp;<span class="k">mut self</span>, sample: &amp;FilmSample);
+}
+
+<span class="k">pub struct</span> NoRecorder;
+
+<span class="k">impl</span> Recorder <span class="k">for</span> NoRecorder {
+    <span class="k">#[inline(always)]</span>
+    <span class="k">fn</span> wavelengths(&amp;<span class="k">mut self</span>, _: &amp;SampledWavelengths) {}
+    <span class="c">// … the other four, all empty and #[inline(always)]</span>
+}
+
+<span class="c">// Rendering pays nothing for the Recorder seam (ADR 0011).</span>
+<span class="k">const</span> _: () = <span class="k">assert!</span>(size_of::&lt;NoRecorder&gt;() == <span class="k">0</span>, <span class="c">"`NoRecorder` is zero-sized"</span>);</pre>
+        <p>Why it costs nothing: <code>evaluate_pixel_sample</code> is generic over <code>R</code>, so the compiler makes a separate copy of it for each recorder type (<em>monomorphisation</em>). In the <code>NoRecorder</code> copy, every call is to an empty function marked <code>#[inline(always)]</code>, so it vanishes, and a zero-sized value takes no space in <code>PixelSampleState</code>. The <code>const</code> assertion stops the build if someone ever gives <code>NoRecorder</code> a field. ADR 0011 rejected the alternatives: a Cargo feature (the trace binary would differ from the rendering one), a runtime <code>if</code> (not free on the hottest path), and a <code>dyn Recorder</code> (no trait objects on the per-ray path, ADR 0006).</p>
+        <p>The point of a Pixel Trace is trust: it shows what <em>was</em> rendered, not what a separate debugging path thinks was rendered. It is produced by <code>umbra trace</code>, which re-runs chosen Pixel Samples in one local process with the same Scene, seed and Render Job options. That is exact on the machine and binary that rendered them (ADR 0022). The same tool will inspect Anomalous Pixel Samples, those whose radiance is NaN, infinite or negative, which the Film will leave out and report (<a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">size_of::&lt;NoRecorder&gt;() = 0 bytes</div><div class="mb-d"><b>No memory.</b> A struct with no fields holds nothing; checked when compiling. <code>NoRecorder</code></div></div>
+        <div class="mb-row"><div class="mb-f">calls per Pixel Sample = 5, or 4 when there is no camera ray</div><div class="mb-d"><b>Events so far.</b> <code>camera_ray</code> is skipped when <code>generate_ray</code> returns <code>None</code>. With <code>NoRecorder</code> all of them compile to nothing. <code>Recorder</code></div></div>
+        <div class="mb-row"><div class="mb-f">trace(id) = render(id), bit for bit</div><div class="mb-d"><b>Why re-execution works.</b> A Pixel Sample is a pure function of (Scene, seed, pixel, sample index), and the recorder only reads. Same machine and binary ⇒ same bits (ADR 0022). <code>evaluate_pixel_sample</code></div></div>
+    </div>
+
+    <figure class="bench" id="rc">
+        <div class="controls">
+            <div class="ctl"><label for="rc-rec">recorder R</label><select id="rc-rec">
+                <option value="none">NoRecorder (rendering)</option>
+                <option value="log">a recorder that keeps a log (like the coming TraceRecorder)</option>
+            </select></div>
+            <div class="ctl"><label for="rc-i">sample_index</label><div class="row"><input id="rc-i" type="range" min="0" max="31" step="1" value="0"><output id="rc-i-o" for="rc-i"></output></div></div>
+            <div class="ctl"><label for="rc-light">what li returns</label><select id="rc-light">
+                <option value="today">Umbra today: 0</option>
+                <option value="white">what if: radiance 1</option>
+            </select></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">click a pixel to trace it (the README's 8 × 8 film)</p>
+                <canvas id="rc-grid" class="cv-sq" style="max-width:24rem" tabindex="0" aria-label="An 8 by 8 film; click a pixel to trace one of its Pixel Samples"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem; align-content:start">
+                <p class="panel-title" style="margin:0">what the recorder kept</p>
+                <ol class="log" id="rc-log"></ol>
+                <dl class="readout" id="rc-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> click a pixel with <code>NoRecorder</code>: the log stays empty, yet the FilmSample is computed. Switch to the logging recorder and click the same pixel: five entries appear, and the FilmSample is the same as the one rendering produced (the readout compares them). This is the whole idea of ADR 0011 in one figure. The log's wording is this guide's; the real Pixel Trace format arrives with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="scene-view">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-integrators</span> · <a href="../src/view.rs">view.rs</a> · <code>SceneView</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>The scene view</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A Pixel Sample needs to read parts of the Scene: the camera, the filter, the sensor, and later the shapes and lights. Instead of handing it the whole Scene, Umbra hands it a <em>view</em>: a small bundle of borrowed references to exactly those parts. Borrowing means nothing is copied, and many threads can read the same view at once. The GPU will build the same kind of view over its own copies of the data.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 280" class="dg-wide" role="img" aria-label="The Scene owns its data; Scene::view lends a SceneView that every thread shares">
+            <rect x="20" y="30" width="250" height="220" rx="8" class="f-mut-soft k-mut"/>
+            <text x="36" y="54" class="t-bold">Scene (umbra-scene)</text>
+            <text x="36" y="72" font-size="11" class="t-mut">owns; may allocate</text>
+            <rect x="36" y="84" width="218" height="28" rx="4" class="f-surf k-ink"/><text x="145" y="103" text-anchor="middle" font-size="12">camera: CameraKind</text>
+            <rect x="36" y="120" width="218" height="28" rx="4" class="f-surf k-ink"/><text x="145" y="139" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
+            <rect x="36" y="156" width="218" height="28" rx="4" class="f-surf k-ink"/><text x="145" y="175" text-anchor="middle" font-size="12">sensor: PixelSensor</text>
+            <rect x="36" y="192" width="218" height="44" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/><text x="145" y="211" text-anchor="middle" font-size="12" class="t-mut">later: shape, light,</text><text x="145" y="227" text-anchor="middle" font-size="12" class="t-mut">BVH arenas</text>
+            <line x1="272" y1="140" x2="350" y2="140" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="311" y="130" text-anchor="middle" font-size="12" class="t-acc">view()</text>
+            <rect x="354" y="60" width="250" height="160" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="370" y="84" class="t-bold">SceneView&lt;'a&gt;</text>
+            <text x="370" y="102" font-size="11" class="t-mut">borrows; a few pointers</text>
+            <text x="370" y="128" font-size="12">camera: &amp;'a CameraKind</text>
+            <text x="370" y="150" font-size="12">filter: FilterKind&lt;&amp;'a [f32]&gt;</text>
+            <text x="370" y="172" font-size="12">sensor: &amp;'a PixelSensor&lt;'a&gt;</text>
+            <text x="370" y="200" font-size="11" class="t-mut">read through camera(), filter(), sensor()</text>
+            <line x1="606" y1="110" x2="680" y2="70" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="606" y1="140" x2="680" y2="140" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="606" y1="170" x2="680" y2="210" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="684" y="50" width="150" height="40" rx="4" class="f-surf k-ink"/><text x="759" y="75" text-anchor="middle" font-size="12">thread 1</text>
+            <rect x="684" y="120" width="150" height="40" rx="4" class="f-surf k-ink"/><text x="759" y="145" text-anchor="middle" font-size="12">thread 2</text>
+            <rect x="684" y="190" width="150" height="40" rx="4" class="f-surf k-ink"/><text x="759" y="215" text-anchor="middle" font-size="12">thread N</text>
+            <text x="759" y="260" text-anchor="middle" font-size="11" class="t-mut">each with its own PixelSampleState</text>
+        </svg></div>
+        <figcaption>Ownership on the left, borrowing on the right. The filter changes type on the way: the Scene owns its tables in <code>Vec&lt;f32&gt;</code>, the view sees them as <code>&amp;[f32]</code> slices, through <code>FilterKind::view</code> (see the <a href="../../umbra-camera/docs/camera-guide.html#storage">Camera Guide §9</a>). The lifetime <code>'a</code> says the view cannot outlive the Scene it borrows from.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The whole type, from <a href="../src/view.rs"><code>view.rs</code></a>:</p>
+<pre class="code"><span class="k">pub struct</span> SceneView&lt;'a&gt; {
+    camera: &amp;'a CameraKind,
+    filter: FilterKind&lt;&amp;'a [f32]&gt;,
+    sensor: &amp;'a PixelSensor&lt;'a&gt;,
+}
+
+<span class="k">impl</span>&lt;'a&gt; SceneView&lt;'a&gt; {   <span class="c">// signatures only; each body is one line</span>
+    <span class="k">pub fn</span> new(camera: &amp;'a CameraKind, filter: FilterKind&lt;&amp;'a [f32]&gt;, sensor: &amp;'a PixelSensor&lt;'a&gt;) -&gt; Self
+    <span class="k">pub fn</span> camera(&amp;<span class="k">self</span>) -&gt; &amp;'a CameraKind
+    <span class="k">pub fn</span> filter(&amp;<span class="k">self</span>) -&gt; &amp;FilterKind&lt;&amp;'a [f32]&gt;
+    <span class="k">pub fn</span> sensor(&amp;<span class="k">self</span>) -&gt; &amp;'a PixelSensor&lt;'a&gt;
+}</pre>
+        <p><code>umbra-scene</code>'s <code>Scene::view</code> builds it with <code>SceneView::new(&amp;self.camera, self.filter.view(), &amp;self.sensor)</code>. Why not just pass <code>&amp;Scene</code>? Three reasons from the architecture. <b>Layering:</b> <code>umbra-scene</code> depends on this crate, not the other way round, so this crate cannot even name <code>Scene</code> (ADR 0015). <b>No heap in the core:</b> the view holds only borrows and slices, never a <code>Vec</code>, so it fits a <code>no_std</code> crate without <code>alloc</code> (ADR 0014). <b>One core for CPU and GPU:</b> the GPU will build a <code>SceneView</code> over device copies of the same arrays, and the same per-sample code runs on it (ADR 0028). Shapes, lights and the BVH will join the view as more borrowed arena slices, with the features that use them.</p>
+        <p>The fields are private and read through methods, so they can change shape later without touching callers. Building a view is cheap: <code>umbra-render</code> builds one per Work Unit and shares it between the threads that render it.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">calls sharing one view = pixels in the Tile × Pixel Samples per Pass</div><div class="mb-d"><b>How much one cheap view serves.</b> A 32 × 32 Tile at 16 Pixel Samples per Pass is 32 · 32 · 16 = 16 384 calls of <code>evaluate_pixel_sample</code>, all reading the same view. <code>SceneView</code>, built by <code>Scene::view</code></div></div>
+        <div class="mb-row"><div class="mb-f">lifetime(view) ≤ lifetime(Scene)</div><div class="mb-d"><b>The borrow rule</b>, checked by the compiler through <code>'a</code>: the view can never point at a Scene that is gone. <code>SceneView&lt;'a&gt;</code></div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="path-tracing">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span>theory, mostly not in the code yet · PBR 4e §13.1 to §13.4 (path tracing), Ch. 11 and §14.2 (volume scattering), §2.2 (Russian roulette)</div>
+        <h3>Path tracing: the theory behind volpath</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Path tracing estimates the rendering equation by following one light path at a time, backwards from the camera. The ray hits a surface. If the surface glows, add its glow. Then pick one random direction to bounce, and keep a running factor of how much light survives: the <em>throughput</em>. Repeat until the path escapes, hits the bounce limit, or is cut short by a coin toss. A <em>volumetric</em> path tracer also lets the path stop in mid-air inside fog or smoke and scatter there. Umbra's <code>VolPathIntegrator</code> is named for this, but today it does none of it yet: the Scene has nothing to hit.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 300" class="dg-wide" role="img" aria-label="A path from the camera bouncing off two surfaces and reaching a light, with the throughput at each step">
+            <rect x="30" y="250" width="380" height="10" class="f-mut-soft"/>
+            <rect x="470" y="40" width="10" height="230" class="f-mut-soft"/>
+            <rect x="250" y="20" width="160" height="10" class="f-warm"/>
+            <text x="330" y="16" text-anchor="middle" class="t-warm">light, L<tspan font-size="10" dy="3">e</tspan></text>
+            <rect x="40" y="130" width="30" height="20" rx="3" class="f-surf k-ink"/>
+            <path d="M70 134 L84 128 V152 L70 146 Z" class="f-surf k-ink"/>
+            <text x="55" y="172" text-anchor="middle" font-size="12">camera</text>
+            <line x1="84" y1="140" x2="226" y2="246" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <line x1="230" y1="250" x2="466" y2="150" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <line x1="470" y1="148" x2="336" y2="34" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <circle cx="230" cy="250" r="6" class="f-ink"/><text x="230" y="280" text-anchor="middle">x₁</text>
+            <circle cx="470" cy="148" r="6" class="f-ink"/><text x="492" y="152">x₂</text>
+            <circle cx="333" cy="30" r="6" class="f-warm"/><text x="342" y="52">x₃</text>
+            <text x="120" y="210" class="t-acc" font-size="12">β = 1</text>
+            <text x="330" y="226" class="t-acc" font-size="12">β = f·cos ⁄ p at x₁</text>
+            <text x="350" y="110" class="t-acc" font-size="12">β ×= f·cos ⁄ p at x₂</text>
+            <text x="560" y="60" class="t-bold">at every hit</text>
+            <text x="560" y="86" font-size="12">1. add β · L<tspan font-size="9" dy="3">e</tspan><tspan dy="-3"> (glow, if any)</tspan></text>
+            <text x="560" y="108" font-size="12">2. stop if depth = max_depth</text>
+            <text x="560" y="130" font-size="12">3. pick a bounce direction</text>
+            <text x="560" y="152" font-size="12">4. β ×= f · cos θ ⁄ p</text>
+            <text x="560" y="174" font-size="12">5. maybe stop: Russian roulette</text>
+            <text x="560" y="196" font-size="12">6. follow the new ray</text>
+            <text x="560" y="230" font-size="12" class="t-mut">escaped? add the sky (infinite</text>
+            <text x="560" y="246" font-size="12" class="t-mut">lights), then stop</text>
+        </svg></div>
+        <figcaption>A path with three vertices. The light found at <var>x₃</var> reaches the camera dimmed by every bounce on the way, which is what the throughput <var>β</var> keeps track of. pbrt-v4's <code>volpath</code> also aims a second ray straight at a light from every hit (next-event estimation) and blends the two kinds of guess with multiple importance sampling; that is left out of the picture to keep it simple.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 220" class="dg-wide" role="img" aria-label="A ray through fog: transmittance falls exponentially with distance, and the path may scatter at a random point">
+            <ellipse cx="300" cy="100" rx="200" ry="70" class="f-mut-soft k-mut" stroke-dasharray="4 4"/>
+            <text x="300" y="44" text-anchor="middle" class="t-mut">fog (a medium)</text>
+            <line x1="40" y1="100" x2="560" y2="100" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <circle cx="250" cy="100" r="6" class="f-warm"/>
+            <line x1="250" y1="100" x2="330" y2="160" class="k-warm" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah-warm)"/>
+            <text x="250" y="86" text-anchor="middle" class="t-warm">scatter here?</text>
+            <text x="40" y="88" font-size="12">ray</text>
+            <path d="M600 40 V180 H800" class="k-mut" fill="none"/>
+            <path d="M600 50 C 640 95, 680 125, 720 145 S 780 170, 800 172" class="k-acc" fill="none" stroke-width="2.2"/>
+            <text x="606" y="36" font-size="11">T(d)</text>
+            <text x="800" y="198" text-anchor="end" font-size="11">distance d</text>
+            <text x="700" y="110" class="t-acc" font-size="12">T = e<tspan font-size="9" dy="-6">−σ</tspan><tspan font-size="7" dy="3">t</tspan><tspan font-size="9" dy="-3"> d</tspan></text>
+        </svg></div>
+        <figcaption>What “volumetric” adds. Inside a medium, light is absorbed and scattered along the way, so only a fraction <var>T</var> (the transmittance) survives a distance <var>d</var>. A volumetric path tracer samples a random distance; if it falls inside the medium, the path scatters there instead of at a surface. Umbra v0.1.0 refuses Scenes with media, so this part of <code>volpath</code> is the furthest away.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The structure of pbrt-v4's <code>VolPathIntegrator::Li</code>, in words, is a loop over bounces. Each turn: intersect the ray with the Scene; if it misses, add the light of the infinite lights and stop; if the hit point glows, add <var>β</var> · <var>L<sub>e</sub></var>; if <code>depth</code> has reached <code>max_depth</code>, stop; sample a light and add its direct contribution; sample the BSDF for a new direction and multiply <var>β</var> by <var>f</var> cos <var>θ</var> ⁄ <var>p</var>; then possibly stop by Russian roulette. Media add a step before all this: sample a distance along the ray in the medium, and scatter there if it comes before the surface.</p>
+        <p><b>Russian roulette</b> ends paths that carry little light without biasing the answer. When <var>β</var> gets small, the path survives only with probability 1 − <var>q</var>; if it survives, <var>β</var> is divided by 1 − <var>q</var> to make up for the paths that were stopped. On average, nothing is lost. <b><code>max_depth</code></b> is the hard limit: light that needs more bounces than that is lost, which is the one bias the integrator accepts. pbrt-v4's default, and Umbra's, is 5.</p>
+        <p>The figure below runs a simplified version of this loop in a flat 2D room, next to what Umbra's <code>VolPathIntegrator</code> does today.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">L ≈ Σ<sub>k</sub> β<sub>k</sub> · L<sub>e</sub>(x<sub>k</sub>)</div><div class="mb-d"><b>One path's guess.</b> Add the glow of each vertex <var>x<sub>k</sub></var>, dimmed by the throughput <var>β<sub>k</sub></var> of the bounces before it. Not in the code yet: <code>VolPathIntegrator::li</code> returns 0 today.</div></div>
+        <div class="mb-row"><div class="mb-f">β<sub>k+1</sub> = β<sub>k</sub> · f(x<sub>k</sub>) · |cos θ<sub>k</sub>| ⁄ p(ω<sub>k</sub>)</div><div class="mb-d"><b>Throughput update</b> at each bounce: the Monte Carlo guess of the rendering equation's ∫, one direction at a time. For a matte surface with cosine-weighted directions this simplifies to <var>β</var> × albedo.</div></div>
+        <div class="mb-row"><div class="mb-f">q = max(0, 1 − max<sub>λ</sub> β), &nbsp; survive with 1 − q, then β ← β ⁄ (1 − q)</div><div class="mb-d"><b>Russian roulette</b> as pbrt-v4 applies it, after the first bounce (depth &gt; 1), when the largest component of <var>β</var> is below 1. The sampler provides the coin toss, so a path stays a pure function of its Pixel Sample.</div></div>
+        <div class="mb-row"><div class="mb-f">stop when depth = max_depth (default 5)</div><div class="mb-d"><b>The bounce limit.</b> With 0 you only see lights directly; with 1, light that bounced once; and so on. <code>VolPathIntegrator::new(max_depth)</code>, <code>max_depth()</code> — stored today, not used yet.</div></div>
+        <div class="mb-row"><div class="mb-f">T(d) = e<sup>−σ<sub>t</sub> d</sup></div><div class="mb-d"><b>Transmittance</b> through a uniform medium with extinction coefficient <var>σ<sub>t</sub></var> (sigma t, how thick the fog is): the fraction of light that gets through a distance <var>d</var>. Not in Umbra yet.</div></div>
+    </div>
+
+    <figure class="bench" id="pt">
+        <div class="controls">
+            <div class="ctl"><label for="pt-mode">integrator</label><select id="pt-mode">
+                <option value="today">VolPathIntegrator today (no Shapes, no lights)</option>
+                <option value="sketch">path tracing sketch (what volpath will do)</option>
+            </select></div>
+            <div class="ctl"><label for="pt-depth">max_depth</label><div class="row"><input id="pt-depth" type="range" min="0" max="10" step="1" value="5"><output id="pt-depth-o" for="pt-depth"></output></div></div>
+            <div class="ctl"><label for="pt-rho">wall albedo ρ</label><div class="row"><input id="pt-rho" type="range" min="0" max="0.95" step="0.05" value="0.7"><output id="pt-rho-o" for="pt-rho"></output></div></div>
+            <div class="ctl"><span class="lbl">paths</span><div class="btns"><button type="button" id="pt-one" class="primary">trace 1</button><button type="button" id="pt-many">+ 200</button><button type="button" id="pt-reset">reset</button></div></div>
+        </div>
+        <div class="split">
+            <div><p class="panel-title">a 2D room seen from above: click to aim the camera ray</p><canvas id="pt-scene" class="cv-wide" aria-label="A 2D room with a light; paths traced from the camera"></canvas></div>
+            <div style="display:grid; gap:0.9rem">
+                <div><p class="panel-title">running average of L (amber)</p><canvas id="pt-conv" class="cv-strip" aria-label="Convergence of the path-traced radiance"></canvas></div>
+                <dl class="readout" id="pt-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> in “today” mode every path is the camera ray alone, it escapes, and <var>L</var> = 0, which is exactly what <code>VolPathIntegrator::li</code> returns. Switch to the sketch and trace 200 paths. Set <code>max_depth</code> to 0: only rays aimed straight at the light (the bright bar) see anything. Raise it and the average climbs as more bounces bring light in, but each extra bounce adds less than the one before (with the default aim: about 0.34 at 1, 0.48 at 5, 0.53 at 10). Lower the albedo and the climb flattens sooner, because every bounce keeps only ρ of the light. The sketch is grey (one wavelength), samples only the BSDF (cosine-weighted), and uses pbrt-v4's <code>depth</code> and Russian-roulette rules; pbrt-v4's volpath also samples lights directly and blends both with MIS, which this figure leaves out.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-integrators</code> is the top of Umbra's rendering core: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects on the per-ray path, so the same code can later run on a GPU (ADR 0014, ADR 0015, ADR 0028). It depends on <code>umbra-camera</code>, <code>umbra-shading</code>, <code>umbra-spectrum</code>, <code>umbra-sampling</code>, <code>umbra-geometry</code> and <code>umbra-math</code>; <code>umbra-scene</code> and <code>umbra-render</code> depend on it. It covers PBR 4e chapters 13 to 15, and today implements the frame those chapters hang on.</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-integrators</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a></div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Four small files, under 300 lines of Rust in all, comments included. One holds the five-step function and its types, one the recorder, one the scene view, one the volumetric path tracer. Everything is re-exported at the crate root, so users write <code>umbra_integrators::evaluate_pixel_sample</code>.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The four modules of umbra-integrators and how their types connect">
+            <rect x="20" y="30" width="330" height="250" rx="8" class="f-acc-soft k-acc"/>
+            <text x="34" y="54" class="t-bold">pixel_sample.rs</text>
+            <rect x="40" y="70" width="140" height="32" rx="4" class="f-surf k-ink"/><text x="110" y="91" text-anchor="middle" font-size="12">PixelSampleId</text>
+            <rect x="190" y="70" width="140" height="32" rx="4" class="f-surf k-ink"/><text x="260" y="91" text-anchor="middle" font-size="12">FilmSample</text>
+            <rect x="40" y="114" width="290" height="32" rx="4" class="f-surf k-ink"/><text x="185" y="135" text-anchor="middle" font-size="12">PixelSampleState&lt;'s, R&gt; { sampler, recorder }</text>
+            <rect x="40" y="158" width="290" height="32" rx="4" class="f-surf k-ink"/><text x="185" y="179" text-anchor="middle" font-size="12">trait RayIntegrator { fn li&lt;R&gt; }</text>
+            <rect x="40" y="202" width="290" height="60" rx="4" class="f-surf k-acc" stroke-width="2"/><text x="185" y="227" text-anchor="middle" font-size="12">fn evaluate_pixel_sample&lt;I, R&gt;</text><text x="185" y="247" text-anchor="middle" font-size="11" class="t-mut">id → FilmSample</text>
+
+            <rect x="380" y="30" width="240" height="110" rx="8" class="f-warm-soft k-warm"/>
+            <text x="394" y="54" class="t-bold">recorder.rs</text>
+            <rect x="400" y="66" width="200" height="28" rx="4" class="f-surf k-ink"/><text x="500" y="85" text-anchor="middle" font-size="12">trait Recorder</text>
+            <rect x="400" y="100" width="200" height="28" rx="4" class="f-surf k-ink"/><text x="500" y="119" text-anchor="middle" font-size="12">NoRecorder (0 bytes)</text>
+
+            <rect x="380" y="170" width="240" height="110" rx="8" class="f-mut-soft k-mut"/>
+            <text x="394" y="194" class="t-bold">view.rs</text>
+            <rect x="400" y="210" width="200" height="50" rx="4" class="f-surf k-ink"/><text x="500" y="232" text-anchor="middle" font-size="12">SceneView&lt;'a&gt;</text><text x="500" y="250" text-anchor="middle" font-size="11" class="t-mut">camera, filter, sensor</text>
+
+            <rect x="650" y="30" width="230" height="250" rx="8" class="f-warm-soft k-warm"/>
+            <text x="664" y="54" class="t-bold">volpath.rs</text>
+            <rect x="670" y="70" width="190" height="50" rx="4" class="f-surf k-ink"/><text x="765" y="92" text-anchor="middle" font-size="12">VolPathIntegrator</text><text x="765" y="110" text-anchor="middle" font-size="11" class="t-mut">{ max_depth: u32 }</text>
+            <text x="765" y="148" text-anchor="middle" font-size="12">impl RayIntegrator</text>
+            <text x="765" y="168" text-anchor="middle" font-size="11" class="t-warm">li → splat(0.0), a stub</text>
+            <text x="765" y="198" text-anchor="middle" font-size="11" class="t-mut">new(max_depth)</text>
+            <text x="765" y="216" text-anchor="middle" font-size="11" class="t-mut">max_depth()</text>
+            <text x="765" y="234" text-anchor="middle" font-size="11" class="t-mut">Default: max_depth 5</text>
+
+            <path d="M332 140 C 360 140, 380 100, 398 82" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <path d="M332 232 C 360 232, 380 236, 398 236" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <path d="M668 150 C 560 150, 420 175, 332 175" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <text x="560" y="294" text-anchor="middle" font-size="11" class="t-mut">arrows: “uses”</text>
+        </svg></div>
+        <figcaption>Four modules; <code>lib.rs</code> re-exports every public name. <code>evaluate_pixel_sample</code> uses the recorder and the view; <code>VolPathIntegrator</code> implements the <code>RayIntegrator</code> trait.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>type or function</th><th>what it is</th><th>pbrt-v4 name</th><th>status</th></tr></thead>
+            <tbody>
+                <tr><td><code>PixelSampleId</code></td><td>pixel (<code>Point2i</code>) and <code>sample_index</code> (<code>u32</code>)</td><td><code>pPixel</code>, <code>sampleIndex</code> arguments</td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>PixelSampleState&lt;'s, R&gt;</code></td><td>a thread's <code>SamplerKind</code> and recorder, reused</td><td>the <code>Sampler</code> argument</td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>RayIntegrator</code></td><td>trait: <code>li</code>, the radiance along a ray</td><td><code>RayIntegrator</code>, <code>Li</code></td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>FilmSample</code></td><td>sensor <code>rgb</code> and filter <code>weight</code></td><td><code>RGBFilm::AddSample</code>'s arguments after <code>ToSensorRGB</code></td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>evaluate_pixel_sample</code></td><td>one Pixel Sample, from restart to FilmSample</td><td><code>RayIntegrator::EvaluatePixelSample</code> after <code>StartPixelSample</code></td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>Recorder</code></td><td>trait: five events of one Pixel Sample</td><td>none (Umbra's, ADR 0011)</td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>NoRecorder</code></td><td>zero-sized recorder for rendering</td><td>none</td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>SceneView&lt;'a&gt;</code></td><td>borrowed camera, filter view and sensor</td><td>none (pbrt-v4 integrators hold their scene parts)</td><td><span class="status done">done</span></td></tr>
+                <tr><td><code>VolPathIntegrator</code></td><td><code>max_depth</code>, and <code>li</code> returning 0</td><td><code>VolPathIntegrator</code></td><td><span class="status stub">stub</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="prose" style="margin-top:1.2rem">
+        <p><code>lib.rs</code> also declares two dependencies it does not use yet, <code>use umbra_shading as _;</code> and, under the <code>serde</code> feature, <code>use serde as _;</code>. They keep the dependency edges of the architecture (arc42 §5.1) in place until code needs them. The <code>serde</code> feature turns on serialisation for the Scene arena types of every core crate below, for Scene replication; <code>umbra-scene</code> switches it on.</p>
+    </div>
+</section>
+
+<section class="topic" id="one-path">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a>, <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>, <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a></div>
+        <h3>One function for rendering and tracing</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>There is exactly one function that computes a Pixel Sample, and everybody calls it: the renderer, and later the trace tool. It starts by resetting the random numbers from the Pixel Sample's name. So it always does the same thing for the same name, no matter which thread, in which order, or how many times.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 220" class="dg-wide" role="img" aria-label="Pixel Samples computed in any order on any thread give the same results, because the sampler restarts from the id">
+            <text x="20" y="24" class="t-bold">thread A</text>
+            <text x="20" y="124" class="t-bold">thread B</text>
+            <rect x="110" y="8" width="120" height="28" rx="4" class="f-acc-soft k-acc"/><text x="170" y="27" text-anchor="middle" font-size="12">(3,4) #0</text>
+            <rect x="240" y="8" width="120" height="28" rx="4" class="f-acc-soft k-acc"/><text x="300" y="27" text-anchor="middle" font-size="12">(3,4) #1</text>
+            <rect x="370" y="8" width="120" height="28" rx="4" class="f-warm-soft k-warm"/><text x="430" y="27" text-anchor="middle" font-size="12">(3,4) #2</text>
+            <rect x="110" y="108" width="120" height="28" rx="4" class="f-mut-soft k-mut"/><text x="170" y="127" text-anchor="middle" font-size="12">(5,1) #0</text>
+            <rect x="240" y="108" width="120" height="28" rx="4" class="f-warm-soft k-warm"/><text x="300" y="127" text-anchor="middle" font-size="12">(3,4) #2</text>
+            <rect x="370" y="108" width="120" height="28" rx="4" class="f-mut-soft k-mut"/><text x="430" y="127" text-anchor="middle" font-size="12">(5,1) #1</text>
+            <path d="M430 38 C 430 70, 600 60, 620 80" class="k-warm" fill="none" marker-end="url(#ah-warm)"/>
+            <path d="M300 138 C 300 170, 600 150, 620 120" class="k-warm" fill="none" marker-end="url(#ah-warm)"/>
+            <rect x="624" y="74" width="180" height="56" rx="6" class="f-surf k-warm" stroke-width="1.6"/>
+            <text x="714" y="98" text-anchor="middle" font-size="12">same FilmSample,</text>
+            <text x="714" y="116" text-anchor="middle" font-size="12">bit for bit</text>
+            <text x="20" y="190" font-size="12" class="t-mut">start_pixel_sample(pixel, sample_index, 0) rebuilds the sampler from the id, so what ran before on this</text>
+            <text x="20" y="208" font-size="12" class="t-mut">thread, or on another, does not matter. No clock, no thread-local RNG, no shared counter on the render path.</text>
+        </svg></div>
+        <figcaption>The same Pixel Sample (3, 4) #2 computed on two threads after different histories. The amber boxes give identical results. This property is what <code>umbra-render</code>'s test “Work Results do not depend on the thread count” checks.</figcaption>
+    </figure>
+    <div class="prose">
+        <p><code>evaluate_pixel_sample</code> is pbrt-v4's <code>EvaluatePixelSample</code> with <code>StartPixelSample</code> moved inside. pbrt-v4 leaves the restart to its caller; Umbra puts it inside, so no caller can forget it or call it differently. The README states the rule for users: <em>callers do not call <code>start_pixel_sample</code> themselves</em>.</p>
+        <p>This is the foundation of two ADRs. ADR 0004 (as amended by ADR 0022) makes a Pixel Sample a pure function of (Scene, seed, pixel, sample index) on one machine, and has each pixel sum its Pixel Samples in ascending sample index. ADR 0011 then gets Pixel Traces for free: compute the same Pixel Sample again with a recording <code>R</code>. Both callers use the same compiled code for every step except the recorder's calls.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">FilmSample = E(view, seed, id)</div><div class="mb-d"><b>A pure function.</b> The seed reaches <code>E</code> through the sampler's randomizer, the Scene through the view, the id directly. Nothing else goes in. <code>evaluate_pixel_sample</code></div></div>
+        <div class="mb-row"><div class="mb-f">pixel sum = Σ<sub>i = first … last</sub> FilmSample(pixel, i), in ascending i</div><div class="mb-d"><b>A fixed order of additions.</b> Floating-point addition gives different last bits in a different order, so the order is fixed (ADR 0022). Done by <code>umbra-render</code>'s pixel loop, which folds the sample indices in order.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="values">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <code>PixelSampleState</code>, <code>FilmSample</code> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a></div>
+        <h3>Values in, values out</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Every step takes values and returns values. The only things that change during a Pixel Sample, the sampler and the recorder, are bundled into one <code>PixelSampleState</code> that a thread owns and lends to each Pixel Sample in turn. The result comes back as a small <code>FilmSample</code>. Nothing here knows about Tiles, threads or the Film. That keeps it allocation-free, and lets the GPU call the very same steps later.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 240" class="dg-wide" role="img" aria-label="A thread owns one PixelSampleState and reuses it; each Pixel Sample returns a FilmSample that is summed in f64">
+            <rect x="20" y="30" width="230" height="180" rx="8" class="f-mut-soft k-mut"/>
+            <text x="36" y="54" class="t-bold">one thread (a row)</text>
+            <rect x="36" y="70" width="198" height="62" rx="6" class="f-surf k-ink"/>
+            <text x="135" y="92" text-anchor="middle" font-size="12">PixelSampleState</text>
+            <text x="135" y="110" text-anchor="middle" font-size="11">sampler: SamplerKind</text>
+            <text x="135" y="124" text-anchor="middle" font-size="11">recorder: NoRecorder</text>
+            <text x="135" y="160" text-anchor="middle" font-size="11" class="t-mut">created once per row,</text>
+            <text x="135" y="176" text-anchor="middle" font-size="11" class="t-mut">reused for every Pixel Sample</text>
+            <line x1="252" y1="100" x2="318" y2="100" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <text x="285" y="90" text-anchor="middle" font-size="11" class="t-acc">&amp;mut</text>
+            <rect x="322" y="62" width="200" height="76" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="422" y="94" text-anchor="middle" font-size="12">evaluate_pixel_sample</text>
+            <text x="422" y="114" text-anchor="middle" font-size="11" class="t-mut">no allocation, no f64</text>
+            <line x1="524" y1="100" x2="588" y2="100" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="592" y="70" width="110" height="60" rx="6" class="f-surf k-ink"/>
+            <text x="647" y="94" text-anchor="middle" font-size="12">FilmSample</text>
+            <text x="647" y="114" text-anchor="middle" font-size="11" class="t-mut">f32 rgb, weight</text>
+            <line x1="704" y1="100" x2="738" y2="100" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="742" y="62" width="100" height="76" rx="6" class="f-warm-soft k-warm"/>
+            <text x="792" y="88" text-anchor="middle" font-size="12">PixelSum</text>
+            <text x="792" y="106" text-anchor="middle" font-size="11">+= in f64</text>
+            <text x="792" y="124" text-anchor="middle" font-size="11" class="t-mut">umbra-render</text>
+            <text x="422" y="186" text-anchor="middle" font-size="12" class="t-mut">the core stops at the FilmSample: the caller decides where it goes</text>
+            <text x="422" y="204" text-anchor="middle" font-size="12" class="t-mut">(a pixel's sum on the CPU, a queue slot on the GPU later)</text>
+        </svg></div>
+        <figcaption>The CPU driver, <code>umbra-render</code>'s pixel loop, owns the state and the sums. This crate only computes. <code>PixelSampleState</code> holds its sampler by value; cloning it per row copies a small value, not a table.</figcaption>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub struct</span> PixelSampleState&lt;'s, R&gt; {
+    <span class="k">pub</span> sampler: SamplerKind&lt;'s&gt;,   <span class="c">// restarted at each Pixel Sample</span>
+    <span class="k">pub</span> recorder: R,                 <span class="c">// NoRecorder when rendering</span>
+}
+
+<span class="k">pub struct</span> FilmSample {
+    <span class="k">pub</span> rgb: RGB,       <span class="c">// the radiance in the sensor's RGB</span>
+    <span class="k">pub</span> weight: f32,    <span class="c">// the filter weight of the camera sample</span>
+}</pre>
+        <p>And the caller, abridged from <code>umbra-render</code>'s <code>PixelLoop::render_pixel</code>, which folds a pixel's sample indices in ascending order:</p>
+<pre class="code">samples.clone().fold(PixelSum::default(), |<span class="k">mut</span> sum, sample_index| {
+    <span class="k">let</span> id = PixelSampleId { pixel, sample_index };
+    sum += evaluate_pixel_sample(&amp;<span class="k">self</span>.<span class="k">0</span>, &amp;job.view, id, state);
+    sum
+})</pre>
+        <p>Three rules meet here. <b>No allocation per Pixel Sample</b> (ADR 0008): the state is created once and passed by <code>&amp;mut</code>; the counting-allocator test checks it. <b>No <code>f64</code> in the core</b> (ADR 0028, enforced by the <code>clippy::disallowed_types</code> lint in <code>lib.rs</code>): the FilmSample is <code>f32</code>, and the caller widens it before adding, because sums over many samples need the extra precision (ADR 0001). <b>Steps as functions on values</b> (ADR 0028): a GPU wavefront can run the same steps from its own queues.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">sum<sub>c</sub> += f64(w · rgb<sub>c</sub>), &nbsp; sum<sub>w</sub> += f64(w)</div><div class="mb-d"><b>How a FilmSample is added</b> by the caller: multiply in <code>f32</code>, then add in <code>f64</code>. <code>PixelSum: AddAssign&lt;FilmSample&gt;</code> in umbra-render</div></div>
+        <div class="mb-row"><div class="mb-f">f32: about 7 significant digits; f64: about 16</div><div class="mb-d"><b>Why sum in f64.</b> Adding a small number to a big <code>f32</code> total loses the small number's last digits. After thousands of samples that adds up; <code>f64</code> keeps it negligible.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="generic">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a></div>
+        <h3>Generic, not dyn</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Rust can call a method in two ways. <em>Static</em>: the compiler knows the exact type and can paste the code inline. <em>Dynamic</em> (<code>dyn</code>): the type is looked up at run time through a table of function pointers. Dynamic calls are a little slower and can't be inlined, and the GPU can't follow them. So the per-ray code is static. The one dynamic call in rendering happens once per Work Unit, outside this crate, where its cost doesn't matter.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 220" class="dg-wide" role="img" aria-label="A dyn Integrator called once per Work Unit wraps a statically dispatched loop over Pixel Samples">
+            <rect x="20" y="30" width="780" height="170" rx="10" class="f-mut-soft k-mut" stroke-dasharray="6 4"/>
+            <text x="36" y="54" class="t-bold">umbra-render: Box&lt;dyn Integrator&gt;</text>
+            <text x="36" y="72" font-size="11" class="t-mut">render(job, unit): one dynamic call per Work Unit (thousands per Render Job)</text>
+            <rect x="50" y="90" width="720" height="92" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="66" y="114" class="t-bold">PixelLoop&lt;VolPathIntegrator&gt;: static, per pixel</text>
+            <rect x="70" y="128" width="300" height="40" rx="4" class="f-surf k-ink"/>
+            <text x="220" y="152" text-anchor="middle" font-size="12">evaluate_pixel_sample::&lt;I, R&gt;</text>
+            <line x1="372" y1="148" x2="430" y2="148" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="434" y="128" width="320" height="40" rx="4" class="f-surf k-ink"/>
+            <text x="594" y="152" text-anchor="middle" font-size="12">VolPathIntegrator::li::&lt;R&gt; (inlined)</text>
+            <text x="410" y="214" text-anchor="middle" font-size="11" class="t-mut">millions of static calls per Render Job, inside</text>
+        </svg></div>
+        <figcaption>The coarse seam is dynamic, the fine one static. <code>dyn Integrator</code> and <code>PixelLoop</code> are <code>umbra-render</code>'s; this crate provides the generic inside.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>A Rust trait with a generic method, like <code>fn li&lt;R: Recorder&gt;</code>, cannot be made into a trait object: there would be one method per <code>R</code>, too many to put in a table. So <code>RayIntegrator</code> is not object-safe, on purpose. ADR 0006 bans trait objects on the per-ray path anyway, and asks for closed enums where several kinds exist (as <code>CameraKind</code> and <code>SamplerKind</code> do). With one integrator so far, there is no enum of integrators yet; <code>umbra-render</code> wraps the concrete integrator in a generic <code>PixelLoop&lt;I&gt;</code> and calls it through <code>Box&lt;dyn Integrator&gt;</code> once per Work Unit, which ADR 0006 allows because it is not per ray.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">copies compiled = (integrators) × (recorders)</div><div class="mb-d"><b>The cost of generics</b> is code size, not speed: today 1 × 1 (<code>VolPathIntegrator</code> × <code>NoRecorder</code>) in the renderer, and 1 × 2 once <code>TraceRecorder</code> exists. <code>evaluate_pixel_sample::&lt;I, R&gt;</code></div></div>
+        <div class="mb-row"><div class="mb-f">dynamic calls per Render Job = Work Units, not Pixel Samples</div><div class="mb-d"><b>Where the dyn sits.</b> A 1920 × 1080 image in 32 × 32 Tiles, 4 Passes: 60 · 34 · 4 = 8 160 dynamic calls, against 1920 · 1080 · spp static ones.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="volpath-today">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-integrators</span> · <a href="../src/volpath.rs">volpath.rs</a> · <code>VolPathIntegrator</code> · PBR 4e §14.2</div>
+        <h3>VolPathIntegrator today</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Honest status: the volumetric path tracer is a placeholder. The Scene has no Shapes and no lights yet, so every camera ray flies off into nothing, and nothing out there glows. The right answer to “how much light comes back?” is therefore zero, and that is what it returns, without even drawing a random number. It already stores <code>max_depth</code>, the bounce limit, ready for when paths can bounce.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 200" class="dg-wide" role="img" aria-label="Today a camera ray escapes an empty scene with no infinite light, so li returns zero">
+            <rect x="30" y="80" width="34" height="22" rx="3" class="f-surf k-ink"/>
+            <path d="M64 84 L80 76 V106 L64 98 Z" class="f-surf k-ink"/>
+            <line x1="82" y1="91" x2="560" y2="91" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <text x="320" y="78" text-anchor="middle" class="t-acc">camera ray</text>
+            <rect x="200" y="120" width="260" height="56" rx="6" class="k-mut" fill="none" stroke-dasharray="5 4"/>
+            <text x="330" y="144" text-anchor="middle" font-size="12" class="t-mut">no Shapes (#79), no lights (#80)</text>
+            <text x="330" y="162" text-anchor="middle" font-size="12" class="t-mut">nothing to hit, nothing glows</text>
+            <text x="580" y="86" font-size="12">escapes</text>
+            <text x="580" y="104" font-size="12" class="t-mut">no infinite light to add</text>
+            <rect x="580" y="130" width="210" height="44" rx="6" class="f-warm-soft k-warm"/>
+            <text x="685" y="157" text-anchor="middle" font-size="12">li = splat(0.0) at all 4 λ</text>
+        </svg></div>
+        <figcaption>What <code>li</code> computes today. Returning zero is not a shortcut: for a Scene with only a camera, zero <em>is</em> the radiance. That is why <code>umbra-render</code>'s first test is a black frame.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>All of <a href="../src/volpath.rs"><code>volpath.rs</code></a>'s logic:</p>
+<pre class="code"><span class="k">pub struct</span> VolPathIntegrator {
+    max_depth: u32,
+}
+
+<span class="k">impl</span> VolPathIntegrator {
+    <span class="k">pub const fn</span> new(max_depth: u32) -&gt; Self { Self { max_depth } }
+    <span class="k">pub const fn</span> max_depth(<span class="k">self</span>) -&gt; u32 { <span class="k">self</span>.max_depth }
+}
+
+<span class="k">impl</span> Default <span class="k">for</span> VolPathIntegrator {
+    <span class="k">fn</span> default() -&gt; Self { Self::new(<span class="k">5</span>) }   <span class="c">// pbrt-v4's "maxdepth" default</span>
+}
+
+<span class="k">impl</span> RayIntegrator <span class="k">for</span> VolPathIntegrator {
+    <span class="c">// The ray escapes, and there is no infinite light to add:</span>
+    <span class="c">// zero radiance, with no sample drawn.</span>
+    <span class="k">fn</span> li&lt;R: Recorder&gt;(&amp;<span class="k">self</span>, _view: &amp;SceneView&lt;'_&gt;, _ray: &amp;Ray,
+                        _lambda: &amp;<span class="k">mut</span> SampledWavelengths,
+                        _state: &amp;<span class="k">mut</span> PixelSampleState&lt;'_, R&gt;) -&gt; SampledSpectrum {
+        SampledSpectrum::splat(<span class="k">0.0</span>)
+    }
+}</pre>
+        <p>Every argument is unused, which the leading underscores say. “No sample drawn” matters for later: once <code>li</code> reads numbers from the sampler, they will follow the camera sample's, in pbrt-v4's order. The type also has no media support by design for v0.1.0, which refuses Scenes that have them; the name keeps pbrt-v4's so a Scene File's <code>Integrator "volpath"</code> maps onto it. <code>umbra-scene</code> holds a <code>VolPathIntegrator</code> in its Scene and hands it to the renderer.</p>
+        <p>What stays true when it grows: the signature. Intersections will read Shapes and the BVH through the <code>SceneView</code>, random choices will come from <code>state.sampler</code>, and every vertex, light sample and BSDF sample will be reported to <code>state.recorder</code>.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">L<sub>i</sub>(ray) = Σ<sub>infinite lights</sub> L<sub>e</sub> = 0</div><div class="mb-d"><b>An escaping ray</b> sees only lights at infinity. There are none, so the sum is empty and the radiance is 0 at every wavelength. <code>SampledSpectrum::splat(0.0)</code></div></div>
+        <div class="mb-row"><div class="mb-f">rgb = k · ¼ Σ c̄(λ) · 0 ⁄ p(λ) = (0, 0, 0), &nbsp; weight ≈ 0.94</div><div class="mb-d"><b>What the Film receives today</b>: black, with a normal weight, so the pixel's value Σ w·rgb ⁄ Σ w is exactly 0. <code>FilmSample</code></div></div>
+    </div>
+</section>
+
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-integrators</span> · tested from <code>umbra-render</code> and <code>umbra</code></div>
+        <h3>How it is tested</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The crate has no test files of its own yet. It is tested from the outside, through the renderer that calls it: the image must be black, must not depend on how many threads rendered it, and rendering must not allocate memory per Pixel Sample. The README's example also runs as a test.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 820 170" class="dg-wide" role="img" aria-label="Three tests and the doctest exercising umbra-integrators from outside">
+            <rect x="300" y="60" width="220" height="50" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="410" y="90" text-anchor="middle" class="t-bold">umbra-integrators</text>
+            <rect x="20" y="10" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="135" y="34" text-anchor="middle" font-size="12">black frame</text>
+            <rect x="20" y="64" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="135" y="88" text-anchor="middle" font-size="12">1 thread = 4 threads</text>
+            <rect x="20" y="118" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="135" y="142" text-anchor="middle" font-size="12">pure function of the Work Unit</text>
+            <rect x="570" y="30" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="685" y="54" text-anchor="middle" font-size="12">allocations per Work Unit</text>
+            <rect x="570" y="100" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="685" y="124" text-anchor="middle" font-size="12">README doctest</text>
+            <path d="M252 30 L298 74 M252 84 H298 M252 138 L298 100 M568 50 L522 74 M568 120 L522 100" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="135" y="168" text-anchor="middle" font-size="11" class="t-mut">umbra-render/tests</text>
+            <text x="685" y="164" text-anchor="middle" font-size="11" class="t-mut">umbra/tests · README.md</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+        <ul>
+            <li><a href="../../umbra-render/tests/umbra_render/renderer.rs"><code>umbra-render/tests/umbra_render/renderer.rs</code></a>: <code>a_camera_only_scene_renders_black</code> checks every pixel's RGB sum is 0; <code>work_results_do_not_depend_on_the_thread_count</code> compares 1 and 4 threads; <code>a_render_is_a_pure_function_of_its_work_unit</code> renders every Work Unit again, in reverse order, with a new Renderer, and compares. All go through <code>evaluate_pixel_sample</code> and <code>VolPathIntegrator</code>.</li>
+            <li><a href="../../umbra/tests/allocation.rs"><code>umbra/tests/allocation.rs</code></a>: <code>rendering_allocates_per_work_unit_not_per_pixel_sample</code> counts heap blocks with <code>dhat</code> for 4 and then 8 Pixel Samples per pixel and expects the same count, so nothing is allocated per Pixel Sample (ADR 0008). Every integrator will join it.</li>
+            <li>The <a href="../README.md">README</a>'s example builds the camera, filter and sensor by hand, computes Pixel Sample (3, 4) #2 with <code>NoRecorder</code>, and asserts the RGB is (0, 0, 0) and the weight is above 0. It runs as a doctest.</li>
+            <li>At compile time: <code>size_of::&lt;NoRecorder&gt;() == 0</code>.</li>
+        </ul>
+        <p>Run them with <code>cargo nextest run -p umbra-render -p umbra</code> and <code>cargo test --doc -p umbra-integrators</code>. Tests that compare radiance with pbrt-v4 will come with the first Shapes and lights; the Reference Scenes are checked by eye (ADR 0031).</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">blocks(8 spp) = blocks(4 spp)</div><div class="mb-d"><b>The allocation test's idea.</b> If anything allocated per Pixel Sample, doubling them would raise the count. Equal counts mean all allocation is per Work Unit.</div></div>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-integrators</span> · roadmap</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The frame is built; the engine inside it comes next. Here is what is missing, and which issue brings it.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 200" class="dg-wide" role="img" aria-label="What is done in umbra-integrators and what comes with which issue">
+            <line x1="30" y1="90" x2="830" y2="90" class="k-mut" stroke-width="2" marker-end="url(#ah-mut)"/>
+            <circle cx="80" cy="90" r="9" class="f-acc"/>
+            <text x="80" y="60" text-anchor="middle" font-size="12" class="t-acc">today</text>
+            <text x="80" y="120" text-anchor="middle" font-size="11">5 steps, Recorder,</text>
+            <text x="80" y="136" text-anchor="middle" font-size="11">SceneView, stub li</text>
+            <circle cx="250" cy="90" r="8" class="f-surf k-warm" stroke-width="2"/>
+            <text x="250" y="60" text-anchor="middle" font-size="12" class="t-warm">#79</text>
+            <text x="250" y="120" text-anchor="middle" font-size="11">emissive spheres</text>
+            <text x="250" y="136" text-anchor="middle" font-size="11">seen by the camera</text>
+            <circle cx="420" cy="90" r="8" class="f-surf k-warm" stroke-width="2"/>
+            <text x="420" y="60" text-anchor="middle" font-size="12" class="t-warm">#80</text>
+            <text x="420" y="120" text-anchor="middle" font-size="11">diffuse surfaces lit</text>
+            <text x="420" y="136" text-anchor="middle" font-size="11">by area lights</text>
+            <circle cx="590" cy="90" r="8" class="f-surf k-warm" stroke-width="2"/>
+            <text x="590" y="60" text-anchor="middle" font-size="12" class="t-warm">#85</text>
+            <text x="590" y="120" text-anchor="middle" font-size="11">Anomalous Pixel</text>
+            <text x="590" y="136" text-anchor="middle" font-size="11">Samples left out</text>
+            <circle cx="760" cy="90" r="8" class="f-surf k-warm" stroke-width="2"/>
+            <text x="760" y="60" text-anchor="middle" font-size="12" class="t-warm">#88</text>
+            <text x="760" y="120" text-anchor="middle" font-size="11">TraceRecorder,</text>
+            <text x="760" y="136" text-anchor="middle" font-size="11">text Pixel Traces</text>
+            <text x="430" y="186" text-anchor="middle" font-size="11" class="t-mut">order on the line is for reading, not a schedule</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+        <ul>
+            <li><b>Intersections, emission and shading</b> in <code>VolPathIntegrator::li</code>, with <a href="https://github.com/sergioffpc/umbra/issues/79">#79</a> (emissive spheres visible to the camera) and <a href="https://github.com/sergioffpc/umbra/issues/80">#80</a> (diffuse surfaces lit by area lights). Shapes, lights and the BVH join <code>SceneView</code> as arena slices, and the path loop of <a href="#path-tracing">section 6</a> takes shape: BSDF sampling, light sampling, MIS, Russian roulette, <code>max_depth</code>.</li>
+            <li><b>Media</b> (fog, smoke, the “vol” in volpath): v0.1.0 refuses Scenes that have them.</li>
+            <li><b>Leaving out Anomalous Pixel Samples</b>, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>. Until then a NaN or infinite radiance reaches the Film, where pbrt-v4 would zero it.</li>
+            <li><b><code>TraceRecorder</code></b> and text Pixel Traces through <code>umbra trace</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. It lives in <code>umbra-render</code>, not here.</li>
+            <li><b>More recorder events</b>: path vertices, light and BSDF samples, Russian roulette, termination, BVH node visits and primitive tests (ADR 0011), added with the code that makes them.</li>
+            <li><b>Ray differentials</b> and pbrt-v4's scaling of them by the number of Pixel Samples, once textures need them.</li>
+            <li><b>Other integrators</b>: BDPT, SPPM, MLT, with CPU drivers of their own (arc42 §8.12), and the GPU's wavefront over the same steps in <code>umbra-kernels</code>.</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> §1.3.4 (integrators and <code>EvaluatePixelSample</code>), §2.1 to 2.2 (Monte Carlo, importance sampling, Russian roulette), §4.1 (radiance), Chapter 13 (the light transport equation, path tracing), Chapter 11 and §14.2 (volume scattering, <code>VolPathIntegrator</code>).</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/cpu/integrators.h</code> and <code>integrators.cpp</code> (<code>RayIntegrator::EvaluatePixelSample</code>, <code>VolPathIntegrator::Li</code>), <code>src/pbrt/film.h</code> (<code>RGBFilm::AddSample</code>, <code>PixelSensor::ToSensorRGB</code>).</li>
+        <li>Kajiya. The Rendering Equation. SIGGRAPH 1986. Where the equation and path tracing began.</li>
+        <li>Veach. <i>Robust Monte Carlo Methods for Light Transport Simulation</i>. PhD thesis, Stanford, 1997. Multiple importance sampling and bidirectional methods.</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Pixel Sample, Pixel Trace, Anomalous Pixel Sample, Work Unit, Film), <a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a> (Pixel Traces), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> and <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> (determinism), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (no dyn per ray), <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> (no allocation per Pixel Sample), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>, <a href="../../../docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md">ADR 0015</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (the core), <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a>.</li>
+        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Camera</a>, <a href="../../umbra-sampling/docs/sampling-guide.html">Sampling</a>, <a href="../../umbra-spectrum/docs/spectrum-guide.html">Spectrum</a>, <a href="../../umbra-geometry/docs/geometry-guide.html">Geometry</a>, <a href="../../umbra-math/docs/math-guide.html">Math</a>.</li>
+    </ul>
+</section>
+
+<footer>Umbra Integrators Guide · crates/umbra-integrators/docs/integrators-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    (The same helpers as the Camera Guide.)
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+const vec = (a, d = 4) => "(" + a.map((v) => fmt(v, d)).join(", ") + ")";
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+/* A colour for a wavelength, for the figures only. */
+const wlColor = (l, a = 1) => `hsla(${clamp(270 - (l - 400) / (680 - 400) * 270, 0, 270)}, 75%, 50%, ${a})`;
+
+/* ================================================================
+    4 × 4 transforms and the perspective camera, as umbra-math and
+    umbra-camera compute them (see the Camera Guide for the details).
+    ================================================================ */
+const M4 = {
+    mul(a, b) {
+        const r = new Array(16).fill(0);
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+            let s = 0;
+            for (let k = 0; k < 4; k++) s += a[i * 4 + k] * b[k * 4 + j];
+            r[i * 4 + j] = s;
+        }
+        return r;
+    },
+    scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
+    translate: (x, y, z) => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z, 0, 0, 0, 1],
+    inv(m) {
+        const a = m.slice(), r = M4.scale(1, 1, 1);
+        for (let c = 0; c < 4; c++) {
+            let p = c;
+            for (let i = c + 1; i < 4; i++) if (Math.abs(a[i * 4 + c]) > Math.abs(a[p * 4 + c])) p = i;
+            for (let j = 0; j < 4; j++) {
+                [a[c * 4 + j], a[p * 4 + j]] = [a[p * 4 + j], a[c * 4 + j]];
+                [r[c * 4 + j], r[p * 4 + j]] = [r[p * 4 + j], r[c * 4 + j]];
+            }
+            const d = a[c * 4 + c];
+            for (let j = 0; j < 4; j++) { a[c * 4 + j] /= d; r[c * 4 + j] /= d; }
+            for (let i = 0; i < 4; i++) if (i !== c) {
+                const f = a[i * 4 + c];
+                for (let j = 0; j < 4; j++) { a[i * 4 + j] -= f * a[c * 4 + j]; r[i * 4 + j] -= f * r[c * 4 + j]; }
+            }
+        }
+        return r;
+    },
+    apply(m, [x, y, z]) {
+        const xp = m[0] * x + m[1] * y + m[2] * z + m[3];
+        const yp = m[4] * x + m[5] * y + m[6] * z + m[7];
+        const zp = m[8] * x + m[9] * y + m[10] * z + m[11];
+        const wp = m[12] * x + m[13] * y + m[14] * z + m[15];
+        return wp === 1 ? [xp, yp, zp] : [xp / wp, yp / wp, zp / wp];
+    },
+};
+const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+function perspective(fov, n, f) {
+    const persp = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, f / (f - n), -f * n / (f - n), 0, 0, 1, 0];
+    const k = 1 / Math.tan((fov * Math.PI / 180) / 2);
+    return M4.mul(M4.scale(k, k, 1), persp);
+}
+/* PerspectiveCamera::new with the README's screen window [-1, 1]², and a
+    pinhole generate_ray. The README's camera transform is the identity, so
+    camera space is rendering space. */
+function pinholeCamera(W, H, fov) {
+    const pMin = [-1, -1], pMax = [1, 1];
+    const screenFromCamera = perspective(fov, 1e-2, 1000);
+    const ndcFromScreen = M4.mul(
+        M4.scale(1 / (pMax[0] - pMin[0]), 1 / (pMax[1] - pMin[1]), 1),
+        M4.translate(-pMin[0], -pMax[1], 0));
+    const rasterFromScreen = M4.mul(M4.scale(W, -H, 1), ndcFromScreen);
+    const cameraFromRaster = M4.mul(M4.inv(screenFromCamera), M4.inv(rasterFromScreen));
+    return {
+        generateRay(pFilm) {
+            const pCamera = M4.apply(cameraFromRaster, [pFilm[0], pFilm[1], 0]);
+            return { o: [0, 0, 0], d: norm(pCamera), weight: [1, 1, 1, 1] }; // always Some
+        },
+    };
+}
+
+/* ================================================================
+    Gaussian filter and its FilterSampler, as umbra-camera's filter.rs.
+    ================================================================ */
+const gaussian = (x, mu, s) => Math.exp(-((x - mu) ** 2) / (2 * s * s)) / Math.sqrt(2 * Math.PI * s * s);
+function piecewise1D(func, min, max) {
+    const n = func.length, f = func.map(Math.abs);
+    const cdf = new Float64Array(n + 1);
+    for (let i = 1; i <= n; i++) cdf[i] = cdf[i - 1] + f[i - 1] * (max - min) / n;
+    const funcInt = cdf[n];
+    if (funcInt === 0) for (let i = 1; i <= n; i++) cdf[i] = i / n;
+    else for (let i = 1; i <= n; i++) cdf[i] /= funcInt;
+    return {
+        funcInt,
+        sample(u) {
+            let lo = 0, hi = n;
+            while (lo + 1 < hi) { const m = (lo + hi) >> 1; if (cdf[m] <= u) lo = m; else hi = m; }
+            const o = lo;
+            let du = u - cdf[o];
+            if (cdf[o + 1] - cdf[o] > 0) du /= cdf[o + 1] - cdf[o];
+            const pdf = funcInt > 0 ? f[o] / funcInt : 0;
+            return { x: min + (o + du) / n * (max - min), pdf, o };
+        },
+    };
+}
+function gaussianFilter(r, sigma) {
+    const e = gaussian(r, 0, sigma);
+    const evaluate = (x, y) => Math.max(0, gaussian(x, 0, sigma) - e) * Math.max(0, gaussian(y, 0, sigma) - e);
+    const n = Math.trunc(32 * r);
+    const table = new Float64Array(n * n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+        table[y * n + x] = evaluate(-r + 2 * r * (x + 0.5) / n, -r + 2 * r * (y + 0.5) / n);
+    const conditional = [];
+    for (let y = 0; y < n; y++) conditional.push(piecewise1D(Array.from(table.subarray(y * n, y * n + n)), -r, r));
+    const marginal = piecewise1D(conditional.map((c) => c.funcInt), -r, r);
+    return {
+        r,
+        sample([u0, u1]) {
+            const sv = marginal.sample(u1);
+            const su = conditional[sv.o].sample(u0);
+            return { p: [su.x, sv.x], weight: table[sv.o * n + su.o] / (sv.pdf * su.pdf) };
+        },
+    };
+}
+
+/* ================================================================
+    Wavelengths and the CIE 1931 sensor.
+    sample_visible_wavelengths / visible_wavelengths_pdf (umbra-sampling),
+    SampledWavelengths::sample_visible (umbra-spectrum),
+    PixelSensor::to_sensor_rgb (umbra-camera). The curves are the analytic
+    fit of Wyman, Sloan and Shirley (2013); Umbra uses the tables.
+    ================================================================ */
+const L0 = 360, L1 = 830;
+const g3 = (l, mu, s1, s2) => { const t = (l - mu) / (l < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+const xbar = (l) => 1.056 * g3(l, 599.8, 37.9, 31.0) + 0.362 * g3(l, 442.0, 16.0, 26.7) - 0.065 * g3(l, 501.1, 20.4, 26.2);
+const ybar = (l) => 0.821 * g3(l, 568.8, 46.9, 40.5) + 0.286 * g3(l, 530.9, 16.3, 31.1);
+const zbar = (l) => 1.217 * g3(l, 437.0, 11.8, 36.0) + 0.681 * g3(l, 459.0, 26.0, 13.8);
+const sampleVisible1 = (u) => 538 - 138.888889 * Math.atanh(0.85691062 - 1.82750197 * u);
+const visiblePdf = (l) => (l < L0 || l > L1 ? 0 : 0.0039398042 / Math.cosh(0.0072 * (l - 538)) ** 2);
+function sampleVisible(u) {
+    const lambda = [], pdf = [];
+    for (let i = 0; i < 4; i++) {
+        let up = u + i / 4; if (up > 1) up -= 1; // wrap into [0, 1]
+        lambda.push(sampleVisible1(up)); pdf.push(visiblePdf(lambda[i]));
+    }
+    return { lambda, pdf };
+}
+function toSensorRgb(L, wl, k = 1) {
+    const l = L.map((v, i) => (wl.pdf[i] !== 0 ? v / wl.pdf[i] : 0)); // safe_div
+    const response = (bar) => wl.lambda.reduce((s, lam, i) => s + bar(lam) * l[i], 0) / 4; // average()
+    return [k * response(xbar), k * response(ybar), k * response(zbar)];
+}
+
+/* ================================================================
+    One Pixel Sample, step for step as evaluate_pixel_sample.
+    The sampler is a stand-in: a hash of (pixel, sample index) seeds a
+    generator, so the same id always gives the same numbers, as with
+    Umbra's Halton sampler, but the numbers are not Halton's.
+    ================================================================ */
+function hash3(a, b, c) {
+    let h = 0x9e3779b9 ^ Math.imul(a + 0x7f4a7c15, 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 15), 0xc2b2ae35) ^ Math.imul(b + 0x165667b1, 0x27d4eb2f);
+    h = Math.imul(h ^ (h >>> 13), 0x85ebca6b) ^ Math.imul(c + 0x61c88647, 0xc2b2ae35);
+    h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15;
+    return h | 0;
+}
+function standInSampler() {
+    let rng = null;
+    const draws = [];
+    const next = (call, what) => { const u = rng(); draws.push({ dim: draws.length, call, u, what }); return u; };
+    return {
+        draws,
+        startPixelSample([x, y], index, dimension) { rng = mulberry32(hash3(x, y, index) + dimension); draws.length = 0; },
+        get1d: (what) => next("get_1d()", what),
+        getPixel2d: (what) => [next("get_pixel_2d()", what), next("get_pixel_2d()", what)],
+        get2d: (what) => [next("get_2d()", what), next("get_2d()", what)],
+    };
+}
+const CAMERA = pinholeCamera(8, 8, 90);
+const FILTER = gaussianFilter(1.5, 0.5);
+const NO_RECORDER = { wavelengths() {}, cameraSample() {}, cameraRay() {}, radiance() {}, filmSample() {} };
+/* What li returns: Umbra today, or the guide's "what if". */
+const LI = { today: () => [0, 0, 0, 0], white: () => [1, 1, 1, 1] };
+
+function evaluatePixelSample(id, light, recorder) {
+    const sampler = standInSampler();
+    sampler.startPixelSample(id.pixel, id.sampleIndex, 0);
+    const lambda = sampleVisible(sampler.get1d("wavelengths"));                       // ①
+    recorder.wavelengths(lambda);
+    const fs = FILTER.sample(sampler.getPixel2d("filter offset"));                     // ② get_camera_sample
+    const cameraSample = {
+        pFilm: [id.pixel[0] + fs.p[0] + 0.5, id.pixel[1] + fs.p[1] + 0.5],
+        time: sampler.get1d("time"),
+        pLens: sampler.get2d("lens point"),
+        filterWeight: fs.weight,
+    };
+    recorder.cameraSample(cameraSample);
+    const cameraRay = CAMERA.generateRay(cameraSample.pFilm);                          // ③
+    let L;
+    if (cameraRay) {
+        recorder.cameraRay(cameraRay);
+        L = LI[light]().map((v, i) => cameraRay.weight[i] * v);                        // ④
+    } else L = [0, 0, 0, 0];
+    recorder.radiance(L);
+    const sample = { rgb: toSensorRgb(L, lambda), weight: cameraSample.filterWeight };  // ⑤
+    recorder.filmSample(sample);
+    return { sample, draws: sampler.draws.slice(), lambda, cameraSample, cameraRay, L };
+}
+const sameBits = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* Shared: a running-average strip (guesses as dots, the mean as a line). */
+function drawConvergence(cv, guesses, truth) {
+    const { ctx, w, h } = fit(cv);
+    const ink = tok("--ink"), mut = tok("--muted"), warm = tok("--warm"), acc = tok("--accent"), rule = tok("--rule");
+    const pad = 10;
+    const means = []; let s = 0;
+    guesses.forEach((g, i) => { s += g; means.push(s / (i + 1)); });
+    let lo = 0, hi = Math.max(1e-9, truth * 2);
+    for (const m of means) hi = Math.max(hi, m * 1.15);
+    if (truth !== null) hi = Math.max(hi, truth * 1.3);
+    const N = Math.max(guesses.length, 16);
+    const X = (i) => pad + i / Math.max(1, N - 1) * (w - 2 * pad);
+    const Y = (v) => h - pad - (v - lo) / (hi - lo) * (h - 2 * pad);
+    ctx.strokeStyle = rule; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(w - pad, Y(0)); ctx.stroke();
+    if (truth !== null) {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = acc;
+        ctx.beginPath(); ctx.moveTo(pad, Y(truth)); ctx.lineTo(w - pad, Y(truth)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = mut; ctx.globalAlpha = 0.45;
+    guesses.forEach((g, i) => ctx.fillRect(X(i) - 1, clamp(Y(g), 1, h - 1) - 1, 2, 2));
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = warm; ctx.lineWidth = 2; ctx.beginPath();
+    means.forEach((m, i) => (i ? ctx.lineTo(X(i), Y(m)) : ctx.moveTo(X(i), Y(m))));
+    ctx.stroke();
+    ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = ink;
+    ctx.fillText(guesses.length ? `mean ${fmt(means[means.length - 1], 3)}` : "no guesses yet", pad + 4, 14);
+}
+
+/* ================================================================
+    §1 Reflected light at one point, in flatland.
+    ================================================================ */
+(() => {
+    const SKY = 0.2, SUN = 8, HALF = 8 * Math.PI / 180;
+    let guesses = [], dirs = [], rng = mulberry32(11);
+    const sun = () => +$("re-sun").value * Math.PI / 180;
+    const rho = () => +$("re-rho").value;
+    const Li = (th) => (Math.abs(th - sun()) <= HALF ? SUN : SKY);
+    function truth() {
+        const a = Math.max(sun() - HALF, -Math.PI / 2), b = Math.min(sun() + HALF, Math.PI / 2);
+        return rho() / 2 * (SKY * 2 + (SUN - SKY) * (Math.sin(b) - Math.sin(a)));
+    }
+    function guess() {
+        const u = rng();
+        let th, p;
+        if ($("re-mode").value === "uniform") { th = Math.PI * (u - 0.5); p = 1 / Math.PI; }
+        else { th = Math.asin(2 * u - 1); p = Math.cos(th) / 2; }
+        const f = rho() / 2, L = Li(th), c = Math.cos(th);
+        const g = p > 0 ? f * L * c / p : 0;
+        guesses.push(g); dirs.push({ th, L, p, g });
+    }
+    const reset = () => { guesses = []; dirs = []; rng = mulberry32(11); draw(); };
+    bindRange("re-sun", (v) => v.toFixed(0), reset);
+    bindRange("re-rho", (v) => v.toFixed(2), reset);
+    $("re-mode").addEventListener("change", reset);
+    $("re-one").addEventListener("click", () => { guess(); draw(); });
+    $("re-many").addEventListener("click", () => { for (let i = 0; i < 100; i++) guess(); draw(); });
+    $("re-reset").addEventListener("click", reset);
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), warm = tok("--warm"), acc = tok("--accent"), rule = tok("--rule");
+        {
+            const { ctx, w, h } = fit($("re-scene"));
+            const cx = w / 2, cy = h - 22, R = Math.min(w / 2 - 20, h - 40);
+            ctx.strokeStyle = ink; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(16, cy); ctx.lineTo(w - 16, cy); ctx.stroke();
+            // sky arc and sun patch
+            ctx.strokeStyle = rule; ctx.lineWidth = 6;
+            ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, 2 * Math.PI); ctx.stroke();
+            const a0 = -Math.PI / 2 + Math.max(sun() - HALF, -Math.PI / 2), a1 = -Math.PI / 2 + Math.min(sun() + HALF, Math.PI / 2);
+            ctx.strokeStyle = warm; ctx.lineWidth = 10;
+            ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+            // normal
+            ctx.strokeStyle = mut; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - R); ctx.stroke(); ctx.setLineDash([]);
+            // sampled directions
+            const shown = dirs.slice(-60);
+            shown.forEach((d, i) => {
+                const last = i === shown.length - 1;
+                ctx.strokeStyle = d.L === SUN ? warm : acc;
+                ctx.globalAlpha = last ? 1 : 0.35; ctx.lineWidth = last ? 2.6 : 1.2;
+                ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + R * Math.sin(d.th), cy - R * Math.cos(d.th)); ctx.stroke();
+            });
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText("sky 0.2", 18, 16);
+            ctx.fillStyle = warm; ctx.fillText("sun 8", cx + (R + 8) * Math.sin(sun()) - 12, cy - (R + 10) * Math.cos(sun()));
+            ctx.fillStyle = ink; ctx.fillText("p", cx + 8, cy - 6);
+        }
+        drawConvergence($("re-conv"), guesses, truth());
+        const n = guesses.length, mean = n ? guesses.reduce((s, g) => s + g, 0) / n : NaN, t = truth(), last = dirs[dirs.length - 1];
+        $("re-read").innerHTML = `
+            <dt>last direction</dt><dd>${last ? `θ = ${fmt(last.th * 180 / Math.PI, 1)}°, L<sub>i</sub> = ${fmt(last.L, 1)}, p = ${fmt(last.p, 3)}` : "–"}</dd>
+            <dt>last guess</dt><dd>${last ? fmt(last.g, 3) : "–"}</dd>
+            <dt>mean of ${n}</dt><dd class="acc">${n ? fmt(mean, 3) : "–"}</dd>
+            <dt>true value</dt><dd>${fmt(t, 3)}</dd>
+            <dt>error</dt><dd>${n ? fmt(100 * Math.abs(mean / t - 1), 1) + " %" : "–"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §3 One Pixel Sample, step by step.
+    ================================================================ */
+(() => {
+    let lastCheck = "";
+    const id = () => ({ pixel: [+$("ps-x").value, +$("ps-y").value], sampleIndex: +$("ps-i").value });
+    const light = () => $("ps-light").value;
+    const onChange = () => { lastCheck = ""; draw(); };
+    bindRange("ps-x", (v) => v.toFixed(0), onChange);
+    bindRange("ps-y", (v) => v.toFixed(0), onChange);
+    bindRange("ps-i", (v) => v.toFixed(0), onChange);
+    $("ps-light").addEventListener("change", onChange);
+    $("ps-again").addEventListener("click", () => {
+        const a = evaluatePixelSample(id(), light(), NO_RECORDER), b = evaluatePixelSample(id(), light(), NO_RECORDER);
+        lastCheck = sameBits(a.sample, b.sample) ? "identical: yes, every number the same" : "different!";
+        draw();
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), warm = tok("--warm"), acc = tok("--accent"), rule = tok("--rule"), grid = tok("--grid");
+        const cur = id(), r = evaluatePixelSample(cur, light(), NO_RECORDER);
+        /* the film */
+        {
+            const { ctx, w, h } = fit($("ps-film"));
+            const s = Math.min(w, h) / 8.6, ox = (w - 8 * s) / 2, oy = (h - 8 * s) / 2;
+            const P = ([x, y]) => [ox + x * s, oy + y * s];
+            ctx.fillStyle = tok("--surface"); ctx.fillRect(ox, oy, 8 * s, 8 * s);
+            ctx.fillStyle = acc; ctx.globalAlpha = 0.14;
+            ctx.fillRect(ox + cur.pixel[0] * s, oy + cur.pixel[1] * s, s, s); ctx.globalAlpha = 1;
+            ctx.strokeStyle = rule; ctx.lineWidth = 1;
+            for (let i = 0; i <= 8; i++) {
+                ctx.beginPath(); ctx.moveTo(ox + i * s, oy); ctx.lineTo(ox + i * s, oy + 8 * s); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(ox, oy + i * s); ctx.lineTo(ox + 8 * s, oy + i * s); ctx.stroke();
+            }
+            ctx.strokeStyle = ink; ctx.lineWidth = 2;
+            ctx.strokeRect(ox + cur.pixel[0] * s, oy + cur.pixel[1] * s, s, s);
+            const c = P([cur.pixel[0] + 0.5, cur.pixel[1] + 0.5]);
+            ctx.strokeStyle = acc; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.arc(c[0], c[1], 1.5 * s, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+            // the other sample indices of this pixel, faint
+            ctx.fillStyle = mut; ctx.globalAlpha = 0.45;
+            for (let i = 0; i < 32; i++) {
+                if (i === cur.sampleIndex) continue;
+                const o = evaluatePixelSample({ pixel: cur.pixel, sampleIndex: i }, "today", NO_RECORDER);
+                const q = P(o.cameraSample.pFilm);
+                ctx.beginPath(); ctx.arc(q[0], q[1], 2.2, 0, 2 * Math.PI); ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            const q = P(r.cameraSample.pFilm);
+            ctx.fillStyle = warm; ctx.beginPath(); ctx.arc(q[0], q[1], 5.5, 0, 2 * Math.PI); ctx.fill();
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText("x →", ox, oy - 4 > 10 ? oy - 4 : 11);
+            ctx.strokeStyle = grid;
+        }
+        /* the wavelengths */
+        {
+            const { ctx, w, h } = fit($("ps-spec"));
+            const pad = 14, pmax = 0.0042;
+            const X = (l) => pad + (l - L0) / (L1 - L0) * (w - 2 * pad), Y = (v) => h - pad - v / pmax * (h - 2 * pad - 8);
+            for (let l = L0; l < L1; l += 2) { ctx.fillStyle = wlColor(l, 0.18); ctx.fillRect(X(l), h - pad, X(l + 2) - X(l) + 0.5, 5); }
+            ctx.strokeStyle = mut; ctx.lineWidth = 1.5; ctx.beginPath();
+            for (let l = L0; l <= L1; l += 2) (l === L0 ? ctx.moveTo(X(l), Y(visiblePdf(l))) : ctx.lineTo(X(l), Y(visiblePdf(l))));
+            ctx.stroke();
+            ctx.font = `11px ${tok("--mono")}`;
+            r.lambda.lambda.forEach((l, i) => {
+                ctx.strokeStyle = wlColor(l); ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(X(l), h - pad); ctx.lineTo(X(l), Y(r.lambda.pdf[i])); ctx.stroke();
+                ctx.fillStyle = ink; ctx.fillText(`λ${"₁₂₃₄"[i]}`, X(l) - 8, Math.max(11, Y(r.lambda.pdf[i]) - 4));
+            });
+            ctx.fillStyle = mut;
+            ctx.fillText("360", pad, h - 1); ctx.fillText("830 nm", w - pad - 40, h - 1);
+        }
+        /* the tape and the readout */
+        const rows = r.draws.map((d) => `<tr><td>u${"₀₁₂₃₄₅₆₇"[d.dim]}</td><td>${d.call}</td><td>${fmt(d.u, 5)}</td><td>${d.what}</td></tr>`).join("");
+        $("ps-tape").innerHTML = `<thead><tr><th>number</th><th>read by</th><th>value</th><th>used for</th></tr></thead><tbody>${rows}<tr><td>…</td><td class="mut">li</td><td class="mut">–</td><td class="mut">nothing today</td></tr></tbody>`;
+        const cs = r.cameraSample;
+        $("ps-read").innerHTML = `
+            <dt>① λ (nm)</dt><dd>${vec(r.lambda.lambda, 1)}</dd>
+            <dt>p(λ)</dt><dd>${vec(r.lambda.pdf, 5)}</dd>
+            <dt>② p_film</dt><dd>${vec(cs.pFilm, 3)} &nbsp; time ${fmt(cs.time, 3)}</dd>
+            <dt>③ ray d</dt><dd>${vec(r.cameraRay.d, 4)} &nbsp; weight 1</dd>
+            <dt>④ L(λ)</dt><dd>${vec(r.L, 1)}</dd>
+            <dt>⑤ rgb (XYZ)</dt><dd class="acc">${vec(r.sample.rgb, 2)}</dd>
+            <dt>⑤ weight</dt><dd class="acc">${fmt(r.sample.weight, 4)}</dd>
+            <dt>again?</dt><dd class="${lastCheck ? "ok" : "mut"}">${lastCheck || "press “evaluate again”"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §4 The recorder: NoRecorder against a logging recorder.
+    ================================================================ */
+(() => {
+    let pixel = [3, 4], traced = false;
+    function logRecorder() {
+        const log = [];
+        return {
+            log,
+            wavelengths: (l) => log.push(`<b>wavelengths</b> λ = ${vec(l.lambda, 1)} nm`),
+            cameraSample: (s) => log.push(`<b>camera_sample</b> p_film = ${vec(s.pFilm, 3)}, p_lens = ${vec(s.pLens, 3)}, time = ${fmt(s.time, 3)}, filter_weight = ${fmt(s.filterWeight, 4)}`),
+            cameraRay: (c) => log.push(`<b>camera_ray</b> o = ${vec(c.o, 1)}, d = ${vec(c.d, 4)}, weight = ${vec(c.weight, 0)}`),
+            radiance: (L) => log.push(`<b>radiance</b> L = ${vec(L, 1)}`),
+            filmSample: (s) => log.push(`<b>film_sample</b> rgb = ${vec(s.rgb, 2)}, weight = ${fmt(s.weight, 4)}`),
+        };
+    }
+    const cv = $("rc-grid");
+    const geom = (w, h) => { const s = Math.min(w, h) / 8.6; return { s, ox: (w - 8 * s) / 2, oy: (h - 8 * s) / 2 }; };
+    cv.addEventListener("click", (e) => {
+        const r = cv.getBoundingClientRect(), { s, ox, oy } = geom(r.width, r.height);
+        const x = Math.floor((e.clientX - r.left - ox) / s), y = Math.floor((e.clientY - r.top - oy) / s);
+        if (x >= 0 && x < 8 && y >= 0 && y < 8) { pixel = [x, y]; traced = true; draw(); }
+    });
+    cv.addEventListener("keydown", (e) => {
+        const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+        if (e.key === "Enter" || e.key === " ") { traced = true; draw(); e.preventDefault(); return; }
+        if (!d) return;
+        pixel = [clamp(pixel[0] + d[0], 0, 7), clamp(pixel[1] + d[1], 0, 7)]; traced = true; draw();
+        e.preventDefault();
+    });
+    $("rc-rec").addEventListener("change", draw);
+    $("rc-light").addEventListener("change", draw);
+    bindRange("rc-i", (v) => v.toFixed(0), draw);
+    function draw() {
+        const ink = tok("--ink"), acc = tok("--accent"), rule = tok("--rule"), mut = tok("--muted");
+        {
+            const { ctx, w, h } = fit(cv), { s, ox, oy } = geom(w, h);
+            ctx.fillStyle = tok("--surface"); ctx.fillRect(ox, oy, 8 * s, 8 * s);
+            ctx.strokeStyle = rule; ctx.lineWidth = 1;
+            for (let i = 0; i <= 8; i++) {
+                ctx.beginPath(); ctx.moveTo(ox + i * s, oy); ctx.lineTo(ox + i * s, oy + 8 * s); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(ox, oy + i * s); ctx.lineTo(ox + 8 * s, oy + i * s); ctx.stroke();
+            }
+            ctx.fillStyle = acc; ctx.globalAlpha = traced ? 0.3 : 0.12;
+            ctx.fillRect(ox + pixel[0] * s, oy + pixel[1] * s, s, s); ctx.globalAlpha = 1;
+            ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.strokeRect(ox + pixel[0] * s, oy + pixel[1] * s, s, s);
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText(`(${pixel[0]}, ${pixel[1]})`, ox + pixel[0] * s + 3, oy + pixel[1] * s + 13);
+        }
+        const id = { pixel, sampleIndex: +$("rc-i").value }, light = $("rc-light").value;
+        if (!traced) {
+            $("rc-log").innerHTML = `<li class="none">click a pixel to compute one of its Pixel Samples</li>`;
+            $("rc-read").innerHTML = "";
+            return;
+        }
+        const useLog = $("rc-rec").value === "log";
+        const rec = useLog ? logRecorder() : NO_RECORDER;
+        const withRec = evaluatePixelSample(id, light, rec);
+        const rendered = evaluatePixelSample(id, light, NO_RECORDER);
+        $("rc-log").innerHTML = useLog
+            ? rec.log.map((l) => `<li><span>${l}</span></li>`).join("")
+            : `<li class="none">NoRecorder kept nothing: 0 entries, 0 bytes. Its five calls compiled to nothing.</li>`;
+        const same = sameBits(withRec.sample, rendered.sample);
+        $("rc-read").innerHTML = `
+            <dt>Pixel Sample</dt><dd>(${pixel[0]}, ${pixel[1]}) #${id.sampleIndex}</dd>
+            <dt>with this R</dt><dd>rgb ${vec(withRec.sample.rgb, 2)}, weight ${fmt(withRec.sample.weight, 4)}</dd>
+            <dt>rendered</dt><dd>rgb ${vec(rendered.sample.rgb, 2)}, weight ${fmt(rendered.sample.weight, 4)}</dd>
+            <dt>same bits?</dt><dd class="${same ? "ok" : "bad"}">${same ? "yes: recording changed nothing" : "no"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §6 Path tracing in a flat 2D room, against VolPathIntegrator today.
+    Grey (one wavelength), BSDF sampling only, pbrt-v4's depth and
+    Russian-roulette rules.
+    ================================================================ */
+(() => {
+    const W = 16, H = 7, LE = 4, EPS = 1e-4;
+    const CAM = [1.2, 3.2];
+    const LIGHT = { a: [7, 7], b: [9, 7] };
+    // Segments of the room (the right wall has a window from y 2.2 to 4.8).
+    const SEGS = [
+        { a: [0, 0], b: [16, 0] }, { a: [0, 7], b: [7, 7] }, { ...LIGHT, light: true }, { a: [9, 7], b: [16, 7] },
+        { a: [0, 0], b: [0, 7] }, { a: [16, 0], b: [16, 2.2] }, { a: [16, 4.8], b: [16, 7] },
+        { a: [4, 0], b: [4, 2.5] }, { a: [4, 2.5], b: [6, 2.5] }, { a: [6, 2.5], b: [6, 0] },
+        { a: [11, 3.6], b: [11, 7] },
+    ];
+    let aim = [12.5, 1.0], paths = [], values = [], rng = mulberry32(3);
+    const mode = () => $("pt-mode").value, maxDepth = () => +$("pt-depth").value, rho = () => +$("pt-rho").value;
+    function intersect(o, d) {
+        let best = null;
+        for (const s of SEGS) {
+            const ex = s.b[0] - s.a[0], ey = s.b[1] - s.a[1];
+            const den = d[0] * ey - d[1] * ex;
+            if (Math.abs(den) < 1e-12) continue;
+            const qx = s.a[0] - o[0], qy = s.a[1] - o[1];
+            const t = (qx * ey - qy * ex) / den, u = (qx * d[1] - qy * d[0]) / den;
+            if (t > EPS && u >= 0 && u <= 1 && (!best || t < best.t)) {
+                let n = [ey, -ex]; const l = Math.hypot(n[0], n[1]); n = [n[0] / l, n[1] / l];
+                if (n[0] * d[0] + n[1] * d[1] > 0) n = [-n[0], -n[1]];
+                best = { t, p: [o[0] + t * d[0], o[1] + t * d[1]], n, seg: s };
+            }
+        }
+        return best;
+    }
+    const camDir = () => { const dx = aim[0] - CAM[0], dy = aim[1] - CAM[1], l = Math.hypot(dx, dy); return [dx / l, dy / l]; };
+    function exitPoint(o, d) { // where a ray leaves the drawing, for an escaping ray
+        let t = 1e9;
+        if (d[0] > 0) t = Math.min(t, (W + 0.6 - o[0]) / d[0]); if (d[0] < 0) t = Math.min(t, (-0.6 - o[0]) / d[0]);
+        if (d[1] > 0) t = Math.min(t, (H + 0.6 - o[1]) / d[1]); if (d[1] < 0) t = Math.min(t, (-0.6 - o[1]) / d[1]);
+        return [o[0] + t * d[0], o[1] + t * d[1]];
+    }
+    function tracePath() {
+        let o = CAM.slice(), d = camDir();
+        const verts = [o.slice()];
+        if (mode() === "today") { // VolPathIntegrator::li: the ray escapes, no infinite light: 0
+            verts.push(exitPoint(o, d));
+            return { L: 0, verts, escaped: true };
+        }
+        let L = 0, beta = 1, depth = 0, escaped = false;
+        for (;;) {
+            const hit = intersect(o, d);
+            if (!hit) { verts.push(exitPoint(o, d)); escaped = true; break; } // no infinite lights to add
+            verts.push(hit.p);
+            if (hit.seg.light && d[1] > 0) L += beta * LE;                      // emitted light, one-sided
+            if (depth++ === maxDepth()) break;                                 // pbrt-v4: if (depth++ == maxDepth)
+            const th = Math.asin(2 * rng() - 1);                               // cosine-weighted bounce
+            const [nx, ny] = hit.n, c = Math.cos(th), s = Math.sin(th);
+            d = [nx * c - ny * s, nx * s + ny * c];
+            beta *= rho();                                                     // f·cos/p = (ρ/2)cos/(cos/2) = ρ
+            if (beta < 1 && depth > 1) {                                       // Russian roulette
+                const q = Math.max(0, 1 - beta);
+                if (rng() < q) break;
+                beta /= 1 - q;
+            }
+            o = [hit.p[0] + hit.n[0] * EPS, hit.p[1] + hit.n[1] * EPS];
+        }
+        return { L, verts, escaped };
+    }
+    function add(n) { for (let i = 0; i < n; i++) { const p = tracePath(); values.push(p.L); paths.push(p); } if (paths.length > 40) paths = paths.slice(-40); draw(); }
+    const reset = () => { paths = []; values = []; rng = mulberry32(3); draw(); };
+    $("pt-mode").addEventListener("change", reset);
+    bindRange("pt-depth", (v) => v.toFixed(0), reset);
+    bindRange("pt-rho", (v) => v.toFixed(2), reset);
+    $("pt-one").addEventListener("click", () => add(1));
+    $("pt-many").addEventListener("click", () => add(200));
+    $("pt-reset").addEventListener("click", reset);
+    const cv = $("pt-scene");
+    const view = (w, h) => { const s = Math.min((w - 20) / W, (h - 20) / H); return { s, ox: (w - W * s) / 2, oy: (h + H * s) / 2 }; };
+    cv.addEventListener("click", (e) => {
+        const r = cv.getBoundingClientRect(), { s, ox, oy } = view(r.width, r.height);
+        const x = (e.clientX - r.left - ox) / s, y = (oy - (e.clientY - r.top)) / s;
+        if (Math.hypot(x - CAM[0], y - CAM[1]) > 0.2) { aim = [x, y]; reset(); }
+    });
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), warm = tok("--warm"), acc = tok("--accent");
+        const today = mode() === "today";
+        {
+            const { ctx, w, h } = fit(cv), { s, ox, oy } = view(w, h);
+            const P = ([x, y]) => [ox + x * s, oy - y * s];
+            ctx.lineCap = "round";
+            for (const g of SEGS) {
+                const a = P(g.a), b = P(g.b);
+                ctx.strokeStyle = g.light ? warm : ink; ctx.lineWidth = g.light ? 6 : 2.5;
+                ctx.globalAlpha = today ? 0.25 : 1; ctx.setLineDash(today ? [5, 5] : []);
+                ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+            }
+            ctx.setLineDash([]); ctx.globalAlpha = 1;
+            ctx.font = `11px ${tok("--mono")}`;
+            if (today) { ctx.fillStyle = mut; ctx.fillText("room, light: not in the Scene yet (#79, #80)", P([4.2, 6.2])[0], P([4.2, 6.2])[1]); }
+            else { ctx.fillStyle = warm; ctx.fillText("light", P([7.4, 6.4])[0], P([7.4, 6.4])[1]); }
+            paths.forEach((p, i) => {
+                const last = i === paths.length - 1;
+                ctx.strokeStyle = p.L > 0 ? warm : acc; ctx.globalAlpha = last ? 1 : 0.22; ctx.lineWidth = last ? 2.2 : 1;
+                ctx.beginPath();
+                p.verts.forEach((v, j) => { const q = P(v); j ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+                ctx.stroke();
+                if (last) { ctx.fillStyle = ink; p.verts.slice(1, p.escaped ? -1 : undefined).forEach((v) => { const q = P(v); ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 2 * Math.PI); ctx.fill(); }); }
+            });
+            ctx.globalAlpha = 1;
+            // camera and its aim
+            const c = P(CAM), a = P(aim);
+            ctx.strokeStyle = acc; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(a[0], a[1]); ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = acc; ctx.beginPath(); ctx.arc(a[0], a[1], 3.5, 0, 2 * Math.PI); ctx.fill();
+            ctx.fillStyle = ink; ctx.fillRect(c[0] - 7, c[1] - 5, 14, 10);
+            ctx.fillText("camera", c[0] - 20, c[1] + 18);
+        }
+        drawConvergence($("pt-conv"), values, null);
+        const n = values.length, mean = n ? values.reduce((s, v) => s + v, 0) / n : NaN;
+        const lens = paths.length ? paths.reduce((s, p) => s + p.verts.length - 1, 0) / paths.length : NaN;
+        $("pt-read").innerHTML = `
+            <dt>integrator</dt><dd>${today ? "VolPathIntegrator::li → splat(0.0)" : `path tracing sketch, max_depth ${maxDepth()}`}</dd>
+            <dt>last path</dt><dd>${paths.length ? `L = ${fmt(paths[paths.length - 1].L, 3)}, ${paths[paths.length - 1].verts.length - 1} segment(s)` : "–"}</dd>
+            <dt>mean L of ${n}</dt><dd class="acc">${n ? fmt(mean, 4) : "–"}</dd>
+            <dt>segments per path</dt><dd>${paths.length ? fmt(lens, 2) + " (last 40 paths)" : "–"}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+})();
+</script>
+</body>
+</html>

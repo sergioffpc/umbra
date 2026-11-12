@@ -30,6 +30,14 @@ Interactive explainers live next to the crate they explain, in its `docs/` folde
 
 - [`umbra-math/docs/math-guide.html`](../crates/umbra-math/docs/math-guide.html): `f32` rounding, error bounds, intervals, compensated arithmetic, normals, frames, octahedral vectors and the perspective projection.
 - [`umbra-camera/docs/camera-guide.html`](../crates/umbra-camera/docs/camera-guide.html): how a Pixel Sample becomes a ray and radiance becomes sensor RGB: coordinate spaces, the pinhole and thin-lens camera, importance-sampled pixel filters, the camera sample and the pixel sensor, with diagrams for readers new to the maths.
+- [`umbra-sampling/docs/sampling-guide.html`](../crates/umbra-sampling/docs/sampling-guide.html): Monte Carlo, hashing and PCG32, low-discrepancy and Halton sampling, the inversion method, piecewise-constant distributions and the warps to discs, spheres, triangles and lobes.
+- [`umbra-spectrum/docs/spectrum-guide.html`](../crates/umbra-spectrum/docs/spectrum-guide.html): light as a spectrum, sampled wavelengths, CIE XYZ, colour spaces and turning RGB into spectra.
+- [`umbra-geometry/docs/geometry-guide.html`](../crates/umbra-geometry/docs/geometry-guide.html): rays, bounding boxes, ray–sphere intersection with floating-point care, and handles into arenas.
+- [`umbra-integrators/docs/integrators-guide.html`](../crates/umbra-integrators/docs/integrators-guide.html): the rendering equation, evaluating a Pixel Sample, recorders for Pixel Traces, and the path-tracing theory still to come.
+- [`umbra-scene/docs/scene-guide.html`](../crates/umbra-scene/docs/scene-guide.html): building a Scene, arenas and handles, the scene view and Render Job Options.
+- [`umbra-render/docs/render-guide.html`](../crates/umbra-render/docs/render-guide.html): Tiles, Passes and Work Units, accumulating the Film, floating-point merge order and determinism.
+- [`umbra-gpu/docs/gpu-guide.html`](../crates/umbra-gpu/docs/gpu-guide.html): GPUs for ray tracing, OptiX programs and the shader binding table, and the FFI boundary from Rust.
+- [`umbra-kernels/docs/kernels-guide.html`](../crates/umbra-kernels/docs/kernels-guide.html): the core compiled for the GPU, kernels and launches, and the math kernels tested against the CPU.
 
 ## For contributors and agents
 
