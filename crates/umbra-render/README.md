@@ -40,7 +40,7 @@ assert!(film.is_complete());
 | `renderer`      | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`; `Cancellation`                                                             |
 | `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                    |
 | `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                 |
-| `image`         | `Image`, the `ImageWriter` seam and its `ExrWriter`, and `write_atomically`                                                                                                             |
+| `image`         | `Image`, written in the format its path's extension names, and `write_atomically`                                                                                                       |
 | `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                              |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
@@ -84,9 +84,12 @@ Report, and is not a security hash.
 
 ### An EXR whose bytes are a function of the image
 
-`ExrWriter` writes RGB as 32-bit floats through the `image` crate, which
-uses `exr` without its `rayon` feature: the file is compressed in one
-thread, so its bytes are a pure function of the image (ADR 0020). `image`
+`Image::write` takes the format from the path's extension, as `image`
+maps it, and writes RGB as 32-bit floats. For EXR, `image` uses `exr`
+without its `rayon` feature: the file is compressed in one thread, so its
+bytes are a pure function of the image (ADR 0020). A format that cannot
+hold RGB floats fails with an encoding error, and an unknown extension
+with `InvalidInput`. `image`
 writes no custom attributes, so the Reproduction Record is in the Render
 Job Report, not in the file.
 

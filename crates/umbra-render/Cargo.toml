@@ -21,5 +21,8 @@ umbra-scene = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

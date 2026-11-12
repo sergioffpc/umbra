@@ -1,7 +1,6 @@
-//! The final image of a Render Job, and how it is written (arc42 §8.15,
-//! ADR 0020).
+//! The final image of a Render Job, and how it is written, in the format
+//! its path's extension names (arc42 §8.15, ADR 0020).
 
-use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -45,44 +44,40 @@ impl Image {
         &self.pixels
     }
 
+    /// Writes the image to `path`, replacing any file there, in the format
+    /// its extension names. The `image` crate encodes it, writing EXR in one
+    /// thread, so the file's bytes are a pure function of the image (ADR
+    /// 0020).
+    ///
+    /// # Errors
+    ///
+    /// `InvalidInput` if the extension names no format `image` writes, and
+    /// any I/O or encoding error, such as RGB floats in a format that
+    /// cannot hold them; `path` is then left as it was.
+    ///
+    /// # Panics
+    ///
+    /// Never: [`Image::new`] checks that there is one RGB per pixel of an
+    /// `i32` resolution.
+    pub fn write(&self, path: &Path) -> io::Result<()> {
+        let format = ImageFormat::from_path(path)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let (width, height) = self.size();
+        let [width, height] = [width, height].map(|side| {
+            u32::try_from(side).expect("an image's sides come from an `i32` resolution")
+        });
+        let buffer = Rgb32FImage::from_raw(width, height, self.pixels.as_flattened().to_vec())
+            .expect("one RGB per pixel");
+        write_atomically(path, |file| {
+            buffer.write_to(file, format).map_err(io::Error::other)
+        })
+    }
+
     /// The width and height, as `usize`.
     fn size(&self) -> (usize, usize) {
         let [w, h] = [self.resolution.x, self.resolution.y]
             .map(|side| usize::try_from(side).expect("an image's sides are positive"));
         (w, h)
-    }
-}
-
-/// The seam between a Render Job and an image format, called once per
-/// image, so it is `dyn` (ADR 0006).
-pub trait ImageWriter: fmt::Debug {
-    /// Writes `image` to `path`, replacing any file there.
-    ///
-    /// # Errors
-    ///
-    /// Any I/O or encoding error; `path` is then left as it was.
-    fn write(&self, image: &Image, path: &Path) -> io::Result<()>;
-}
-
-/// The OpenEXR writer, through the `image` crate: RGB as 32-bit floats,
-/// written in one thread, so the file's bytes are a pure function of the
-/// image (ADR 0020).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ExrWriter;
-
-impl ImageWriter for ExrWriter {
-    fn write(&self, image: &Image, path: &Path) -> io::Result<()> {
-        let (width, height) = image.size();
-        let [width, height] = [width, height].map(|side| {
-            u32::try_from(side).expect("an image's sides come from an `i32` resolution")
-        });
-        let buffer = Rgb32FImage::from_raw(width, height, image.pixels.as_flattened().to_vec())
-            .expect("one RGB per pixel");
-        write_atomically(path, |file| {
-            buffer
-                .write_to(file, ImageFormat::OpenExr)
-                .map_err(io::Error::other)
-        })
     }
 }
 

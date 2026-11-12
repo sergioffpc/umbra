@@ -966,6 +966,7 @@ dependencies = [
  "image",
  "rayon",
  "serde",
+ "tempfile",
  "thiserror",
  "umbra-integrators",
  "umbra-math",

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use umbra_cluster::{CoordinatorOptions, RenderJob, Threads, coordinate};
 use umbra_parser::{Overrides, Parsed};
-use umbra_render::{ExrWriter, ImageWriter, ReproductionRecord, write_atomically};
+use umbra_render::{ReproductionRecord, write_atomically};
 use umbra_scene::{RenderJobOptions, Seed};
 
 use crate::build_identity::build_identity;
@@ -41,7 +41,7 @@ pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), Er
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);
     let outcome = coordinate(job, &CoordinatorOptions { threads }, stderr)?;
-    ExrWriter.write(&outcome.image, &parsed.output)?;
+    outcome.image.write(&parsed.output)?;
     let json = outcome.report.to_json();
     write_atomically(&report_path(&parsed.output), |file| {
         writeln!(file, "{json}")
