@@ -22,13 +22,14 @@
 //! tests check against glibc (#146). Internally they use approximate
 //! instructions that flush subnormals to zero (`ex2.approx.ftz`,
 //! `rcp.approx.ftz`, found by the spike of #142), but on operands they have
-//! scaled into the normal range: the GPU tests find no result in the
-//! subnormal range flushed to zero. Two exceptions, measured on an RTX 5070
-//! Ti (driver 580) by those tests, though the PTX branches correctly on
-//! subnormals: the compilation by OptiX and the driver takes [`powf`]'s and
-//! [`atan2f`]'s zero cases for subnormal arguments (#146). The GPU promises
-//! statistical equality only (ADR 0026), so ADR 0022's ban on approximate
-//! instructions does not apply.
+//! scaled into the normal range: the GPU tests find no nonzero result
+//! flushed to zero. On an RTX 5070 Ti (driver 580), though the PTX branches
+//! correctly on subnormals, the compilation by OptiX and the driver takes
+//! `__nv_powf`'s and `__nv_atan2f`'s zero cases for subnormal arguments
+//! (#146); [`powf`] and `crate::transcendental::atan2` scale such arguments
+//! into the normal range first. The GPU promises statistical equality only
+//! (ADR 0026), so ADR 0022's ban on approximate instructions does not
+//! apply.
 
 /// The `libdevice` declarations, private to this module: callers use the
 /// wrappers below. Rust's `f32` is C's `float` on `nvptx64`.
@@ -125,9 +126,9 @@ wrapper! {
 }
 
 wrapper! {
-    /// `atan2(y, x)`, within 3 ULP, but where `y` and `x` are both
-    /// subnormal or zero and not both zero: there the GPU returns
-    /// `atan2(±0, ±0)` of their signs, `0` or `±π`, not the angle.
+    /// `atan2(y, x)`, within 3 ULP where `y` or `x` is normal: on the GPU,
+    /// `__nv_atan2f` takes two subnormal or zero arguments for zeros, which
+    /// `crate::transcendental::atan2` guards against.
     pub(crate) atan2f = __nv_atan2f(y, x)
 }
 
@@ -142,11 +143,36 @@ wrapper! {
 }
 
 wrapper! {
-    /// `xʸ`, within 4 ULP, but for a subnormal argument: on the GPU a
-    /// subnormal `y` counts as 0, so the result is 1, and a subnormal `x`
-    /// gives `libdevice`'s result for a zero `x` computed from `x` itself,
-    /// `2x` for `y > 0` and NaN or a large finite number for `y < 0`.
-    pub powf = __nv_powf(x, y)
+    /// `xʸ`, within 4 ULP for normal or zero arguments: on the GPU,
+    /// `__nv_powf` takes a subnormal argument for zero, which [`powf`]
+    /// guards against.
+    powf_of_normals = __nv_powf(x, y)
+}
+
+/// 2²⁴, which scales every subnormal into the normal range, exactly.
+const SUBNORMAL_SCALE: f32 = 16_777_216.0;
+
+/// `xʸ`, within 4 ULP.
+///
+/// `libdevice`'s `powf`, but for subnormal arguments, which it takes for
+/// zeros on the GPU. A subnormal `y` becomes the smallest normal number of
+/// its sign, which gives the same result for every `x`: `1` for a finite
+/// positive `x`, and C's values at zeros, infinities, negative `x` and NaN.
+/// A subnormal `x` is scaled by 2²⁴ into the normal range, exactly, and
+/// the result is corrected by `(2⁻²⁴)ʸ`: `xʸ = (2²⁴x)ʸ · (2⁻²⁴)ʸ`.
+#[inline]
+#[must_use]
+pub fn powf(x: f32, y: f32) -> f32 {
+    let y = if y.is_subnormal() {
+        f32::MIN_POSITIVE.copysign(y)
+    } else {
+        y
+    };
+    if x.is_subnormal() {
+        powf_of_normals(x * SUBNORMAL_SCALE, y) * powf_of_normals(SUBNORMAL_SCALE.recip(), y)
+    } else {
+        powf_of_normals(x, y)
+    }
 }
 
 wrapper! {

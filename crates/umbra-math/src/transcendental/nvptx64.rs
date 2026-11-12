@@ -39,6 +39,9 @@ const SIN_COS_LIMIT: f32 = 1_048_576.0;
 /// reduces near a multiple of 2π keeps only the absolute bound.
 const SIN_IS_ARGUMENT: f32 = 1.0 / 4_096.0;
 
+/// 2²⁴, which scales every subnormal into the normal range, exactly.
+const TINY_SCALE: f32 = 16_777_216.0;
+
 /// The sine and cosine of `x` radians, with an absolute error below 2⁻²⁰
 /// for `|x| ≤ 2²⁰`.
 ///
@@ -67,15 +70,22 @@ pub fn sin_cos(x: f32) -> (f32, f32) {
 }
 
 /// The angle of the point `(x, y)` from the positive x axis, in `[−π, π]`,
-/// within 3 ULP but where both arguments are subnormal or zero
-/// (`crate::libdevice`): `libdevice`'s `atan2f`, with C's values at zeros,
-/// infinities and NaN.
+/// within 3 ULP: `libdevice`'s `atan2f`, with C's values at zeros,
+/// infinities and NaN. Where both arguments are subnormal or zero, which
+/// `atan2f` on the GPU takes for zeros, both are first scaled by 2²⁴, which
+/// is exact and keeps the angle.
 ///
 /// pbrt-v4 `std::atan2`.
 #[inline]
 #[must_use]
 pub fn atan2(y: f32, x: f32) -> f32 {
-    atan2f(y, x)
+    if y.abs() < f32::MIN_POSITIVE && x.abs() < f32::MIN_POSITIVE {
+        // Both subnormal or zero, which the GPU's `atan2f` takes for zeros:
+        // scaled into the normal range, exactly, the angle is the same.
+        atan2f(y * TINY_SCALE, x * TINY_SCALE)
+    } else {
+        atan2f(y, x)
+    }
 }
 
 /// The error function, within 2 ULP: `libdevice`'s `erff`.

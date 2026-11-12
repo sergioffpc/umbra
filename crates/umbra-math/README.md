@@ -287,8 +287,10 @@ statistical equality only (ADR 0026).
   (`fma.rn`, `sqrt.rn`, `cvt.rmi`, `cvt.rpi`); `atan2` is `atan2f`, within
   3 ULP, `erf` is `erff`, within 2 ULP, and `Vec4::exp` and `Vec4::pow` are
   `expf` and `powf` per lane, within 2 and 4 ULP (the CUDA Math API's
-  bounds). These use approximate, flush-to-zero instructions inside, so a
-  subnormal result may come back as zero.
+  bounds). These use approximate, flush-to-zero instructions inside, on
+  operands scaled into the normal range, so no nonzero result comes back as
+  zero. On the GPU, `__nv_atan2f` and `__nv_powf` take subnormal arguments
+  for zeros, so `atan2` and `powf` scale them by 2²⁴ first (#146).
 - **`sin_cos` is Umbra's own** (`src/transcendental/nvptx64.rs`): a
   reduction by 2π in three parts, then `sin.approx.f32` and `cos.approx.f32`
   (`__nv_fast_sinf`, `__nv_fast_cosf`), with an absolute error below 2⁻²⁰
