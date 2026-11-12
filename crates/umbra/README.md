@@ -95,9 +95,8 @@ Tiles has 60 × 34 = 2040 Tiles, so 4 × 2040 = 8160 Work Units. With
   will use one Pass for that reason
   ([#87](https://github.com/sergioffpc/umbra/issues/87)).
 
-The Reproduction Record in the EXR's header stores them as
-`pixel_samples_per_pixel` and `pixel_samples_per_pass`, the names of the
-`RenderJobOptions` fields they set.
+The Reproduction Record in the EXR's header stores them as `spp` and
+`spp_per_pass`, the names of the `RenderJobOptions` fields they set.
 
 `--spp-per-pass` does not decide how a Worker fills its cores: it asks for
 about two Work Units per eight threads and shares each one's rows among

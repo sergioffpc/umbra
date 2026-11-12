@@ -22,7 +22,7 @@ use umbra_scene::{ContentHash, RenderJobOptions, SceneBuilder};
 let scene = SceneBuilder::new().build()?;
 let resolution = scene.full_resolution();
 let options = RenderJobOptions {
-    pixel_samples_per_pixel: NonZeroU32::MIN,
+    spp: NonZeroU32::MIN,
     ..RenderJobOptions::default()
 };
 let identity = BuildIdentity {

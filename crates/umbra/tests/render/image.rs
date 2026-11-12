@@ -79,12 +79,9 @@ fn the_image_carries_its_reproduction_record() {
         "SHA-256"
     );
     assert_eq!(record["seed"], -7, "--seed");
-    assert_eq!(
-        record["pixel_samples_per_pixel"], 3,
-        "--pixel-samples-per-pixel"
-    );
+    assert_eq!(record["spp"], 3, "--pixel-samples-per-pixel");
     assert_eq!(record["tile_size"], 8);
-    assert_eq!(record["pixel_samples_per_pass"], 64, "the default");
+    assert_eq!(record["spp_per_pass"], 64, "the default");
     assert!(record["build_identity"]["commit"].is_string(), "{record}");
     assert!(record.get("outfile").is_none(), "no output path");
 }
@@ -98,8 +95,8 @@ fn spp_per_pass_cuts_the_spp_into_passes() {
     assert_eq!(code(&output), 0, "{}", stderr(&output));
 
     let record = reproduction_record(&ws.path("black.exr"));
-    assert_eq!(record["pixel_samples_per_pixel"], 8, "the count is kept");
-    assert_eq!(record["pixel_samples_per_pass"], 3, "only the cut changes");
+    assert_eq!(record["spp"], 8, "the count is kept");
+    assert_eq!(record["spp_per_pass"], 3, "only the cut changes");
 }
 
 #[test]

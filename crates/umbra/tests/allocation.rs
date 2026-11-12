@@ -29,8 +29,8 @@ fn blocks_per_work_unit(spp: u32) -> u64 {
     let options = RenderJobOptions {
         seed: Seed(0),
         tile_size: NonZeroU32::new(16).expect("16 is not zero"),
-        pixel_samples_per_pass: spp,
-        pixel_samples_per_pixel: spp,
+        spp_per_pass: spp,
+        spp,
     };
     let renderer = Renderer::new(&scene, &options).expect("a Renderer");
     let pool = ThreadPoolBuilder::new()

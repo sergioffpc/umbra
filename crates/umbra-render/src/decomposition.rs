@@ -134,8 +134,8 @@ impl Decomposition {
             tile_size,
             tiles_x,
             tile_count,
-            samples_per_pass: options.pixel_samples_per_pass.get(),
-            samples_per_pixel: options.pixel_samples_per_pixel.get(),
+            samples_per_pass: options.spp_per_pass.get(),
+            samples_per_pixel: options.spp.get(),
         })
     }
 
