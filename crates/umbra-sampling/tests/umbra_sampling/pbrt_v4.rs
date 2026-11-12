@@ -6,10 +6,12 @@
 //! compare a warp with one go to `piecewise_test`, the rest to
 //! `sampling_test`.
 
+mod halton_values;
 mod hash_test;
 mod known_values;
 mod piecewise_test;
 mod rng_test;
+mod samplers_test;
 mod sampling_test;
 
 /// The float whose bits are `bits`, component-wise.

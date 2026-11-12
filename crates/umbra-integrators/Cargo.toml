@@ -14,12 +14,24 @@ publish.workspace = true
 [features]
 # Derives `Serialize`/`Deserialize` for the Scene arena types, for Scene
 # replication (ADR 0015). Off by default; `umbra-scene` turns it on.
-serde = ["dep:serde", "umbra-shading/serde", "umbra-camera/serde"]
+serde = [
+  "dep:serde",
+  "umbra-camera/serde",
+  "umbra-geometry/serde",
+  "umbra-math/serde",
+  "umbra-sampling/serde",
+  "umbra-shading/serde",
+  "umbra-spectrum/serde",
+]
 
 [dependencies]
 serde = { workspace = true, optional = true }
 umbra-camera = { workspace = true }
+umbra-geometry = { workspace = true }
+umbra-math = { workspace = true }
+umbra-sampling = { workspace = true }
 umbra-shading = { workspace = true }
+umbra-spectrum = { workspace = true }
 
 [lints]
 workspace = true

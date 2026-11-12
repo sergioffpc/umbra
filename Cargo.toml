@@ -32,11 +32,17 @@ cudarc = { version = "0.19.10", default-features = false, features = [
   "dynamic-loading",
   "cuda-12080",
 ] }
+# The counting allocator of the allocation test (ADR 0008): its testing mode
+# counts heap blocks, so the test needs no `unsafe` of its own.
+dhat = "0.3.3"
 # Micro-benchmarks: a reference and its optimised kernel side by side in one
 # generic bench (arc42 §8.4, ADR 0007).
 divan = "0.1.21"
 # Loads the driver's OptiX, `libnvoptix.so.1`, at run time (ADR 0028).
 libloading = "0.9.0"
+# Data parallelism inside a CPU Worker: the rows of a Work Unit split across
+# the cores of its NUMA node (arc42 §8.8).
+rayon = "1.12.0"
 serde = { version = "1.0.228", default-features = false }
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }

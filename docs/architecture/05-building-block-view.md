@@ -108,8 +108,8 @@ impl<'s> Renderer<'s> {
     pub fn trace(&self, request: &TraceRequest) -> Vec<PixelTrace>;
 }
 impl Film {
-    pub fn new(options: &RenderJobOptions) -> Self;
-    pub fn accept(&mut self, result: WorkResult) -> Acceptance;   // Merged | Duplicate
+    pub fn new(scene: &Scene, options: &RenderJobOptions) -> Result<Self, RenderError>;
+    pub fn accept(&mut self, result: &WorkResult) -> Acceptance;  // Merged | Duplicate
     pub fn finish(self, record: ReproductionRecord) -> Image;
 }
 ```

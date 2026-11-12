@@ -331,6 +331,19 @@ impl<S: AsRef<[f32]> + AsMut<[f32]>> PiecewiseConstant2D<S> {
 }
 
 impl<S: AsRef<[f32]>> PiecewiseConstant2D<S> {
+    /// The same distribution, borrowed: what per-sample code samples.
+    #[must_use]
+    pub fn view(&self) -> PiecewiseConstant2D<&[f32]> {
+        PiecewiseConstant2D {
+            storage: self.storage.as_ref(),
+            nu: self.nu,
+            nv: self.nv,
+            u_domain: self.u_domain,
+            v_domain: self.v_domain,
+            integral: self.integral,
+        }
+    }
+
     /// The marginal distribution over rows.
     fn marginal(&self) -> Distribution1D<'_> {
         let (nu, nv) = (self.nu, self.nv);
