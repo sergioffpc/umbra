@@ -77,12 +77,15 @@ impl TileBounds {
 pub enum RenderError {
     /// More Tiles than a `u32` counts.
     TooManyTiles,
+    /// A Tile size larger than an image can be.
+    TileTooLarge,
 }
 
 impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooManyTiles => write!(f, "the image has more than 2^32 - 1 Tiles"),
+            Self::TileTooLarge => write!(f, "the Tile size is above 2^31 - 1 pixels"),
         }
     }
 }
@@ -108,14 +111,15 @@ impl Decomposition {
     /// # Errors
     ///
     /// [`RenderError::TooManyTiles`] if the Tiles cannot be counted in a
-    /// `u32`.
+    /// `u32`, and [`RenderError::TileTooLarge`] if the Tile size does not
+    /// fit an `i32`.
     ///
     /// # Panics
     ///
     /// If a side of `resolution` is not positive.
     pub fn new(resolution: Point2i, options: &RenderJobOptions) -> Result<Self, RenderError> {
         let tile_size =
-            i32::try_from(options.tile_size.get()).map_err(|_| RenderError::TooManyTiles)?;
+            i32::try_from(options.tile_size.get()).map_err(|_| RenderError::TileTooLarge)?;
         let tiles = |side: i32| {
             u32::try_from(side)
                 .expect("a resolution is positive")

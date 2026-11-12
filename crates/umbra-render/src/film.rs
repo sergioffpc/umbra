@@ -77,7 +77,7 @@ impl Film {
             self.decomposition.contains(unit),
             "{unit:?} is not in this Render Job"
         );
-        if !self.merged.insert(unit) {
+        if self.merged.contains(&unit) {
             return Acceptance::Duplicate;
         }
         let bounds = self.decomposition.tile_bounds(unit.tile);
@@ -86,6 +86,7 @@ impl Film {
             bounds.area(),
             "one sum per pixel of {unit:?}"
         );
+        self.merged.insert(unit);
         let width = self.width();
         let rows = result.pixels().chunks_exact(bounds.width());
         for (y, row) in (bounds.min.y..).zip(rows) {
