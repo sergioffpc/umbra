@@ -1,9 +1,10 @@
 //! The Render Job Report (arc42 §8.10): Umbra's own JSON, versioned
-//! `major.minor`. So far only its outcome and Film hash; the rest of §8.10
+//! `major.minor`. So far its outcome, Film hash and Reproduction Record;
+//! the rest of §8.10
 //! arrives with [#86](https://github.com/sergioffpc/umbra/issues/86).
 
 use serde::{Serialize, Serializer};
-use umbra_render::FilmHash;
+use umbra_render::{FilmHash, ReproductionRecord};
 
 /// How a Render Job ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -21,6 +22,7 @@ pub struct RenderJobReport {
     outcome: Outcome,
     #[serde(serialize_with = "hex")]
     film_hash: Option<FilmHash>,
+    reproduction_record: ReproductionRecord,
 }
 
 impl RenderJobReport {
@@ -29,13 +31,14 @@ impl RenderJobReport {
     pub const SCHEMA_VERSION: &str = "0.1";
 
     /// The report of a finished Render Job whose Film hashes to
-    /// `film_hash`.
+    /// `film_hash`, made as `reproduction_record` says.
     #[must_use]
-    pub fn finished(film_hash: FilmHash) -> Self {
+    pub fn finished(film_hash: FilmHash, reproduction_record: ReproductionRecord) -> Self {
         Self {
             schema_version: Self::SCHEMA_VERSION,
             outcome: Outcome::Finished,
             film_hash: Some(film_hash),
+            reproduction_record,
         }
     }
 

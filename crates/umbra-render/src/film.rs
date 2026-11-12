@@ -10,7 +10,6 @@ use umbra_scene::{RenderJobOptions, Scene};
 use crate::decomposition::{Decomposition, WorkUnit};
 use crate::error::Error;
 use crate::image::Image;
-use crate::reproduction::ReproductionRecord;
 use crate::work_result::{PixelSum, WorkResult};
 
 /// What [`Film::accept`] did with a Work Result.
@@ -130,7 +129,7 @@ impl Film {
     }
 
     /// The final image: each pixel's weighted sensor RGB over its weight, in
-    /// the output colour space, with the Render Job's `record`.
+    /// the output colour space.
     ///
     /// pbrt-v4 `RGBFilm::GetPixelRGB`.
     ///
@@ -139,14 +138,14 @@ impl Film {
     /// If a Work Unit is not merged yet: an image exists only once every
     /// Pass is rendered (ADR 0004).
     #[must_use]
-    pub fn finish(self, record: ReproductionRecord) -> Image {
+    pub fn finish(self) -> Image {
         assert!(self.is_complete(), "every Work Unit is merged");
         let pixels = self
             .pixels
             .iter()
             .map(|sum| self.output_rgb_from_sensor_rgb * sum.sensor_rgb())
             .collect();
-        Image::new(self.decomposition.resolution(), pixels, record)
+        Image::new(self.decomposition.resolution(), pixels)
     }
 
     /// The image's width, in pixels.

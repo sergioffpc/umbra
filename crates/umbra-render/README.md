@@ -44,9 +44,7 @@ assert!(film.is_complete());
 | `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                              |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
-[#88](https://github.com/sergioffpc/umbra/issues/88); the EXR's `RGBFilm`
-metadata, `savefp16` and float pixels, with
-[#84](https://github.com/sergioffpc/umbra/issues/84); the Anomalous Pixel
+[#88](https://github.com/sergioffpc/umbra/issues/88); the Anomalous Pixel
 Samples of a Work Result, with
 [#85](https://github.com/sergioffpc/umbra/issues/85).
 
@@ -86,12 +84,11 @@ Report, and is not a security hash.
 
 ### An EXR whose bytes are a function of the image
 
-`ExrWriter` writes RGB as half floats, as pbrt-v4's default `savefp16`,
-with ZIP compression, increasing line order and no parallel compression,
-and the Reproduction Record as the one custom attribute,
-`umbra.reproductionRecord` (ADR 0020). The `exr` crate keeps custom
-attributes in a `HashMap`: with one, their order is fixed; a second needs
-care. The record's JSON is stored as UTF-8 bytes, which EXR text allows.
+`ExrWriter` writes RGB as 32-bit floats through the `image` crate, which
+uses `exr` without its `rayon` feature: the file is compressed in one
+thread, so its bytes are a pure function of the image (ADR 0020). `image`
+writes no custom attributes, so the Reproduction Record is in the Render
+Job Report, not in the file.
 
 ### Finishing as pbrt-v4 does
 

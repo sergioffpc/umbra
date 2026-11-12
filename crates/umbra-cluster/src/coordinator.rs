@@ -96,8 +96,8 @@ pub fn coordinate(
         renderer.decomposition().work_units().count()
     );
     Ok(RenderJobOutcome {
-        image: film.finish(record),
-        report: RenderJobReport::finished(film_hash),
+        image: film.finish(),
+        report: RenderJobReport::finished(film_hash, record),
     })
 }
 

@@ -96,7 +96,7 @@ Tiles has 60 × 34 = 2040 Tiles, so 4 × 2040 = 8160 Work Units. With
   will use one Pass for that reason
   ([#87](https://github.com/sergioffpc/umbra/issues/87)).
 
-The Reproduction Record in the EXR's header stores them as `spp` and
+The Reproduction Record in the Render Job Report stores them as `spp` and
 `spp_per_pass`, the names of the `RenderJobOptions` fields they set.
 
 `--spp-per-pass` does not decide how a Worker fills its cores: it asks for
@@ -124,8 +124,8 @@ The integration tests are the cross-crate tests of arc42 §5.4:
 
 - `tests/render/`, `umbra render` through the binary (spec #72, Seam 1): a
   camera-only Scene File renders a black RGB EXR and a report with
-  `outcome: "finished"`; the EXR's bytes are the same on every run; it
-  carries the Reproduction Record, with the overrides; the seed's
+  `outcome: "finished"`; the EXR's bytes are the same on every run; the
+  report carries the Reproduction Record, with the overrides; the seed's
   precedence; the Film hash is the same with 1 thread and with all; output
   paths resolve as in pbrt-v4; includes resolve and are hashed; unsupported
   Scene Files give located Diagnostics and exit 3, with no image; unused

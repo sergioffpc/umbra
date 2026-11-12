@@ -1501,7 +1501,7 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
     </div>
     <div class="prose">
         <ul>
-            <li><b>The final image.</b> Dividing each pixel's sums (Σ <var>w</var>·<var>c</var> ⁄ Σ <var>w</var>), and writing the EXR file with its Reproduction Record, atomically, on the Coordinator (<a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a>), with <a href="https://github.com/sergioffpc/umbra/issues/78">#78</a>. arc42 sketches it as <code>Film::finish</code>.</li>
+            <li><b>The final image.</b> Dividing each pixel's sums (Σ <var>w</var>·<var>c</var> ⁄ Σ <var>w</var>), and writing the EXR file atomically, on the Coordinator (<a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a>), with <a href="https://github.com/sergioffpc/umbra/issues/78">#78</a>. arc42 sketches it as <code>Film::finish</code>.</li>
             <li><b>Pixel Traces.</b> <code>Renderer::trace</code> and its <code>TraceRecorder</code>, re-running chosen Pixel Samples through the same code path with recording on (<a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a>), with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Today the pixel loop always uses <code>NoRecorder</code>.</li>
             <li><b>Anomalous Pixel Samples.</b> Leaving a Pixel Sample that is NaN, infinite or negative out of the sums, and reporting it in the Work Result, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>.</li>
             <li><b>The scheduler, the network and the Workers</b> of <a href="#scheduling">section 3</a>, in <code>umbra-cluster</code>.</li>

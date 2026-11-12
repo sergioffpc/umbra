@@ -3,8 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use exr::meta::MetaData;
-use exr::prelude::{AttributeValue, ReadChannels, ReadLayers, Text, read};
+use image::{ColorType, ImageReader};
 
 use crate::cli::{CAMERA_ONLY, Workspace, code, report, stderr};
 
@@ -15,31 +14,13 @@ fn a_camera_only_scene_file_renders_a_black_image() {
     let output = ws.umbra(&["render", "scene.pbrt"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
 
-    let image = read()
-        .no_deep_data()
-        .largest_resolution_level()
-        .all_channels()
-        .first_valid_layer()
-        .all_attributes()
-        .from_file(ws.path("black.exr"))
+    let image = ImageReader::open(ws.path("black.exr"))
+        .unwrap()
+        .decode()
         .unwrap();
-    assert_eq!(image.layer_data.size.0, 40, "width");
-    assert_eq!(image.layer_data.size.1, 24, "height");
-    let names: Vec<String> = image
-        .layer_data
-        .channel_data
-        .list
-        .iter()
-        .map(|c| c.name.to_string())
-        .collect();
-    assert_eq!(names, ["B", "G", "R"], "RGB channels only");
-    for channel in &image.layer_data.channel_data.list {
-        assert!(
-            channel.sample_data.values_as_f32().all(|v| v == 0.0),
-            "{} is black",
-            channel.name
-        );
-    }
+    assert_eq!((image.width(), image.height()), (40, 24), "the resolution");
+    assert_eq!(image.color(), ColorType::Rgb32F, "RGB floats only");
+    assert!(image.into_rgb32f().iter().all(|&v| v == 0.0), "black");
     assert_eq!(report(&ws.path("black.exr"))["outcome"], "finished");
 }
 
@@ -56,7 +37,7 @@ fn the_image_file_is_the_same_bytes_every_time() {
 }
 
 #[test]
-fn the_image_carries_its_reproduction_record() {
+fn the_report_carries_the_reproduction_record() {
     let ws = Workspace::new();
     ws.file("scene.pbrt", CAMERA_ONLY);
     let args = ["render", "scene.pbrt", "--seed", "-7", "--spp", "3"];
@@ -79,7 +60,7 @@ fn the_image_carries_its_reproduction_record() {
         "SHA-256"
     );
     assert_eq!(record["seed"], -7, "--seed");
-    assert_eq!(record["spp"], 3, "--pixel-samples-per-pixel");
+    assert_eq!(record["spp"], 3, "--spp");
     assert_eq!(record["tile_size"], 8);
     assert_eq!(record["spp_per_pass"], 64, "the default");
     assert!(record["build_identity"]["commit"].is_string(), "{record}");
@@ -173,13 +154,8 @@ fn an_include_is_read_relative_to_the_scene_file_and_hashed() {
     assert_ne!(content_hash(), before, "the include is in the content hash");
 }
 
-/// The Reproduction Record in the header of the EXR at `path`.
+/// The Reproduction Record in the Render Job Report of the image at
+/// `path`.
 fn reproduction_record(path: &Path) -> serde_json::Value {
-    let meta = MetaData::read_from_file(path, false).expect("an EXR header");
-    let attribute = Text::from("umbra.reproductionRecord");
-    let Some(AttributeValue::Text(json)) = meta.headers[0].own_attributes.other.get(&attribute)
-    else {
-        panic!("no umbra.reproductionRecord in {}", path.display());
-    };
-    serde_json::from_slice(json.bytes()).expect("the record in JSON")
+    report(path)["reproduction_record"].clone()
 }

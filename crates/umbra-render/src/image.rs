@@ -6,46 +6,31 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use exr::prelude::{
-    AttributeValue, Blocks, Compression, Encoding, Layer, LayerAttributes, LineOrder,
-    SpecificChannels, Text, Vec2, WritableImage, f16,
-};
+use image::{ImageFormat, Rgb32FImage};
 use umbra_math::Point2i;
 
-use crate::reproduction::ReproductionRecord;
-
-/// The name of the EXR attribute that holds the Reproduction Record.
-pub const REPRODUCTION_RECORD_ATTRIBUTE: &str = "umbra.reproductionRecord";
-
-/// A finished Render Job's image: one output RGB per pixel, and the
-/// Reproduction Record that made it.
+/// A finished Render Job's image: one output RGB per pixel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image {
     resolution: Point2i,
     pixels: Vec<[f32; 3]>,
-    record: ReproductionRecord,
 }
 
 impl Image {
-    /// The image of `resolution` with `pixels`, row by row, made by the
-    /// Render Job of `record`.
+    /// The image of `resolution` with `pixels`, row by row.
     ///
     /// # Panics
     ///
     /// If there is not one pixel per pixel of `resolution`.
     #[must_use]
-    pub fn new(resolution: Point2i, pixels: Vec<[f32; 3]>, record: ReproductionRecord) -> Self {
+    pub fn new(resolution: Point2i, pixels: Vec<[f32; 3]>) -> Self {
         let [width, height] = [resolution.x, resolution.y].map(|side| usize::try_from(side).ok());
         assert_eq!(
             width.zip(height).map(|(w, h)| w * h),
             Some(pixels.len()),
             "one RGB per pixel of {resolution:?}"
         );
-        Self {
-            resolution,
-            pixels,
-            record,
-        }
+        Self { resolution, pixels }
     }
 
     /// The resolution, in pixels.
@@ -58,12 +43,6 @@ impl Image {
     #[must_use]
     pub fn pixels(&self) -> &[[f32; 3]] {
         &self.pixels
-    }
-
-    /// The Reproduction Record.
-    #[must_use]
-    pub fn record(&self) -> &ReproductionRecord {
-        &self.record
     }
 
     /// The width and height, as `usize`.
@@ -85,37 +64,23 @@ pub trait ImageWriter: fmt::Debug {
     fn write(&self, image: &Image, path: &Path) -> io::Result<()>;
 }
 
-/// The OpenEXR writer: RGB as half floats, ZIP compression, increasing line
-/// order and a fixed attribute order, so the file's bytes are a pure
-/// function of the image (ADR 0020).
+/// The OpenEXR writer, through the `image` crate: RGB as 32-bit floats,
+/// written in one thread, so the file's bytes are a pure function of the
+/// image (ADR 0020).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExrWriter;
 
 impl ImageWriter for ExrWriter {
     fn write(&self, image: &Image, path: &Path) -> io::Result<()> {
-        let (width, _) = image.size();
-        let channels = SpecificChannels::rgb(|Vec2(x, y): Vec2<usize>| {
-            let [r, g, b] = image.pixels[y * width + x].map(f16::from_f32);
-            (r, g, b)
+        let (width, height) = image.size();
+        let [width, height] = [width, height].map(|side| {
+            u32::try_from(side).expect("an image's sides come from an `i32` resolution")
         });
-        let mut attributes = LayerAttributes::default();
-        attributes.other.insert(
-            Text::from_slice_unchecked(REPRODUCTION_RECORD_ATTRIBUTE.as_bytes()),
-            AttributeValue::Text(Text::from_slice_unchecked(
-                image.record.to_json().as_bytes(),
-            )),
-        );
-        let encoding = Encoding {
-            compression: Compression::ZIP16,
-            blocks: Blocks::ScanLines,
-            line_order: LineOrder::Increasing,
-        };
-        let layer = Layer::new(image.size(), attributes, encoding, channels);
+        let buffer = Rgb32FImage::from_raw(width, height, image.pixels.as_flattened().to_vec())
+            .expect("one RGB per pixel");
         write_atomically(path, |file| {
-            exr::image::Image::from_layer(layer)
-                .write()
-                .non_parallel()
-                .to_buffered(file)
+            buffer
+                .write_to(file, ImageFormat::OpenExr)
                 .map_err(io::Error::other)
         })
     }
