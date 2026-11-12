@@ -118,7 +118,7 @@ impl ParamList {
         diagnostics: &mut Diagnostics,
     ) -> Option<[f32; N]> {
         let param = self.take(name, ty, diagnostics)?;
-        let values = Self::count::<N>(&param, diagnostics)?;
+        let values = Self::exactly::<N>(&param, diagnostics)?;
         let parsed = values.map(|v| parse_float(v, &param.location, diagnostics));
         parsed
             .iter()
@@ -134,7 +134,7 @@ impl ParamList {
         diagnostics: &mut Diagnostics,
     ) -> Option<(i32, Location)> {
         let param = self.take(name, ParamType::Integer, diagnostics)?;
-        let [value] = Self::count::<1>(&param, diagnostics)?;
+        let [value] = Self::exactly::<1>(&param, diagnostics)?;
         let parsed = (value.quoting == Quoting::Bare)
             .then(|| value.text.parse::<i32>().ok())
             .flatten();
@@ -153,7 +153,7 @@ impl ParamList {
         diagnostics: &mut Diagnostics,
     ) -> Option<(String, Location)> {
         let param = self.take(name, ParamType::String, diagnostics)?;
-        let [value] = Self::count::<1>(&param, diagnostics)?;
+        let [value] = Self::exactly::<1>(&param, diagnostics)?;
         if value.quoting == Quoting::Bare {
             let message = format!("{} is not a quoted string", value.text);
             diagnostics.push(Diagnostic::error(&param.location, message));
@@ -170,7 +170,7 @@ impl ParamList {
         diagnostics: &mut Diagnostics,
     ) -> Option<(bool, Location)> {
         let param = self.take(name, ParamType::Bool, diagnostics)?;
-        let [value] = Self::count::<1>(&param, diagnostics)?;
+        let [value] = Self::exactly::<1>(&param, diagnostics)?;
         let parsed = match value.text.as_str() {
             "true" => Some(true),
             "false" => Some(false),
@@ -227,7 +227,7 @@ impl ParamList {
     }
 
     /// The `N` values of `param`, if it has exactly `N`.
-    fn count<'p, const N: usize>(
+    fn exactly<'p, const N: usize>(
         param: &'p Param,
         diagnostics: &mut Diagnostics,
     ) -> Option<[&'p Value; N]> {

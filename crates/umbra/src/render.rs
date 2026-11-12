@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use umbra_cluster::{CoordinatorOptions, RenderJob, Threads, coordinate};
 use umbra_parser::{Diagnostic, Overrides, ParseError, Parsed};
 use umbra_render::{ExrWriter, ImageWriter, ReproductionRecord, write_atomically};
-use umbra_scene::RenderJobOptions;
+use umbra_scene::{RenderJobOptions, Seed};
 
 use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
@@ -82,7 +82,7 @@ pub(crate) fn render(args: &RenderArgs, stderr: &mut dyn Write) -> Result<(), Re
 fn parse(args: &RenderArgs) -> Result<Parsed, RenderFailure> {
     let overrides = Overrides {
         spp: args.spp,
-        seed: args.seed,
+        seed: args.seed.map(Seed),
         outfile: args.outfile.clone(),
     };
     umbra_parser::parse(&args.scene_file, &overrides).map_err(|error| match error {

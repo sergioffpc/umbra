@@ -48,7 +48,7 @@ enum Block {
 #[derive(Debug, Default)]
 struct FileOptions {
     pixel_samples: Option<NonZeroU32>,
-    seed: Option<i32>,
+    seed: Option<Seed>,
     filename: Option<(String, Location)>,
 }
 
@@ -120,7 +120,7 @@ impl SceneTarget {
             .unwrap_or_default();
         let spp = overrides.spp.or(self.file_options.pixel_samples);
         RenderJobOptions {
-            seed: Seed(seed),
+            seed,
             pixel_samples_per_pixel: spp.unwrap_or(defaults.pixel_samples_per_pixel),
             ..defaults
         }
@@ -193,10 +193,10 @@ impl SceneTarget {
     /// pbrt-v4 `HaltonSampler::Create`.
     fn sampler(&mut self, mut params: ParamList, diagnostics: &mut Diagnostics) {
         if let Some((spp, location)) = params.integer("pixelsamples", diagnostics) {
-            self.file_options.pixel_samples = positive(spp, &location, diagnostics);
+            self.file_options.pixel_samples = pixel_samples(spp, &location, diagnostics);
         }
         if let Some((seed, _)) = params.integer("seed", diagnostics) {
-            self.file_options.seed = Some(seed);
+            self.file_options.seed = Some(Seed(seed));
         }
         let randomize = params
             .string("randomization", diagnostics)
@@ -233,7 +233,7 @@ impl SceneTarget {
     fn integrator(&mut self, mut params: ParamList, diagnostics: &mut Diagnostics) {
         let max_depth = params
             .integer("maxdepth", diagnostics)
-            .and_then(|(depth, location)| non_negative(depth, &location, diagnostics))
+            .and_then(|(depth, location)| max_depth(depth, &location, diagnostics))
             .unwrap_or_else(|| VolPathIntegrator::default().max_depth());
         if let Some((true, location)) = params.boolean("regularize", diagnostics) {
             let message = "Integrator \"volpath\" regularization is not supported yet";
@@ -361,7 +361,11 @@ fn randomization(
 }
 
 /// `pixelsamples`, given as `value` at `location`, if it is at least 1.
-fn positive(value: i32, location: &Location, diagnostics: &mut Diagnostics) -> Option<NonZeroU32> {
+fn pixel_samples(
+    value: i32,
+    location: &Location,
+    diagnostics: &mut Diagnostics,
+) -> Option<NonZeroU32> {
     let positive = u32::try_from(value).ok().and_then(NonZeroU32::new);
     if positive.is_none() {
         let message = format!("parameter \"pixelsamples\" must be at least 1, not {value}");
@@ -371,7 +375,7 @@ fn positive(value: i32, location: &Location, diagnostics: &mut Diagnostics) -> O
 }
 
 /// `maxdepth`, given as `value` at `location`, if it is not negative.
-fn non_negative(value: i32, location: &Location, diagnostics: &mut Diagnostics) -> Option<u32> {
+fn max_depth(value: i32, location: &Location, diagnostics: &mut Diagnostics) -> Option<u32> {
     let depth = u32::try_from(value).ok();
     if depth.is_none() {
         let message = format!("parameter \"maxdepth\" must not be negative, not {value}");

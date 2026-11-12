@@ -82,7 +82,7 @@ The signatures below are the contracts between crates. Error types and option st
 ```rust
 /// Reads a Scene File with its includes and assets, validates it strictly, applies the overrides, builds the Scene.
 pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, ParseError>;
-pub struct Overrides { pub spp: Option<NonZeroU32>, pub seed: Option<i32>, pub outfile: Option<PathBuf> }
+pub struct Overrides { pub spp: Option<NonZeroU32>, pub seed: Option<Seed>, pub outfile: Option<PathBuf> }
 pub struct Parsed { pub scene: Scene, pub options: RenderJobOptions, pub output: PathBuf, pub content_hash: ContentHash, pub warnings: Vec<Diagnostic> }
 ```
 

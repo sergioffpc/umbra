@@ -172,7 +172,7 @@ async fn schedule(
     while !film.is_complete() {
         match from_worker.recv().await.ok_or(ClusterError::NoWorkers)? {
             ToCoordinator::RequestWork(count) => demand = demand.saturating_add(count),
-            ToCoordinator::Result(result) => {
+            ToCoordinator::WorkResult(result) => {
                 film.accept(&result);
             }
         }

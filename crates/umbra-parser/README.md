@@ -14,6 +14,7 @@ Scene (arc42 §5.1). Its contract is sketched in arc42 §5.3.
 ```rust
 use std::fs;
 use umbra_parser::{Overrides, parse};
+use umbra_scene::Seed;
 
 let dir = std::env::temp_dir().join("umbra-parser-readme");
 fs::create_dir_all(&dir)?;
@@ -26,7 +27,7 @@ Film "rgb" "integer xresolution" 64 "integer yresolution" 48
 WorldBegin
 "#,
 )?;
-let overrides = Overrides { seed: Some(3), ..Overrides::default() };
+let overrides = Overrides { seed: Some(Seed(3)), ..Overrides::default() };
 let parsed = parse(&scene_file, &overrides)?;
 assert_eq!(parsed.options.seed.0, 3);
 assert_eq!(parsed.output, std::path::PathBuf::from("pbrt.exr"));
@@ -38,7 +39,7 @@ assert!(parsed.warnings.is_empty());
 
 | Module         | Contents                                                                                                                                                                                                     |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib`          | `parse`, `Overrides` (`--spp`, `--seed`, `--outfile`), `Parsed`, `ParseError`                                                                                                                                |
+| `lib`          | `parse`, `Overrides` (`--spp`, `--seed` as a `Seed`, `--outfile`), `Parsed`, `ParseError`                                                                                                                    |
 | `diagnostic`   | `Diagnostic`, with its `Severity` and `Location` (`file:line:column`)                                                                                                                                        |
 | `tokenizer`    | pbrt-v4 `Tokenizer` (`src/pbrt/parser.cpp`) with `nom` and `nom_locate`: brackets, quoted strings with their escapes, bare words; comments skipped                                                           |
 | `syntax`       | pbrt-v4 `parse` (`parser.cpp`): directives, parameter lists and `Include`, handed to a `ParserTarget`; unsupported and unknown directives refused with their arguments skipped, so every error is reported   |

@@ -19,7 +19,7 @@ pub(crate) enum ToCoordinator {
     /// Add this many Work Units to the Worker's demand.
     RequestWork(u32),
     /// A finished Work Unit.
-    Result(WorkResult),
+    WorkResult(WorkResult),
 }
 
 /// The Coordinator's end of a connection.

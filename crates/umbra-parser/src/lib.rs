@@ -14,7 +14,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 pub use diagnostic::{Diagnostic, Location, Severity};
-use umbra_scene::{ContentHash, RenderJobOptions, Scene};
+use umbra_scene::{ContentHash, RenderJobOptions, Scene, Seed};
 
 use crate::diagnostic::Diagnostics;
 use crate::files::{ReadError, SceneFiles};
@@ -28,7 +28,7 @@ pub struct Overrides {
     /// `--spp`: the Pixel Samples per pixel.
     pub spp: Option<NonZeroU32>,
     /// `--seed`: the seed; 0 if neither it nor the sampler sets one.
-    pub seed: Option<i32>,
+    pub seed: Option<Seed>,
     /// `--outfile`: the output path, relative to the working directory.
     pub outfile: Option<PathBuf>,
 }

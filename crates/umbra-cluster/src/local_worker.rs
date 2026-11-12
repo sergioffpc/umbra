@@ -35,7 +35,7 @@ fn render(
     to_coordinator: &UnboundedSender<ToCoordinator>,
 ) {
     if let Rendered::Done(result) = renderer.render(unit, cancel) {
-        let _ = to_coordinator.send(ToCoordinator::Result(result));
+        let _ = to_coordinator.send(ToCoordinator::WorkResult(result));
         let _ = to_coordinator.send(ToCoordinator::RequestWork(1));
     }
 }
