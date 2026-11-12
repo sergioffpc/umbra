@@ -2,8 +2,8 @@
 //! only: `f64` runs at a small fraction of `f32`'s rate on consumer GPUs.
 //!
 //! The error bounds are those this module documents, not ADR 0022's 1 ULP:
-//! the GPU promises statistical equality only (ADR 0026). The GPU test
-//! script checks each against glibc (#126).
+//! the GPU promises statistical equality only (ADR 0026). `umbra-gpu`'s GPU
+//! tests check each against glibc (#146).
 
 use core::f32::consts::FRAC_1_PI;
 
@@ -67,7 +67,8 @@ pub fn sin_cos(x: f32) -> (f32, f32) {
 }
 
 /// The angle of the point `(x, y)` from the positive x axis, in `[−π, π]`,
-/// within 3 ULP: `libdevice`'s `atan2f`, with C's values at zeros,
+/// within 3 ULP but where both arguments are subnormal or zero
+/// (`crate::libdevice`): `libdevice`'s `atan2f`, with C's values at zeros,
 /// infinities and NaN.
 ///
 /// pbrt-v4 `std::atan2`.
