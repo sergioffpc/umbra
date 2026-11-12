@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 
-// Dependency edges of arc42 §5.1, used once the crate has code.
-use umbra_integrators as _;
-use umbra_scene as _;
+mod decomposition;
+mod film;
+mod renderer;
+mod work_result;
+
+pub use decomposition::{Decomposition, PassIndex, RenderError, TileBounds, TileIndex, WorkUnit};
+pub use film::{Acceptance, Film, FilmHash};
+pub use renderer::{Cancellation, Rendered, Renderer};
+pub use work_result::{PixelSum, WorkResult};

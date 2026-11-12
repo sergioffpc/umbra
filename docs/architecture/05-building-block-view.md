@@ -109,7 +109,7 @@ impl<'s> Renderer<'s> {
 }
 impl Film {
     pub fn new(options: &RenderJobOptions) -> Self;
-    pub fn accept(&mut self, result: WorkResult) -> Acceptance;   // Merged | Duplicate
+    pub fn accept(&mut self, result: &WorkResult) -> Acceptance;  // Merged | Duplicate
     pub fn finish(self, record: ReproductionRecord) -> Image;
 }
 ```
