@@ -14,11 +14,22 @@ publish.workspace = true
 # (ADR 0028).
 build = "build.rs"
 
+[features]
+# `Tracer::evaluate` and `MathFunction`, which evaluate umbra-math's
+# functions on the GPU, with the math program in the PTX and the pipeline:
+# for the GPU tests alone (#146), which turn it on by the dev-dependency on
+# this crate below. Off in production.
+math-program = []
+
 [dependencies]
 cudarc = { workspace = true }
 libloading = { workspace = true }
 umbra-geometry = { workspace = true }
 umbra-math = { workspace = true }
+
+[dev-dependencies]
+# This crate with the math program, for the GPU tests (`tests/gpu/libdevice.rs`).
+umbra-gpu = { path = ".", features = ["math-program"] }
 
 [lints]
 workspace = true

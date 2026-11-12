@@ -32,17 +32,23 @@ assert_eq!(hits[0].map(|hit| hit.t), Some(8.0));
 
 ## What is in it
 
-| Module      | Contents                                                                                                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `tracer`    | `Tracer`: the pipeline, one GAS per geometry, their shader binding tables, `trace`, and `evaluate` for the GPU's math                |
-| `optix`     | OptiX loaded from the driver, and an owning wrapper per object: context, module, program groups, pipeline; GAS builds and launches   |
-| `optix/ffi` | OptiX 9.0's host ABI (105): the function table and the structs and constants Umbra's calls take, with their layout asserted          |
-| `records`   | Shader binding table records, `cudarc`'s `DeviceRepr` for what is copied to the GPU, and the conversions of rays, hits and functions |
-| `launch`    | `umbra-kernels`' `src/launch.rs`, compiled here by `#[path]`: the layout of the launch parameters and the ray and hit records        |
-| `error`     | `Error`                                                                                                                              |
-| `build.rs`  | Compiles `umbra-kernels` for `nvptx64` in a target directory of its own, with `libdevice` linked in                                  |
+| Module        | Contents                                                                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracer`      | `Tracer`: the pipeline, one GAS per geometry, their shader binding tables, `trace`; and in `tracer/math`, `evaluate` for the GPU's math |
+| `optix`       | OptiX loaded from the driver, and an owning wrapper per object: context, module, program groups, pipeline; GAS builds and launches      |
+| `optix/ffi`   | OptiX 9.0's host ABI (105): the function table and the structs and constants Umbra's calls take, with their layout asserted             |
+| `records`     | Shader binding table records, `cudarc`'s `DeviceRepr` for what is copied to the GPU, and the conversions of rays and hits               |
+| `launch`      | `umbra-kernels`' `src/launch.rs`, compiled here by `#[path]`: the layout of the launch parameters and the ray and hit records           |
+| `math_launch` | `umbra-kernels`' `src/math_launch.rs`, likewise: the math program's launch parameters and `MathFunction`                                |
+| `error`       | `Error`                                                                                                                                 |
+| `build.rs`    | Compiles `umbra-kernels` for `nvptx64` in a target directory of its own, with `libdevice` linked in                                     |
 
-`Geometry`, `Hit`, `Function`, `Tracer` and `Error` are public at the crate root.
+`Geometry`, `Hit`, `Tracer` and `Error` are public at the crate root.
+
+The `math-program` feature, off by default, adds the math program to the
+PTX and the pipeline, `Tracer::evaluate`, and `MathFunction` and
+`UnknownMathFunction` at the crate root: for the GPU tests alone, which turn
+it on by a dev-dependency of the crate on itself (#146).
 
 Not here yet: the `SceneView` upload, the wavefront queues and the GPU
 Worker's renderer, which arrive with the features on both Render Devices

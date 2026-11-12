@@ -11,6 +11,9 @@
 //! kernels still build, with one `.extern .func` per `libdevice` function,
 //! and a warning; `Tracer::new` then refuses the PTX.
 //!
+//! With this crate's `math-program` feature, which the GPU tests turn on,
+//! the kernels are built with theirs, and the PTX has the math program.
+//!
 //! Building the kernels on every host build is also the check that no core
 //! crate pulls `std`: `nvptx64` has none.
 
@@ -89,6 +92,9 @@ fn kernels_build(manifest: &Path, target_dir: &Path) -> Command {
         .arg(target_dir)
         .args(["--config", "profile.release.debug=false"])
         .args(["--config", "profile.release.strip=\"debuginfo\""]);
+    if env::var_os("CARGO_FEATURE_MATH_PROGRAM").is_some() {
+        cargo.args(["--features", "math-program"]);
+    }
     for var in [
         "RUSTFLAGS",
         "CARGO_ENCODED_RUSTFLAGS",

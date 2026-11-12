@@ -17,6 +17,12 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# The math program, `__raygen__math`, which evaluates umbra-math's functions
+# for `umbra-gpu`'s GPU tests (#146). Off in production; `umbra-gpu`'s
+# `math-program` feature turns it on in the PTX it builds.
+math-program = []
+
 # On the GPU only: on the host the crate is empty and uses nothing.
 [target.'cfg(target_arch = "nvptx64")'.dependencies]
 umbra-geometry = { workspace = true }

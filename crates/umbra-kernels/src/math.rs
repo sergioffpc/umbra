@@ -1,39 +1,14 @@
-//! What the math program, `__raygen__math`, runs on: one function of
-//! `umbra-math` evaluated per thread, on arguments the host wrote, for the
-//! GPU tests that check the GPU's math against the CPU's (#146).
+//! The math program, `__raygen__math`: one function of `umbra-math`
+//! evaluated per thread, on arguments the host wrote, for the GPU tests that
+//! check the GPU's math against the CPU's (#146). Built only with the
+//! `math-program` feature, which the GPU tests turn on through `umbra-gpu`.
 
 use core::mem::offset_of;
 
-use crate::launch::{MathFunction, MathParams};
+use crate::math_launch::{MathFunction, MathParams};
 use crate::optix;
 
 impl MathFunction {
-    /// The function whose discriminant is `id`, if any.
-    pub(crate) fn from_id(id: u32) -> Option<Self> {
-        [
-            Self::Fma,
-            Self::Sqrt,
-            Self::Floor,
-            Self::Ceil,
-            Self::Roundf,
-            Self::Sinf,
-            Self::SinOfSinCos,
-            Self::CosOfSinCos,
-            Self::Tanf,
-            Self::Asinf,
-            Self::Acosf,
-            Self::Atan2,
-            Self::Erf,
-            Self::Expf,
-            Self::Powf,
-            Self::Logf,
-            Self::Atanhf,
-            Self::Coshf,
-        ]
-        .into_iter()
-        .find(|&f| f as u32 == id)
-    }
-
     /// The function of `umbra-math` on its arguments, in order: `a`, then
     /// `b`, then `c`, as far as it takes any.
     pub(crate) fn evaluate(self, [a, b, c]: [f32; 3]) -> f32 {

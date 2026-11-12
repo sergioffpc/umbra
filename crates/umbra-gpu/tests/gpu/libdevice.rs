@@ -17,7 +17,7 @@ use std::f32::consts::PI;
 use std::fmt;
 
 use umbra_geometry::Sphere;
-use umbra_gpu::{Function as MathFunction, Tracer};
+use umbra_gpu::{MathFunction, Tracer};
 use umbra_math::{Point3f, Vector3f, translate};
 
 /// The tracer on the first GPU; its geometry is not used here.

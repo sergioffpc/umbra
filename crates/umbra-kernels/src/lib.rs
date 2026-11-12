@@ -10,7 +10,10 @@
 #![warn(clippy::disallowed_types)]
 
 mod launch;
+#[cfg(feature = "math-program")]
 mod math;
+#[cfg(feature = "math-program")]
+mod math_launch;
 mod optix;
 
 use core::mem::offset_of;
@@ -19,7 +22,7 @@ use core::panic::PanicInfo;
 use umbra_geometry::{Ray, Sphere};
 use umbra_math::{Point3f, Vector3f};
 
-use crate::launch::{HitKind, HitRecord, LaunchParams, MathFunction, RayRecord};
+use crate::launch::{HitKind, HitRecord, LaunchParams, RayRecord};
 use crate::optix::{Primitive, TraceRay};
 
 /// The launch parameters: the `.const` variable the host's pipeline names
@@ -82,6 +85,8 @@ pub extern "ptx-kernel" fn __raygen__trace() {
 
 /// Ray generation for a math launch: evaluates the launch's function on
 /// argument record `i`, for the launch index `i`, and writes result `i`.
+/// Only with the `math-program` feature, for the GPU tests (#146).
+#[cfg(feature = "math-program")]
 #[expect(
     unsafe_code,
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
@@ -93,7 +98,7 @@ pub extern "ptx-kernel" fn __raygen__math() {
     if i >= params.count {
         return;
     }
-    let Some(function) = MathFunction::from_id(params.function) else {
+    let Ok(function) = math_launch::MathFunction::try_from(params.function) else {
         optix::trap()
     };
     let result = function.evaluate(math::read_args(params.args, i));

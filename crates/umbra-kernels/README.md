@@ -17,12 +17,13 @@ is the way to run it.
 
 ## What is in it
 
-| Module   | Contents                                                                                                                                                          |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib.rs` | The four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                                       |
-| `math`   | What the math program runs: its function of `umbra-math`, and its launch parameters, arguments and results                                                        |
-| `optix`  | The OptiX 9.0 device API: one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`)                        |
-| `launch` | The layout the host shares: `LaunchParams`, `RayRecord`, `HitRecord`, `HitKind`, `MathParams` and `MathFunction`; `umbra-gpu` compiles the same file by `#[path]` |
+| Module        | Contents                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib.rs`      | The four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                |
+| `math`        | What the math program runs: its function of `umbra-math`, and its launch parameters, arguments and results                                 |
+| `math_launch` | The math program's layout the host shares: `MathParams`, `MathFunction` and its ids; `umbra-gpu` compiles the same file by `#[path]`       |
+| `optix`       | The OptiX 9.0 device API: one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
+| `launch`      | The layout the host shares: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`; `umbra-gpu` compiles the same file by `#[path]`        |
 
 The programs, for one triangle and one sphere traced from the host
 ([#126](https://github.com/sergioffpc/umbra/issues/126)):
@@ -73,7 +74,9 @@ evaluate each `libdevice` function on chosen arguments. A second
 ray-generation program does it in the tracer's own pipeline: a math launch
 puts `MathParams` in the same `params` variable, which is sized for the
 larger `LaunchParams`, and selects `__raygen__math` by its shader binding
-table record. It traces no ray.
+table record. It traces no ray. It, `math` and `math_launch` exist only
+with the `math-program` feature, which `umbra-gpu`'s feature of the same
+name passes to the kernels' build; production PTX has no math program.
 
 ### Panics trap
 
