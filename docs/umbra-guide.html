@@ -1,0 +1,1515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Guide</title>
+<meta name="description" content="The map of Umbra: what each crate is for, how a Render Job travels through them, the rules they share, where the project stands, and which crate guide explains each piece.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* The project-wide guide. Same tokens and layout as the crate guides in
+    crates/*/docs/; it links to them instead of repeating them. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+/* ---------- this guide's own widgets ---------- */
+.dg-map { min-width: 960px; }
+.chip { display: inline-block; font: 600 0.62rem/1.5 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.05em 0.55em; border-radius: 999px; border: 1px solid currentColor; }
+.st-done { color: var(--exact); }
+.st-part { color: var(--warm); }
+.st-plan { color: var(--muted); }
+.ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.ladder button { width: 100%; display: grid; grid-template-columns: 2em minmax(0, 1fr); gap: 0.2rem 0.6rem; text-align: left; padding: 0.6rem 0.8rem; font: inherit; }
+.ladder button .n { font: 700 1.1rem/1.2 var(--display); color: var(--muted); grid-row: span 2; }
+.ladder button .g { font: 600 1rem/1.3 var(--display); }
+.ladder button .d { font: 400 0.82rem/1.4 var(--text); color: var(--muted); }
+.ladder button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.ladder button[aria-pressed="true"] .n { color: var(--accent); }
+.verdict { display: grid; gap: 0.6rem; font-size: 0.98rem; }
+.verdict .win { font: 700 1.25rem/1.25 var(--display); }
+.strip { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.strip .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 0.3rem; }
+.strip span.c { font: 400 0.72rem/1 var(--mono); padding: 0.45em 0.6em; border: 1px solid var(--rule); border-radius: 4px; color: var(--muted); background: var(--paper); transition: background 0.2s, color 0.2s; }
+.strip span.c.on { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
+.stepcard { display: grid; gap: 0.6rem; align-content: start; }
+.stepcard h4 { margin: 0; font-size: 1.2rem; }
+.stepcard p { margin: 0; }
+.stepcard .who { font: 600 0.72rem/1.4 var(--mono); color: var(--accent); }
+.stepcard .links { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font: 400 0.82rem/1.5 var(--mono); }
+.stepcard .status { font-size: 0.92rem; color: var(--muted); }
+.handoff { font: 600 0.9rem/1.45 var(--mono); padding: 0.8rem 1rem; border: 1px dashed var(--accent); border-radius: 6px; color: var(--accent); overflow-wrap: anywhere; }
+.cratecard { display: grid; gap: 0.5rem; padding: 0.9rem 1rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); min-height: 9rem; }
+.cratecard h4 { margin: 0; font: 600 1.15rem/1.3 var(--mono); }
+.cratecard p { margin: 0; }
+.cratecard .meta { font: 400 0.8rem/1.6 var(--mono); color: var(--muted); }
+#map-svg .node { cursor: pointer; }
+#map-svg .node text { font-size: 12px; }
+#map-svg .node rect { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; }
+#map-svg .node .pbar { stroke: none; }
+#map-svg .node.dim { opacity: 0.32; }
+#map-svg .node.sel rect.box { stroke: var(--accent); stroke-width: 2.4; }
+#map-svg .node.rel rect.box { stroke: var(--accent); }
+#map-svg .node:focus-visible rect.box { stroke: var(--accent); stroke-width: 3; }
+#map-svg .edge { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+#map-svg .edge.dim { opacity: 0.18; }
+#map-svg .edge.hl { stroke: var(--accent); stroke-width: 2; }
+#map-svg .band { fill: color-mix(in srgb, var(--muted) 7%, transparent); stroke: var(--grid); }
+#map-svg .band-core { fill: color-mix(in srgb, var(--accent) 7%, transparent); }
+#map-svg .band-gpu { fill: color-mix(in srgb, var(--warm) 8%, transparent); }
+.gcards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); margin: 1.4rem 0; }
+.gcard { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.45rem; align-content: start; }
+.gcard .crate { font: 600 0.7rem/1.3 var(--mono); color: var(--muted); }
+.gcard h4 { margin: 0; }
+.gcard h4 a { color: var(--ink); text-decoration: none; }
+.gcard h4 a:hover { color: var(--accent); }
+.gcard .q { margin: 0; font-style: italic; }
+.gcard ul { margin: 0; padding-left: 1.1em; font: 400 0.8rem/1.6 var(--mono); }
+.ctl.grow { flex: 1 1 18rem; }
+input[type="search"] {
+    width: 100%; font: 400 0.95rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.5em 0.7em;
+}
+.finds { list-style: none; margin: 0; padding: 0; display: grid; max-height: 26rem; overflow-y: auto; }
+.finds li { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); gap: 0.2rem 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--grid); }
+.finds .src { font: 600 0.7rem/1.6 var(--mono); color: var(--muted); }
+.finds a { font: 500 0.98rem/1.4 var(--display); }
+.finds .none { grid-column: 1 / -1; color: var(--muted); font: 400 0.85rem var(--mono); }
+@media (max-width: 560px) { .finds li { grid-template-columns: minmax(0, 1fr); } }
+.rulepick { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.rulepick button[aria-pressed="true"], .timeline button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.seen { margin: 0; padding-left: 1.1em; display: grid; gap: 0.35rem; font-size: 0.95rem; }
+.timeline { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.timeline button { display: grid; gap: 0.15rem; text-align: left; padding: 0.5em 0.65em; flex: 1 1 6.5rem; }
+.timeline button .v { font: 600 0.78rem/1 var(--mono); }
+.timeline button .nm { font: 400 0.68rem/1.25 var(--mono); opacity: 0.8; }
+.timeline button.now { border-color: var(--accent); }
+.pbar { height: 0.7rem; border-radius: 999px; background: var(--grid); overflow: hidden; }
+.pbar > span { display: block; height: 100%; background: var(--exact); }
+.issues { margin: 0.6rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.15rem; font: 400 0.78rem/1.45 var(--mono); max-height: 17rem; overflow-y: auto; }
+.issues li::before { content: "○ "; color: var(--muted); }
+.issues li.done::before { content: "● "; color: var(--exact); }
+.issues li.done a { color: var(--muted); }
+#cl-controls fieldset { border: 1px solid var(--rule); border-radius: 6px; padding: 0.5rem 0.8rem; margin: 0; display: grid; gap: 0.4rem; }
+#cl-controls legend { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0 0.3em; }
+#cl-controls .row { display: flex; gap: 0.6rem; align-items: center; font: 400 0.82rem var(--mono); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+    </defs>
+</svg>
+
+<header class="hero" id="top">
+    <div>
+        <div class="kicker">docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Guide</h1>
+    </div>
+    <p class="lede">Umbra turns a pbrt-v4 Scene File into an image, on every core of a machine, on its GPU and, later, on every machine of a LAN. Fourteen crates share that work. This guide is the map: what each crate is for, how a Render Job travels through them, the rules they all follow, and which crate guide explains each piece in depth.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 270" class="dg-wide" role="img" aria-label="A Render Job from Scene File to image">
+            <!-- scene file -->
+            <path d="M20 90 H82 L100 108 V180 H20 Z" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M82 90 V108 H100" class="k-ink" fill="none"/>
+            <path d="M32 125 H86 M32 140 H80 M32 155 H88" class="k-mut"/>
+            <text x="60" y="80" text-anchor="middle" class="t-bold">scene.pbrt</text>
+            <text x="60" y="202" text-anchor="middle" class="t-mut">Scene File</text>
+            <!-- coordinator -->
+            <rect x="140" y="70" width="196" height="130" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="238" y="96" text-anchor="middle" class="t-bold">umbra render</text>
+            <text x="238" y="116" text-anchor="middle" class="t-mut">the Coordinator</text>
+            <text x="154" y="144">1 parse, check</text>
+            <text x="154" y="164">2 build the Scene</text>
+            <text x="154" y="184">3 cut into Work Units</text>
+            <line x1="104" y1="135" x2="136" y2="135" class="k-ink" stroke-width="1.6" marker-end="url(#ah-ink)"/>
+            <!-- workers -->
+            <rect x="400" y="30" width="170" height="54" rx="6" class="f-surf k-ink" stroke-width="1.2"/>
+            <text x="485" y="54" text-anchor="middle" class="t-bold">CPU Worker</text>
+            <text x="485" y="73" text-anchor="middle" class="t-mut">every core of one node</text>
+            <rect x="400" y="108" width="170" height="54" rx="6" class="f-surf k-ink" stroke-width="1.2"/>
+            <text x="485" y="132" text-anchor="middle" class="t-bold">CPU Worker</text>
+            <text x="485" y="151" text-anchor="middle" class="t-mut">another machine</text>
+            <rect x="400" y="186" width="170" height="54" rx="6" class="f-surf k-warm" stroke-width="1.2" stroke-dasharray="6 4"/>
+            <text x="485" y="210" text-anchor="middle" class="t-bold">GPU Worker</text>
+            <text x="485" y="229" text-anchor="middle" class="t-mut">one GPU</text>
+            <path d="M336 120 C368 110 372 60 396 57 M336 135 H396 M336 150 C368 160 372 210 396 213" class="k-acc" stroke-width="1.6" fill="none" marker-end="url(#ah-acc)"/>
+            <text x="362" y="22" text-anchor="middle" class="t-acc">Work Units</text>
+            <!-- film -->
+            <path d="M570 57 C610 60 620 115 652 122 M570 135 H652 M570 213 C610 210 620 155 652 148" class="k-warm" stroke-width="1.6" fill="none" stroke-dasharray="6 4" marker-end="url(#ah-warm)"/>
+            <text x="612" y="252" text-anchor="middle" class="t-warm">Work Results</text>
+            <rect x="656" y="95" width="96" height="80" rx="4" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M656 115 H752 M656 135 H752 M656 155 H752 M680 95 V175 M704 95 V175 M728 95 V175" class="k-mut"/>
+            <text x="704" y="85" text-anchor="middle" class="t-bold">Film</text>
+            <text x="704" y="195" text-anchor="middle" class="t-mut">merged on arrival</text>
+            <!-- output -->
+            <line x1="752" y1="135" x2="790" y2="135" class="k-ink" stroke-width="1.6" marker-end="url(#ah-ink)"/>
+            <rect x="794" y="96" width="92" height="40" rx="4" class="f-acc-soft k-acc"/>
+            <text x="840" y="121" text-anchor="middle">image.exr</text>
+            <rect x="794" y="144" width="92" height="40" rx="4" class="f-mut-soft k-mut"/>
+            <text x="840" y="169" text-anchor="middle">report.json</text>
+        </svg></div>
+        <figcaption id="big-cap">The whole project in one picture. The <b>Coordinator</b> reads the Scene File once and cuts the image into <b>Work Units</b>. <b>Workers</b> render them, and each answer, a <b>Work Result</b>, is merged into the <b>Film</b> as soon as it arrives. The dashed GPU Worker and the second machine are on the roadmap; <a href="#journey">section 2</a> follows every step and marks what runs today.</figcaption>
+    </figure>
+
+    <p class="howto">How to read this guide. It explains how the pieces fit, never what happens inside one: each time a topic belongs to a crate, the guide gives one sentence and a link to that crate's guide, where the pictures and the maths are. Sections start with a blue <b>In plain words</b> box; most have a figure to click. Words in capitals, such as Work Unit or Pixel Sample, are defined in the <a href="../GLOSSARY.md">glossary</a>. Looking for one topic? Use the <a href="#find">search in section 5</a>.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · The big picture</div>
+                <ol>
+                    <li><a href="#goals"><span class="n">1</span><span class="t">What Umbra is for</span><span class="c">five quality goals, in order</span></a></li>
+                    <li><a href="#journey"><span class="n">2</span><span class="t">A Render Job, from command to image</span><span class="c">ten steps, ten crates</span></a></li>
+                    <li><a href="#pixel-sample"><span class="n">3</span><span class="t">Inside one Pixel Sample</span><span class="c">the core crates in turn · CPU and GPU</span></a></li>
+                </ol>
+                <div class="kicker">Part II · The crates</div>
+                <ol>
+                    <li><a href="#crates"><span class="n">4</span><span class="t">The crate map</span><span class="c">core, shell and GPU · what is built</span></a></li>
+                    <li><a href="#guides"><span class="n">5</span><span class="t">Which guide to open</span><span class="c">ten guides · search every section</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part III · Shared rules</div>
+                <ol>
+                    <li><a href="#rules"><span class="n">6</span><span class="t">Rules every crate follows</span><span class="c">and where each one shows</span></a></li>
+                </ol>
+                <div class="kicker">Part IV · Running and growing</div>
+                <ol>
+                    <li><a href="#cluster"><span class="n">7</span><span class="t">From one machine to a Cluster</span><span class="c">Coordinator, Workers, Cluster Names</span></a></li>
+                    <li><a href="#roadmap"><span class="n">8</span><span class="t">The road to parity</span><span class="c">fourteen milestones · v0.1.0 today</span></a></li>
+                    <li><a href="#docs"><span class="n">9</span><span class="t">Where everything is written down</span><span class="c">glossary, arc42, ADRs, READMEs, guides</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · The big picture</div>
+    <h2>What Umbra does, end to end</h2>
+    <p>Before the crates, the purpose: what Umbra promises, and the road a Render Job takes through the code.</p>
+</div>
+
+<section class="topic" id="goals">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span>arc42 §1 · §4.5 · §10</div>
+        <h3>What Umbra is for</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra is a port of <a href="https://github.com/mmp/pbrt-v4">pbrt-v4</a>, the renderer of the book <i>Physically Based Rendering</i>, to Rust. It should compute what pbrt-v4 computes, read like the book, run fast, use every machine available, and let you inspect any pixel afterwards. When two of those wishes pull in different directions, the one higher on the list wins.</div>
+
+    <div class="prose">
+        <p>Its only input is a pbrt-v4 <code>.pbrt</code> file, unextended. Its output is an EXR image plus a Render Job Report. Between them, five quality goals decide every design question, in this order:</p>
+    </div>
+
+    <figure class="bench" aria-labelledby="goals-cap">
+        <div class="split">
+            <div>
+                <p class="panel-title">The goals, highest priority first: click two</p>
+                <ol class="ladder" id="goal-ladder"></ol>
+            </div>
+            <div>
+                <p class="panel-title">When they conflict</p>
+                <div class="verdict" id="goal-verdict" aria-live="polite"></div>
+            </div>
+        </div>
+        <figcaption id="goals-cap"><b>Pick two goals</b> to see which one wins and a place in the code where that choice is visible. The order comes from arc42 §1.2. Scalability and debuggability rank last because the design already secures most of them, so they seldom have to win an argument.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The milestones of <a href="#roadmap">section 8</a> add pbrt-v4's features one family at a time, each milestone defined by the pbrt-v4 example scenes it makes renderable. Measurable targets for each goal are in <a href="architecture/10-quality-requirements.md">arc42 §10</a>.</p>
+    </div>
+</section>
+
+<section class="topic" id="journey">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span>arc42 §6.2 · crates/umbra/src/render.rs</div>
+        <h3>A Render Job, from command to image</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Typing <code>umbra render scene.pbrt</code> starts a chain of handovers. Each crate does one job and passes a value to the next: a path becomes a checked Scene, the Scene becomes a list of Work Units, each Work Unit becomes a Work Result, and the Work Results add up to one image. Step through it below; each step names its crate and the guide that explains it.</div>
+
+    <figure class="bench" aria-labelledby="journey-cap">
+        <div class="controls">
+            <div class="btns">
+                <button type="button" id="j-prev">← previous</button>
+                <button type="button" id="j-next" class="primary">next step →</button>
+            </div>
+            <div class="ctl">
+                <label for="j-step">Step</label>
+                <div class="row"><input type="range" id="j-step" min="0" max="9" step="1" value="0"><output id="j-step-o"></output></div>
+            </div>
+        </div>
+        <div class="strip" id="j-strip" aria-hidden="true"></div>
+        <div class="split">
+            <div class="stepcard" id="j-card" aria-live="polite"></div>
+            <div>
+                <p class="panel-title">The value handed on</p>
+                <div class="handoff" id="j-value"></div>
+            </div>
+        </div>
+        <figcaption id="journey-cap"><b>Ten steps of one Render Job.</b> The strip shows all fourteen crates and lights the one at work. The status line says what runs today (after <a href="https://github.com/sergioffpc/umbra/issues/78">#78</a>, a camera-only Scene File renders end to end, as a black image) and which issue brings the rest.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="pixel-sample">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span>arc42 §5.2 · §8.12 · ADR 0028</div>
+        <h3>Inside one Pixel Sample</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A Pixel Sample is one estimate of the light that reaches one point of one pixel. Step 8 of the journey runs it millions of times. It passes through the seven core crates in the order of the book's chapters, so each crate answers one question: which numbers, which colours, which ray, what is hit, what the light does there, how it adds up, and what the sensor records.</div>
+
+    <figure class="diagram" aria-labelledby="ps-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 1100 310" class="dg-chain" role="img" aria-label="One Pixel Sample through the core crates">
+            <g id="ps-boxes"></g>
+            <path d="M751 152 C751 215 483 215 483 152" class="k-warm" stroke-width="1.6" fill="none" stroke-dasharray="6 4" marker-end="url(#ah-warm)"/>
+            <text x="617" y="226" text-anchor="middle" class="t-warm">next bounce: a path is several rays in a row</text>
+            <a href="../crates/umbra-math/docs/math-guide.html#float">
+                <rect x="22" y="250" width="1056" height="40" rx="6" class="f-mut-soft k-mut"/>
+                <text x="550" y="275" text-anchor="middle"><tspan class="t-acc">umbra-math</tspan> · every number above: f32 vectors, transforms and their rounding-error bounds</text>
+            </a>
+        </svg></div>
+        <figcaption id="ps-cap"><b>Click a box</b> to open the section of the crate guide that explains that step. The dashed box is not built yet: <code>umbra-shading</code> arrives with <a href="https://github.com/sergioffpc/umbra/issues/79">#79</a> and <a href="https://github.com/sergioffpc/umbra/issues/80">#80</a>, so today every ray brings back no light. The last box is outside the core: the Film lives in <code>umbra-render</code>.</figcaption>
+    </figure>
+
+    <h4>Who runs the chain: one core, two drivers</h4>
+    <div class="prose">
+        <p>The core crates compile twice, for <code>x86_64</code> and for the GPU's <code>nvptx64</code>, and the same functions run on both (<a href="adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a>). What differs is the loop around them. On the CPU, each thread takes one Pixel Sample through every step before starting the next. On the GPU, each step is a kernel that runs on a queue of many Pixel Samples at once, so the order is turned on its side. That is why core functions take and return plain values and never see a queue or a thread index.</p>
+    </div>
+    <figure class="bench" aria-labelledby="drv-cap">
+        <div class="controls">
+            <div class="btns" role="group" aria-label="Driver">
+                <button type="button" id="drv-cpu" class="primary">CPU: per-pixel loop</button>
+                <button type="button" id="drv-gpu">GPU: wavefront</button>
+                <button type="button" id="drv-play">▶ play</button>
+            </div>
+        </div>
+        <div class="dg-wrap"><svg viewBox="0 0 760 250" class="dg-wide" id="drv-svg" role="img" aria-label="Execution order of four steps over four Pixel Samples"></svg></div>
+        <figcaption id="drv-cap"><b>The numbers give the order of execution</b> for four Pixel Samples (rows) and four steps of the chain (columns); cells with the same number run at the same time. One CPU thread fills row after row; the GPU fills a whole column at once. The cells are the same calls in both: only the loop differs. The CPU loop is in <code>umbra-integrators</code>, called by <code>umbra-render</code>; the GPU loop will be kernels in <code>umbra-kernels</code>, launched by <code>umbra-gpu</code> (<a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>). In depth: <a href="../crates/umbra-kernels/docs/kernels-guide.html#one-core">Kernels Guide, One core, two machines</a> and <a href="../crates/umbra-integrators/docs/integrators-guide.html#values">Integrators Guide, Values in, values out</a>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · The crates</div>
+    <h2>Fourteen crates, ten guides</h2>
+    <p>How the workspace is cut, what each crate holds today, and where to read about it.</p>
+</div>
+
+<section class="topic" id="crates">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span>arc42 §5.1 · ADR 0014 · ADR 0015 · Cargo.toml</div>
+        <h3>The crate map</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The crates form three groups. The <b>core</b> is the code that runs for every Pixel Sample: it uses no operating system and allocates no memory, so it can also run on a GPU. The <b>shell</b> around it reads files, builds Scenes, splits the work, talks over the network and offers the command line. The <b>GPU</b> pair compiles the core for the graphics card and drives it from the host. An arrow means "is used by".</div>
+
+    <figure class="bench" aria-labelledby="map-cap">
+        <div class="controls">
+            <div class="btns" role="group" aria-label="Highlight">
+                <button type="button" id="map-deps" class="primary">show what it needs</button>
+                <button type="button" id="map-users">show what needs it</button>
+            </div>
+            <div class="legend">
+                <span style="--sw: var(--exact)">built for v0.1.0 so far</span>
+                <span style="--sw: var(--warm)">partly built</span>
+                <span style="--sw: var(--muted)">not started</span>
+            </div>
+        </div>
+        <div class="dg-wrap"><svg viewBox="0 0 1350 470" class="dg-map" id="map-svg" role="img" aria-label="Dependency graph of the Umbra crates"></svg></div>
+        <div class="cratecard" id="map-card" aria-live="polite"></div>
+        <figcaption id="map-cap"><b>Click a crate.</b> The graph is the one <code>Cargo.toml</code> declares today, with shortcut arrows left out (if A needs B and B needs C, the arrow from C to A is not drawn). The dotted arrow is a build step: <code>umbra-gpu</code>'s build script compiles <code>umbra-kernels</code> to PTX and embeds it. The plan in <a href="architecture/05-building-block-view.md">arc42 §5.1</a> adds the arrows still to come, such as <code>umbra-gpu</code> into <code>umbra-cluster</code>.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Inside a core crate, each module follows a chapter or section of the book, with pbrt-v4's names. The order of the core crates is the book's order too, which is why the map reads left to right like its table of contents.</p>
+    </div>
+</section>
+
+<section class="topic" id="guides">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span>crates/*/docs</div>
+        <h3>Which guide to open</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Every crate with real code has an interactive guide in its <code>docs/</code> folder. Each one has the same two parts: the theory, in pictures, and how the crate implements it. Pick the guide by the question you have. To find one topic across all of them, use the search at the bottom.</div>
+
+    <div class="gcards" id="guide-cards"></div>
+
+    <div class="callout"><b>No guide yet.</b> <code>umbra-parser</code>, <code>umbra-cluster</code> and the <code>umbra</code> binary are plumbing with little theory: their READMEs (<a href="../crates/umbra-parser/README.md">parser</a>, <a href="../crates/umbra-cluster/README.md">cluster</a>, <a href="../crates/umbra/README.md">umbra</a>) describe them, and sections <a href="#journey">2</a> and <a href="#cluster">7</a> place them. <code>umbra-shading</code> has no code yet; its guide comes with its first issue.</div>
+
+    <h4 id="find">Search every guide</h4>
+    <figure class="bench" aria-labelledby="find-cap">
+        <div class="controls">
+            <div class="ctl grow">
+                <label for="find-q">Topic</label>
+                <input type="search" id="find-q" placeholder="e.g. halton, determinism, arena, thin lens, OptiX" autocomplete="off">
+            </div>
+            <div class="ctl">
+                <label for="find-scope">Look in</label>
+                <select id="find-scope">
+                    <option value="all">everything</option>
+                    <option value="guide">crate guides</option>
+                    <option value="adr">ADRs</option>
+                    <option value="arc42">arc42</option>
+                    <option value="glossary">glossary</option>
+                </select>
+            </div>
+        </div>
+        <ol class="finds" id="find-out" aria-live="polite"></ol>
+        <figcaption id="find-cap"><b>Every section title</b> of the ten crate guides, every ADR, every arc42 section and every glossary term, searched by the words you type (all of them must match). The index was taken from the files on 2026-11-12; a section added later appears here only when this guide is updated.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part III · Shared rules</div>
+    <h2>Decisions every crate lives by</h2>
+    <p>A handful of decisions shape every crate at once. Each crate guide shows how its own code obeys them; this part lines them up side by side.</p>
+</div>
+
+<section class="topic" id="rules">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span>arc42 §4.3 · §8 · ADRs</div>
+        <h3>Rules every crate follows</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The rules below explain why the code looks the way it does: why there are enums where you expected traits, numbers where you expected pointers, and <code>f32</code> where you expected <code>f64</code>. Pick a rule to see which crates it touches and where each guide shows it in practice.</div>
+
+    <figure class="bench" aria-labelledby="rules-cap">
+        <div class="rulepick" id="rule-pick" role="group" aria-label="Rules"></div>
+        <div class="strip" id="rule-strip" aria-hidden="true"></div>
+        <div class="split">
+            <div class="stepcard" id="rule-card" aria-live="polite"></div>
+            <div>
+                <p class="panel-title">Seen in practice</p>
+                <ul class="seen" id="rule-seen"></ul>
+            </div>
+        </div>
+        <figcaption id="rules-cap"><b>Lit crates follow the rule in their own code.</b> The links on the right go to the guide sections that show it, with diagrams. The ADR holds the reasoning and the alternatives that were turned down.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part IV · Running and growing</div>
+    <h2>Where it runs, and where it is going</h2>
+    <p>The machines a Render Job spreads over, the milestones ahead, and the documents that record it all.</p>
+</div>
+
+<section class="topic" id="cluster">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span>arc42 §7 · §8.8 · §8.13 · ADR 0017 · ADR 0021 · ADR 0026</div>
+        <h3>From one machine to a Cluster</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>You start a Worker on each machine once and leave it running. When anyone runs <code>umbra render</code>, that process becomes the Coordinator and announces the Render Job on the local network. Idle Workers with the same <b>Cluster Name</b> join, render their share and go back to waiting. Nobody writes a host list. A machine gets one CPU Worker per NUMA node (a group of cores with its own memory) and one GPU Worker per GPU.</div>
+
+    <figure class="bench" aria-labelledby="cl-cap">
+        <div class="controls" id="cl-controls"></div>
+        <div class="dg-wrap"><svg viewBox="0 0 900 330" class="dg-wide" id="cl-svg" role="img" aria-label="Workers joining a Render Job"></svg></div>
+        <dl class="readout" id="cl-read"></dl>
+        <figcaption id="cl-cap"><b>The two target machines</b> of arc42 §7.1. Switch Workers on and off and change Cluster Names: only Workers whose name matches the Coordinator's join. <span class="hl-warm">Today</span> a Render Job runs on one in-process CPU Local Worker; QUIC, the GPU Local Worker and remote Workers arrive with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a> and <a href="https://github.com/sergioffpc/umbra/issues/129">#129</a>. How the Coordinator hands Work Units to Workers of different speeds is in <a href="../crates/umbra-render/docs/render-guide.html#scheduling">Render Guide, Handing out the work</a>.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Every Worker of a Render Job must run the same build, checked by its <b>Build Identity</b>, the commit it was built from. On one machine a Pixel Sample then computes the same bits every time; across machines the image is statistically the same, not bit for bit (<a href="adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>). Running Workers, the release image and the commands are in the <a href="../README.md#rendering-on-several-machines">repository README</a>.</p>
+    </div>
+</section>
+
+<section class="topic" id="roadmap">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span>arc42 §4.1 · §4.2 · ADR 0019</div>
+        <h3>The road to parity</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra grows in fourteen milestones. Each one is defined by the pbrt-v4 example scenes it makes renderable, its <b>Reference Scenes</b>, and adds the smallest set of features they need. Each lands on the CPU and the GPU together, except three integrators that stay CPU-only. The last milestone adds no feature: it tunes until Umbra is as fast as pbrt-v4.</div>
+
+    <figure class="bench" aria-labelledby="rm-cap">
+        <div class="timeline" id="rm-line" role="group" aria-label="Milestones"></div>
+        <div class="split">
+            <div class="stepcard" id="rm-card" aria-live="polite"></div>
+            <div id="rm-progress"></div>
+        </div>
+        <figcaption id="rm-cap"><b>Click a milestone.</b> Feature lists are shortened from arc42 §4.1, which has the full scope and the scene variants. The v0.1.0 progress is a snapshot of the issue tracker on 2026-11-12; <a href="https://github.com/sergioffpc/umbra/milestone/1">the milestone page</a> has the live state.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="docs">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span>docs/README.md</div>
+        <h3>Where everything is written down</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Each kind of document has one job, so a fact lives in one place. Words are defined in the glossary, the architecture is described in arc42, decisions are recorded in ADRs, each crate is documented in its README, and the guides teach the ideas behind it. When an ADR and arc42 disagree, the later ADR wins.</div>
+
+    <figure class="diagram" aria-labelledby="docs-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The documentation and what each part answers">
+            <a href="../GLOSSARY.md"><rect x="20" y="30" width="200" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="120" y="58" text-anchor="middle" class="t-bold">GLOSSARY.md</text>
+            <text x="120" y="80" text-anchor="middle" class="t-mut">What does this word mean?</text></a>
+            <a href="architecture/05-building-block-view.md"><rect x="250" y="30" width="200" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="350" y="58" text-anchor="middle" class="t-bold">architecture/ (arc42)</text>
+            <text x="350" y="80" text-anchor="middle" class="t-mut">How does it fit together?</text></a>
+            <a href="architecture/09-architecture-decisions.md"><rect x="480" y="30" width="200" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="580" y="58" text-anchor="middle" class="t-bold">adr/</text>
+            <text x="580" y="80" text-anchor="middle" class="t-mut">Why was it decided so?</text></a>
+            <a href="../CONTRIBUTING.md#crate-readmes"><rect x="710" y="30" width="170" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="795" y="58" text-anchor="middle" class="t-bold">crate READMEs</text>
+            <text x="795" y="80" text-anchor="middle" class="t-mut">How do I use it?</text></a>
+            <rect x="250" y="190" width="630" height="70" rx="6" class="f-acc-soft k-acc"/>
+            <text x="565" y="218" text-anchor="middle" class="t-bold">crates/*/docs/*-guide.html</text>
+            <text x="565" y="240" text-anchor="middle" class="t-mut">What is the idea behind it? Theory in pictures, then the crate's code</text>
+            <a href="#top"><rect x="20" y="190" width="200" height="70" rx="6" class="f-warm-soft k-warm"/>
+            <text x="120" y="218" text-anchor="middle" class="t-bold">docs/umbra-guide.html</text>
+            <text x="120" y="240" text-anchor="middle" class="t-mut">Where is it? (this page)</text></a>
+            <line x1="220" y1="225" x2="246" y2="225" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
+            <path d="M120 100 V150 H565 V186 M350 100 V150 M580 100 V150 M795 100 V150" class="k-mut" fill="none" stroke-dasharray="4 4"/>
+            <text x="455" y="142" text-anchor="middle" class="t-mut">the guides use the same words and cite the same ADRs</text>
+        </svg></div>
+        <figcaption id="docs-cap"><b>Click a box</b> to open it. The guides never restate a decision: they show it in pictures and link the ADR. The full list of documents, with one line each, is <a href="README.md">docs/README.md</a>; branching, commits, checks and lint rules are in <a href="../CONTRIBUTING.md">CONTRIBUTING.md</a>.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">references</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Matt Pharr, Wenzel Jakob and Greg Humphreys, <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering: From Theory to Implementation</i>, 4th edition</a>. The book Umbra follows, chapter by chapter.</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4</a>, the renderer Umbra ports, and <a href="https://github.com/mmp/pbrt-v4-scenes">pbrt-v4-scenes</a>, where the Reference Scenes come from.</li>
+        <li><a href="architecture/01-introduction-and-goals.md">arc42 §1</a>, requirements and quality goals; <a href="architecture/04-solution-strategy.md">§4</a>, the roadmap and the fundamental decisions.</li>
+        <li><a href="architecture/05-building-block-view.md">arc42 §5</a>, the crates and the contracts between them; <a href="architecture/06-runtime-view.md">§6</a>, a Render Job at run time.</li>
+        <li><a href="architecture/07-deployment-view.md">arc42 §7</a>, the target machines and how Workers are run; <a href="architecture/08-crosscutting-concepts.md">§8</a>, numerics, determinism, scheduling and the rest.</li>
+        <li><a href="architecture/09-architecture-decisions.md">arc42 §9</a>, the index of every ADR, superseded ones marked.</li>
+        <li><a href="https://arc42.org/overview">arc42</a>, the template the architecture documents follow.</li>
+    </ul>
+</section>
+
+<footer>Umbra Guide · docs/umbra-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+const issue = (n) => `<a href="https://github.com/sergioffpc/umbra/issues/${n}">#${n}</a>`;
+const withIssues = (s) => esc(s).replace(/#(\d+)/g, (_, n) => issue(n));
+const link = ([label, url]) => `<a href="${esc(url)}">${esc(label)}</a>`;
+function svgEl(name, attrs, parent) {
+    const el = document.createElementNS(SVGNS, name);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    if (parent) parent.appendChild(el);
+    return el;
+}
+function svgText(parent, x, y, text, cls = "", anchor = "middle") {
+    const t = svgEl("text", { x, y, "text-anchor": anchor }, parent);
+    if (cls) t.setAttribute("class", cls);
+    t.textContent = text;
+    return t;
+}
+const G = (crate, id) => `../crates/${crate}/docs/${crate.replace("umbra-", "")}-guide.html#${id}`;
+const ADR = {
+    "0001": "0001-numeric-model.md",
+    "0003": "0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md",
+    "0006": "0006-closed-enum-dispatch-for-rendering-interfaces.md",
+    "0007": "0007-unsafe-code-as-an-aggressive-optimisation.md",
+    "0008": "0008-index-handle-arenas-and-allocation-free-rendering.md",
+    "0009": "0009-pull-based-pass-major-scheduling.md",
+    "0011": "0011-pixel-traces-by-deterministic-re-execution.md",
+    "0014": "0014-gpu-ready-no-std-rendering-core.md",
+    "0015": "0015-layered-workspace-with-a-seven-crate-no-std-core.md",
+    "0017": "0017-one-worker-per-numa-node.md",
+    "0020": "0020-bit-identical-exr-final-image.md",
+    "0022": "0022-determinism-on-one-machine-statistical-equality-across-machines.md",
+    "0026": "0026-gpu-workers-from-the-first-milestone.md",
+    "0028": "0028-one-core-for-cpu-and-gpu.md",
+    "0031": "0031-renders-checked-by-eye.md",
+};
+const adr = (n) => [`ADR ${n}`, `adr/${ADR[n]}`];
+const README = (crate) => `../crates/${crate}/README.md`;
+
+/* ================================================================
+    The crates: one record each, shared by every figure.
+    ================================================================ */
+const ORDER = [
+    "umbra-math", "umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-shading", "umbra-camera", "umbra-integrators",
+    "umbra-scene", "umbra-parser", "umbra-render", "umbra-cluster", "umbra",
+    "umbra-kernels", "umbra-gpu",
+];
+const GROUP_OF = (k) => (ORDER.indexOf(k) < 7 ? "core" : ORDER.indexOf(k) < 12 ? "shell" : "gpu");
+const CRATES = {
+    "umbra-math": {
+        x: 90, y: 175, st: "done", guide: true, ch: "3, 6.8, B.2",
+        q: "How to operate on numbers and geometric quantities",
+        now: "Vectors, points, normals, frames, transforms, Interval and error bounds; transcendentals from glibc on x86_64 and libdevice on the GPU.",
+        deps: [],
+    },
+    "umbra-sampling": {
+        x: 255, y: 110, st: "done", guide: true, ch: "2, 8, A",
+        q: "How to choose numbers",
+        now: "Hashing, PCG32, the Halton sampler with its permutations, warps, piecewise-constant tables, SamplerKind.",
+        deps: ["umbra-math"],
+    },
+    "umbra-spectrum": {
+        x: 420, y: 60, st: "done", guide: true, ch: "4.5–4.6",
+        q: "How light is represented",
+        now: "SampledSpectrum, SampledWavelengths, CIE XYZ, the sRGB colour space and its RGB-to-spectrum table.",
+        deps: ["umbra-math", "umbra-sampling"],
+    },
+    "umbra-geometry": {
+        x: 420, y: 225, st: "part", guide: true, ch: "6–7",
+        q: "Where a ray hits",
+        now: "Ray, Bounds, the sphere intersection with its error bounds, typed handles. Next: BVH traversal (#79) and triangles (#81).",
+        deps: ["umbra-math", "umbra-sampling"],
+    },
+    "umbra-shading": {
+        x: 585, y: 250, st: "plan", guide: false, ch: "9–12",
+        q: "What light does at that point",
+        now: "No code yet. Lights and the first BxDFs arrive with #79, #80 and #83.",
+        deps: ["umbra-geometry", "umbra-spectrum"],
+    },
+    "umbra-camera": {
+        x: 585, y: 95, st: "part", guide: true, ch: "5, 8.8",
+        q: "How a Pixel Sample becomes a ray, and radiance becomes sensor RGB",
+        now: "PerspectiveCamera with pinhole and thin lens, GaussianFilter with its importance sampler, PixelSensor. Next: the named camera sensors (#84).",
+        deps: ["umbra-geometry", "umbra-math", "umbra-sampling", "umbra-spectrum"],
+    },
+    "umbra-integrators": {
+        x: 750, y: 175, st: "part", guide: true, ch: "13–15",
+        q: "How one Pixel Sample is computed from start to end",
+        now: "SceneView, the Recorder trait and the Pixel Sample body; volpath follows camera rays that hit nothing yet. Next: emission and lighting (#79, #80).",
+        deps: ["umbra-camera", "umbra-geometry", "umbra-math", "umbra-sampling", "umbra-shading", "umbra-spectrum"],
+    },
+    "umbra-scene": {
+        x: 925, y: 175, st: "part", guide: true,
+        q: "What is rendered, and with which options",
+        now: "SceneBuilder, arenas and handles, the Scene and its view, RenderJobOptions. Next: deterministic BVH construction (#79).",
+        deps: ["umbra-camera", "umbra-geometry", "umbra-integrators", "umbra-math", "umbra-sampling", "umbra-spectrum"],
+    },
+    "umbra-parser": {
+        x: 1090, y: 75, st: "part", guide: false,
+        q: "How a .pbrt file becomes a Scene",
+        now: "Tokeniser, includes, strict validation with every error located, the content hash; builds camera-only Scenes. Next: shapes and lights (#79, #81).",
+        deps: ["umbra-camera", "umbra-geometry", "umbra-integrators", "umbra-math", "umbra-sampling", "umbra-scene"],
+    },
+    "umbra-render": {
+        x: 1090, y: 260, st: "part", guide: true,
+        q: "How Work Units add up to one image",
+        now: "Tiles and Passes, the Renderer, the Film's merge on arrival, the EXR writer and the Reproduction Record. Next: Anomalous Pixel Samples (#85), Pixel Traces (#88).",
+        deps: ["umbra-integrators", "umbra-math", "umbra-sampling", "umbra-scene"],
+    },
+    "umbra-cluster": {
+        x: 1255, y: 260, st: "part", guide: false,
+        q: "Who renders what, and when",
+        now: "coordinate with an in-process CPU Local Worker, and the Render Job Report. Next: QUIC and the GPU Local Worker (#128), remote Workers (#129), the status line (#86).",
+        deps: ["umbra-render", "umbra-scene"],
+    },
+    "umbra": {
+        x: 1255, y: 75, st: "part", guide: false,
+        q: "What the operator types",
+        now: "The render subcommand. Next: worker (#129), trace (#88), bench (#93).",
+        deps: ["umbra-cluster", "umbra-parser", "umbra-render", "umbra-scene"],
+    },
+    "umbra-kernels": {
+        x: 585, y: 405, st: "part", guide: true,
+        q: "What runs on the GPU",
+        now: "OptiX entry points for the tracer bullet, and the GPU's maths checked against the CPU. Next: the wavefront volpath kernels (#127).",
+        deps: ["umbra-geometry", "umbra-math"],
+    },
+    "umbra-gpu": {
+        x: 750, y: 405, st: "part", guide: true,
+        q: "How the host drives the GPU",
+        now: "CUDA through cudarc, OptiX from Rust, one triangle and one sphere traced and read back. Next: the GPU Renderer (#127).",
+        deps: ["umbra-geometry", "umbra-math"],
+    },
+};
+const ST_LABEL = { done: "built", part: "partly built", plan: "not started" };
+const ST_COLOR = { done: "var(--exact)", part: "var(--warm)", plan: "var(--muted)" };
+const GROUP_LABEL = { core: "core · no_std, no alloc", shell: "shell · std", gpu: "GPU" };
+
+/* transitive closure and reduction of the Cargo graph */
+const users = Object.fromEntries(ORDER.map((k) => [k, ORDER.filter((u) => CRATES[u].deps.includes(k))]));
+function closure(k, next) {
+    const seen = new Set(), stack = [...next(k)];
+    while (stack.length) {
+        const c = stack.pop();
+        if (!seen.has(c)) { seen.add(c); stack.push(...next(c)); }
+    }
+    return seen;
+}
+const allDeps = Object.fromEntries(ORDER.map((k) => [k, closure(k, (c) => CRATES[c].deps)]));
+const allUsers = Object.fromEntries(ORDER.map((k) => [k, closure(k, (c) => users[c])]));
+const EDGES = [];
+for (const u of ORDER) {
+    for (const d of CRATES[u].deps) {
+        const shortcut = CRATES[u].deps.some((m) => m !== d && allDeps[m].has(d));
+        if (!shortcut) EDGES.push([d, u]);
+    }
+}
+
+/* the crate strip used by sections 2 and 6 */
+function buildStrip(el) {
+    const chips = {};
+    ORDER.forEach((k, i) => {
+        if (i === 7 || i === 12) el.appendChild(Object.assign(document.createElement("span"), { className: "sep" }));
+        const c = document.createElement("span");
+        c.className = "c";
+        c.textContent = k === "umbra" ? "umbra (bin)" : k.replace("umbra-", "");
+        el.appendChild(c);
+        chips[k] = c;
+    });
+    return (on) => { for (const k of ORDER) chips[k].classList.toggle("on", on.includes(k)); };
+}
+
+/* ================================================================
+    1 · Quality goals.
+    ================================================================ */
+{
+    const GOALS = [
+        ["Correctness", "Compute what pbrt-v4 computes; on one machine, the same bits for a Pixel Sample every time."],
+        ["Comprehensibility", "Code that reads like the book: small documented functions, cohesive modules, simple contracts."],
+        ["Performance", "Fast on the two target machines and the GPU, reaching pbrt-v4's speed by v1.0.0."],
+        ["Scalability", "Throughput grows with the cores of a Worker and with the Workers on the LAN."],
+        ["Debuggability", "Any Pixel Sample of a finished image can be computed again as a Pixel Trace."],
+    ];
+    const CASES = {
+        "0-1": ["pbrt-v4's rounding-error bounds stay, although they add code to every intersection: without them a ray can restart inside the surface it just left.", [["Geometry Guide, Rounding errors, kept in check", G("umbra-geometry", "robust")], ["Math Guide, How error grows", G("umbra-math", "gamma")]]],
+        "0-2": ["The fastest transcendental is used only within a stated error bound, with explicit FMA and no flush-to-zero, so a Pixel Sample still gives the same bits on one machine.", [adr("0022"), ["arc42 §4.3", "architecture/04-solution-strategy.md"]]],
+        "0-3": ["A Pixel Sample depends only on the Scene, the seed, the pixel and the sample index, never on which Worker renders it, so a Work Unit sent again elsewhere gives the same answer.", [["Render Guide, What stays exactly the same", G("umbra-render", "determinism")]]],
+        "0-4": ["A trace never changes the result: the recorder only sees values already computed, and a test checks that radiance is bit-identical with and without it.", [["Integrators Guide, The recorder and Pixel Traces", G("umbra-integrators", "recorder")]]],
+        "1-2": ["An aggressive optimisation must show an end-to-end gain in a benchmark and keep a readable reference implementation beside it, tested against it.", [adr("0007")]],
+        "1-3": ["Scheduling stays a simple pull: a Worker asks for the next Work Unit when it has room, and no global plan is computed.", [["Render Guide, Handing out the work", G("umbra-render", "scheduling")], adr("0009")]],
+        "1-4": ["Tracing adds no second code path: the recorder is a generic parameter, and the same function renders and traces.", [["Integrators Guide, One function for rendering and tracing", G("umbra-integrators", "one-path")]]],
+        "2-3": ["One Worker per NUMA node keeps each Worker's memory next to its cores, at the price of more Workers to schedule.", [adr("0017")]],
+        "2-4": ["A normal render pays nothing for Pixel Traces: the recorder that does nothing compiles away, and a trace re-runs the Pixel Sample later instead of logging during the render.", [adr("0011"), ["Integrators Guide, Generic, not dyn", G("umbra-integrators", "generic")]]],
+        "3-4": ["Workers record nothing while they render. A Pixel Trace re-runs the Pixel Sample afterwards on one machine.", [adr("0011")]],
+    };
+    const ladder = $("goal-ladder"), out = $("goal-verdict");
+    let picked = [0, 2];
+    const buttons = GOALS.map(([name, d], i) => {
+        const li = document.createElement("li");
+        const b = document.createElement("button");
+        b.type = "button";
+        b.innerHTML = `<span class="n">${i + 1}</span><span class="g">${name}</span><span class="d">${esc(d)}</span>`;
+        b.addEventListener("click", () => {
+            if (picked.includes(i)) return;
+            picked = [picked[1], i];
+            show();
+        });
+        li.appendChild(b);
+        ladder.appendChild(li);
+        return b;
+    });
+    function show() {
+        buttons.forEach((b, i) => b.setAttribute("aria-pressed", picked.includes(i) ? "true" : "false"));
+        const [a, b] = [...picked].sort((x, y) => x - y);
+        const [text, links] = CASES[`${a}-${b}`];
+        out.innerHTML = `<div class="kicker">${GOALS[a][0]} vs ${GOALS[b][0]}</div>
+            <div class="win">${GOALS[a][0]} wins.</div>
+            <p>${esc(text)}</p>
+            <div class="stepcard"><div class="links">${links.map(link).join("")}</div></div>`;
+    }
+    show();
+}
+
+/* ================================================================
+    2 · The journey of a Render Job.
+    ================================================================ */
+{
+    const STEPS = [
+        {
+            t: "The operator types a command", on: ["umbra"],
+            d: "The umbra binary reads its arguments with clap: the Scene File, and overrides such as --spp, --seed, --outfile, --tile-size and --pixel-samples-per-pass.",
+            st: "part", s: "render works today; worker, trace and bench arrive with #129, #88 and #93.",
+            l: [["umbra README", README("umbra")]], v: "a path and the overrides",
+        },
+        {
+            t: "Parse and check the Scene File", on: ["umbra-parser"],
+            d: "The .pbrt file is tokenised with every location kept, its includes resolved and every directive checked strictly. If anything is wrong, every error is listed with its file, line and column, and nothing is built.",
+            st: "part", s: "camera-only Scene Files today; shapes and lights arrive with #79 and #81.",
+            l: [["umbra-parser README", README("umbra-parser")], adr("0003")], v: "Parsed { scene, options, output, content_hash, warnings }",
+        },
+        {
+            t: "Build the Scene", on: ["umbra-scene"],
+            d: "While it parses, the parser fills a SceneBuilder: one arena (an array) per kind of object, objects naming each other by number rather than by pointer. build() checks the result and freezes it.",
+            st: "part", s: "built today, without a BVH; deterministic BVH construction arrives with #79.",
+            l: [["Scene Guide, Building, then rendering", G("umbra-scene", "phases")], ["Scene Guide, Arenas and handles", G("umbra-scene", "arenas")]], v: "Scene + RenderJobOptions",
+        },
+        {
+            t: "Write down how to reproduce it", on: ["umbra", "umbra-render"],
+            d: "The binary records what is needed to compute any pixel again: the Scene File's path, the content hash of the file with its includes and assets, the options, and the Build Identity (the commit). The record travels to the EXR header.",
+            st: "done", s: "done.",
+            l: [["umbra-render README", README("umbra-render")], adr("0020")], v: "ReproductionRecord",
+        },
+        {
+            t: "Hand the Render Job to coordinate", on: ["umbra-cluster"],
+            d: "From here coordinate owns the Render Job: it starts the Local Workers, hands out Work Units, merges what comes back and builds the Render Job Report. Async code, QUIC and scheduling stay hidden behind this one synchronous call.",
+            st: "part", s: "one in-process CPU Local Worker today; QUIC, the GPU and remote Workers arrive with #128 and #129.",
+            l: [["umbra-cluster README", README("umbra-cluster")], ["arc42 §6.2", "architecture/06-runtime-view.md"]], v: "RenderJob { scene, options, record }",
+        },
+        {
+            t: "Cut the image into Work Units", on: ["umbra-render"],
+            d: "The image is cut into Tiles and the samples of each pixel into Passes. One Tile for one Pass is a Work Unit, the piece that is handed out, rendered and merged.",
+            st: "done", s: "done.",
+            l: [["Render Guide, Cutting the job into Work Units", G("umbra-render", "decomposition")], ["Render Guide, Handing out the work", G("umbra-render", "scheduling")]], v: "WorkUnit (one Tile × one Pass)",
+        },
+        {
+            t: "Render one Work Unit", on: ["umbra-render"],
+            d: "The Renderer runs the Work Unit's rows on the Worker's threads, one Pixel Sample after another, and gathers the results. A GPU Worker will do the same job through umbra-gpu.",
+            st: "part", s: "on the CPU today; on the GPU with #127.",
+            l: [["Render Guide, Rendering one Work Unit", G("umbra-render", "render-unit")]], v: "WorkResult",
+        },
+        {
+            t: "Compute each Pixel Sample", on: ["umbra-math", "umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-shading", "umbra-camera", "umbra-integrators"],
+            d: "Each Pixel Sample goes through the seven core crates: numbers, wavelengths, a camera ray, a hit, shading, the path's light, sensor RGB. Section 3 follows it box by box.",
+            st: "part", s: "camera rays are generated, but there is nothing to hit yet, so the light is zero (#79).",
+            l: [["Section 3 of this guide", "#pixel-sample"], ["Integrators Guide, Evaluating one Pixel Sample", G("umbra-integrators", "pixel-sample")]], v: "sensor RGB and a filter weight",
+        },
+        {
+            t: "Merge into the Film", on: ["umbra-render"],
+            d: "Film::accept checks a Work Result and adds it in as soon as it arrives, in any order. A second answer for the same Work Unit is a duplicate and is discarded unread.",
+            st: "done", s: "done.",
+            l: [["Render Guide, Checking and merging a Work Result", G("umbra-render", "merge")], ["Render Guide, Why the order of additions matters", G("umbra-render", "float")]], v: "Acceptance: Merged | Duplicate",
+        },
+        {
+            t: "Write the image and the report", on: ["umbra-render", "umbra"],
+            d: "Film::finish turns the sums into pixels. The EXR writer stores them with the Reproduction Record, atomically, and the Render Job Report is written next to the image as JSON.",
+            st: "part", s: "written today; every RGBFilm parameter arrives with #84, the full report and status line with #86.",
+            l: [adr("0020"), ["umbra-render README", README("umbra-render")]], v: "image.exr + report.json",
+        },
+    ];
+    const light = buildStrip($("j-strip"));
+    const range = $("j-step"), out = $("j-step-o");
+    function show() {
+        const i = +range.value, s = STEPS[i];
+        out.textContent = `${i + 1} / ${STEPS.length}`;
+        light(s.on);
+        $("j-card").innerHTML = `<div class="who">${s.on.length > 2 ? "the seven core crates" : s.on.join(" + ")}</div>
+            <h4>${i + 1}. ${esc(s.t)}</h4>
+            <p>${esc(s.d)}</p>
+            <p class="status"><span class="chip st-${s.st}">${s.st === "done" ? "today" : "today, in part"}</span> ${withIssues(s.s)}</p>
+            <div class="links">${s.l.map(link).join("")}</div>`;
+        $("j-value").textContent = s.v;
+        $("j-prev").disabled = i === 0;
+        $("j-next").disabled = i === STEPS.length - 1;
+    }
+    range.addEventListener("input", show);
+    $("j-prev").addEventListener("click", () => { range.value = Math.max(0, +range.value - 1); show(); });
+    $("j-next").addEventListener("click", () => { range.value = Math.min(STEPS.length - 1, +range.value + 1); show(); });
+    show();
+}
+
+/* ================================================================
+    3 · One Pixel Sample, and the two drivers.
+    ================================================================ */
+{
+    const BOXES = [
+        ["umbra-sampling", "numbers", "in [0, 1)", G("umbra-sampling", "halton")],
+        ["umbra-spectrum", "four", "wavelengths", G("umbra-spectrum", "wavelengths")],
+        ["umbra-camera", "a ray from", "film and lens", G("umbra-camera", "camera-sample")],
+        ["umbra-geometry", "the nearest", "hit", G("umbra-geometry", "sphere")],
+        ["umbra-shading", "what light", "does there", README("umbra-shading"), "plan"],
+        ["umbra-integrators", "the path's", "light L(λ)", G("umbra-integrators", "pixel-sample")],
+        ["umbra-camera", "light to", "sensor RGB", G("umbra-camera", "sensor")],
+        ["umbra-render", "weighted sum", "into the Film", G("umbra-render", "sums"), "shell"],
+    ];
+    const g = $("ps-boxes");
+    BOXES.forEach(([crate, l1, l2, url, kind], i) => {
+        const x = 22 + i * 134;
+        const a = svgEl("a", { href: url }, g);
+        const r = svgEl("rect", { x, y: 70, width: 118, height: 80, rx: 6, "stroke-width": 1.5 }, a);
+        r.setAttribute("class", kind === "plan" ? "f-surf k-mut" : kind === "shell" ? "f-mut-soft k-ink" : "f-surf k-acc");
+        if (kind === "plan") r.setAttribute("stroke-dasharray", "6 4");
+        svgText(a, x + 59, 92, crate.replace("umbra-", ""), kind === "plan" ? "t-mut" : "t-acc");
+        svgText(a, x + 59, 116, l1);
+        svgText(a, x + 59, 134, l2);
+        const st = svgEl("g", { class: "step" }, g);
+        svgEl("circle", { cx: x + 59, cy: 46, r: 11 }, st);
+        svgText(st, x + 59, 50, String(i + 1));
+        if (i < BOXES.length - 1) svgEl("line", { x1: x + 120, y1: 110, x2: x + 132, y2: 110, class: "k-ink", "stroke-width": 1.6, "marker-end": "url(#ah-ink)" }, g);
+    });
+
+    const svg = $("drv-svg");
+    const COLS = ["camera ray", "nearest hit", "shade", "add up"];
+    const X0 = 150, Y0 = 70, CW = 140, CH = 38;
+    let mode = "cpu", timer = 0;
+    function order(r, c) { return mode === "cpu" ? r * 4 + c + 1 : c + 1; }
+    function draw(upTo = Infinity) {
+        svg.replaceChildren();
+        svgText(svg, 380, 22, mode === "cpu"
+            ? "one CPU thread: each Pixel Sample goes all the way through"
+            : "one kernel per step: every Pixel Sample in the queue at once", "t-bold");
+        COLS.forEach((c, j) => svgText(svg, X0 + j * CW + CW / 2, 55, c, "t-mut"));
+        for (let r = 0; r < 4; r++) {
+            svgText(svg, X0 - 16, Y0 + r * (CH + 6) + 24, `Pixel Sample ${r + 1}`, "t-mut", "end");
+            for (let c = 0; c < 4; c++) {
+                const n = order(r, c), done = n <= upTo;
+                const x = X0 + c * CW, y = Y0 + r * (CH + 6);
+                svgEl("rect", { x: x + 4, y, width: CW - 8, height: CH, rx: 4, class: done ? "f-acc-soft k-acc" : "f-surf k-mut", "stroke-width": 1 }, svg);
+                svgText(svg, x + CW / 2, y + 24, done ? String(n) : "·", done ? "t-acc" : "t-mut");
+            }
+        }
+        const last = mode === "cpu" ? 16 : 4;
+        svgText(svg, 380, 248, mode === "cpu"
+            ? `${Math.min(upTo, last)} of ${last} calls, one after another`
+            : `${Math.min(upTo, last)} of ${last} launches, each covering all four Pixel Samples`, "t-mut");
+    }
+    function setMode(m) {
+        mode = m;
+        clearInterval(timer);
+        $("drv-cpu").classList.toggle("primary", m === "cpu");
+        $("drv-gpu").classList.toggle("primary", m === "gpu");
+        draw();
+    }
+    $("drv-cpu").addEventListener("click", () => setMode("cpu"));
+    $("drv-gpu").addEventListener("click", () => setMode("gpu"));
+    $("drv-play").addEventListener("click", () => {
+        clearInterval(timer);
+        const last = mode === "cpu" ? 16 : 4;
+        let k = 0;
+        draw(0);
+        timer = setInterval(() => {
+            k += 1;
+            draw(k);
+            if (k >= last) clearInterval(timer);
+        }, mode === "cpu" ? 260 : 700);
+    });
+    setMode("cpu");
+}
+
+/* ================================================================
+    4 · The crate map.
+    ================================================================ */
+{
+    const svg = $("map-svg"), card = $("map-card");
+    const W = 140, H = 44;
+    let dir = "deps", sel = "umbra-camera";
+    const bands = [
+        ["band band-core", 20, 20, 815, 290, GROUP_LABEL.core],
+        ["band", 850, 20, 480, 290, GROUP_LABEL.shell],
+        ["band band-gpu", 20, 340, 1310, 115, "GPU · umbra-kernels is built for nvptx64 only"],
+    ];
+    for (const [cls, x, y, w, h, label] of bands) {
+        svgEl("rect", { x, y, width: w, height: h, rx: 8, class: cls }, svg);
+        svgText(svg, x + 12, y + 18, label, "t-mut", "start");
+    }
+    const clip = (a, b) => {
+        // the point where the segment from a's centre to b's centre leaves a's box
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const t = Math.min(dx ? (W / 2 + 2) / Math.abs(dx) : Infinity, dy ? (H / 2 + 2) / Math.abs(dy) : Infinity);
+        return [a.x + dx * t, a.y + dy * t];
+    };
+    const edgeEls = EDGES.map(([d, u]) => {
+        const a = CRATES[d], b = CRATES[u];
+        const [x1, y1] = clip(a, b), [x2, y2] = clip(b, a);
+        const el = svgEl("line", { x1, y1, x2, y2, class: "edge", "marker-end": "url(#ah-mut)" }, svg);
+        return { d, u, el };
+    });
+    {
+        const a = CRATES["umbra-kernels"], b = CRATES["umbra-gpu"];
+        svgEl("line", { x1: a.x + W / 2 + 2, y1: a.y, x2: b.x - W / 2 - 4, y2: b.y, class: "k-warm", "stroke-width": 1.6, "stroke-dasharray": "5 4", "marker-end": "url(#ah-warm)" }, svg);
+        svgText(svg, (a.x + b.x) / 2, a.y - 10, "PTX", "t-warm");
+    }
+    const nodeEls = {};
+    for (const k of ORDER) {
+        const c = CRATES[k];
+        const g = svgEl("g", { class: "node", tabindex: 0, role: "button", "aria-label": k }, svg);
+        svgEl("rect", { x: c.x - W / 2, y: c.y - H / 2, width: W, height: H, rx: 5, class: "box" }, g);
+        svgEl("rect", { x: c.x - W / 2, y: c.y - H / 2, width: 6, height: H, rx: 2, class: "stbar", style: `fill:${ST_COLOR[c.st]}` }, g);
+        svgText(g, c.x + 3, c.y + 5, k === "umbra" ? "umbra (bin)" : k);
+        const pick = () => { sel = k; show(); };
+        g.addEventListener("click", pick);
+        g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+        nodeEls[k] = g;
+    }
+    function show() {
+        const rel = dir === "deps" ? allDeps[sel] : allUsers[sel];
+        for (const k of ORDER) {
+            const n = nodeEls[k];
+            n.classList.toggle("sel", k === sel);
+            n.classList.toggle("rel", rel.has(k));
+            n.classList.toggle("dim", k !== sel && !rel.has(k));
+        }
+        const inSet = (k) => k === sel || rel.has(k);
+        for (const { d, u, el } of edgeEls) {
+            const on = inSet(d) && inSet(u);
+            el.classList.toggle("hl", on);
+            el.classList.toggle("dim", !on);
+            el.setAttribute("marker-end", on ? "url(#ah-acc)" : "url(#ah-mut)");
+        }
+        const c = CRATES[sel];
+        const guide = c.guide ? link([`${sel.replace("umbra-", "")} guide`, G(sel, "map")]) : "<span class=\"mut\">no guide yet</span>";
+        const list = (xs) => (xs.length ? xs.map((x) => `<code>${x}</code>`).join(" ") : "<span class=\"mut\">none</span>");
+        card.innerHTML = `<h4>${sel}</h4>
+            <div class="meta"><span class="chip st-${c.st}">${ST_LABEL[c.st]}</span> · ${GROUP_LABEL[GROUP_OF(sel)]}${c.ch ? ` · PBR 4e ch. ${c.ch}` : ""}</div>
+            <p><i>${esc(c.q)}.</i> ${withIssues(c.now)}</p>
+            <div class="meta">needs: ${list(c.deps)}</div>
+            <div class="meta">needed by: ${list(users[sel])}</div>
+            <div class="stepcard"><div class="links">${guide}${link(["README", README(sel)])}</div></div>`;
+    }
+    const setDir = (d) => {
+        dir = d;
+        $("map-deps").classList.toggle("primary", d === "deps");
+        $("map-users").classList.toggle("primary", d === "users");
+        show();
+    };
+    $("map-deps").addEventListener("click", () => setDir("deps"));
+    $("map-users").addEventListener("click", () => setDir("users"));
+    show();
+}
+
+/* ================================================================
+    5 · The guides, and search over every document.
+    ================================================================ */
+const SECTIONS = {"umbra-camera": [["toolkit", "The maths toolkit, in pictures"], ["measurement", "What a pixel measures"], ["spaces", "From a pixel to a ray: the pinhole"], ["thin-lens", "The thin lens and depth of field"], ["filter", "Pixel filters"], ["camera-sample", "The camera sample"], ["sensor", "The pixel sensor: light to colour"], ["map", "The crate at a glance"], ["dispatch", "Closed enums instead of trait objects"], ["storage", "A filter table without an allocator"], ["render-space", "Camera-world rendering space"], ["tests", "Checked against pbrt-v4"], ["not-yet", "Not here yet"]], "umbra-geometry": [["toolkit", "The maths toolkit, in pictures"], ["ray", "A ray: a start and a direction"], ["bounds", "Boxes that line up with the axes"], ["bounds-transform", "Moving a box, and why it grows"], ["sphere", "Where a ray meets a sphere"], ["robust", "Rounding errors, kept in check"], ["handles", "Numbers instead of pointers"], ["map", "The crate at a glance"], ["one-core", "One sphere test for the CPU and the GPU"], ["layout", "Fixed byte layouts"], ["handle-impl", "A handle's traits, written by hand"], ["tests", "Worked examples as tests"], ["not-yet", "Not here yet"]], "umbra-gpu": [["words", "The words, in pictures"], ["why-gpu", "Why a GPU for ray tracing"], ["memory", "Two memories, copies between"], ["accel", "Acceleration structures"], ["programs", "OptiX programs and the pipeline"], ["sbt", "The shader binding table"], ["ffi", "How Rust talks to C safely"], ["ptx", "From Rust to PTX"], ["map", "The crate at a glance"], ["trace-call", "One trace call, step by step"], ["layout", "The layout shared with umbra-kernels"], ["decisions", "Design decisions"], ["unsafe", "The unsafe and FFI boundaries"], ["errors", "What can go wrong"], ["tests", "The GPU tests"], ["not-yet", "Not here yet"]], "umbra-integrators": [["toolkit", "The maths toolkit, in pictures"], ["rendering-equation", "The rendering equation, in plain words"], ["integrator", "What an integrator is"], ["pixel-sample", "Evaluating one Pixel Sample"], ["recorder", "The recorder and Pixel Traces"], ["scene-view", "The scene view"], ["path-tracing", "Path tracing: the theory behind volpath"], ["map", "The crate at a glance"], ["one-path", "One function for rendering and tracing"], ["values", "Values in, values out"], ["generic", "Generic, not dyn"], ["volpath-today", "VolPathIntegrator today"], ["tests", "How it is tested"], ["not-yet", "Not here yet"]], "umbra-kernels": [["words", "The words, in pictures"], ["one-core", "One core, two machines"], ["launch", "Kernels, launches and the launch index"], ["optix", "OptiX programs: one ray's trip"], ["params", "Talking to the host: shared layouts"], ["math", "The math program: the GPU's maths, checked"], ["panics", "When something goes wrong: trap"], ["map", "The crate at a glance"], ["shared-layout", "One file, two crates"], ["inline-ptx", "OptiX's device API in inline PTX"], ["decisions", "Smaller design decisions"], ["unsafe", "The unsafe boundary"], ["tests", "How it is built and tested"], ["not-yet", "Not here yet"]], "umbra-math": [["float", "The f32 number line"], ["gamma", "How error grows: γ(n)"], ["intervals", "Intervals, and where the next ray starts"], ["compensated", "Cancellation, and the FMA that repairs it"], ["normals", "Points, vectors and normals transform differently"], ["frames", "Shading frames and spherical coordinates"], ["octahedral", "A unit vector in 32 bits"], ["projection", "The perspective projection"]], "umbra-render": [["vocab", "The words, in pictures"], ["sums", "A pixel is two sums"], ["decomposition", "Cutting the job into Work Units"], ["scheduling", "Handing out the work"], ["float", "Why the order of additions matters"], ["determinism", "What stays exactly the same"], ["merge", "Checking and merging a Work Result"], ["render-unit", "Rendering one Work Unit"], ["map", "The crate at a glance"], ["design", "Design decisions"], ["tests", "How it is tested"], ["not-yet", "Not here yet"]], "umbra-sampling": [["toolkit", "The maths toolkit, in pictures"], ["monte-carlo", "Why sample: Monte Carlo"], ["hash", "Hashing: random-looking, repeatable"], ["rng", "PCG32, the random number generator"], ["low-discrepancy", "Spreading points evenly"], ["halton", "The Halton sampler"], ["inversion", "The inversion method"], ["piecewise", "Sampling a table"], ["disk", "Points on a disk"], ["sphere", "Directions on a sphere"], ["triangle", "Points on a triangle"], ["bilinear", "The bilinear distribution"], ["discrete", "Picking one of a few"], ["hg", "Scattering in a medium"], ["map", "The crate at a glance"], ["dispatch", "Closed enums instead of trait objects"], ["storage", "Tables without an allocator"], ["fidelity", "pbrt-v4's numbers, reproducibly"], ["tests", "Checked against pbrt-v4"], ["not-yet", "Not here yet"]], "umbra-scene": [["scene", "What a Scene is"], ["phases", "Building, then rendering"], ["arenas", "Arenas and handles instead of pointers"], ["view", "Lending the Scene to every Pixel Sample"], ["options", "Render Job Options"], ["replication", "One Scene, many Workers"], ["errors", "When a Scene can't be built"], ["map", "The crate at a glance"], ["builder-impl", "Settings in, core objects out"], ["arena-impl", "Inside Arena<T> and Handle<T>"], ["scene-impl", "Inside Scene and its view"], ["options-impl", "Inside RenderJobOptions and Seed"], ["tests", "Tests"], ["not-yet", "Not here yet"]], "umbra-spectrum": [["toolkit", "The maths toolkit, in pictures"], ["light", "Light is a spectrum"], ["why", "Why render spectrally"], ["wavelengths", "Four wavelengths per Pixel Sample"], ["xyz", "How the eye sees: XYZ"], ["color-space", "RGB colour spaces"], ["rgb-to-spectrum", "From RGB back to a spectrum"], ["map", "The crate at a glance"], ["dispatch", "One closed enum for every spectrum"], ["data", "Data built before the program runs"], ["lanes", "Four lanes of f32, in pbrt-v4's order"], ["tests", "Checked against pbrt-v4"], ["not-yet", "Not here yet"]]};
+const DOCS = [["adr", "ADR 0001", "Numeric model: f32, spectral-only, pbrt-v4 error bounds", "adr/0001-numeric-model.md"], ["adr", "ADR 0002", "Bit-identical results across Worker architectures (superseded)", "adr/0002-bit-identical-results-across-architectures.md"], ["adr", "ADR 0003", "pbrt-v4 Scene Files, parsed once on the Coordinator", "adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md"], ["adr", "ADR 0004", "Deterministic Film for a fixed Render Job", "adr/0004-deterministic-film-for-a-fixed-render-job.md"], ["adr", "ADR 0005", "Chiseled Ubuntu container image, published on every release tag", "adr/0005-chiseled-release-container-image.md"], ["adr", "ADR 0006", "Closed enum dispatch for rendering interfaces", "adr/0006-closed-enum-dispatch-for-rendering-interfaces.md"], ["adr", "ADR 0007", "unsafe code as an aggressive optimisation", "adr/0007-unsafe-code-as-an-aggressive-optimisation.md"], ["adr", "ADR 0008", "Index-handle arenas and allocation-free rendering", "adr/0008-index-handle-arenas-and-allocation-free-rendering.md"], ["adr", "ADR 0009", "Pull-based, Pass-major scheduling with speculative tail", "adr/0009-pull-based-pass-major-scheduling.md"], ["adr", "ADR 0010", "QUIC transport between Coordinator and Workers", "adr/0010-quic-transport-between-coordinator-and-workers.md"], ["adr", "ADR 0011", "Pixel Traces by deterministic re-execution through a monomorphised Recorder", "adr/0011-pixel-traces-by-deterministic-re-execution.md"], ["adr", "ADR 0012", "Per-CPU binaries, locked to one commit per Render Job", "adr/0012-per-cpu-binaries-locked-to-one-commit.md"], ["adr", "ADR 0013", "Statistical validation against a published pbrt-v4 reference (superseded)", "adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md"], ["adr", "ADR 0014", "A GPU-ready no_std rendering core", "adr/0014-gpu-ready-no-std-rendering-core.md"], ["adr", "ADR 0015", "A layered workspace with a seven-crate no_std core", "adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md"], ["adr", "ADR 0016", "Wire protocol: one Render Job per QUIC connection, unverified TLS", "adr/0016-one-render-job-per-quic-connection.md"], ["adr", "ADR 0017", "One Worker per NUMA node", "adr/0017-one-worker-per-numa-node.md"], ["adr", "ADR 0018", "Sessions launched from the operator's machine (superseded)", "adr/0018-sessions-launched-from-the-operators-machine.md"], ["adr", "ADR 0019", "Milestones defined by the Reference Scenes they unlock", "adr/0019-milestones-defined-by-the-reference-scenes-they-unlock.md"], ["adr", "ADR 0020", "A bit-identical EXR final image carrying its Reproduction Record", "adr/0020-bit-identical-exr-final-image.md"], ["adr", "ADR 0021", "Plug-and-play Workers in a named Cluster", "adr/0021-plug-and-play-workers-in-a-named-cluster.md"], ["adr", "ADR 0022", "Determinism on one machine, statistical equality across machines", "adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md"], ["adr", "ADR 0023", "x86-64 only", "adr/0023-x86-64-only.md"], ["adr", "ADR 0024", "A GPU backend on the roadmap (superseded)", "adr/0024-a-gpu-backend-on-the-roadmap.md"], ["adr", "ADR 0025", "One x86-64-v3 release image", "adr/0025-one-x86-64-v3-release-image.md"], ["adr", "ADR 0026", "GPU Workers from the first milestone", "adr/0026-gpu-workers-from-the-first-milestone.md"], ["adr", "ADR 0027", "A pinned nightly toolchain", "adr/0027-a-pinned-nightly-toolchain.md"], ["adr", "ADR 0028", "One core for CPU and GPU", "adr/0028-one-core-for-cpu-and-gpu.md"], ["adr", "ADR 0029", "The Coordinator's port and interface", "adr/0029-the-coordinators-port-and-interface.md"], ["adr", "ADR 0030", "A bounded asset cache on each Worker host", "adr/0030-a-bounded-asset-cache-on-each-worker-host.md"], ["adr", "ADR 0031", "Renders checked by eye", "adr/0031-renders-checked-by-eye.md"], ["arc42", "arc42 §1", "Introduction and Goals", "architecture/01-introduction-and-goals.md"], ["arc42", "arc42 §1.1", "Requirements overview", "architecture/01-introduction-and-goals.md"], ["arc42", "arc42 §1.2", "Quality goals", "architecture/01-introduction-and-goals.md"], ["arc42", "arc42 §1.3", "Stakeholders", "architecture/01-introduction-and-goals.md"], ["arc42", "arc42 §2", "Architecture Constraints", "architecture/02-architecture-constraints.md"], ["arc42", "arc42 §2.1", "Technical constraints", "architecture/02-architecture-constraints.md"], ["arc42", "arc42 §2.2", "Organisational constraints", "architecture/02-architecture-constraints.md"], ["arc42", "arc42 §2.3", "Conventions", "architecture/02-architecture-constraints.md"], ["arc42", "arc42 §3", "Context and Scope", "architecture/03-context-and-scope.md"], ["arc42", "arc42 §3.1", "Business context", "architecture/03-context-and-scope.md"], ["arc42", "arc42 §3.2", "Technical context", "architecture/03-context-and-scope.md"], ["arc42", "arc42 §3.3", "Out of scope", "architecture/03-context-and-scope.md"], ["arc42", "arc42 §4", "Solution Strategy", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §4.1", "Delivery roadmap", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §4.2", "The first milestone", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §4.3", "Technology decisions", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §4.4", "Decomposition", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §4.5", "How the quality goals are reached", "architecture/04-solution-strategy.md"], ["arc42", "arc42 §5", "Building Block View", "architecture/05-building-block-view.md"], ["arc42", "arc42 §5.1", "Level 1: the workspace", "architecture/05-building-block-view.md"], ["arc42", "arc42 §5.2", "Level 2: the core", "architecture/05-building-block-view.md"], ["arc42", "arc42 §5.3", "Level 2: interfaces outside the core", "architecture/05-building-block-view.md"], ["arc42", "arc42 §5.4", "Workspace conventions", "architecture/05-building-block-view.md"], ["arc42", "arc42 §6", "Runtime View", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.1", "Worker join and Scene transfer", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.2", "A Render Job from submission to image", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.3", "Worker failure and reassignment", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.4", "Speculative tail", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.5", "A rejected Worker", "architecture/06-runtime-view.md"], ["arc42", "arc42 §6.6", "Ctrl-C cancellation", "architecture/06-runtime-view.md"], ["arc42", "arc42 §7", "Deployment View", "architecture/07-deployment-view.md"], ["arc42", "arc42 §7.1", "Infrastructure", "architecture/07-deployment-view.md"], ["arc42", "arc42 §7.2", "Builds", "architecture/07-deployment-view.md"], ["arc42", "arc42 §7.3", "Deployment and launch", "architecture/07-deployment-view.md"], ["arc42", "arc42 §8", "Crosscutting Concepts", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.1", "Numerics and spectral representation", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.2", "Scene input", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.3", "Determinism", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.4", "Performance measurement", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.5", "Polymorphism", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.6", "Unsafe code and lints", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.7", "Memory and allocation", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.8", "Work scheduling", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.9", "Per-pixel debugging", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.10", "Progress and telemetry", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.11", "Correctness checks", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.12", "One core for CPU and GPU", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.13", "Wire protocol", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.14", "Per-architecture tuning", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §8.15", "Image output", "architecture/08-crosscutting-concepts.md"], ["arc42", "arc42 §9", "Architecture Decisions", "architecture/09-architecture-decisions.md"], ["arc42", "arc42 §10", "Quality Requirements", "architecture/10-quality-requirements.md"], ["arc42", "arc42 §10.1", "Quality tree", "architecture/10-quality-requirements.md"], ["arc42", "arc42 §10.2", "Quality scenarios", "architecture/10-quality-requirements.md"], ["arc42", "arc42 §11", "Risks and Technical Debt", "architecture/11-risks-and-technical-debt.md"], ["arc42", "arc42 §11.1", "Risks", "architecture/11-risks-and-technical-debt.md"], ["arc42", "arc42 §11.2", "Technical debt", "architecture/11-risks-and-technical-debt.md"], ["arc42", "arc42 §12", "Glossary", "architecture/12-glossary.md"], ["glossary", "glossary", "Render Job", "../GLOSSARY.md"], ["glossary", "glossary", "Render Job Options", "../GLOSSARY.md"], ["glossary", "glossary", "Scene", "../GLOSSARY.md"], ["glossary", "glossary", "Scene File", "../GLOSSARY.md"], ["glossary", "glossary", "Reference Scene", "../GLOSSARY.md"], ["glossary", "glossary", "Reference Scene Variant", "../GLOSSARY.md"], ["glossary", "glossary", "Render Job Report", "../GLOSSARY.md"], ["glossary", "glossary", "Tile", "../GLOSSARY.md"], ["glossary", "glossary", "Pass", "../GLOSSARY.md"], ["glossary", "glossary", "Pixel Sample", "../GLOSSARY.md"], ["glossary", "glossary", "Work Unit", "../GLOSSARY.md"], ["glossary", "glossary", "Work Result", "../GLOSSARY.md"], ["glossary", "glossary", "Film", "../GLOSSARY.md"], ["glossary", "glossary", "Coordinator", "../GLOSSARY.md"], ["glossary", "glossary", "Worker", "../GLOSSARY.md"], ["glossary", "glossary", "Asset Cache", "../GLOSSARY.md"], ["glossary", "glossary", "Render Device", "../GLOSSARY.md"], ["glossary", "glossary", "Local Worker", "../GLOSSARY.md"], ["glossary", "glossary", "Worker Slot", "../GLOSSARY.md"], ["glossary", "glossary", "Cluster", "../GLOSSARY.md"], ["glossary", "glossary", "Cluster Name", "../GLOSSARY.md"], ["glossary", "glossary", "Operator", "../GLOSSARY.md"], ["glossary", "glossary", "Build Identity", "../GLOSSARY.md"], ["glossary", "glossary", "Pixel Trace", "../GLOSSARY.md"], ["glossary", "glossary", "Reproduction Record", "../GLOSSARY.md"], ["glossary", "glossary", "Anomalous Pixel Sample", "../GLOSSARY.md"], ["glossary", "glossary", "Aggressive Optimisation", "../GLOSSARY.md"]];
+{
+    const GUIDES = [
+        ["umbra-math", "Umbra Math Guide", "Can I trust this f32?", ["float", "gamma", "projection"]],
+        ["umbra-sampling", "Umbra Sampling Guide", "Where do the random numbers come from, and how are they shaped?", ["monte-carlo", "halton", "inversion"]],
+        ["umbra-spectrum", "Umbra Spectrum Guide", "How is colour carried while rendering?", ["light", "wavelengths", "rgb-to-spectrum"]],
+        ["umbra-geometry", "Umbra Geometry Guide", "Where does a ray hit, despite rounding?", ["ray", "sphere", "robust"]],
+        ["umbra-camera", "Umbra Camera Guide", "How does a pixel become a ray, and light become RGB?", ["spaces", "filter", "sensor"]],
+        ["umbra-integrators", "Umbra Integrators Guide", "How is the light of one Pixel Sample computed?", ["rendering-equation", "pixel-sample", "path-tracing"]],
+        ["umbra-scene", "Umbra Scene Guide", "How is a Scene built, stored and lent out?", ["phases", "arenas", "view"]],
+        ["umbra-render", "Umbra Render Guide", "How do Work Units add up to one image?", ["decomposition", "merge", "determinism"]],
+        ["umbra-gpu", "Umbra GPU Guide", "How does the host drive OptiX?", ["why-gpu", "sbt", "ffi"]],
+        ["umbra-kernels", "Umbra Kernels Guide", "How does the core run on the GPU?", ["one-core", "launch", "optix"]],
+    ];
+    const box = $("guide-cards");
+    for (const [crate, title, q, ids] of GUIDES) {
+        const titles = Object.fromEntries(SECTIONS[crate]);
+        const d = document.createElement("div");
+        d.className = "gcard";
+        d.innerHTML = `<div class="crate">${crate} · ${SECTIONS[crate].length} sections</div>
+            <h4><a href="${G(crate, "top").replace("#top", "")}">${title}</a></h4>
+            <p class="q">${esc(q)}</p>
+            <ul>${ids.map((id) => `<li>${link([titles[id], G(crate, id)])}</li>`).join("")}</ul>`;
+        box.appendChild(d);
+    }
+
+    const INDEX = [];
+    for (const [crate, list] of Object.entries(SECTIONS)) {
+        for (const [id, title] of list) {
+            INDEX.push({ kind: "guide", src: crate.replace("umbra-", "") + " guide", t: title, u: G(crate, id), k: `${crate} ${id}` });
+        }
+    }
+    for (const [kind, src, t, u] of DOCS) INDEX.push({ kind, src, t, u, k: "" });
+    for (const e of INDEX) e.hay = `${e.t} ${e.src} ${e.k}`.toLowerCase().replace(/-/g, " ");
+
+    const q = $("find-q"), scope = $("find-scope"), out = $("find-out");
+    function run() {
+        const words = q.value.toLowerCase().replace(/-/g, " ").split(/\s+/).filter(Boolean);
+        out.replaceChildren();
+        if (!words.length) {
+            out.innerHTML = `<li><span class="none">Type a word to search ${INDEX.length} sections and documents.</span></li>`;
+            return;
+        }
+        const hits = INDEX.filter((e) => (scope.value === "all" || e.kind === scope.value) && words.every((w) => e.hay.includes(w)));
+        if (!hits.length) {
+            out.innerHTML = "<li><span class=\"none\">Nothing matches every word. Try fewer or shorter words.</span></li>";
+            return;
+        }
+        for (const e of hits.slice(0, 40)) {
+            const li = document.createElement("li");
+            li.innerHTML = `<span class="src">${esc(e.src)}</span>${link([e.t, e.u])}`;
+            out.appendChild(li);
+        }
+        if (hits.length > 40) {
+            out.insertAdjacentHTML("beforeend", `<li><span class="none">${hits.length - 40} more: add a word to narrow down.</span></li>`);
+        }
+    }
+    q.addEventListener("input", run);
+    scope.addEventListener("change", run);
+    run();
+}
+
+/* ================================================================
+    6 · Rules that cross every crate.
+    ================================================================ */
+{
+    const RULES = [
+        {
+            n: "no_std core",
+            t: "A core without an operating system or allocator",
+            d: "Code that runs per Pixel Sample uses neither the standard library nor an allocator, and reads the Scene only through a borrowed SceneView. Tables are given storage by their caller. That keeps rendering allocation-free and lets the same code compile for the GPU.",
+            on: ["umbra-math", "umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-shading", "umbra-camera", "umbra-integrators", "umbra-kernels"],
+            adr: ["0014", "0015"],
+            seen: [["Scene Guide", "Lending the Scene to every Pixel Sample", "umbra-scene", "view"], ["Integrators Guide", "The scene view", "umbra-integrators", "scene-view"], ["Camera Guide", "A filter table without an allocator", "umbra-camera", "storage"], ["Sampling Guide", "Tables without an allocator", "umbra-sampling", "storage"]],
+        },
+        {
+            n: "closed enums",
+            t: "Closed enums instead of trait objects",
+            d: "Each pbrt-v4 interface, such as Camera, Filter, Sampler or Spectrum, is an enum of its variants, matched exhaustively: CameraKind, SamplerKind, SpectrumKind. No dynamic call on the per-ray path; dyn appears only at seams crossed at most once per Work Unit.",
+            on: ["umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-shading", "umbra-camera", "umbra-integrators", "umbra-scene"],
+            adr: ["0006"],
+            seen: [["Camera Guide", "Closed enums instead of trait objects", "umbra-camera", "dispatch"], ["Sampling Guide", "Closed enums instead of trait objects", "umbra-sampling", "dispatch"], ["Spectrum Guide", "One closed enum for every spectrum", "umbra-spectrum", "dispatch"], ["Integrators Guide", "Generic, not dyn", "umbra-integrators", "generic"]],
+        },
+        {
+            n: "arenas and handles",
+            t: "Arenas and handles instead of pointers",
+            d: "The Scene keeps each kind of object in its own array, and objects refer to each other by a typed u32 index. There is no Box or Arc graph and no allocation per Pixel Sample, and the arrays copy byte for byte to the GPU.",
+            on: ["umbra-geometry", "umbra-scene", "umbra-integrators", "umbra-parser", "umbra-gpu"],
+            adr: ["0008"],
+            seen: [["Geometry Guide", "Numbers instead of pointers", "umbra-geometry", "handles"], ["Geometry Guide", "A handle's traits, written by hand", "umbra-geometry", "handle-impl"], ["Scene Guide", "Arenas and handles instead of pointers", "umbra-scene", "arenas"], ["Scene Guide", "Inside Arena<T> and Handle<T>", "umbra-scene", "arena-impl"]],
+        },
+        {
+            n: "f32 and error bounds",
+            t: "f32 everywhere, with pbrt-v4's error bounds",
+            d: "Every computation is f32, spectral with four wavelengths, and pbrt-v4's rounding-error bounds are kept where it keeps them. f64 appears only in the Film's sums and inside umbra-math's backends.",
+            on: ["umbra-math", "umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-camera", "umbra-integrators", "umbra-render"],
+            adr: ["0001"],
+            seen: [["Math Guide", "The f32 number line", "umbra-math", "float"], ["Math Guide", "How error grows: γ(n)", "umbra-math", "gamma"], ["Geometry Guide", "Rounding errors, kept in check", "umbra-geometry", "robust"], ["Spectrum Guide", "Four wavelengths per Pixel Sample", "umbra-spectrum", "wavelengths"], ["Render Guide", "Why the order of additions matters", "umbra-render", "float"]],
+        },
+        {
+            n: "determinism",
+            t: "The same bits on one machine, the same picture across machines",
+            d: "A Pixel Sample is a pure function of the Scene, the seed, the pixel and the sample index, so on one machine it gives the same bits every time and can be traced again. Across machines, including the GPU, only the image's statistics must agree.",
+            on: ["umbra-math", "umbra-sampling", "umbra-integrators", "umbra-render", "umbra-cluster"],
+            adr: ["0022"],
+            seen: [["Sampling Guide", "Hashing: random-looking, repeatable", "umbra-sampling", "hash"], ["Sampling Guide", "pbrt-v4's numbers, reproducibly", "umbra-sampling", "fidelity"], ["Render Guide", "What stays exactly the same", "umbra-render", "determinism"], ["Integrators Guide", "One function for rendering and tracing", "umbra-integrators", "one-path"]],
+        },
+        {
+            n: "one core, two devices",
+            t: "One core for the CPU and the GPU",
+            d: "Core functions take and return Copy values and never see a queue, a buffer or a thread index. Scene types have a fixed #[repr(C)] layout. The CPU loop and the GPU wavefront then call the very same functions.",
+            on: ["umbra-math", "umbra-geometry", "umbra-integrators", "umbra-scene", "umbra-kernels", "umbra-gpu"],
+            adr: ["0028", "0026"],
+            seen: [["Kernels Guide", "One core, two machines", "umbra-kernels", "one-core"], ["Geometry Guide", "One sphere test for the CPU and the GPU", "umbra-geometry", "one-core"], ["Integrators Guide", "Values in, values out", "umbra-integrators", "values"], ["Kernels Guide", "One file, two crates", "umbra-kernels", "shared-layout"], ["GPU Guide", "The layout shared with umbra-kernels", "umbra-gpu", "layout"]],
+        },
+        {
+            n: "unsafe where it pays",
+            t: "unsafe only where it pays",
+            d: "unsafe code is either an FFI boundary (glibc, CUDA, OptiX) or an aggressive optimisation. Either way it sits behind a safe API, and an optimisation needs a benchmark and a readable reference implementation it is tested against.",
+            on: ["umbra-math", "umbra-kernels", "umbra-gpu"],
+            adr: ["0007"],
+            seen: [["GPU Guide", "How Rust talks to C safely", "umbra-gpu", "ffi"], ["GPU Guide", "The unsafe and FFI boundaries", "umbra-gpu", "unsafe"], ["Kernels Guide", "The unsafe boundary", "umbra-kernels", "unsafe"]],
+        },
+        {
+            n: "pbrt-v4 is the spec",
+            t: "pbrt-v4 is the specification",
+            d: "Algorithms, names and tests come from pbrt-v4: its unit tests are ported, modules follow the book's sections, and renders are checked by eye against pbrt-v4's. Where Umbra departs from it, the crate guide says so and why.",
+            on: ["umbra-math", "umbra-sampling", "umbra-spectrum", "umbra-geometry", "umbra-camera", "umbra-integrators", "umbra-parser"],
+            adr: ["0003", "0031"],
+            seen: [["Camera Guide", "Checked against pbrt-v4", "umbra-camera", "tests"], ["Sampling Guide", "Checked against pbrt-v4", "umbra-sampling", "tests"], ["Spectrum Guide", "Checked against pbrt-v4", "umbra-spectrum", "tests"], ["Spectrum Guide", "Four lanes of f32, in pbrt-v4's order", "umbra-spectrum", "lanes"]],
+        },
+    ];
+    const light = buildStrip($("rule-strip"));
+    const pick = $("rule-pick");
+    let cur = 0;
+    const buttons = RULES.map((r, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = r.n;
+        b.addEventListener("click", () => { cur = i; show(); });
+        pick.appendChild(b);
+        return b;
+    });
+    function show() {
+        const r = RULES[cur];
+        buttons.forEach((b, i) => b.setAttribute("aria-pressed", i === cur ? "true" : "false"));
+        light(r.on);
+        $("rule-card").innerHTML = `<div class="who">${r.on.length} of 14 crates</div>
+            <h4>${esc(r.t)}</h4>
+            <p>${esc(r.d)}</p>
+            <div class="links">${r.adr.map((n) => link(adr(n))).join("")}</div>`;
+        $("rule-seen").innerHTML = r.seen.map(([g, t, c, id]) => `<li>${esc(g)}: ${link([t, G(c, id)])}</li>`).join("");
+    }
+    show();
+}
+
+/* ================================================================
+    7 · Workers joining a Render Job.
+    ================================================================ */
+{
+    const MACHINES = [
+        { id: "p620", name: "Lenovo P620", sub: "Threadripper PRO 3975WX · 1 NUMA node · RTX 5070 Ti", y: 20,
+            workers: [{ kind: "CPU", label: "CPU Worker · node 0", threads: 64 }, { kind: "GPU", label: "GPU Worker · RTX 5070 Ti" }] },
+        { id: "r630", name: "Dell PowerEdge R630", sub: "2 × Xeon E5-2690 v4 · 2 NUMA nodes · no GPU", y: 180,
+            workers: [{ kind: "CPU", label: "CPU Worker · node 0", threads: 28 }, { kind: "CPU", label: "CPU Worker · node 1", threads: 28 }] },
+    ];
+    const NAMES = ["default", "lab"];
+    const state = { coord: "default", p620: { on: true, name: "default" }, r630: { on: true, name: "default" } };
+    const ctl = $("cl-controls");
+    const select = (id, value) => `<select id="${id}">${NAMES.map((n) => `<option${n === value ? " selected" : ""}>${n}</option>`).join("")}</select>`;
+    ctl.innerHTML = `<fieldset><legend>umbra render</legend><div class="row">Cluster ${select("cl-coord", state.coord)}</div></fieldset>`
+        + MACHINES.map((m) => `<fieldset><legend>${m.name}</legend>
+            <div class="row"><label><input type="checkbox" id="cl-${m.id}-on" checked> Workers running</label></div>
+            <div class="row">Cluster ${select(`cl-${m.id}-name`, state[m.id].name)}</div></fieldset>`).join("");
+    const svg = $("cl-svg"), read = $("cl-read");
+    function draw() {
+        svg.replaceChildren();
+        svgEl("rect", { x: 20, y: 115, width: 220, height: 100, rx: 6, class: "f-acc-soft k-acc", "stroke-width": 1.5 }, svg);
+        svgText(svg, 130, 142, "umbra render", "t-bold");
+        svgText(svg, 130, 163, "Coordinator, announces the job", "t-mut");
+        svgText(svg, 130, 183, `Cluster “${state.coord}”`, "t-acc");
+        svgText(svg, 130, 202, "+ its own Local Workers", "t-mut");
+        let joined = 0, threads = 0, gpus = 0;
+        for (const m of MACHINES) {
+            const s = state[m.id];
+            svgEl("rect", { x: 330, y: m.y, width: 550, height: 135, rx: 8, class: "f-mut-soft k-mut" }, svg);
+            svgText(svg, 346, m.y + 22, m.name, "t-bold", "start");
+            svgText(svg, 346, m.y + 41, m.sub, "t-mut", "start");
+            m.workers.forEach((w, i) => {
+                const x = 346 + i * 266, y = m.y + 58;
+                const on = s.on, member = on && s.name === state.coord;
+                const r = svgEl("rect", { x, y, width: 250, height: 62, rx: 6, "stroke-width": 1.4 }, svg);
+                r.setAttribute("class", member ? (w.kind === "GPU" ? "f-warm-soft k-warm" : "f-acc-soft k-acc") : "f-surf k-mut");
+                if (!on) r.setAttribute("stroke-dasharray", "5 4");
+                svgText(svg, x + 125, y + 25, w.label, member ? "" : "t-mut");
+                svgText(svg, x + 125, y + 46, !on ? "stopped" : member ? (w.threads ? `joined · ${w.threads} threads` : "joined · one GPU") : `idle: waits for Cluster “${s.name}”`, member ? "t-acc" : "t-mut");
+                if (member) {
+                    joined += 1;
+                    if (w.threads) threads += w.threads; else gpus += 1;
+                    svgEl("path", { d: `M240 165 C290 165 ${x - 40} ${y + 31} ${x - 4} ${y + 31}`, class: w.kind === "GPU" ? "k-warm" : "k-acc", "stroke-width": 1.6, fill: "none", "marker-end": w.kind === "GPU" ? "url(#ah-warm)" : "url(#ah-acc)" }, svg);
+                }
+            });
+        }
+        read.innerHTML = `<dt>Workers that join</dt><dd>${joined} of 4</dd>
+            <dt>CPU threads</dt><dd>${threads}</dd>
+            <dt>GPUs</dt><dd>${gpus}</dd>
+            <dt>found by</dt><dd>multicast DNS on the LAN, service _umbra._udp, filtered by Cluster Name</dd>`;
+    }
+    $("cl-coord").addEventListener("change", (e) => { state.coord = e.target.value; draw(); });
+    for (const m of MACHINES) {
+        $(`cl-${m.id}-on`).addEventListener("change", (e) => { state[m.id].on = e.target.checked; draw(); });
+        $(`cl-${m.id}-name`).addEventListener("change", (e) => { state[m.id].name = e.target.value; draw(); });
+    }
+    draw();
+}
+
+/* ================================================================
+    8 · Milestones.
+    ================================================================ */
+{
+    const MS = [
+        ["v0.1.0", "First light", "Triangle meshes, spheres and Loop subdivision; diffuse and coated diffuse materials; diffuse area lights; the Halton sampler, the Gaussian filter, the RGB film and the perspective camera; volpath without media. Remote Workers and GPU Workers.", "killeroo-simple"],
+        ["v0.2.0", "Metals, glass and textures", "Conductors and dielectrics; named spectra; disks; distant lights; image, scale and constant textures; bump mapping; motion blur; the Sobol and pmj02bn samplers.", "killeroo-moving, killeroo-gold, pbrt-book, lte-orb-silver, lte-orb-rough-glass"],
+        ["v0.3.0", "Environment lighting", "Coated conductor and mix materials; image infinite lights; gzipped PLY; object instancing.", "killeroo-coated-gold, ganesha, transparent-machines, bmw-m6"],
+        ["v0.4.0", "Measured materials", "Measured BRDFs; bilinear patch meshes; the gbuffer film.", "lte-orb-blue-agat-spec, lte-orb-simple-ball, sportscar"],
+        ["v0.5.0", "Production scenes", "Diffuse transmission and thin dielectrics; alpha cut-outs; normal maps; procedural textures; the zsobol sampler.", "sanmiguel, bistro, landscape, zero-day, villa-daylight, pavilion-day"],
+        ["v0.6.0", "Lights and lenses", "Blackbody emission; point, spot and uniform infinite lights; thin-lens depth of field; the realistic camera.", "the rest of the v0.5.0 group, villa-lights-on, sanmiguel-realistic-courtyard"],
+        ["v0.7.0", "Homogeneous media", "Homogeneous media and medium interfaces; the directionmix texture; light portals; displacement.", "dambreak, crown, kroken, watercolor"],
+        ["v0.8.0", "Heterogeneous media", "Grid, cloud and NanoVDB media; emissive grids.", "smoke-plume, clouds, disney-cloud, bunny-cloud, explosion"],
+        ["v0.9.0", "Curves and hair", "Curves and cylinders; the hair BxDF.", "hair, bunny-fur"],
+        ["v0.10.0", "Subsurface", "The subsurface material and its BSSRDF.", "sssdragon, head"],
+        ["v0.11.0", "Bidirectional", "The bdpt integrator, on the CPU only.", "pavilion-night"],
+        ["v0.12.0", "Photon mapping", "The sppm integrator, on the CPU only.", "contemporary-bathroom"],
+        ["v0.13.0", "Metropolis", "The mlt integrator, on the CPU only.", "none of its own: mlt runs on earlier Reference Scenes"],
+        ["v1.0.0", "Parity", "No new feature: per-machine tuning until Umbra matches pbrt-v4's speed, then a last check of every Reference Scene.", "all of them, once more"],
+    ];
+    const DONE = [[73, "Workspace and CI gates"], [130, "Pinned nightly toolchain"], [74, "Numeric foundation in umbra-math"], [124, "nvptx64 backend of umbra-math"], [75, "Sampling foundation in umbra-sampling"], [76, "Spectral foundation in umbra-spectrum"], [125, "Host-device layout for SceneView arenas and Kind enums"], [126, "GPU tracer bullet through OptiX"], [90, "Per-CPU release container images"], [91, "pbrt-v4 reference script and release"], [77, "Black frame through Renderer and Film"], [78, "umbra render end to end on a camera-only Scene File"]];
+    const OPEN = [[79, "Emissive spheres visible to the camera"], [80, "Diffuse surfaces lit by area lights"], [81, "Triangle meshes"], [82, "Loop subdivision"], [83, "Coated diffuse material"], [84, "Every RGBFilm parameter and the named camera sensors"], [85, "Anomalous Pixel Samples"], [86, "Status line, full Render Job Report and Ctrl-C"], [87, "killeroo-simple renders, with Golden Film Hashes in CI"], [88, "Text Pixel Traces with umbra trace"], [89, "Traversal detail for Pixel Traces"], [92, "umbra validate"], [93, "umbra bench"], [94, "Benchmark measurement v0.1.0"], [95, "Validation v0.1.0"], [127, "Wavefront driver: camera-only Scene File on the GPU"], [128, "QUIC transport and GPU Local Worker"], [129, "Remote Workers on a named Cluster"]];
+    const line = $("rm-line");
+    let cur = 0;
+    const buttons = MS.map(([v, name], i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = i === 0 ? "now" : "";
+        b.innerHTML = `<span class="v">${v}</span><span class="nm">${name}</span>`;
+        b.addEventListener("click", () => { cur = i; show(); });
+        line.appendChild(b);
+        return b;
+    });
+    function show() {
+        const [v, name, adds, scenes] = MS[cur];
+        buttons.forEach((b, i) => b.setAttribute("aria-pressed", i === cur ? "true" : "false"));
+        $("rm-card").innerHTML = `<div class="who">${cur === 0 ? "in progress" : "planned"}</div>
+            <h4>${v} · ${name}</h4>
+            <p>${esc(adds)}</p>
+            <p class="status">Reference Scenes: ${esc(scenes)}</p>`;
+        const total = DONE.length + OPEN.length;
+        $("rm-progress").innerHTML = cur === 0
+            ? `<p class="panel-title">v0.1.0: ${DONE.length} of ${total} issues closed</p>
+                <div class="pbar" role="img" aria-label="${DONE.length} of ${total}"><span style="width:${(100 * DONE.length / total).toFixed(1)}%"></span></div>
+                <ul class="issues">${DONE.map(([n, t]) => `<li class="done">${issue(n)} ${esc(t)}</li>`).join("")}${OPEN.map(([n, t]) => `<li>${issue(n)} ${esc(t)}</li>`).join("")}</ul>`
+            : `<p class="panel-title">Not started</p><p class="mut">Milestones after the first stay coarse until they are planned; a Reference Scene may move to the next milestone if it needs one of that milestone's features.</p>`;
+    }
+    show();
+}
+})();
+</script>
+</body>
+</html>

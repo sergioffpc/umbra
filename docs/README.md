@@ -26,7 +26,11 @@ When an ADR and an arc42 section disagree, the later ADR is the decision and the
 
 ## Background
 
-Interactive explainers live next to the crate they explain, in its `docs/` folder. Open them in a browser.
+Interactive explainers live next to the crate they explain, in its `docs/` folder. Open them in a browser. Start with the project-wide one:
+
+- [`umbra-guide.html`](umbra-guide.html): the map of the whole project. What each crate is for and how much of it is built, a Render Job from command to image, one Pixel Sample through the core on the CPU and the GPU, the rules every crate follows, Workers and Clusters, the milestones, and a search over every guide section, ADR, arc42 section and glossary term. It links to the crate guides below instead of repeating them.
+
+The crate guides:
 
 - [`umbra-math/docs/math-guide.html`](../crates/umbra-math/docs/math-guide.html): `f32` rounding, error bounds, intervals, compensated arithmetic, normals, frames, octahedral vectors and the perspective projection.
 - [`umbra-camera/docs/camera-guide.html`](../crates/umbra-camera/docs/camera-guide.html): how a Pixel Sample becomes a ray and radiance becomes sensor RGB: coordinate spaces, the pinhole and thin-lens camera, importance-sampled pixel filters, the camera sample and the pixel sensor, with diagrams for readers new to the maths.
