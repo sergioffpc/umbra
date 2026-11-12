@@ -16,8 +16,7 @@ pub(crate) struct Cli {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Render a Scene File into an EXR final image and its Render Job
-    /// Report.
+    /// Render a Scene File into its final image and Render Job Report.
     Render(RenderArgs),
 }
 
