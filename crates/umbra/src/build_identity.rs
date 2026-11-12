@@ -11,6 +11,5 @@ pub(crate) fn build_identity() -> BuildIdentity {
             "clean" => Tree::Clean,
             _ => Tree::Dirty,
         },
-        target_cpu: env!("UMBRA_TARGET_CPU").to_owned(),
     }
 }

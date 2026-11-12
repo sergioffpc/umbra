@@ -101,7 +101,7 @@ The person who runs Render Jobs from their own machine, which then hosts the Coo
 _Avoid_: User, admin, client
 
 **Build Identity**:
-The source commit a Coordinator or Worker binary was built from, whether its tree had uncommitted changes, and the CPU it was compiled for. A Render Job admits only Workers whose commit matches the Coordinator's.
+The source commit a Coordinator or Worker binary was built from, and whether its tree had uncommitted changes. A Render Job admits only Workers whose commit matches the Coordinator's.
 _Avoid_: Version, build number, release
 
 ### Debugging

@@ -23,11 +23,10 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | `main`           | The exit codes of arc42 §8.13, and a panic hook that exits 1                                                   |
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`       |
-| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree, target CPU                             |
+| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree                                         |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
-`UMBRA_TREE` where there is no `.git` (a container build), and the target CPU
-from `-C target-cpu` in the compilation's flags.
+`UMBRA_TREE` where there is no `.git` (a container build).
 
 Not here yet: Ctrl-C and exit code 130, `--log` and `--log-format`, with
 [#86](https://github.com/sergioffpc/umbra/issues/86); `trace`, with
