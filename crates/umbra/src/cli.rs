@@ -38,7 +38,8 @@ pub(crate) struct RenderArgs {
     /// The seed of the samplers, over the Scene File's; 0 by default.
     #[arg(long, allow_negative_numbers = true)]
     pub(crate) seed: Option<i32>,
-    /// The output image, over the Film's `filename`; an `.exr` file.
+    /// The output image, over the Film's `filename`; its extension names
+    /// the format, and only `.exr` is accepted so far.
     #[arg(long)]
     pub(crate) outfile: Option<PathBuf>,
     /// The side of a square Tile, in pixels.
