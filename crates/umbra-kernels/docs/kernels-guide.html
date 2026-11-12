@@ -1,0 +1,1871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Kernels Guide</title>
+<meta name="description" content="How umbra-kernels runs Umbra's own Rust core on an NVIDIA GPU: one source compiled for nvptx64, kernels and launches, OptiX programs, launch parameters shared with the host, the math program that checks the GPU's maths against the CPU's, and the unsafe boundary, with interactive simulations.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of crates/umbra-camera/docs/camera-guide.html and
+    crates/umbra-math/docs/math-guide.html: same tokens, same layout.
+    One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file and the ADR it follows. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+
+/* ---------- additions for this guide ---------- */
+svg .k-ok { stroke: var(--exact); }
+svg .f-ok { fill: var(--exact); }
+svg .t-ok { fill: var(--exact); }
+svg .t-bad { fill: var(--err); }
+svg .f-ok-soft { fill: color-mix(in srgb, var(--exact) 20%, transparent); }
+svg .f-bad-soft { fill: color-mix(in srgb, var(--err) 18%, transparent); }
+svg .t-small { font-size: 11px; }
+.bytes { display: grid; grid-template-columns: repeat(32, minmax(15px, 1fr)); gap: 2px; min-width: 560px; }
+.byte {
+    height: 2.6rem; border: 1px solid var(--rule); border-radius: 3px; background: var(--paper);
+    font: 400 0.6rem/1 var(--mono); color: var(--muted); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px;
+}
+.byte.f0, .bytes-legend i.f0 { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); }
+.byte.f1, .bytes-legend i.f1 { background: color-mix(in srgb, var(--warm) 28%, var(--surface)); }
+.byte.f2, .bytes-legend i.f2 { background: color-mix(in srgb, var(--exact) 26%, var(--surface)); }
+.byte.f3, .bytes-legend i.f3 { background: color-mix(in srgb, var(--cx) 24%, var(--surface)); }
+.byte.pad, .bytes-legend i.pad { background: repeating-linear-gradient(135deg, var(--paper) 0 4px, var(--grid) 4px 8px); }
+.byte.out { opacity: 0.35; border-style: dashed; }
+.byte.sel { outline: 2px solid var(--ink); outline-offset: -1px; color: var(--ink); font-weight: 600; }
+.bytes-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font: 400 0.74rem var(--mono); color: var(--muted); margin-top: 0.5rem; }
+.bytes-legend i { display: inline-block; width: 0.9em; height: 0.9em; border-radius: 2px; vertical-align: -0.1em; margin-right: 0.35em; border: 1px solid var(--rule); }
+ul.build { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; font: 400 0.8rem/1.4 var(--mono); }
+ul.build li { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 0.6rem; padding: 0.3rem 0.5rem; border-radius: 4px; background: var(--paper); }
+ul.build li .st { font-weight: 600; }
+ul.build li.on .st { color: var(--exact); }
+ul.build li.off { color: var(--muted); }
+ul.build li.off code { text-decoration: line-through; }
+ol.steps { margin: 0; padding-left: 1.4em; font: 400 0.8rem/1.5 var(--mono); display: grid; gap: 0.35rem; }
+ol.steps li.skip { color: var(--muted); }
+ol.steps li b { color: var(--accent); font-weight: 600; }
+.sim { display: inline-block; font: 600 0.62rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--warm); border: 1px solid var(--warm); border-radius: 3px; padding: 0.25em 0.45em; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+        <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ok"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-kernels/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Kernels Guide</h1>
+    </div>
+    <p class="lede">A graphics card can run thousands of small programs at once. <code>umbra-kernels</code> holds the programs Umbra gives it. They are not a second renderer written in another language: they call the very same Rust code the CPU runs, compiled a second time for the GPU. This guide explains, in pictures first, what that means and how the crate does it. It assumes no GPU or systems background.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 335" class="dg-wide" role="img" aria-label="One Rust source compiled twice, once for the CPU and once for the GPU, where many threads run it">
+            <!-- source -->
+            <rect x="20" y="60" width="200" height="190" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="120" y="84" text-anchor="middle" class="t-bold">one Rust source</text>
+            <rect x="40" y="98" width="160" height="30" rx="4" class="f-surf k-ink"/><text x="120" y="118" text-anchor="middle" font-size="12">umbra-math</text>
+            <rect x="40" y="136" width="160" height="30" rx="4" class="f-surf k-ink"/><text x="120" y="156" text-anchor="middle" font-size="12">umbra-geometry</text>
+            <text x="120" y="182" text-anchor="middle" class="t-mut t-small">the core: works on values</text>
+            <rect x="40" y="196" width="160" height="40" rx="4" class="f-warm-soft k-warm"/><text x="120" y="214" text-anchor="middle" font-size="12">umbra-kernels</text><text x="120" y="229" text-anchor="middle" class="t-mut t-small">GPU entry points</text>
+            <g class="step"><circle cx="34" cy="38" r="11"/><text x="34" y="42" text-anchor="middle">1</text></g>
+            <text x="52" y="42">the core, written once</text>
+            <!-- CPU build -->
+            <line x1="222" y1="120" x2="330" y2="76" class="k-mut" stroke-width="1.6" marker-end="url(#ah-mut)"/>
+            <rect x="335" y="40" width="200" height="62" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="435" y="64" text-anchor="middle">rustc → x86_64</text>
+            <text x="435" y="84" text-anchor="middle" class="t-mut t-small">CPU binary; umbra-kernels: empty</text>
+            <!-- GPU build -->
+            <line x1="222" y1="200" x2="330" y2="236" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <rect x="335" y="205" width="200" height="62" rx="6" class="f-surf k-acc" stroke-width="1.8"/>
+            <text x="435" y="229" text-anchor="middle">rustc → nvptx64</text>
+            <text x="435" y="249" text-anchor="middle" class="t-acc t-small">umbra_kernels.ptx (GPU text)</text>
+            <g class="step"><circle cx="262" cy="292" r="11"/><text x="262" y="296" text-anchor="middle">2</text></g>
+            <text x="280" y="296">compiled a second time, for the GPU</text>
+            <!-- host -->
+            <rect x="640" y="40" width="240" height="62" rx="6" class="f-mut-soft k-mut" stroke-width="1.5"/>
+            <text x="760" y="64" text-anchor="middle">host: umbra-gpu</text>
+            <text x="760" y="84" text-anchor="middle" class="t-mut t-small">embeds the PTX, launches it</text>
+            <line x1="537" y1="236" x2="600" y2="110" class="k-acc" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ah-acc)"/>
+            <g class="step"><circle cx="590" cy="160" r="11"/><text x="590" y="164" text-anchor="middle">3</text></g>
+            <!-- GPU -->
+            <rect x="605" y="150" width="275" height="150" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="742" y="172" text-anchor="middle" class="t-bold">GPU, through OptiX</text>
+            <g class="f-surf k-warm">
+                <rect x="625" y="184" width="22" height="16" rx="2"/><rect x="656" y="184" width="22" height="16" rx="2"/><rect x="687" y="184" width="22" height="16" rx="2"/><rect x="718" y="184" width="22" height="16" rx="2"/><rect x="749" y="184" width="22" height="16" rx="2"/><rect x="780" y="184" width="22" height="16" rx="2"/><rect x="811" y="184" width="22" height="16" rx="2"/><rect x="842" y="184" width="22" height="16" rx="2"/>
+                <rect x="625" y="208" width="22" height="16" rx="2"/><rect x="656" y="208" width="22" height="16" rx="2"/><rect x="687" y="208" width="22" height="16" rx="2"/><rect x="718" y="208" width="22" height="16" rx="2"/><rect x="749" y="208" width="22" height="16" rx="2"/><rect x="780" y="208" width="22" height="16" rx="2"/><rect x="811" y="208" width="22" height="16" rx="2"/><rect x="842" y="208" width="22" height="16" rx="2"/>
+                <rect x="625" y="232" width="22" height="16" rx="2"/><rect x="656" y="232" width="22" height="16" rx="2"/><rect x="687" y="232" width="22" height="16" rx="2"/><rect x="718" y="232" width="22" height="16" rx="2"/><rect x="749" y="232" width="22" height="16" rx="2"/><rect x="780" y="232" width="22" height="16" rx="2"/><rect x="811" y="232" width="22" height="16" rx="2"/><rect x="842" y="232" width="22" height="16" rx="2"/>
+            </g>
+            <text x="636" y="196" text-anchor="middle" font-size="10">0</text><text x="667" y="196" text-anchor="middle" font-size="10">1</text><text x="698" y="196" text-anchor="middle" font-size="10">2</text><text x="729" y="196" text-anchor="middle" font-size="10">3</text>
+            <text x="742" y="270" text-anchor="middle" class="t-small">one thread per ray, each runs</text>
+            <text x="742" y="287" text-anchor="middle" class="t-small t-warm">__raygen__trace</text>
+            <line x1="720" y1="104" x2="720" y2="146" class="k-ink" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+            <text x="712" y="130" text-anchor="end" class="t-small">launch</text>
+            <line x1="800" y1="148" x2="800" y2="106" class="k-ok" stroke-width="1.8" marker-end="url(#ah-ok)"/>
+            <text x="808" y="130" class="t-small t-ok">hits</text>
+            <g class="step"><circle cx="618" cy="320" r="11"/><text x="618" y="324" text-anchor="middle">4</text></g>
+            <text x="636" y="324">many threads run it at once</text>
+        </svg></div>
+        <figcaption id="big-cap">The crate's place in Umbra. <b>①</b> The core crates (<code>umbra-math</code>, <code>umbra-geometry</code>) are written once. <b>②</b> <code>rustc</code> compiles them twice: for the CPU, and for the GPU target <code>nvptx64</code>, together with <code>umbra-kernels</code>, whose code only exists on that second build (<a href="#one-core">section 1</a>). <b>③</b> The host crate <code>umbra-gpu</code> embeds the GPU text (PTX) and hands it to OptiX. <b>④</b> A <a href="#launch">launch</a> starts one GPU thread per ray; each thread runs the crate's <a href="#optix">programs</a> and writes its own result back.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="One ray through umbra-kernels, as types and functions">
+        <li><span class="who ext">umbra-gpu (host)</span><span class="ty"><a href="#params">LaunchParams</a></span><span class="what">handle, rays, hits, count</span></li>
+        <li class="fn"><span class="who">umbra-kernels</span><span class="ty"><a href="#launch">__raygen__trace</a></span><span class="what">thread i reads ray i</span></li>
+        <li class="fn"><span class="who">umbra-kernels</span><span class="ty"><a href="#optix">optix::trace</a></span><span class="what">asks OptiX to follow the ray</span></li>
+        <li class="fn"><span class="who">umbra-kernels</span><span class="ty"><a href="#optix">__intersection__sphere</a></span><span class="what">core's Sphere::intersect</span></li>
+        <li class="fn"><span class="who">umbra-kernels</span><span class="ty"><a href="#optix">__closesthit__trace</a></span><span class="what">or __miss__trace</span></li>
+        <li><span class="who">umbra-kernels</span><span class="ty"><a href="#params">HitRecord</a></span><span class="what">t and HitKind, slot i</span></li>
+        <li><span class="who ext">umbra-gpu (host)</span><span class="ty">Hit</span><span class="what">read back, checked</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, and a box listing the <b>Maths used here</b> or, where there is no maths, the <b>Rules used here</b>: the invariants the code relies on. Some sections end with an interactive figure marked <span class="sim">simulation</span>: it repeats what the GPU does in JavaScript, in your browser. No GPU runs here, and the numbers are JavaScript's, not the GPU's. New to the words? Start with <a href="#words">section 0</a>. The host side, which builds and launches these programs, has its own guide: the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>. The maths the kernels call is covered in the <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Concepts</div>
+                <ol>
+                    <li><a href="#words"><span class="n">0</span><span class="t">The words, in pictures</span><span class="c">GPU, kernel, thread, launch, PTX, no_std</span></a></li>
+                    <li><a href="#one-core"><span class="n">1</span><span class="t">One core, two machines</span><span class="c">nvptx64 · cfg(target_arch) · ADR 0028</span></a></li>
+                    <li><a href="#launch"><span class="n">2</span><span class="t">Kernels, launches and the launch index</span><span class="c">launch_index_x · count guard</span></a></li>
+                    <li><a href="#optix"><span class="n">3</span><span class="t">OptiX programs: one ray's trip</span><span class="c">raygen · intersection · closest hit · miss</span></a></li>
+                    <li><a href="#params"><span class="n">4</span><span class="t">Talking to the host: shared layouts</span><span class="c">LaunchParams · RayRecord · HitRecord</span></a></li>
+                    <li><a href="#math"><span class="n">5</span><span class="t">The math program: the GPU's maths, checked</span><span class="c">MathFunction · __raygen__math · ULPs</span></a></li>
+                    <li><a href="#panics"><span class="n">6</span><span class="t">When something goes wrong: trap</span><span class="c">#[panic_handler] · ADR 0014</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">7</span><span class="t">The crate at a glance</span><span class="c">modules, types, functions</span></a></li>
+                    <li><a href="#shared-layout"><span class="n">8</span><span class="t">One file, two crates</span><span class="c">#[path] · repr(C) · const assertions</span></a></li>
+                    <li><a href="#inline-ptx"><span class="n">9</span><span class="t">OptiX's device API in inline PTX</span><span class="c">asm! · global_asm! · ld.const</span></a></li>
+                    <li><a href="#decisions"><span class="n">10</span><span class="t">Smaller design decisions</span><span class="c">sm_70 · math-program feature · ids by macro</span></a></li>
+                    <li><a href="#unsafe"><span class="n">11</span><span class="t">The unsafe boundary</span><span class="c">#[expect(unsafe_code)] · ADR 0007</span></a></li>
+                    <li><a href="#tests"><span class="n">12</span><span class="t">How it is built and tested</span><span class="c">build.rs · check.sh · --profile gpu</span></a></li>
+                    <li><a href="#not-yet"><span class="n">13</span><span class="t">Not here yet</span><span class="c">wavefront kernels, #127</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Concepts</div>
+    <h2>Running the same Rust on a GPU</h2>
+    <p>Three questions run through this part. How can one piece of Rust code run on two very different chips? How does a GPU split a job between thousands of threads? And how do the CPU and the GPU agree on the data they pass each other?</p>
+</div>
+
+<section class="topic" id="words">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">0</span>background · used by every section</div>
+        <h3>The words, in pictures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A GPU is a chip with very many small, simple workers. You give it one small program, and it runs that program many times at once, once per piece of data. Everything in this crate follows from that one idea. The cards below introduce the words; the table after them is a quick reference.</div>
+
+    <div class="cards">
+        <div class="card">
+            <svg viewBox="0 0 520 190" role="img" aria-label="A CPU with a few big cores beside a GPU with many small cores">
+                <text x="120" y="22" text-anchor="middle" class="t-bold">CPU</text>
+                <rect x="30" y="36" width="180" height="130" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+                <rect x="45" y="50" width="70" height="48" rx="4" class="f-acc-soft k-acc"/><rect x="125" y="50" width="70" height="48" rx="4" class="f-acc-soft k-acc"/>
+                <rect x="45" y="106" width="70" height="48" rx="4" class="f-acc-soft k-acc"/><rect x="125" y="106" width="70" height="48" rx="4" class="f-acc-soft k-acc"/>
+                <text x="120" y="183" text-anchor="middle" class="t-mut t-small">a few big, clever cores</text>
+                <text x="390" y="22" text-anchor="middle" class="t-bold">GPU</text>
+                <rect x="270" y="36" width="240" height="130" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+                <path d="M282 48h12v12h-12zM300 48h12v12h-12zM318 48h12v12h-12zM336 48h12v12h-12zM354 48h12v12h-12zM372 48h12v12h-12zM390 48h12v12h-12zM408 48h12v12h-12zM426 48h12v12h-12zM444 48h12v12h-12zM462 48h12v12h-12zM480 48h12v12h-12z
+                            M282 66h12v12h-12zM300 66h12v12h-12zM318 66h12v12h-12zM336 66h12v12h-12zM354 66h12v12h-12zM372 66h12v12h-12zM390 66h12v12h-12zM408 66h12v12h-12zM426 66h12v12h-12zM444 66h12v12h-12zM462 66h12v12h-12zM480 66h12v12h-12z
+                            M282 84h12v12h-12zM300 84h12v12h-12zM318 84h12v12h-12zM336 84h12v12h-12zM354 84h12v12h-12zM372 84h12v12h-12zM390 84h12v12h-12zM408 84h12v12h-12zM426 84h12v12h-12zM444 84h12v12h-12zM462 84h12v12h-12zM480 84h12v12h-12z
+                            M282 102h12v12h-12zM300 102h12v12h-12zM318 102h12v12h-12zM336 102h12v12h-12zM354 102h12v12h-12zM372 102h12v12h-12zM390 102h12v12h-12zM408 102h12v12h-12zM426 102h12v12h-12zM444 102h12v12h-12zM462 102h12v12h-12zM480 102h12v12h-12z
+                            M282 120h12v12h-12zM300 120h12v12h-12zM318 120h12v12h-12zM336 120h12v12h-12zM354 120h12v12h-12zM372 120h12v12h-12zM390 120h12v12h-12zM408 120h12v12h-12zM426 120h12v12h-12zM444 120h12v12h-12zM462 120h12v12h-12zM480 120h12v12h-12z
+                            M282 138h12v12h-12zM300 138h12v12h-12zM318 138h12v12h-12zM336 138h12v12h-12zM354 138h12v12h-12zM372 138h12v12h-12zM390 138h12v12h-12zM408 138h12v12h-12zM426 138h12v12h-12zM444 138h12v12h-12zM462 138h12v12h-12zM480 138h12v12h-12z" class="f-warm-soft k-warm"/>
+                <text x="390" y="183" text-anchor="middle" class="t-mut t-small">very many small, simple cores</text>
+            </svg>
+            <h4>CPU and GPU, host and device</h4>
+            <p>The <b>CPU</b> is the computer's main chip. The <b>GPU</b> (graphics card) is a second chip with its own memory. Code on the CPU side is called the <b>host</b>; code on the GPU is the <b>device</b>. Umbra's GPU is an NVIDIA card, and in this project it is a <b>Render Device</b>: hardware a Worker renders on (<a href="../../../GLOSSARY.md">GLOSSARY.md</a>).</p>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 190" role="img" aria-label="One kernel program, copied into many threads, each with its own index">
+                <rect x="20" y="66" width="130" height="60" rx="6" class="f-acc-soft k-acc" stroke-width="1.6"/>
+                <text x="85" y="92" text-anchor="middle">one program</text>
+                <text x="85" y="110" text-anchor="middle" class="t-acc t-small">the kernel</text>
+                <line x1="152" y1="96" x2="210" y2="96" class="k-ink" marker-end="url(#ah-ink)"/>
+                <text x="181" y="86" text-anchor="middle" class="t-small">launch</text>
+                <g class="f-surf k-warm">
+                    <rect x="220" y="30" width="54" height="34" rx="4"/><rect x="282" y="30" width="54" height="34" rx="4"/><rect x="344" y="30" width="54" height="34" rx="4"/><rect x="406" y="30" width="54" height="34" rx="4"/>
+                    <rect x="220" y="80" width="54" height="34" rx="4"/><rect x="282" y="80" width="54" height="34" rx="4"/><rect x="344" y="80" width="54" height="34" rx="4"/><rect x="406" y="80" width="54" height="34" rx="4"/>
+                </g>
+                <text x="247" y="52" text-anchor="middle" font-size="12">i=0</text><text x="309" y="52" text-anchor="middle" font-size="12">i=1</text><text x="371" y="52" text-anchor="middle" font-size="12">i=2</text><text x="433" y="52" text-anchor="middle" font-size="12">i=3</text>
+                <text x="247" y="102" text-anchor="middle" font-size="12">i=4</text><text x="309" y="102" text-anchor="middle" font-size="12">i=5</text><text x="371" y="102" text-anchor="middle" font-size="12">i=6</text><text x="433" y="102" text-anchor="middle" font-size="12">i=7</text>
+                <text x="480" y="78" class="t-mut">…</text>
+                <text x="340" y="146" text-anchor="middle" class="t-warm">threads: same code, different i</text>
+                <text x="340" y="170" text-anchor="middle" class="t-mut t-small">i = the launch index</text>
+            </svg>
+            <h4>Kernel, thread, launch, launch index</h4>
+            <p>A <b>kernel</b> is a program the GPU runs. A <b>launch</b> is the host saying “run it N times now”. Each run is a <b>thread</b>, and each thread gets a number, its <b>launch index</b> <var>i</var>. All threads run the same code; the index is how each one knows which piece of data is its own. The number of threads is the launch <b>width</b>.</p>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 190" role="img" aria-label="Rust source compiled to two targets: x86_64 machine code and nvptx64 PTX text, which the driver finishes">
+                <rect x="20" y="70" width="110" height="50" rx="6" class="f-acc-soft k-acc"/>
+                <text x="75" y="100" text-anchor="middle">Rust source</text>
+                <line x1="132" y1="88" x2="196" y2="50" class="k-ink" marker-end="url(#ah-ink)"/>
+                <line x1="132" y1="102" x2="196" y2="140" class="k-ink" marker-end="url(#ah-ink)"/>
+                <rect x="200" y="22" width="150" height="50" rx="6" class="f-surf k-ink"/>
+                <text x="275" y="44" text-anchor="middle" font-size="12">x86_64-unknown-</text><text x="275" y="60" text-anchor="middle" font-size="12">linux-gnu</text>
+                <rect x="200" y="118" width="150" height="50" rx="6" class="f-surf k-acc" stroke-width="1.6"/>
+                <text x="275" y="140" text-anchor="middle" font-size="12">nvptx64-</text><text x="275" y="156" text-anchor="middle" font-size="12">nvidia-cuda</text>
+                <line x1="352" y1="47" x2="396" y2="47" class="k-mut" marker-end="url(#ah-mut)"/>
+                <text x="404" y="44" font-size="12">CPU machine code</text>
+                <line x1="352" y1="143" x2="396" y2="143" class="k-acc" marker-end="url(#ah-acc)"/>
+                <text x="404" y="140" font-size="12" class="t-acc">PTX text</text>
+                <text x="404" y="158" font-size="11" class="t-mut">driver finishes it</text>
+                <text x="275" y="100" text-anchor="middle" class="t-mut t-small">targets</text>
+            </svg>
+            <h4>Target, nvptx64, PTX</h4>
+            <p>A compiler <b>target</b> names the chip a build is for. The CPU's is <code>x86_64-unknown-linux-gnu</code>; NVIDIA GPUs' is <code>nvptx64-nvidia-cuda</code>, “nvptx64” for short. For that target <code>rustc</code> does not emit machine code. It emits <b>PTX</b>: a readable assembly text that NVIDIA's driver finishes compiling for whichever GPU is plugged in.</p>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 190" role="img" aria-label="std is core plus alloc plus the operating system; no_std keeps only core">
+                <rect x="30" y="30" width="250" height="130" rx="8" class="f-mut-soft k-mut"/>
+                <text x="155" y="22" text-anchor="middle" class="t-bold">std</text>
+                <rect x="44" y="104" width="222" height="42" rx="4" class="f-acc-soft k-acc" stroke-width="1.6"/>
+                <text x="155" y="130" text-anchor="middle" font-size="12">core: numbers, Option, slices</text>
+                <rect x="44" y="44" width="105" height="48" rx="4" class="f-surf k-mut"/><text x="96" y="66" text-anchor="middle" font-size="12">alloc</text><text x="96" y="82" text-anchor="middle" font-size="11" class="t-mut">heap, Vec</text>
+                <rect x="161" y="44" width="105" height="48" rx="4" class="f-surf k-mut"/><text x="213" y="66" text-anchor="middle" font-size="12">OS</text><text x="213" y="82" text-anchor="middle" font-size="11" class="t-mut">files, threads</text>
+                <line x1="290" y1="125" x2="356" y2="125" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+                <text x="323" y="115" text-anchor="middle" class="t-acc t-small">#![no_std]</text>
+                <rect x="362" y="104" width="140" height="42" rx="4" class="f-acc-soft k-acc" stroke-width="1.6"/>
+                <text x="432" y="130" text-anchor="middle">core only</text>
+                <text x="432" y="172" text-anchor="middle" class="t-mut t-small">what nvptx64 offers</text>
+            </svg>
+            <h4>no_std, on a GPU</h4>
+            <p>Rust's standard library <code>std</code> assumes an operating system: files, a heap, printing. A GPU thread has none of that. A crate marked <code>#![no_std]</code> uses only <code>core</code>, the part of Rust that needs nothing from an OS. Umbra's core crates were written that way from the start (ADR 0014), which is why they compile for the GPU at all.</p>
+        </div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:1.4rem; max-width: 56rem">
+        <table class="data">
+            <thead><tr><th>word</th><th>read it as</th><th>in this crate</th></tr></thead>
+            <tbody>
+                <tr><td>host / device</td><td>the CPU side / the GPU side</td><td><code>umbra-gpu</code> / <code>umbra-kernels</code></td></tr>
+                <tr><td>kernel</td><td>a program the GPU runs, once per thread</td><td>the five <code>extern "ptx-kernel" fn</code>s</td></tr>
+                <tr><td>launch, width</td><td>“run it now, this many times”</td><td>one per <code>Tracer::trace</code> call on the host</td></tr>
+                <tr><td>launch index</td><td>which thread am I? 0, 1, 2 …</td><td><code>optix::launch_index_x()</code></td></tr>
+                <tr><td>PTX</td><td>the GPU's assembly text, finished by the driver</td><td><code>umbra_kernels.ptx</code></td></tr>
+                <tr><td>OptiX</td><td>NVIDIA's ray-tracing library on the GPU</td><td>the <code>optix</code> module talks to it</td></tr>
+                <tr><td>OptiX program</td><td>a kernel OptiX calls at a set moment of a ray's trip</td><td><code>__raygen__</code>, <code>__miss__</code>, <code>__closesthit__</code>, <code>__intersection__</code></td></tr>
+                <tr><td>payload</td><td>a few numbers that travel with a ray</td><td>two <code>u32</code> registers</td></tr>
+                <tr><td>launch parameters</td><td>the one block of settings the host passes to a launch</td><td><code>LaunchParams</code>, <code>MathParams</code> in <code>params</code></td></tr>
+                <tr><td>SBT (shader binding table)</td><td>the host's list of which program to run, with its data</td><td><code>optix::sbt_data_pointer()</code></td></tr>
+                <tr><td>trap</td><td>the GPU's emergency stop</td><td><code>optix::trap()</code></td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="one-core">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-kernels</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../Cargo.toml">Cargo.toml</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a>, <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
+        <h3>One core, two machines</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra does not write its rendering maths twice, once for the CPU and once for the GPU. It writes it once and asks the Rust compiler to build it twice. <code>umbra-kernels</code> is the small extra piece only the GPU build needs: the entry points the GPU starts from. On the CPU build the crate is switched off entirely, so it compiles to nothing.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 270" class="dg-wide" role="img" aria-label="The same crates built for x86_64 and for nvptx64; umbra-kernels is empty on x86_64">
+            <text x="210" y="24" text-anchor="middle" class="t-bold">build for x86_64 (the CPU)</text>
+            <text x="680" y="24" text-anchor="middle" class="t-bold">build for nvptx64 (the GPU)</text>
+            <line x1="450" y1="10" x2="450" y2="260" class="k-mut" stroke-dasharray="4 5"/>
+            <!-- left -->
+            <rect x="40" y="44" width="160" height="40" rx="4" class="f-surf k-ink"/><text x="120" y="69" text-anchor="middle" font-size="12">umbra-math</text>
+            <rect x="220" y="44" width="160" height="40" rx="4" class="f-surf k-ink"/><text x="300" y="69" text-anchor="middle" font-size="12">umbra-geometry</text>
+            <text x="210" y="104" text-anchor="middle" class="t-small t-mut">x86-64 backend: glibc, SIMD</text>
+            <rect x="40" y="124" width="340" height="56" rx="6" class="f-mut-soft k-mut" stroke-dasharray="5 4"/>
+            <text x="210" y="148" text-anchor="middle">umbra-kernels</text>
+            <text x="210" y="168" text-anchor="middle" class="t-mut t-small">#![cfg(target_arch = "nvptx64")] is false → empty</text>
+            <rect x="40" y="200" width="340" height="44" rx="6" class="f-acc-soft k-acc"/>
+            <text x="210" y="227" text-anchor="middle" font-size="12">umbra-integrators … the CPU Worker</text>
+            <!-- right -->
+            <rect x="510" y="44" width="160" height="40" rx="4" class="f-surf k-ink"/><text x="590" y="69" text-anchor="middle" font-size="12">umbra-math</text>
+            <rect x="690" y="44" width="160" height="40" rx="4" class="f-surf k-ink"/><text x="770" y="69" text-anchor="middle" font-size="12">umbra-geometry</text>
+            <text x="680" y="104" text-anchor="middle" class="t-small t-mut">nvptx64 backend: libdevice, scalar lanes</text>
+            <rect x="510" y="124" width="340" height="56" rx="6" class="f-warm-soft k-warm" stroke-width="1.6"/>
+            <text x="680" y="148" text-anchor="middle">umbra-kernels</text>
+            <text x="680" y="168" text-anchor="middle" class="t-warm t-small">programs · params · optix · panic handler</text>
+            <line x1="590" y1="86" x2="590" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="770" y1="86" x2="770" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="510" y="200" width="340" height="44" rx="6" class="f-acc-soft k-acc"/>
+            <text x="680" y="227" text-anchor="middle" font-size="12">umbra_kernels.ptx → embedded in umbra-gpu</text>
+            <line x1="680" y1="182" x2="680" y2="196" class="k-acc" marker-end="url(#ah-acc)"/>
+        </svg></div>
+        <figcaption>Left and right are the same source files. Only <code>umbra-math</code> picks a different backend per target, behind the same functions. <code>umbra-kernels</code> exists only on the right; it uses the core crates, and nothing uses it except <code>umbra-gpu</code>'s build script.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The first lines of <code>lib.rs</code> make the switch. The attribute <code>#![cfg(...)]</code> on a crate keeps or drops everything below it, depending on the target:</p>
+<pre class="code"><span class="c">// The whole crate is device code (ADR 0028): on any other target it is empty,</span>
+<span class="c">// so a host build of the workspace compiles it without the GPU toolchain.</span>
+<span class="k">#![cfg(target_arch = "nvptx64")]</span>
+<span class="k">#![no_std]</span>
+<span class="c">// `ptx-kernel` entry points and inline PTX: the only unstable features of</span>
+<span class="c">// the workspace (ADR 0027).</span>
+<span class="k">#![feature(abi_ptx, asm_experimental_arch)]</span>
+<span class="c">// No `f64` on the GPU (ADR 0028): `clippy.toml` lists it.</span>
+<span class="k">#![warn(clippy::disallowed_types)]</span></pre>
+        <p><code>Cargo.toml</code> does the same for dependencies: <code>umbra-geometry</code> and <code>umbra-math</code> sit under <code>[target.'cfg(target_arch = "nvptx64")'.dependencies]</code>, so the CPU build of this crate depends on nothing. The crate type is <code>cdylib</code>, which is what the <code>nvptx64</code> target links into one PTX module.</p>
+        <p>Why does the core compile for the GPU at all? Because ADR 0014 wrote it for that from day one: <code>no_std</code> without <code>alloc</code>, <code>f32</code> only, closed enums instead of trait objects, no recursion. ADR 0028 adds that the core <b>works on values</b>: a core function takes and returns <code>Copy</code> values and never sees a queue, a buffer or a thread index. The GPU-specific parts (thread indices, buffers, OptiX) all live here, in the kernels.</p>
+        <p>Two unstable compiler features are needed, so the workspace builds with a pinned nightly <code>rustc</code> (ADR 0027): <code>abi_ptx</code> for <code>extern "ptx-kernel"</code> entry points, and <code>asm_experimental_arch</code> for inline assembly on <code>nvptx64</code>. <code>umbra-kernels</code> is the only crate allowed to switch on unstable features; <code>scripts/check.sh</code> fails if any other crate does.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">#![cfg(target_arch = "nvptx64")]</div><div class="mb-d"><b>GPU only.</b> On any other target the crate is empty, so a CPU build needs no GPU toolchain.</div></div>
+        <div class="mb-row"><div class="mb-f">#![no_std], no alloc</div><div class="mb-d"><b>No operating system, no heap.</b> <code>nvptx64</code> has no <code>std</code>, so building this crate also proves that no core crate pulls <code>std</code> in (ADR 0028).</div></div>
+        <div class="mb-row"><div class="mb-f">core fn(values) → values</div><div class="mb-d"><b>The core works on values.</b> Only the kernels know about threads and buffers. <code>Sphere::intersect</code> runs unchanged on both chips.</div></div>
+        <div class="mb-row"><div class="mb-f">no f64</div><div class="mb-d"><b>Single precision.</b> Consumer GPUs run <code>f64</code> at a small fraction of <code>f32</code>'s speed; <code>clippy::disallowed_types</code> forbids it here.</div></div>
+        <div class="mb-row"><div class="mb-f">#![feature(…)] here only</div><div class="mb-d"><b>Unstable features stay in one crate</b> (ADR 0027): <code>abi_ptx</code>, <code>asm_experimental_arch</code>.</div></div>
+    </div>
+
+    <figure class="bench" id="bd">
+        <div class="controls">
+            <div class="ctl"><label for="bd-target">compile for target</label><select id="bd-target"><option value="x86">x86_64-unknown-linux-gnu (CPU)</option><option value="ptx" selected>nvptx64-nvidia-cuda (GPU)</option></select></div>
+            <div class="ctl"><label for="bd-feat">math-program feature</label><select id="bd-feat"><option value="off" selected>off (production)</option><option value="on">on (GPU tests)</option></select></div>
+        </div>
+        <div class="split even">
+            <div><p class="panel-title">what umbra-kernels contains in this build</p><ul class="build" id="bd-list"></ul></div>
+            <div><p class="panel-title">what umbra-gpu (host) compiles from this crate's files</p><ul class="build" id="bd-host"></ul><dl class="readout" id="bd-read" style="margin-top:0.8rem"></dl></div>
+        </div>
+        <figcaption><span class="sim">simulation</span> <b>Try:</b> switch the target to x86_64 and watch everything disappear: that is a normal workspace build on a laptop. Then switch back and turn the math-program feature on, as the GPU tests do: the math program and its two modules join. Note the right column: the host compiles <code>launch.rs</code> (and <code>math_launch.rs</code>) itself, on the CPU, whatever the target of the kernels (<a href="#shared-layout">section 8</a>).</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="launch">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-kernels</span> · <a href="../src/lib.rs">lib.rs</a> · <code>__raygen__trace</code>, <code>read_ray</code>, <code>write_hit</code> · <a href="../src/optix.rs">optix.rs</a> · <code>launch_index_x</code></div>
+        <h3>Kernels, launches and the launch index</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The host puts a list of rays in GPU memory and starts one thread per ray. Every thread runs the same function. The first thing it does is ask “what is my number?”. Thread 7 then reads ray 7, works on it, and writes its answer in slot 7 of a results list. No thread touches another's slot, so they never get in each other's way, and the order in which they finish does not matter.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 250" class="dg-wide" role="img" aria-label="Eight threads; threads 0 to 5 read ray i and write hit i; threads 6 and 7 are past count and return">
+            <text x="20" y="46" class="t-bold">rays[ ]</text>
+            <text x="20" y="136" class="t-bold">threads</text>
+            <text x="20" y="226" class="t-bold">hits[ ]</text>
+            <g class="f-acc-soft k-acc">
+                <rect x="120" y="24" width="70" height="34" rx="3"/><rect x="200" y="24" width="70" height="34" rx="3"/><rect x="280" y="24" width="70" height="34" rx="3"/><rect x="360" y="24" width="70" height="34" rx="3"/><rect x="440" y="24" width="70" height="34" rx="3"/><rect x="520" y="24" width="70" height="34" rx="3"/>
+            </g>
+            <g class="f-warm-soft k-warm">
+                <rect x="120" y="114" width="70" height="34" rx="3"/><rect x="200" y="114" width="70" height="34" rx="3"/><rect x="280" y="114" width="70" height="34" rx="3"/><rect x="360" y="114" width="70" height="34" rx="3"/><rect x="440" y="114" width="70" height="34" rx="3"/><rect x="520" y="114" width="70" height="34" rx="3"/>
+            </g>
+            <g class="f-mut-soft k-mut" stroke-dasharray="4 3">
+                <rect x="600" y="114" width="70" height="34" rx="3"/><rect x="680" y="114" width="70" height="34" rx="3"/>
+            </g>
+            <g class="f-ok-soft k-ok">
+                <rect x="120" y="204" width="70" height="34" rx="3"/><rect x="200" y="204" width="70" height="34" rx="3"/><rect x="280" y="204" width="70" height="34" rx="3"/><rect x="360" y="204" width="70" height="34" rx="3"/><rect x="440" y="204" width="70" height="34" rx="3"/><rect x="520" y="204" width="70" height="34" rx="3"/>
+            </g>
+            <text x="155" y="46" text-anchor="middle" font-size="12">ray 0</text><text x="235" y="46" text-anchor="middle" font-size="12">ray 1</text><text x="315" y="46" text-anchor="middle" font-size="12">ray 2</text><text x="395" y="46" text-anchor="middle" font-size="12">ray 3</text><text x="475" y="46" text-anchor="middle" font-size="12">ray 4</text><text x="555" y="46" text-anchor="middle" font-size="12">ray 5</text>
+            <text x="155" y="136" text-anchor="middle" font-size="12">i = 0</text><text x="235" y="136" text-anchor="middle" font-size="12">i = 1</text><text x="315" y="136" text-anchor="middle" font-size="12">i = 2</text><text x="395" y="136" text-anchor="middle" font-size="12">i = 3</text><text x="475" y="136" text-anchor="middle" font-size="12">i = 4</text><text x="555" y="136" text-anchor="middle" font-size="12">i = 5</text>
+            <text x="635" y="136" text-anchor="middle" font-size="12" class="t-mut">i = 6</text><text x="715" y="136" text-anchor="middle" font-size="12" class="t-mut">i = 7</text>
+            <text x="155" y="226" text-anchor="middle" font-size="12">hit 0</text><text x="235" y="226" text-anchor="middle" font-size="12">hit 1</text><text x="315" y="226" text-anchor="middle" font-size="12">hit 2</text><text x="395" y="226" text-anchor="middle" font-size="12">hit 3</text><text x="475" y="226" text-anchor="middle" font-size="12">hit 4</text><text x="555" y="226" text-anchor="middle" font-size="12">hit 5</text>
+            <g class="k-acc" stroke-width="1.4">
+                <line x1="155" y1="60" x2="155" y2="110" marker-end="url(#ah-acc)"/><line x1="235" y1="60" x2="235" y2="110" marker-end="url(#ah-acc)"/><line x1="315" y1="60" x2="315" y2="110" marker-end="url(#ah-acc)"/><line x1="395" y1="60" x2="395" y2="110" marker-end="url(#ah-acc)"/><line x1="475" y1="60" x2="475" y2="110" marker-end="url(#ah-acc)"/><line x1="555" y1="60" x2="555" y2="110" marker-end="url(#ah-acc)"/>
+            </g>
+            <g class="k-ok" stroke-width="1.4">
+                <line x1="155" y1="150" x2="155" y2="200" marker-end="url(#ah-ok)"/><line x1="235" y1="150" x2="235" y2="200" marker-end="url(#ah-ok)"/><line x1="315" y1="150" x2="315" y2="200" marker-end="url(#ah-ok)"/><line x1="395" y1="150" x2="395" y2="200" marker-end="url(#ah-ok)"/><line x1="475" y1="150" x2="475" y2="200" marker-end="url(#ah-ok)"/><line x1="555" y1="150" x2="555" y2="200" marker-end="url(#ah-ok)"/>
+            </g>
+            <text x="675" y="172" text-anchor="middle" class="t-mut t-small">i ≥ count: return</text>
+            <text x="770" y="46" class="t-small t-mut">count = 6</text>
+            <text x="770" y="64" class="t-small t-mut">width = 8</text>
+            <text x="770" y="96" class="t-small t-acc">read_ray</text>
+            <text x="770" y="186" class="t-small t-ok">write_hit</text>
+        </svg></div>
+        <figcaption>A launch of width 8 over 6 rays. Thread <var>i</var> reads ray <var>i</var> and writes hit <var>i</var>, straight down its own column. Threads past <code>count</code> stop at once. <code>umbra-gpu</code> today launches exactly <code>count</code> threads, so the guard never fires there; it keeps a wider launch safe anyway, since the field is documented as “at most the launch width”.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Here is the ray-generation kernel in full. Read it as “what one thread does”:</p>
+<pre class="code"><span class="k">pub extern "ptx-kernel" fn</span> __raygen__trace() {
+    <span class="k">let</span> params = launch_params();          <span class="c">// the host's settings (section 4)</span>
+    <span class="k">let</span> i = optix::launch_index_x();       <span class="c">// which thread am I?</span>
+    <span class="k">if</span> i &gt;= params.count {
+        <span class="k">return</span>;                             <span class="c">// no ray for me</span>
+    }
+    <span class="k">let</span> ray = read_ray(params.rays, i);    <span class="c">// my ray</span>
+    <span class="k">let</span> trace_ray = TraceRay { origin: ray.o, direction: ray.d, tmin: <span class="k">0.0</span>, tmax: f32::MAX };
+    <span class="k">let</span> [t, kind] = optix::trace(params.handle, trace_ray, [<span class="k">0</span>, HitKind::Miss <span class="k">as</span> u32]);
+    write_hit(params.hits, i, HitRecord { t: f32::from_bits(t), kind });   <span class="c">// my slot</span>
+}</pre>
+        <p><b><code>extern "ptx-kernel"</code></b> tells <code>rustc</code> to emit this function as a GPU entry point, the kind a launch can start. <b><code>#[unsafe(no_mangle)]</code></b> (above it in the source) keeps its name exactly <code>__raygen__trace</code> in the PTX, because the host looks it up by that name, and OptiX reads the prefix <code>__raygen__</code> to know what kind of program it is.</p>
+        <p>The rays and hits are not Rust slices. The host passes their <b>device addresses</b>: plain 64-bit numbers saying where in GPU memory the arrays start. <code>read_ray</code> turns the address into a pointer, steps <var>i</var> records forward with <code>wrapping_add</code>, and reads one <code>RayRecord</code>. <code>write_hit</code> does the same for a <code>HitRecord</code>. Those two reads and writes are <code>unsafe</code>: the compiler cannot check the host's promise that the arrays are long enough (<a href="#unsafe">section 11</a>).</p>
+        <p>Only the <var>x</var> part of the launch index is read. OptiX launches can be up to three-dimensional (width × height × depth), but a list of rays needs one dimension.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">address(ray i) = rays + i × 24</div><div class="mb-d"><b>Finding record <var>i</var>.</b> A <code>RayRecord</code> is 24 bytes (six <code>f32</code>s), so record <var>i</var> starts 24·<var>i</var> bytes after the first. <code>(rays as *const RayRecord).wrapping_add(i as usize)</code></div></div>
+        <div class="mb-row"><div class="mb-f">address(hit i) = hits + i × 8</div><div class="mb-d"><b>The same for results.</b> A <code>HitRecord</code> is 8 bytes: <code>t</code> and <code>kind</code>. <code>write_hit</code></div></div>
+        <div class="mb-row"><div class="mb-f">active threads = min(width, count)</div><div class="mb-d"><b>The guard.</b> Threads with <var>i</var> ≥ <code>count</code> return before touching memory, so no thread reads or writes past the arrays.</div></div>
+    </div>
+
+    <figure class="bench" id="ln">
+        <div class="controls">
+            <div class="ctl"><label for="ln-width">launch width (threads)</label><div class="row"><input id="ln-width" type="range" min="1" max="48" step="1" value="16"><output id="ln-width-o" for="ln-width"></output></div></div>
+            <div class="ctl"><label for="ln-count">count (rays)</label><div class="row"><input id="ln-count" type="range" min="0" max="48" step="1" value="12"><output id="ln-count-o" for="ln-count"></output></div></div>
+            <div class="ctl"><label for="ln-sel">follow thread i</label><div class="row"><input id="ln-sel" type="range" min="0" max="47" step="1" value="5"><output id="ln-sel-o" for="ln-sel"></output></div></div>
+            <div class="ctl"><span class="lbl">launch</span><div class="btns"><button type="button" class="primary" id="ln-run">run launch</button><button type="button" id="ln-reset">reset</button></div></div>
+        </div>
+        <canvas id="ln-grid" class="cv-wide" aria-label="Threads, the ray array and the hit array, column by column"></canvas>
+        <dl class="readout" id="ln-read"></dl>
+        <figcaption><span class="sim">simulation</span> <b>Try:</b> press “run launch” and watch threads finish in a scrambled order, as on a real GPU; every hit still lands in its own slot. Make the width bigger than the count: the extra threads (grey) return at once. Make the count bigger than the width: the rays past the width are never traced, which is why the host must launch at least <code>count</code> threads. Follow one thread to see the addresses it reads and writes, with the arrays placed at made-up addresses.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="optix">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-kernels</span> · <a href="../src/lib.rs">lib.rs</a> · <code>__miss__trace</code>, <code>__closesthit__trace</code>, <code>__intersection__sphere</code> · <a href="../src/optix.rs">optix.rs</a> · <code>trace</code>, <code>set_payload</code> · ADR 0026</div>
+        <h3>OptiX programs: one ray's trip</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Finding what a ray hits is the slow part of ray tracing, and NVIDIA GPUs have special hardware for it. OptiX is the library that drives that hardware. You don't write one big kernel for OptiX; you write a few small ones and OptiX calls each at the right moment: “start here”, “test this shape”, “you hit something”, “you hit nothing”. The answer travels back in two small numbers called the payload.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The trip of one ray through OptiX's programs">
+            <rect x="20" y="110" width="170" height="80" rx="6" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="105" y="136" text-anchor="middle" font-size="12">__raygen__trace</text>
+            <text x="105" y="156" text-anchor="middle" class="t-mut t-small">reads ray i,</text>
+            <text x="105" y="172" text-anchor="middle" class="t-mut t-small">calls optix::trace</text>
+            <line x1="192" y1="135" x2="268" y2="135" class="k-ink" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+            <text x="230" y="125" text-anchor="middle" class="t-small">trace</text>
+            <rect x="272" y="40" width="300" height="220" rx="8" class="f-mut-soft k-mut" stroke-dasharray="5 4"/>
+            <text x="422" y="62" text-anchor="middle" class="t-bold">OptiX traversal (RT cores)</text>
+            <rect x="292" y="80" width="260" height="56" rx="5" class="f-surf k-ink"/>
+            <text x="422" y="102" text-anchor="middle" font-size="12">triangle: built-in hardware test</text>
+            <text x="422" y="122" text-anchor="middle" class="t-mut t-small">nothing of ours runs</text>
+            <rect x="292" y="150" width="260" height="90" rx="5" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="422" y="172" text-anchor="middle" font-size="12">sphere: __intersection__sphere</text>
+            <text x="422" y="192" text-anchor="middle" class="t-small">the core's Sphere::intersect</text>
+            <text x="422" y="212" text-anchor="middle" class="t-mut t-small">runs when the ray reaches the</text>
+            <text x="422" y="228" text-anchor="middle" class="t-mut t-small">sphere's box; reports t if hit</text>
+            <line x1="574" y1="100" x2="648" y2="80" class="k-ok" stroke-width="1.5" marker-end="url(#ah-ok)"/>
+            <line x1="574" y1="200" x2="648" y2="210" class="k-mut" stroke-width="1.5" marker-end="url(#ah-mut)"/>
+            <text x="610" y="78" text-anchor="middle" class="t-ok t-small">closest hit</text>
+            <text x="610" y="226" text-anchor="middle" class="t-mut t-small">no hit</text>
+            <rect x="652" y="40" width="228" height="90" rx="6" class="f-ok-soft k-ok" stroke-width="1.5"/>
+            <text x="766" y="62" text-anchor="middle" font-size="12">__closesthit__trace</text>
+            <text x="766" y="84" text-anchor="middle" class="t-small">payload 0 ← bits of t</text>
+            <text x="766" y="104" text-anchor="middle" class="t-small">payload 1 ← Triangle | Sphere</text>
+            <rect x="652" y="170" width="228" height="80" rx="6" class="f-surf k-mut" stroke-width="1.5"/>
+            <text x="766" y="194" text-anchor="middle" font-size="12">__miss__trace</text>
+            <text x="766" y="216" text-anchor="middle" class="t-small">payload 1 ← Miss</text>
+            <path d="M766 252 V285 H105 V192" class="k-acc" fill="none" stroke-width="1.6" marker-end="url(#ah-acc)"/>
+            <path d="M880 85 H890 V285 H770" class="k-acc" fill="none" stroke-width="1.6"/>
+            <text x="440" y="280" text-anchor="middle" class="t-acc t-small">trace returns [payload 0, payload 1] → write_hit(i, …)</text>
+        </svg></div>
+        <figcaption>One ray's trip. Blue boxes and the green and grey ones are this crate's programs; the dashed box is OptiX's own search through the scene. A triangle is tested by the hardware. A sphere is a <em>custom primitive</em>: OptiX calls our intersection program, which runs the very same <code>Sphere::intersect</code> the CPU uses (ADR 0026). Exactly one of closest hit or miss runs, then <code>trace</code> returns to ray generation.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p><b>The four kinds of program.</b> OptiX recognises a program by its name's prefix. The crate has one of each that the tracer bullet of <a href="https://github.com/sergioffpc/umbra/issues/126">#126</a> needs, tracing one triangle and one sphere:</p>
+        <ul>
+            <li><code>__raygen__trace</code>: <em>ray generation</em>, where a thread starts (<a href="#launch">section 2</a>).</li>
+            <li><code>__intersection__sphere</code>: <em>intersection</em>. It reads the <code>Sphere</code> from its shader binding table record, builds a core <code>Ray</code> from the ray's origin and direction in the sphere's own space (<code>object_ray_origin</code>, <code>object_ray_direction</code>), calls <code>sphere.intersect(&amp;ray, optix::ray_tmax())</code>, and on a hit calls <code>optix::report_intersection(hit.t_hit)</code>. OptiX keeps the report only if <var>t</var> lies inside the ray's interval.</li>
+            <li><code>__closesthit__trace</code>: <em>closest hit</em>, once, for the nearest accepted hit. <code>optix::hit_primitive()</code> says whether it was a built-in triangle (OptiX's hit kinds <code>0xFE</code> and <code>0xFF</code>, front and back face) or a custom primitive, which can only be the sphere here. It writes the hit's distance, <code>optix::ray_tmax()</code>, as raw bits into payload 0 and the <code>HitKind</code> into payload 1.</li>
+            <li><code>__miss__trace</code>: <em>miss</em>, when nothing was hit. It sets payload 1 to <code>HitKind::Miss</code>; payload 0 keeps its starting value, so <code>t</code> on a miss means nothing.</li>
+        </ul>
+        <p><b>The payload</b> is how the programs answer ray generation: two 32-bit registers that ride along with the ray, set with <code>optix::set_payload(PAYLOAD_T, …)</code> and <code>optix::set_payload(PAYLOAD_KIND, …)</code>. A register holds a <code>u32</code>, so the distance <code>t</code> goes in as <code>to_bits()</code> and comes back with <code>f32::from_bits</code>: the same 32 bits, re-labelled, not converted. The host's pipeline must declare exactly two payload values; <code>umbra-gpu</code> does.</p>
+        <p><b><code>tmax</code> is <code>f32::MAX</code>, not infinity.</b> The ray is followed from <code>tmin = 0</code> to <code>tmax</code>, and OptiX's validation mode reports an infinite <code>tmax</code> as an invalid ray, so the kernel uses the largest finite <code>f32</code>.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">PAYLOAD_T = 0, PAYLOAD_KIND = 1</div><div class="mb-d"><b>Two payload registers.</b> They match the pipeline's two payload values; <code>optix::trace</code> passes both in and gets both out.</div></div>
+        <div class="mb-row"><div class="mb-f">Miss = 0, Triangle = 1, Sphere = 2</div><div class="mb-d"><b><code>HitKind</code>, <code>#[repr(u32)]</code>.</b> Stored as its number in <code>HitRecord::kind</code>; the host converts it back and rejects any other value, since device memory may hold any bits.</div></div>
+        <div class="mb-row"><div class="mb-f">t = f32::from_bits(payload 0)</div><div class="mb-d"><b>Bits, not a conversion.</b> <code>to_bits</code> and <code>from_bits</code> move the exact 32 bits of the float through an integer register.</div></div>
+        <div class="mb-row"><div class="mb-f">0 ≤ t ≤ tmax = f32::MAX</div><div class="mb-d"><b>The ray's interval.</b> Finite, because OptiX rejects an infinite <code>tmax</code>. In an intersection program <code>ray_tmax()</code> is the closest hit so far, so <code>Sphere::intersect</code> only looks for nearer ones.</div></div>
+        <div class="mb-row"><div class="mb-f">each built-in: some program types only</div><div class="mb-d"><b>Checked when the module is created.</b> Calling, say, <code>report_intersection</code> from a miss program makes OptiX refuse the whole module on the host, not fail at run time.</div></div>
+    </div>
+
+    <figure class="bench" id="tr">
+        <div class="controls">
+            <div class="ctl"><label for="tr-geo">trace against</label><select id="tr-geo"><option value="sphere" selected>Geometry::Sphere (custom)</option><option value="triangle">Geometry::Triangle (built-in)</option></select></div>
+            <div class="ctl"><label for="tr-ang">ray angle from +z (°)</label><div class="row"><input id="tr-ang" type="range" min="-25" max="25" step="0.1" value="6"><output id="tr-ang-o" for="tr-ang"></output></div></div>
+            <div class="ctl"><label for="tr-ox">ray origin x</label><div class="row"><input id="tr-ox" type="range" min="-3" max="3" step="0.05" value="0"><output id="tr-ox-o" for="tr-ox"></output></div></div>
+        </div>
+        <canvas id="tr-scene" class="cv-wide" aria-label="Top view of the test scene: a triangle at z = 5 and a sphere of radius 2 at z = 10"></canvas>
+        <div class="split">
+            <div><p class="panel-title">programs that run, in order</p><ol class="steps" id="tr-steps"></ol></div>
+            <dl class="readout" id="tr-read"></dl>
+        </div>
+        <figcaption><span class="sim">simulation</span> The scene of <code>umbra-gpu</code>'s GPU tests, seen from above (the <var>x</var>–<var>z</var> plane at <var>y</var> = 0): a triangle in the plane <var>z</var> = 5, which spans <var>x</var> ∈ [−0.5, 0.5] there, and a sphere of radius 2 centred on (0, 0, 10). Each launch traces one of them. <b>Try:</b> aim the ray just past the sphere but through its dashed bounding box: the intersection program still runs, finds nothing, and the miss program follows. The distances are computed in JavaScript, in double precision, and only rounded to <code>f32</code> for the bits shown.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="params">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-kernels</span> · <a href="../src/launch.rs">launch.rs</a> · <code>LaunchParams</code>, <code>RayRecord</code>, <code>HitRecord</code>, <code>HitKind</code> · <a href="../src/lib.rs">lib.rs</a> · <code>params</code>, <code>launch_params</code></div>
+        <h3>Talking to the host: shared layouts</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The CPU and the GPU pass each other raw bytes, not Rust values. For that to work, both must agree exactly where each field sits: “the ray count is the 4 bytes starting at byte 24”. Umbra writes each shared struct once, fixes its layout with <code>#[repr(C)]</code>, and has the compiler check every byte position. If either side ever disagreed, the build would fail instead of the GPU reading garbage.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 880 250" class="dg-wide" role="img" aria-label="Byte map of the 32-byte params variable holding LaunchParams or MathParams">
+            <text x="20" y="22" class="t-bold">the .const variable params: 32 bytes</text>
+            <!-- ruler -->
+            <g class="t-mut t-small">
+                <text x="130" y="48" text-anchor="middle">0</text><text x="310" y="48" text-anchor="middle">8</text><text x="490" y="48" text-anchor="middle">16</text><text x="670" y="48" text-anchor="middle">24</text><text x="850" y="48" text-anchor="middle">32</text>
+            </g>
+            <text x="20" y="84" font-size="12">LaunchParams</text>
+            <rect x="130" y="62" width="180" height="36" class="f-acc-soft k-acc"/><text x="220" y="85" text-anchor="middle" font-size="12">handle: u64</text>
+            <rect x="310" y="62" width="180" height="36" class="f-warm-soft k-warm"/><text x="400" y="85" text-anchor="middle" font-size="12">rays: u64</text>
+            <rect x="490" y="62" width="180" height="36" class="f-ok-soft k-ok"/><text x="580" y="85" text-anchor="middle" font-size="12">hits: u64</text>
+            <rect x="670" y="62" width="90" height="36" class="f-cx-soft k-cx"/><text x="715" y="85" text-anchor="middle" font-size="12">count</text>
+            <rect x="760" y="62" width="90" height="36" class="f-mut-soft k-mut" stroke-dasharray="3 3"/><text x="805" y="85" text-anchor="middle" font-size="11" class="t-mut">padding</text>
+            <text x="20" y="146" font-size="12">MathParams</text>
+            <rect x="130" y="124" width="180" height="36" class="f-acc-soft k-acc"/><text x="220" y="147" text-anchor="middle" font-size="12">args: u64</text>
+            <rect x="310" y="124" width="180" height="36" class="f-warm-soft k-warm"/><text x="400" y="147" text-anchor="middle" font-size="12">results: u64</text>
+            <rect x="490" y="124" width="90" height="36" class="f-ok-soft k-ok"/><text x="535" y="147" text-anchor="middle" font-size="12">count</text>
+            <rect x="580" y="124" width="90" height="36" class="f-cx-soft k-cx"/><text x="625" y="147" text-anchor="middle" font-size="12">function</text>
+            <rect x="670" y="124" width="180" height="36" class="k-mut" fill="none" stroke-dasharray="3 3"/><text x="760" y="147" text-anchor="middle" font-size="11" class="t-mut">unused by a math launch</text>
+            <text x="20" y="196" font-size="12">records</text>
+            <rect x="130" y="178" width="540" height="30" class="f-acc-soft k-acc"/><text x="400" y="198" text-anchor="middle" font-size="12">RayRecord: o [f32; 3], d [f32; 3] = 24 B</text>
+            <rect x="690" y="178" width="180" height="30" class="f-ok-soft k-ok"/><text x="780" y="198" text-anchor="middle" font-size="12">HitRecord: t, kind = 8 B</text>
+            <text x="440" y="236" text-anchor="middle" class="t-mut t-small">records live in their own buffers; params holds their device addresses (rays, hits)</text>
+        </svg></div>
+        <figcaption>The layouts the two sides share, to scale (one column of the ruler is one byte, 22.5 px). <code>LaunchParams</code> fills the 32-byte variable; its last 4 bytes are padding, because the struct's size must be a multiple of its 8-byte alignment. A math launch puts the smaller <code>MathParams</code> in the same variable (<a href="#math">section 5</a>).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p><b>Launch parameters</b> are OptiX's way to hand every thread the same small block of settings. The pipeline names a variable, here <code>params</code>, and OptiX copies the host's bytes into it before the launch. The variable lives in the GPU's <b>constant memory</b> (<code>.const</code> in PTX): read-only during a launch and cheap when every thread reads the same address. <code>rustc</code> cannot put a Rust <code>static</code> there, so <code>lib.rs</code> declares it in assembly, sized by the compiler:</p>
+<pre class="code"><span class="k">mod</span> params {
+    core::arch::global_asm!(
+        <span class="k">".visible .const .align 8 .b8 params[{size}];"</span>,
+        size = <span class="k">const</span> size_of::&lt;crate::launch::LaunchParams&gt;(),
+    );
+}</pre>
+        <p>Rust can't read that variable as a struct either, so <code>launch_params()</code> reads it field by field, each at the offset the compiler computes with <code>offset_of!</code>:</p>
+<pre class="code"><span class="k">fn</span> launch_params() -&gt; LaunchParams {
+    LaunchParams {
+        handle: optix::launch_param_u64::&lt;{ offset_of!(LaunchParams, handle) }&gt;(),
+        rays: optix::launch_param_u64::&lt;{ offset_of!(LaunchParams, rays) }&gt;(),
+        hits: optix::launch_param_u64::&lt;{ offset_of!(LaunchParams, hits) }&gt;(),
+        count: optix::launch_param_u32::&lt;{ offset_of!(LaunchParams, count) }&gt;(),
+    }
+}</pre>
+        <p>The four fields: <code>handle</code> names the scene to trace (OptiX calls it a <em>traversable handle</em>; the host built it), <code>rays</code> and <code>hits</code> are the device addresses of the two arrays, and <code>count</code> is the number of rays. A <code>RayRecord</code> is an origin and a direction as plain <code>[f32; 3]</code> arrays; a <code>HitRecord</code> is the distance <code>t</code> and the <code>HitKind</code> as a <code>u32</code>.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">8 + 8 + 8 + 4 = 28 → 32</div><div class="mb-d"><b>Size with padding.</b> A struct's size rounds up to a multiple of its largest alignment, 8 for <code>u64</code>. <code>size_of::&lt;LaunchParams&gt;() == 32</code>, asserted.</div></div>
+        <div class="mb-row"><div class="mb-f">offsets 0, 8, 16, 24</div><div class="mb-d"><b>Field positions.</b> <code>#[repr(C)]</code> keeps fields in written order, each at the next multiple of its alignment. <code>offset_of!(LaunchParams, count) == 24</code>, asserted.</div></div>
+        <div class="mb-row"><div class="mb-f">3 × 4 + 3 × 4 = 24 &nbsp;·&nbsp; 4 + 4 = 8</div><div class="mb-d"><b>The records.</b> <code>RayRecord</code> is 24 bytes with <code>d</code> at 12; <code>HitRecord</code> is 8 bytes with <code>kind</code> at 4. No padding in either.</div></div>
+    </div>
+
+    <figure class="bench" id="by">
+        <div class="controls">
+            <div class="ctl"><label for="by-struct">struct</label><select id="by-struct"><option value="LaunchParams" selected>LaunchParams</option><option value="MathParams">MathParams</option><option value="RayRecord">RayRecord</option><option value="HitRecord">HitRecord</option></select></div>
+            <div class="ctl"><label for="by-field">field</label><select id="by-field"></select></div>
+            <div class="ctl"><label for="by-i">record index i (records only)</label><div class="row"><input id="by-i" type="range" min="0" max="7" step="1" value="2"><output id="by-i-o" for="by-i"></output></div></div>
+        </div>
+        <div class="tablewrap"><div class="bytes" id="by-map" aria-label="Byte map of the selected struct"></div></div>
+        <div class="bytes-legend" id="by-legend"></div>
+        <dl class="readout" id="by-read"></dl>
+        <figcaption><b>Try:</b> pick a field and read how the kernel loads it. For the two launch-parameter structs it is one <code>ld.const</code> instruction at a fixed offset of <code>params</code>. For the records it is an address computed from the thread's index. Switch to <code>MathParams</code> and see that it fits in the first 24 bytes of the same 32-byte variable. Offsets and sizes are the ones <code>launch.rs</code> and <code>math_launch.rs</code> assert; the addresses are made up.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="math">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-kernels</span> · <a href="../src/math.rs">math.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <code>__raygen__math</code>, <code>MathFunction</code>, <code>MathParams</code> · <a href="https://github.com/sergioffpc/umbra/issues/146">#146</a></div>
+        <h3>The math program: the GPU's maths, checked</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>On the GPU, <code>sin</code>, <code>exp</code> and friends come from NVIDIA's maths library, not from the one the CPU uses. They give slightly different answers in the last digit or so. To know how different, the tests need the GPU to compute, say, <code>expf</code> for four million chosen inputs. The math program does exactly that: each thread takes one input, calls the same <code>umbra_math</code> function the renderer calls, and writes the answer. The host then compares every answer with the CPU's.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 260" class="dg-wide" role="img" aria-label="Math launch: arguments in, one thread per record evaluates the function, results compared with glibc on the CPU">
+            <rect x="20" y="30" width="170" height="200" rx="6" class="f-mut-soft k-mut"/>
+            <text x="105" y="52" text-anchor="middle" class="t-bold">host: args</text>
+            <text x="105" y="80" text-anchor="middle" font-size="12">[x₀, y₀, z₀]</text>
+            <text x="105" y="104" text-anchor="middle" font-size="12">[x₁, y₁, z₁]</text>
+            <text x="105" y="128" text-anchor="middle" font-size="12">[x₂, y₂, z₂]</text>
+            <text x="105" y="152" text-anchor="middle" class="t-mut">…</text>
+            <text x="105" y="190" text-anchor="middle" class="t-small t-mut">+ function id</text>
+            <text x="105" y="208" text-anchor="middle" class="t-small t-mut">in MathParams</text>
+            <line x1="192" y1="120" x2="262" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="266" y="30" width="250" height="200" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="391" y="52" text-anchor="middle" class="t-bold">GPU: __raygen__math</text>
+            <text x="391" y="80" text-anchor="middle" font-size="12">thread i:</text>
+            <text x="391" y="102" text-anchor="middle" font-size="12">MathFunction::try_from(id)</text>
+            <text x="391" y="124" text-anchor="middle" font-size="12">.evaluate(args[i])</text>
+            <text x="391" y="146" text-anchor="middle" font-size="12">→ results[i]</text>
+            <text x="391" y="180" text-anchor="middle" class="t-small t-warm">umbra_math::expf → libdevice</text>
+            <text x="391" y="198" text-anchor="middle" class="t-small t-mut">no ray is traced</text>
+            <line x1="518" y1="120" x2="588" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="592" y="30" width="288" height="200" rx="6" class="f-acc-soft k-acc"/>
+            <text x="736" y="52" text-anchor="middle" class="t-bold">host test: compare</text>
+            <text x="736" y="84" text-anchor="middle" font-size="12">GPU result vs</text>
+            <text x="736" y="104" text-anchor="middle" font-size="12">umbra_math on the CPU (glibc)</text>
+            <text x="736" y="140" text-anchor="middle" class="t-acc">distance in ULPs ≤ bound?</text>
+            <text x="736" y="176" text-anchor="middle" class="t-small t-mut">fma, sqrt, floor, ceil, roundf: 0</text>
+            <text x="736" y="194" text-anchor="middle" class="t-small t-mut">logf 1 · sinf, expf 2 · tanf, powf 4</text>
+        </svg></div>
+        <figcaption>A math launch. The kernels only compute; the comparison runs on the host, in <code>umbra-gpu</code>'s test <code>tests/gpu/libdevice.rs</code>, through <code>Tracer::evaluate</code>. Results are compared within a stated error bound, not bit for bit, except where the bound is 0 ULP: <code>fma</code>, <code>sqrt</code>, <code>floor</code>, <code>ceil</code> and <code>roundf</code> must match exactly.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The math program is a second ray-generation program. It reuses everything the tracer already has: the same pipeline, the same <code>params</code> variable, the same launch. The host picks it instead of <code>__raygen__trace</code> through the shader binding table's ray-generation record. It traces no ray.</p>
+<pre class="code"><span class="k">pub extern "ptx-kernel" fn</span> __raygen__math() {
+    <span class="k">let</span> params = math::math_params();
+    <span class="k">let</span> i = optix::launch_index_x();
+    <span class="k">if</span> i &gt;= params.count {
+        <span class="k">return</span>;
+    }
+    <span class="k">let</span> Ok(function) = math_launch::MathFunction::try_from(params.function) <span class="k">else</span> {
+        optix::trap()                       <span class="c">// an id that names no function: a bug</span>
+    };
+    <span class="k">let</span> result = function.evaluate(math::read_args(params.args, i));
+    math::write_result(params.results, i, result);
+}</pre>
+        <p><b>Which function?</b> <code>MathFunction</code> is an enum of 18 variants, one per <code>umbra_math</code> function under test: <code>Fma</code>, <code>Sqrt</code>, <code>Floor</code>, <code>Ceil</code>, <code>Roundf</code>, <code>Sinf</code>, <code>SinOfSinCos</code>, <code>CosOfSinCos</code>, <code>Tanf</code>, <code>Asinf</code>, <code>Acosf</code>, <code>Atan2</code>, <code>Erf</code>, <code>Expf</code>, <code>Powf</code>, <code>Logf</code>, <code>Atanhf</code>, <code>Coshf</code>. Its number on the wire is its position in that list: <code>u32::from(function)</code> one way, <code>MathFunction::try_from(id)</code> the other, which fails with <code>UnknownMathFunction</code> on any id past the end.</p>
+        <p><b>Its arguments</b> are always three <code>f32</code>s, <code>[a, b, c]</code>; a function takes as many as it needs, in order, and ignores the rest. <code>MathFunction::evaluate</code> is one <code>match</code>: <code>Self::Fma =&gt; umbra_math::fma(a, b, c)</code>, <code>Self::Atan2 =&gt; umbra_math::atan2(a, b)</code> (so the arguments are <code>[y, x, _]</code>), <code>Self::SinOfSinCos =&gt; umbra_math::sin_cos(a).0</code>, and so on.</p>
+        <p><b>Why these functions?</b> On <code>nvptx64</code>, <code>umbra-math</code> takes its C maths from CUDA's <code>libdevice</code> (<code>__nv_expf</code>, <code>__nv_powf</code>, …) where glibc serves the CPU (ADR 0028). The two libraries differ, and the GPU's are allowed to be approximate, since a GPU Worker promises only statistical equality with the CPU (ADR 0026). The test measures how far apart they are and holds each function to the bound <code>umbra-math</code> documents. The comparison is <b>not</b> bit for bit, except for the primitives whose bound is 0.</p>
+        <p>The math program only exists with the <code>math-program</code> feature (<a href="#decisions">section 10</a>). Production PTX has no math program.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">ULP = the gap to the next f32</div><div class="mb-d"><b>Unit in the last place.</b> Floats are not evenly spaced: the gap doubles each time the size doubles. Counting errors in ULPs makes “1 off in the last place” mean the same at 0.001 and at 1000.</div></div>
+        <div class="mb-row"><div class="mb-f">ord(x) = ±(bits of |x|)<br>dist(a, b) = |ord(a) − ord(b)|</div><div class="mb-d"><b>Distance in ULPs, as the test computes it.</b> Positive floats sort the same way as their bit patterns read as integers. Giving negatives a minus sign lines all floats up on one number line, both zeros at 0. (<code>ordinal</code> in <code>tests/gpu/libdevice.rs</code>.)</div></div>
+        <div class="mb-row"><div class="mb-f">id = position in MathFunction::ALL</div><div class="mb-d"><b>The function's number.</b> 0 = <code>Fma</code> … 17 = <code>Coshf</code>; anything from 18 up is <code>UnknownMathFunction</code>, and the kernel traps.</div></div>
+        <div class="mb-row"><div class="mb-f">|sin_cos error| ≤ 2⁻²⁰ for |x| ≤ 2²⁰</div><div class="mb-d"><b>An absolute bound.</b> <code>sin_cos</code> uses Umbra's own argument reduction and the GPU's fast approximate sine and cosine, so near zeros of the sine a relative (ULP) bound makes no sense; the test bounds the plain difference instead. Beyond 2²⁰ it is <code>libdevice</code>'s <code>sinf</code>/<code>cosf</code>, within 2 ULP.</div></div>
+    </div>
+
+    <figure class="bench" id="mf">
+        <div class="controls">
+            <div class="ctl"><label for="mf-fn">MathFunction</label><select id="mf-fn">
+                <option value="0">Fma</option><option value="1">Sqrt</option><option value="2">Floor</option><option value="3">Ceil</option><option value="4">Roundf</option><option value="5">Sinf</option><option value="6">SinOfSinCos</option><option value="7">CosOfSinCos</option><option value="8">Tanf</option><option value="9">Asinf</option><option value="10">Acosf</option><option value="11">Atan2</option><option value="12">Erf</option><option value="13" selected>Expf</option><option value="14">Powf</option><option value="15">Logf</option><option value="16">Atanhf</option><option value="17">Coshf</option>
+            </select></div>
+            <div class="ctl"><label for="mf-a">argument a</label><div class="row"><input id="mf-a" type="range" min="-4" max="4" step="0.01" value="1.25"><output id="mf-a-o" for="mf-a"></output></div></div>
+            <div class="ctl"><label for="mf-b">argument b</label><div class="row"><input id="mf-b" type="range" min="-4" max="4" step="0.01" value="0.5"><output id="mf-b-o" for="mf-b"></output></div></div>
+            <div class="ctl"><label for="mf-c">argument c</label><div class="row"><input id="mf-c" type="range" min="-4" max="4" step="0.01" value="0.25"><output id="mf-c-o" for="mf-c"></output></div></div>
+            <div class="ctl"><label for="mf-k">pretend the GPU is off by (ULP)</label><div class="row"><input id="mf-k" type="range" min="-6" max="6" step="1" value="1"><output id="mf-k-o" for="mf-k"></output></div></div>
+            <div class="ctl"><label for="mf-id">id sent in MathParams::function</label><div class="row"><input id="mf-id" type="range" min="0" max="20" step="1" value="13"><output id="mf-id-o" for="mf-id"></output></div></div>
+        </div>
+        <div class="split even">
+            <dl class="readout" id="mf-read"></dl>
+            <dl class="readout" id="mf-id-read"></dl>
+        </div>
+        <figcaption><span class="sim">simulation</span> The “CPU” value is JavaScript's double-precision function rounded to <code>f32</code>, a stand-in for glibc. The “GPU” value is made up: it is the CPU value moved by the number of ULPs you choose, to show how the test measures distance and applies the bound. <b>Try:</b> pick <code>Fma</code> and move the GPU off by 1 ULP: the test fails, since its bound is 0. Pick <code>Tanf</code>: 4 ULP still pass. Slide the id to 18 or more: <code>try_from</code> fails and the kernel would trap.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="panics">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-kernels</span> · <a href="../src/lib.rs">lib.rs</a> · <code>#[panic_handler]</code> · <a href="../src/optix.rs">optix.rs</a> · <code>trap</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
+        <h3>When something goes wrong: trap</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>On the CPU, a Rust panic prints a message and stops the program. A GPU thread can't print and has nowhere to unwind to. So in this crate a panic pulls the emergency brake: the PTX instruction <code>trap</code>, which stops the whole launch. The host then sees the launch fail with a CUDA error. That is fine, because in Umbra a panic always means a bug, never normal control flow.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 210" class="dg-wide" role="img" aria-label="A panic on the GPU calls the panic handler, which executes trap, aborting the launch; the host sees a CUDA error">
+            <rect x="20" y="70" width="170" height="66" rx="6" class="f-warm-soft k-warm"/>
+            <text x="105" y="96" text-anchor="middle" font-size="12">core code panics</text>
+            <text x="105" y="116" text-anchor="middle" class="t-mut t-small">index out of bounds, …</text>
+            <line x1="192" y1="103" x2="250" y2="103" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="254" y="70" width="170" height="66" rx="6" class="f-surf k-ink"/>
+            <text x="339" y="96" text-anchor="middle" font-size="12">#[panic_handler]</text>
+            <text x="339" y="116" text-anchor="middle" class="t-mut t-small">fn panic(…) -&gt; !</text>
+            <line x1="426" y1="103" x2="484" y2="103" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="488" y="70" width="150" height="66" rx="6" class="f-cx-soft k-bad" stroke-width="1.6"/>
+            <text x="563" y="96" text-anchor="middle" font-size="12">optix::trap()</text>
+            <text x="563" y="116" text-anchor="middle" class="t-bad t-small">PTX: trap;</text>
+            <line x1="640" y1="103" x2="698" y2="103" class="k-bad" stroke-width="1.6" marker-end="url(#ah-ink)"/>
+            <rect x="702" y="70" width="140" height="66" rx="6" class="f-mut-soft k-mut"/>
+            <text x="772" y="96" text-anchor="middle" font-size="12">host: launch</text>
+            <text x="772" y="116" text-anchor="middle" font-size="12">returns an error</text>
+            <rect x="254" y="160" width="170" height="40" rx="6" class="f-surf k-ink"/>
+            <text x="339" y="185" text-anchor="middle" font-size="12">unknown function id</text>
+            <path d="M424 180 H563 V140" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <text x="105" y="40" text-anchor="middle" class="t-mut t-small">no printing, no unwinding</text>
+            <text x="563" y="40" text-anchor="middle" class="t-mut t-small">the launch stops</text>
+        </svg></div>
+        <figcaption>The two ways a launch can be stopped by the kernels: any panic, through the panic handler, and an unknown <code>MathFunction</code> id in <code>__raygen__math</code>, which calls <code>optix::trap()</code> directly.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>A <code>no_std</code> crate that is linked into a final program must say what a panic does. This one says:</p>
+<pre class="code"><span class="c">/// A panic is a bug (ADR 0014): it aborts the launch, which the host reports</span>
+<span class="c">/// as a CUDA error.</span>
+<span class="k">#[panic_handler]</span>
+<span class="k">fn</span> panic(_: &amp;PanicInfo&lt;'_&gt;) -&gt; ! {
+    optix::trap()
+}</pre>
+        <p>The return type <code>!</code> means “never returns”. <code>optix::trap()</code> has the same type: it is a single <code>trap;</code> instruction in inline assembly, marked <code>noreturn</code>. The <code>PanicInfo</code>, with its message, is ignored, since there is nowhere to show it.</p>
+        <p>ADR 0014 keeps bounds-checked indexing and <code>debug_assert!</code> in the core even though they can panic: they catch bugs. On the GPU such a check compiles into a branch to <code>trap</code>, and the bug shows up as a failed launch on the host, where <code>umbra-gpu</code> turns it into an <code>Error</code>.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">panic ⇒ bug</div><div class="mb-d"><b>Never control flow.</b> The core never uses a panic on purpose and never relies on unwinding (ADR 0014).</div></div>
+        <div class="mb-row"><div class="mb-f">panic → trap → launch aborted</div><div class="mb-d"><b>The whole launch stops</b>, not just one thread. No partial results are trusted; the host reports the error.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-kernels</code> is small: five files, five entry points, no public API. Nothing depends on it in Cargo's sense. <code>umbra-gpu</code>'s build script compiles it to PTX, and <code>umbra-gpu</code> compiles two of its files a second time, on the host, to share their layouts.</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-kernels</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a></div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span><code>lib.rs</code> holds the programs. <code>optix.rs</code> is the phone line to OptiX. <code>launch.rs</code> and <code>math_launch.rs</code> describe the bytes shared with the host. <code>math.rs</code> is the math program's helper. Everything outside <code>lib.rs</code> is private to the crate.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The five modules of umbra-kernels and how they use each other">
+            <rect x="230" y="20" width="440" height="130" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="244" y="42" class="t-bold">lib.rs</text>
+            <text x="450" y="64" text-anchor="middle" font-size="12">__raygen__trace · __miss__trace</text>
+            <text x="450" y="82" text-anchor="middle" font-size="12">__closesthit__trace · __intersection__sphere</text>
+            <text x="450" y="100" text-anchor="middle" font-size="12" class="t-warm">__raygen__math (feature)</text>
+            <text x="450" y="122" text-anchor="middle" font-size="11" class="t-mut">params · launch_params · read_ray · write_hit</text>
+            <text x="450" y="138" text-anchor="middle" font-size="11" class="t-mut">read_sphere · #[panic_handler]</text>
+            <rect x="20" y="190" width="200" height="90" rx="8" class="f-surf k-ink"/>
+            <text x="34" y="212" class="t-bold">launch.rs</text>
+            <text x="120" y="236" text-anchor="middle" font-size="11">LaunchParams · RayRecord</text>
+            <text x="120" y="254" text-anchor="middle" font-size="11">HitRecord · HitKind</text>
+            <text x="120" y="272" text-anchor="middle" font-size="10" class="t-acc">shared with umbra-gpu</text>
+            <rect x="240" y="190" width="200" height="90" rx="8" class="f-surf k-ink"/>
+            <text x="254" y="212" class="t-bold">optix.rs</text>
+            <text x="340" y="236" text-anchor="middle" font-size="11">one wrapper per _optix_*</text>
+            <text x="340" y="254" text-anchor="middle" font-size="11">TraceRay · Primitive · trap</text>
+            <text x="340" y="272" text-anchor="middle" font-size="10" class="t-mut">inline PTX</text>
+            <rect x="460" y="190" width="200" height="90" rx="8" class="f-warm-soft k-warm" stroke-dasharray="5 4"/>
+            <text x="474" y="212" class="t-bold">math.rs</text>
+            <text x="560" y="236" text-anchor="middle" font-size="11">MathFunction::evaluate</text>
+            <text x="560" y="254" text-anchor="middle" font-size="11">math_params · read_args</text>
+            <text x="560" y="272" text-anchor="middle" font-size="11">write_result</text>
+            <rect x="680" y="190" width="200" height="90" rx="8" class="f-warm-soft k-warm" stroke-dasharray="5 4"/>
+            <text x="694" y="212" class="t-bold">math_launch.rs</text>
+            <text x="780" y="236" text-anchor="middle" font-size="11">MathParams · MathFunction</text>
+            <text x="780" y="254" text-anchor="middle" font-size="11">UnknownMathFunction</text>
+            <text x="780" y="272" text-anchor="middle" font-size="10" class="t-acc">shared with umbra-gpu</text>
+            <line x1="380" y1="152" x2="140" y2="186" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="430" y1="152" x2="350" y2="186" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="490" y1="152" x2="550" y2="186" class="k-warm" marker-end="url(#ah-warm)"/>
+            <line x1="540" y1="152" x2="760" y2="186" class="k-warm" marker-end="url(#ah-warm)"/>
+            <line x1="460" y1="235" x2="444" y2="235" class="k-warm" marker-end="url(#ah-warm)"/>
+            <line x1="662" y1="235" x2="676" y2="235" class="k-warm" marker-end="url(#ah-warm)"/>
+            <text x="690" y="40" class="t-small t-mut">uses umbra-geometry:</text>
+            <text x="690" y="58" class="t-small">Ray, Sphere</text>
+            <text x="690" y="84" class="t-small t-mut">uses umbra-math:</text>
+            <text x="690" y="102" class="t-small">Point3f, Vector3f, expf, …</text>
+        </svg></div>
+        <figcaption>The modules and what uses what (arrows point at what is used). The dashed, warm modules only exist with the <code>math-program</code> feature. <code>math.rs</code> uses <code>optix.rs</code> for the launch index and launch parameters, and adds <code>evaluate</code> to <code>math_launch.rs</code>'s <code>MathFunction</code>.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>item</th><th>module</th><th>what it is</th></tr></thead>
+            <tbody>
+                <tr><td><code>__raygen__trace</code></td><td>lib.rs</td><td>ray generation: traces ray <var>i</var>, writes hit record <var>i</var></td></tr>
+                <tr><td><code>__miss__trace</code></td><td>lib.rs</td><td>miss: sets payload 1 to <code>HitKind::Miss</code></td></tr>
+                <tr><td><code>__closesthit__trace</code></td><td>lib.rs</td><td>closest hit: the hit's <code>t</code> and whether a triangle or the sphere</td></tr>
+                <tr><td><code>__intersection__sphere</code></td><td>lib.rs</td><td>custom intersection through the core's <code>Sphere::intersect</code></td></tr>
+                <tr><td><code>__raygen__math</code></td><td>lib.rs</td><td>math program: <code>MathFunction</code> on argument record <var>i</var> (feature)</td></tr>
+                <tr><td><code>params</code></td><td>lib.rs</td><td>the <code>.const</code> launch-parameter variable, sized for <code>LaunchParams</code></td></tr>
+                <tr><td><code>launch_params</code>, <code>read_ray</code>, <code>write_hit</code>, <code>read_sphere</code></td><td>lib.rs</td><td>reads of <code>params</code> and of device memory</td></tr>
+                <tr><td><code>LaunchParams</code>, <code>RayRecord</code>, <code>HitRecord</code>, <code>HitKind</code></td><td>launch.rs</td><td>the trace programs' layout shared with the host</td></tr>
+                <tr><td><code>MathParams</code>, <code>MathFunction</code>, <code>UnknownMathFunction</code></td><td>math_launch.rs</td><td>the math program's layout shared with the host (feature)</td></tr>
+                <tr><td><code>MathFunction::evaluate</code>, <code>math_params</code>, <code>read_args</code>, <code>write_result</code></td><td>math.rs</td><td>what the math program runs (feature)</td></tr>
+                <tr><td><code>launch_index_x</code>, <code>launch_param_u64</code>, <code>launch_param_u32</code></td><td>optix.rs</td><td>launch index; <code>ld.const</code> loads from <code>params</code></td></tr>
+                <tr><td><code>set_payload</code>, <code>ray_tmax</code>, <code>object_ray_origin</code>, <code>object_ray_direction</code></td><td>optix.rs</td><td>the current ray's state</td></tr>
+                <tr><td><code>sbt_data_pointer</code>, <code>hit_primitive</code>, <code>Primitive</code></td><td>optix.rs</td><td>record data; triangle or custom hit</td></tr>
+                <tr><td><code>report_intersection</code>, <code>trace</code>, <code>TraceRay</code>, <code>trap</code></td><td>optix.rs</td><td>report a hit; trace a ray; stop the launch</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="shared-layout">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-kernels</span> · <a href="../src/launch.rs">launch.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>One file, two crates</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The struct the host fills and the struct the kernel reads must be identical. The surest way is to have only one. So <code>launch.rs</code> is written once, inside <code>umbra-kernels</code>, and <code>umbra-gpu</code> compiles the very same file into itself with a <code>#[path]</code> attribute. Two copies of the struct can't drift apart if there is only one source.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 220" class="dg-wide" role="img" aria-label="launch.rs compiled by umbra-kernels for nvptx64 and by umbra-gpu for x86_64 through #[path]">
+            <rect x="330" y="70" width="200" height="70" rx="6" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="430" y="98" text-anchor="middle">launch.rs</text>
+            <text x="430" y="120" text-anchor="middle" class="t-mut t-small">depends on core only</text>
+            <rect x="20" y="70" width="240" height="70" rx="6" class="f-warm-soft k-warm"/>
+            <text x="140" y="96" text-anchor="middle" font-size="12">umbra-kernels (nvptx64)</text>
+            <text x="140" y="118" text-anchor="middle" class="t-small">mod launch;</text>
+            <rect x="600" y="70" width="240" height="70" rx="6" class="f-mut-soft k-mut"/>
+            <text x="720" y="96" text-anchor="middle" font-size="12">umbra-gpu (x86_64)</text>
+            <text x="720" y="118" text-anchor="middle" class="t-small">#[path = "…/launch.rs"] mod launch;</text>
+            <line x1="328" y1="105" x2="264" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="532" y1="105" x2="596" y2="105" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="430" y="36" text-anchor="middle" class="t-bold">one source</text>
+            <text x="140" y="172" text-anchor="middle" class="t-small t-ok">size and offset asserts pass</text>
+            <text x="140" y="190" text-anchor="middle" class="t-small t-mut">for nvptx64</text>
+            <text x="720" y="172" text-anchor="middle" class="t-small t-ok">size and offset asserts pass</text>
+            <text x="720" y="190" text-anchor="middle" class="t-small t-mut">for x86_64</text>
+            <text x="430" y="190" text-anchor="middle" class="t-small t-acc">same bytes on both sides</text>
+        </svg></div>
+        <figcaption>The same file, two compilations. The <code>const</code> assertions inside it run in both, so a layout that differed between the CPU and the GPU would stop either build. <code>math_launch.rs</code> is shared the same way, with the <code>math-program</code> feature on both sides.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>On the host side, in <code>umbra-gpu/src/lib.rs</code>:</p>
+<pre class="code"><span class="c">// The layout shared with the device: one file, compiled by both crates.</span>
+<span class="k">#[path = "../../umbra-kernels/src/launch.rs"]</span>
+<span class="k">mod</span> launch;
+<span class="c">// The math program's, with the `math-program` feature alone (#146).</span>
+<span class="k">#[cfg(feature = "math-program")]</span>
+<span class="k">#[path = "../../umbra-kernels/src/math_launch.rs"]</span>
+<span class="k">mod</span> math_launch;</pre>
+        <p>For that to work the file may use nothing but <code>core</code>, and every type is <code>#[repr(C)]</code>, whose layout is defined (ADR 0028 rejects relying on <code>repr(Rust)</code> agreeing on two targets: likely, but not guaranteed). Below each type, a <code>const</code> block of assertions is evaluated by the compiler; a false one is a compile error:</p>
+<pre class="code"><span class="k">const</span> _: () = {
+    <span class="k">use</span> core::mem::offset_of;
+
+    <span class="k">assert!</span>(size_of::&lt;LaunchParams&gt;() == <span class="k">32</span>, <span class="k">"`LaunchParams` is 32 bytes, the last 4 padding"</span>);
+    <span class="k">assert!</span>(offset_of!(LaunchParams, handle) == <span class="k">0</span>, <span class="k">"`handle` is at byte 0"</span>);
+    <span class="k">assert!</span>(offset_of!(LaunchParams, rays) == <span class="k">8</span>, <span class="k">"`rays` is at byte 8"</span>);
+    <span class="k">assert!</span>(offset_of!(LaunchParams, hits) == <span class="k">16</span>, <span class="k">"`hits` is at byte 16"</span>);
+    <span class="k">assert!</span>(offset_of!(LaunchParams, count) == <span class="k">24</span>, <span class="k">"`count` is at byte 24"</span>);
+};</pre>
+        <p><code>math_launch.rs</code> adds one more: <code>size_of::&lt;MathParams&gt;() &lt;= size_of::&lt;crate::launch::LaunchParams&gt;()</code>, since a math launch reuses the <code>params</code> variable that is sized for <code>LaunchParams</code>.</p>
+        <p><code>HitRecord::kind</code> is a plain <code>u32</code>, not a <code>HitKind</code>. Device memory may hold any bits, and a Rust enum with an impossible value is undefined behaviour, so the host reads a number and converts it, rejecting anything that isn't 0, 1 or 2. <code>MathParams::function</code> is a <code>u32</code> for the same reason, converted on the device with <code>TryFrom</code>.</p>
+        <p>The <code>Sphere</code> of the intersection program crosses the boundary too, in its hit group's shader binding table record. It comes from <code>umbra-geometry</code> and is copied byte for byte; <code>read_sphere</code>'s <code>SAFETY</code> comment records that its layout is the same on both targets and that the record is 16-byte aligned.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">#[repr(C)] + const asserts</div><div class="mb-d"><b>A fixed layout, checked twice.</b> Once per target, at compile time (ADR 0028).</div></div>
+        <div class="mb-row"><div class="mb-f">enums cross as u32</div><div class="mb-d"><b>Validate after crossing.</b> <code>HitKind</code> and <code>MathFunction</code> travel as numbers and are converted on arrival.</div></div>
+        <div class="mb-row"><div class="mb-f">core only</div><div class="mb-d"><b>Compilable anywhere.</b> The shared files import nothing beyond <code>core</code>, so both crates can include them.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="inline-ptx">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-kernels</span> · <a href="../src/optix.rs">optix.rs</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>OptiX's device API in inline PTX</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>In C++, a GPU program talks to OptiX through functions from NVIDIA's header files, like <code>optixGetLaunchIndex()</code>. Rust can't use those headers, and Umbra may not copy them (their licence forbids it). But underneath, each of those functions is one call to a built-in with a fixed name, such as <code>_optix_get_launch_index_x</code>. So <code>optix.rs</code> writes those calls directly, in the GPU's assembly language, one small safe Rust function per built-in.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 880 230" class="dg-wide" role="img" aria-label="A safe Rust wrapper holds one unsafe asm block with one call to an _optix_ built-in, which OptiX resolves when it compiles the module">
+            <rect x="20" y="40" width="300" height="150" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="34" y="62" class="t-bold">safe: fn launch_index_x() -&gt; u32</text>
+            <rect x="40" y="80" width="260" height="90" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="54" y="100" font-size="12">unsafe { asm!(</text>
+            <text x="64" y="122" font-size="11" class="t-warm">"call ({x}), _optix_get_</text>
+            <text x="64" y="138" font-size="11" class="t-warm">launch_index_x, ();"</text>
+            <text x="54" y="158" font-size="12">) }  // SAFETY: …</text>
+            <line x1="322" y1="115" x2="398" y2="115" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="360" y="105" text-anchor="middle" class="t-small">rustc</text>
+            <rect x="402" y="70" width="200" height="90" rx="6" class="f-surf k-ink"/>
+            <text x="502" y="94" text-anchor="middle" font-size="12">PTX: a call to an</text>
+            <text x="502" y="112" text-anchor="middle" font-size="12">undefined function</text>
+            <text x="502" y="134" text-anchor="middle" class="t-small t-mut">_optix_get_launch_index_x</text>
+            <line x1="604" y1="115" x2="680" y2="115" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="642" y="105" text-anchor="middle" class="t-small">module creation</text>
+            <rect x="684" y="70" width="176" height="90" rx="6" class="f-ok-soft k-ok"/>
+            <text x="772" y="98" text-anchor="middle" font-size="12">OptiX fills in</text>
+            <text x="772" y="116" text-anchor="middle" font-size="12">the real code</text>
+            <text x="772" y="138" text-anchor="middle" class="t-small t-mut">and checks program type</text>
+            <text x="170" y="214" text-anchor="middle" class="t-small t-mut">unsafe inside, safe outside, one built-in per block (ADR 0007)</text>
+        </svg></div>
+        <figcaption>How a Rust call reaches OptiX. The PTX the crate emits calls functions it never defines. When the host creates the OptiX module from that PTX, OptiX recognises each <code>_optix_*</code> name and puts its own code there, the same way it handles the PTX that NVIDIA's C++ headers produce.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>The simplest wrapper, the launch index:</p>
+<pre class="code"><span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> launch_index_x() -&gt; u32 {
+    <span class="k">let</span> x: u32;
+    <span class="c">// SAFETY: the built-in reads the launch state, writes only `x` and has</span>
+    <span class="c">// no precondition.</span>
+    <span class="k">unsafe</span> {
+        asm!(<span class="k">"call ({x}), _optix_get_launch_index_x, ();"</span>, x = out(reg32) x, options(nomem, nostack));
+    }
+    x
+}</pre>
+        <p><b>Floats need a detour.</b> OptiX checks the PTX type of every operand, and the <code>f32</code> ones must be <code>.f32</code> registers. But Rust's <code>asm!</code> on <code>nvptx64</code> only offers integer register classes (<code>reg32</code>, <code>reg64</code>). So each float passes through a <code>.f32</code> register declared inside the call's own <code>{ }</code> scope and is moved bit for bit with <code>mov.b32</code>:</p>
+<pre class="code">asm!(
+    <span class="k">"{{ .reg .f32 %t; call (%t), _optix_get_ray_tmax, (); mov.b32 {t}, %t; }}"</span>,
+    t = out(reg32) t,
+    options(nostack)
+);</pre>
+        <p><b>Launch parameters</b> are loaded with <code>ld.const</code>. The offset is a <em>const generic</em>, <code>launch_param_u64::&lt;OFFSET&gt;()</code>, so it is a number fixed at compile time, written straight into the instruction: <code>"ld.const.u64 {w}, [params+{o}];"</code> with <code>o = const OFFSET</code>.</p>
+        <p><b><code>trace</code> is the long one.</b> <code>optixTrace</code> becomes <code>_optix_trace_typed_32</code>, which always takes 32 payload registers in and 32 out. Only the first two are live (<code>size</code> = 2); the rest are passed as zeros and their outputs discarded. Its other fixed choices: the default payload type, ray time 0, visibility mask <code>0xFF</code>, no ray flags, hit group record 0 (SBT offset 0, stride 1) and miss record 0. The function carries <code>#[expect(clippy::too_many_lines)]</code> for its one long operand list.</p>
+        <p><b>Where the names come from.</b> The built-ins' names, operands and constants (<code>HIT_KIND_TRIANGLE_FRONT_FACE = 0xFE</code>, <code>HIT_KIND_TRIANGLE_BACK_FACE = 0xFF</code>) are interoperability facts of OptiX 9.0's ABI, written by hand from its documentation. No header text is copied: most of the OptiX SDK's headers are under NVIDIA's proprietary licence (ADR 0026, NOTICE). Building needs no OptiX SDK.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">one built-in per wrapper</div><div class="mb-d"><b>One safe function, one <code>unsafe</code> block, one built-in</b>, with its <code>// SAFETY:</code> comment (ADR 0007).</div></div>
+        <div class="mb-row"><div class="mb-f">.f32 via mov.b32</div><div class="mb-d"><b>Exact bits.</b> <code>mov.b32</code> copies the 32 bits without converting, so the float is unchanged.</div></div>
+        <div class="mb-row"><div class="mb-f">program types per built-in</div><div class="mb-d"><b>Misuse fails early.</b> Each wrapper's doc lists where it is valid (e.g. <code>report_intersection</code>: intersection programs). OptiX rejects a module that breaks this when the host creates it.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="decisions">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-kernels</span> · <a href="../Cargo.toml">Cargo.toml</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0027-a-pinned-nightly-toolchain.md">ADR 0027</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>Smaller design decisions</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Three more choices shape the crate. It is compiled by the ordinary Rust compiler for the oldest GPU generation the target supports, and the driver adapts it to newer cards. The test-only math program is behind a switch (a Cargo feature) that production builds leave off. And the numbers that name the math functions are generated from the enum itself, so they can't get out of step.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 880 200" class="dg-wide" role="img" aria-label="The math-program feature flows from umbra-gpu's dev-dependency through its build script to the kernels' build">
+            <rect x="20" y="60" width="180" height="70" rx="6" class="f-mut-soft k-mut"/>
+            <text x="110" y="86" text-anchor="middle" font-size="12">umbra-gpu tests</text>
+            <text x="110" y="106" text-anchor="middle" class="t-small t-mut">dev-dependency on itself</text>
+            <text x="110" y="121" text-anchor="middle" class="t-small t-mut">features = ["math-program"]</text>
+            <line x1="202" y1="95" x2="248" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="252" y="60" width="190" height="70" rx="6" class="f-surf k-ink"/>
+            <text x="347" y="86" text-anchor="middle" font-size="12">umbra-gpu build.rs</text>
+            <text x="347" y="106" text-anchor="middle" class="t-small t-mut">sees CARGO_FEATURE_</text>
+            <text x="347" y="121" text-anchor="middle" class="t-small t-mut">MATH_PROGRAM</text>
+            <line x1="444" y1="95" x2="490" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="494" y="60" width="180" height="70" rx="6" class="f-warm-soft k-warm"/>
+            <text x="584" y="86" text-anchor="middle" font-size="12">cargo rustc</text>
+            <text x="584" y="106" text-anchor="middle" class="t-small">umbra-kernels</text>
+            <text x="584" y="121" text-anchor="middle" class="t-small t-warm">--features math-program</text>
+            <line x1="676" y1="95" x2="722" y2="95" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="726" y="60" width="140" height="70" rx="6" class="f-acc-soft k-acc"/>
+            <text x="796" y="86" text-anchor="middle" font-size="12">PTX with</text>
+            <text x="796" y="106" text-anchor="middle" class="t-small">__raygen__math</text>
+            <text x="440" y="170" text-anchor="middle" class="t-mut t-small">production: the feature is off at every step, and the PTX has no math program</text>
+        </svg></div>
+        <figcaption>How the test-only feature reaches the kernels. The GPU tests turn on <code>umbra-gpu</code>'s <code>math-program</code> feature; its build script passes <code>--features math-program</code> to the nested kernels build.</figcaption>
+    </figure>
+    <div class="prose">
+        <h4>Upstream <code>rustc</code>, at the target's default GPU</h4>
+        <p>The PTX comes from the ordinary Rust compiler's NVPTX backend (part of LLVM), not from a third-party GPU compiler; ADR 0028 rejected Rust-CUDA and hand-written CUDA C++. The kernels are built for the target's default GPU generation, <code>sm_70</code>, with PTX ISA 7.0. The driver compiles that PTX for any newer GPU, including the test machine's. <code>-C target-cpu</code> is deliberately not set: the pinned nightly treats it as part of the ABI and would refuse to link against the prebuilt <code>core</code>, which was built without it.</p>
+        <h4>The math program behind a feature</h4>
+        <p><code>Cargo.toml</code> declares <code>math-program = []</code>. With it off, <code>mod math</code>, <code>mod math_launch</code> and <code>__raygen__math</code> are all compiled out by <code>#[cfg(feature = "math-program")]</code>, so production PTX carries nothing that only tests need.</p>
+        <h4>Function ids by macro</h4>
+        <p>A <code>MathFunction</code>'s id must be the same number on both sides, and <code>TryFrom&lt;u32&gt;</code> must cover every variant. Rather than keep a hand-written list in step, the macro <code>math_functions!</code> takes the variants once and generates both the enum and <code>MathFunction::ALL</code>, the same list as a slice. A variant's id is then simply its index:</p>
+<pre class="code"><span class="k">fn</span> try_from(id: u32) -&gt; Result&lt;Self, Self::Error&gt; {
+    usize::try_from(id)
+        .ok()
+        .and_then(|index| Self::ALL.get(index))
+        .copied()
+        .ok_or(UnknownMathFunction)
+}</pre>
+        <h4>No <code>f64</code></h4>
+        <p><code>#![warn(clippy::disallowed_types)]</code> switches on the workspace's <code>clippy.toml</code> ban on <code>f64</code> for this crate, as for the core (ADR 0028). Only <code>umbra-math</code>'s backends may use it.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">sm_70, PTX ISA 7.0</div><div class="mb-d"><b>Build for the oldest, run on any newer.</b> The driver's own compiler finishes the PTX for the installed GPU.</div></div>
+        <div class="mb-row"><div class="mb-f">id(v) = index of v in ALL</div><div class="mb-d"><b>One list.</b> Adding a variant gives it the next id, on both sides, with no table to update.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="unsafe">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-kernels</span> · every <code>#[expect(unsafe_code)]</code> · <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a></div>
+        <h3>The unsafe boundary</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Rust's <code>unsafe</code> marks code the compiler can't check, where the programmer promises it is correct. Umbra forbids it by default. The GPU is an exception, because there is no safe way to reach it: talking to OptiX, keeping entry-point names, and reading or writing memory the host handed over. Each such spot is as small as possible, carries a written reason, and is wrapped so the code around it stays safe.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 860 240" class="dg-wide" role="img" aria-label="Three kinds of unsafe in umbra-kernels, each wrapped in a safe function">
+            <rect x="20" y="20" width="820" height="200" rx="10" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="40" y="44" class="t-bold">safe Rust: the programs' logic, the core's code</text>
+            <rect x="40" y="62" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="165" y="86" text-anchor="middle" font-size="12">OptiX device API</text>
+            <text x="165" y="108" text-anchor="middle" class="t-small">asm! / global_asm!</text>
+            <text x="165" y="130" text-anchor="middle" class="t-small t-mut">launch_index_x, trace,</text>
+            <text x="165" y="146" text-anchor="middle" class="t-small t-mut">set_payload, trap, …</text>
+            <text x="165" y="168" text-anchor="middle" class="t-small t-mut">params (.const)</text>
+            <rect x="305" y="62" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="430" y="86" text-anchor="middle" font-size="12">entry-point names</text>
+            <text x="430" y="108" text-anchor="middle" class="t-small">#[unsafe(no_mangle)]</text>
+            <text x="430" y="130" text-anchor="middle" class="t-small t-mut">the five programs</text>
+            <text x="430" y="146" text-anchor="middle" class="t-small t-mut">keep their PTX names</text>
+            <rect x="570" y="62" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="695" y="86" text-anchor="middle" font-size="12">device memory</text>
+            <text x="695" y="108" text-anchor="middle" class="t-small">pointer read / write</text>
+            <text x="695" y="130" text-anchor="middle" class="t-small t-mut">read_ray, write_hit,</text>
+            <text x="695" y="146" text-anchor="middle" class="t-small t-mut">read_sphere, read_args,</text>
+            <text x="695" y="162" text-anchor="middle" class="t-small t-mut">write_result</text>
+        </svg></div>
+        <figcaption>The three kinds of <code>unsafe</code> the crate contains, as amended into ADR 0007 by <a href="https://github.com/sergioffpc/umbra/issues/126">#126</a>. Each warm box is a set of small functions with safe signatures; callers in the blue area never write <code>unsafe</code> themselves.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>Each exception is a <code>#[expect(unsafe_code, reason = "...")]</code> on the narrowest item possible, here always one function (or, for <code>params</code>, a module made just for it, “the narrowest item an <code>expect</code> can sit on”). Inside, each <code>unsafe</code> block holds one operation and a <code>// SAFETY:</code> comment. A memory read reads like this:</p>
+<pre class="code"><span class="k">#[expect(</span>
+<span class="k">    unsafe_code,</span>
+<span class="k">    reason = "reads a buffer the host wrote, by its device address (ADR 0007, ADR 0028)"</span>
+<span class="k">)]</span>
+<span class="k">fn</span> read_ray(rays: u64, i: u32) -&gt; RayRecord {
+    <span class="k">let</span> record = (rays <span class="k">as</span> *<span class="k">const</span> RayRecord).wrapping_add(i <span class="k">as</span> usize);
+    <span class="c">// SAFETY: the host points `rays` at `count` records, aligned and</span>
+    <span class="c">// initialised, and the caller checked `i &lt; count`.</span>
+    <span class="k">unsafe</span> { record.read() }
+}</pre>
+        <p>The safety argument has two halves: a promise the host keeps (the buffers are <code>count</code> records long, aligned and filled) and a check the kernel makes (<code>i &lt; count</code>). For writes there is a third: only thread <var>i</var> writes slot <var>i</var>, so no two threads write the same memory.</p>
+        <p>None of this can be checked by Miri or AddressSanitizer, which don't run on a GPU. ADR 0007 therefore makes the GPU tests on the test machine the verification (<a href="#tests">section 12</a>).</p>
+    </div>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>item</th><th>unsafe operation</th><th>why it holds</th></tr></thead>
+            <tbody>
+                <tr><td><code>params</code></td><td><code>global_asm!</code> declaring the <code>.const</code> variable</td><td>sized by <code>size_of::&lt;LaunchParams&gt;()</code></td></tr>
+                <tr><td>five programs</td><td><code>#[unsafe(no_mangle)]</code></td><td>OptiX finds programs by name</td></tr>
+                <tr><td><code>read_ray</code>, <code>read_args</code></td><td>pointer read at <code>base + i</code></td><td>host sized the buffer to <code>count</code>; caller checked <code>i &lt; count</code></td></tr>
+                <tr><td><code>write_hit</code>, <code>write_result</code></td><td>pointer write at <code>base + i</code></td><td>as above, and only thread <var>i</var> writes slot <var>i</var></td></tr>
+                <tr><td><code>read_sphere</code></td><td>pointer read of the SBT record data</td><td>the host copied one <code>Sphere</code> there, 16-byte aligned</td></tr>
+                <tr><td><code>launch_param_u64</code>, <code>launch_param_u32</code></td><td><code>ld.const</code> from <code>params</code></td><td>offsets are the fields', asserted in <code>launch.rs</code></td></tr>
+                <tr><td><code>trace</code></td><td><code>_optix_trace_typed_32</code></td><td>2 live payloads match the pipeline; <code>handle</code> built for it</td></tr>
+                <tr><td>other wrappers in <code>optix.rs</code></td><td>one <code>_optix_*</code> call or <code>trap</code></td><td>each reads or writes only its own operands</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">#[expect(unsafe_code, reason)]</div><div class="mb-d"><b>Narrowest item.</b> The workspace denies <code>unsafe_code</code>; each exception is local and states its ADR.</div></div>
+        <div class="mb-row"><div class="mb-f">one op per unsafe block + SAFETY</div><div class="mb-d"><b>Every promise written down</b>, next to the one operation that relies on it. Enforced by lints.</div></div>
+        <div class="mb-row"><div class="mb-f">verified by GPU tests</div><div class="mb-d"><b>No Miri on a GPU.</b> The tests on the test machine's GPU stand in for it (ADR 0007, amended by #126 and #146).</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-kernels</span> · built by <code>umbra-gpu/build.rs</code> · <code>scripts/check.sh</code> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
+        <h3>How it is built and tested</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The crate has no tests of its own, because nothing in it can run on an ordinary computer. Two kinds of checking cover it. Everywhere, including CI, it is compiled for the GPU and linted, which catches compile errors and any core crate that needs <code>std</code>. On the one machine with the GPU, <code>umbra-gpu</code>'s tests run the programs for real and compare the results with the CPU.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 880 250" class="dg-wide" role="img" aria-label="CI compiles and lints the kernels; the GPU machine runs umbra-gpu's GPU tests">
+            <rect x="20" y="30" width="400" height="200" rx="8" class="f-mut-soft k-mut"/>
+            <text x="220" y="54" text-anchor="middle" class="t-bold">every build, CI included (no GPU)</text>
+            <rect x="40" y="70" width="360" height="40" rx="5" class="f-surf k-ink"/>
+            <text x="220" y="95" text-anchor="middle" font-size="12">umbra-gpu build.rs: kernels → PTX</text>
+            <rect x="40" y="120" width="360" height="40" rx="5" class="f-surf k-ink"/>
+            <text x="220" y="145" text-anchor="middle" font-size="12">check.sh: clippy --target nvptx64-nvidia-cuda</text>
+            <rect x="40" y="170" width="360" height="40" rx="5" class="f-surf k-ink"/>
+            <text x="220" y="195" text-anchor="middle" font-size="12">check.sh unstable: #![feature] only here</text>
+            <rect x="460" y="30" width="400" height="200" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="660" y="54" text-anchor="middle" class="t-bold">the GPU machine: --profile gpu</text>
+            <rect x="480" y="70" width="360" height="62" rx="5" class="f-surf k-ink"/>
+            <text x="660" y="94" text-anchor="middle" font-size="12">tests/gpu/optix.rs</text>
+            <text x="660" y="116" text-anchor="middle" class="t-small t-mut">GPU sphere hits = core's Sphere::intersect on CPU</text>
+            <rect x="480" y="146" width="360" height="62" rx="5" class="f-surf k-ink"/>
+            <text x="660" y="170" text-anchor="middle" font-size="12">tests/gpu/libdevice.rs</text>
+            <text x="660" y="192" text-anchor="middle" class="t-small t-mut">math program vs glibc, within each bound</text>
+        </svg></div>
+        <figcaption>Left: checks that need no GPU. Right: <code>cargo nextest run --profile gpu</code>, which runs the test binary named <code>gpu</code> that every other nextest profile leaves out. Both test files live in <code>umbra-gpu</code> and are documented in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>.</figcaption>
+    </figure>
+    <div class="prose">
+        <p><b>Building.</b> <code>umbra-gpu</code>'s <code>build.rs</code> runs a nested <code>cargo rustc</code> on this crate for <code>nvptx64-nvidia-cuda</code>, in release, without debug information, in a target directory of its own. It removes the host build's <code>RUSTFLAGS</code> and compiler wrappers, which are for the CPU. If CUDA's <code>libdevice.10.bc</code> is found it is passed as a link argument, and the toolchain's <code>llvm-bitcode-linker</code> inlines the <code>__nv_*</code> maths functions into the PTX. Without it, as in CI, the kernels still build, with a warning, but the PTX keeps unresolved <code>.extern</code> functions and the GPU can't run it.</p>
+        <p><b>Linting.</b> <code>scripts/check.sh</code> runs clippy for <code>nvptx64</code> on this crate and on the core crates it uses. Its <code>unstable</code> step fails if any crate other than this one enables <code>#![feature(...)]</code>.</p>
+        <p><b>Running.</b> <code>tests/gpu/optix.rs</code> traces rays at the triangle (expected hits worked out by hand) and the sphere (expected hits from the core's own <code>Sphere::intersect</code> on the CPU, agreeing to a few ULP). <code>tests/gpu/libdevice.rs</code> uses the math program to sweep about four million <code>f32</code> inputs, subnormals included, through each function and compares with glibc within its bound. It also checks that the primitives keep subnormal results instead of flushing them to zero.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Rules used here</div>
+        <div class="mb-row"><div class="mb-f">no host tests</div><div class="mb-d"><b>Nothing here runs on a CPU</b>, so there is nothing to test there; there is also no example.</div></div>
+        <div class="mb-row"><div class="mb-f">nvptx64 build = no_std check</div><div class="mb-d"><b>The target has no <code>std</code></b>, so any core crate that pulled it in would break this build (ADR 0028).</div></div>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-kernels</span> · roadmap</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="prose">
+        <ul>
+            <li><b>The wavefront kernels.</b> Today's programs are the tracer bullet: one triangle and one sphere. The integrators' kernels, one per stage of a path with queues between stages (ADR 0028), arrive with each feature on both Render Devices (<a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>).</li>
+            <li><b>Scene data.</b> The programs read one <code>Sphere</code> from a shader binding table record. Uploading a whole <code>SceneView</code> to GPU buffers is <code>umbra-gpu</code>'s job, still to come.</li>
+            <li><b>More of OptiX's device API.</b> <code>optix.rs</code> wraps only the built-ins the current programs call; each new one comes with the program that needs it.</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>In this crate: <a href="../README.md">README.md</a>, <a href="../src/lib.rs">lib.rs</a>, <a href="../src/optix.rs">optix.rs</a>, <a href="../src/launch.rs">launch.rs</a>, <a href="../src/math.rs">math.rs</a>, <a href="../src/math_launch.rs">math_launch.rs</a>, <a href="../Cargo.toml">Cargo.toml</a>.</li>
+        <li>Decisions: <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (one core for CPU and GPU), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (GPU-ready <code>no_std</code> core), <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a> (<code>unsafe</code>), <a href="../../../docs/adr/0027-a-pinned-nightly-toolchain.md">ADR 0027</a> (pinned nightly), <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a> (GPU Workers, OptiX, licence).</li>
+        <li>Architecture: <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a> (building blocks), <a href="../../../docs/architecture/08-crosscutting-concepts.md">arc42 §8</a> (cross-cutting concepts), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Render Device, Worker).</li>
+        <li>Sister guides: <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a> (the host side), <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a> (the functions the math program evaluates).</li>
+        <li>NVIDIA. <a href="https://raytracing-docs.nvidia.com/optix9/guide/index.html">OptiX 9.0 Programming Guide</a>: program types, payloads, launch parameters, shader binding table.</li>
+        <li>NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA</a>: <code>ld.const</code>, <code>mov.b32</code>, <code>trap</code>, state spaces. <a href="https://docs.nvidia.com/cuda/libdevice-users-guide/">libdevice User's Guide</a>.</li>
+        <li>The Rust project. <a href="https://doc.rust-lang.org/rustc/platform-support/nvptx64-nvidia-cuda.html">Platform support: nvptx64-nvidia-cuda</a>; <a href="https://doc.rust-lang.org/reference/type-layout.html">The Rust Reference, type layout</a> (<code>repr(C)</code>).</li>
+    </ul>
+</section>
+
+<footer>Umbra Kernels Guide · crates/umbra-kernels/docs/kernels-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+const fmtG = (x) => {
+    if (!Number.isFinite(x)) return String(x);
+    if (x === 0) return Object.is(x, -0) ? "-0" : "0";
+    const a = Math.abs(x);
+    return a >= 1e5 || a < 1e-3 ? x.toExponential(6) : String(+x.toPrecision(9));
+};
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const hex = (n, w = 8) => "0x" + (n >>> 0).toString(16).toUpperCase().padStart(w, "0");
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+
+/* f32 bits, as f32::to_bits / f32::from_bits. */
+const f32buf = new Float32Array(1), u32buf = new Uint32Array(f32buf.buffer);
+const toBits = (x) => { f32buf[0] = x; return u32buf[0]; };
+const fromBits = (b) => { u32buf[0] = b >>> 0; return f32buf[0]; };
+/* `ordinal` of tests/gpu/libdevice.rs: both zeros at 0, distance = ULPs. */
+const ordinal = (x) => { const b = toBits(x), m = b & 0x7fffffff; return (b >>> 31) ? -m : m; };
+const fromOrdinal = (o) => (o >= 0 ? fromBits(o) : fromBits((0x80000000 | -o) >>> 0));
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================================================================
+    §1 Build bench: what each build of the crate contains
+    ================================================================ */
+(() => {
+    const items = [
+        { code: "#![cfg(target_arch = \"nvptx64\")]", what: "the crate's gate", gpu: true, feat: false },
+        { code: "umbra-math, umbra-geometry", what: "target-specific dependencies", gpu: true, feat: false },
+        { code: "mod launch", what: "LaunchParams, RayRecord, HitRecord, HitKind", gpu: true, feat: false },
+        { code: "mod optix", what: "the OptiX device API in inline PTX", gpu: true, feat: false },
+        { code: "params", what: "the .const launch-parameter variable", gpu: true, feat: false },
+        { code: "__raygen__trace", what: "ray generation", gpu: true, feat: false },
+        { code: "__miss__trace", what: "miss", gpu: true, feat: false },
+        { code: "__closesthit__trace", what: "closest hit", gpu: true, feat: false },
+        { code: "__intersection__sphere", what: "custom intersection", gpu: true, feat: false },
+        { code: "#[panic_handler]", what: "panics trap", gpu: true, feat: false },
+        { code: "mod math", what: "MathFunction::evaluate, read_args, write_result", gpu: true, feat: true },
+        { code: "mod math_launch", what: "MathParams, MathFunction", gpu: true, feat: true },
+        { code: "__raygen__math", what: "the math program", gpu: true, feat: true },
+    ];
+    function draw() {
+        const ptx = $("bd-target").value === "ptx", on = $("bd-feat").value === "on";
+        let n = 0;
+        $("bd-list").innerHTML = items.map((it) => {
+            const inBuild = ptx && (!it.feat || on);
+            if (inBuild) n++;
+            const status = it.code.startsWith("#![cfg") ? (ptx ? "true" : "false") : (inBuild ? "built" : "absent");
+            return `<li class="${inBuild ? "on" : "off"}"><span class="st">${status}</span><span><code>${it.code}</code> · ${it.what}</span></li>`;
+        }).join("");
+        $("bd-host").innerHTML = [
+            { code: "src/launch.rs", what: "by #[path], always", inc: true },
+            { code: "src/math_launch.rs", what: "by #[path], with umbra-gpu's math-program", inc: on },
+        ].map((h) => `<li class="${h.inc ? "on" : "off"}"><span class="st">${h.inc ? "shared" : "absent"}</span><span><code>${h.code}</code> · ${h.what}</span></li>`).join("");
+        $("bd-read").innerHTML = `
+            <dt>target</dt><dd>${ptx ? "nvptx64-nvidia-cuda" : "x86_64-unknown-linux-gnu"}</dd>
+            <dt>crate</dt><dd class="${ptx ? "ok" : "mut"}">${ptx ? `${n} of ${items.length} items` : "empty: compiles to nothing"}</dd>
+            <dt>output</dt><dd>${ptx ? "umbra_kernels.ptx, one PTX module" : "nothing the host uses"}</dd>
+            <dt>entry points</dt><dd>${ptx ? (on ? 5 : 4) : 0}</dd>`;
+    }
+    $("bd-target").addEventListener("change", draw);
+    $("bd-feat").addEventListener("change", draw);
+    draw();
+})();
+
+/* ================================================================
+    §2 Launch bench: threads, rays[] and hits[] column by column
+    ================================================================ */
+(() => {
+    const RAYS = 0x7f40_0000_0000, HITS = 0x7f40_0010_0000; /* made-up device addresses */
+    let done = new Set(), order = [], running = false, seed = 11;
+    const W = () => +$("ln-width").value, N = () => +$("ln-count").value;
+    const selEl = $("ln-sel");
+    function reset() { done = new Set(); order = []; running = false; draw(); }
+    function syncSel() {
+        selEl.max = String(Math.max(0, W() - 1));
+        if (+selEl.value > W() - 1) selEl.value = String(W() - 1);
+        $("ln-sel-o").textContent = selEl.value;
+    }
+    bindRange("ln-width", (v) => v, () => { syncSel(); reset(); });
+    bindRange("ln-count", (v) => v, reset);
+    bindRange("ln-sel", (v) => v, draw);
+    syncSel();
+    $("ln-reset").addEventListener("click", reset);
+    $("ln-run").addEventListener("click", () => {
+        const rng = mulberry32(seed++);
+        order = Array.from({ length: W() }, (_, i) => i);
+        for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+        done = new Set(); running = true;
+        step();
+    });
+    function step() {
+        if (!running) return;
+        for (let k = 0; k < 2 && order.length; k++) done.add(order.shift());
+        draw();
+        if (order.length) requestAnimationFrame(() => setTimeout(step, 70));
+        else running = false;
+    }
+    function draw() {
+        const { ctx, w, h } = fit($("ln-grid"));
+        const ink = tok("--ink"), mut = tok("--muted"), acc = tok("--accent"), warm = tok("--warm"), ok = tok("--exact"), rule = tok("--rule");
+        const width = W(), count = N(), sel = Math.min(+selEl.value, width - 1);
+        const cols = Math.max(width, count, 1);
+        const labelW = 64, pad = 10;
+        const cw = (w - labelW - pad) / cols;
+        const rowH = Math.min(34, (h - 40) / 3.6);
+        const yRay = 14, yThreads = yRay + rowH * 1.6, yHit = yThreads + rowH * 1.6;
+        const X = (i) => labelW + i * cw;
+        ctx.font = `11px ${tok("--mono")}`;
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = mut;
+        ctx.fillText("rays[ ]", 4, yRay + rowH / 2); ctx.fillText("threads", 4, yThreads + rowH / 2); ctx.fillText("hits[ ]", 4, yHit + rowH / 2);
+        const box = (x, y, fill, alpha, stroke, dash) => {
+            ctx.globalAlpha = alpha; ctx.fillStyle = fill; ctx.fillRect(x + 1, y, Math.max(1, cw - 2), rowH);
+            ctx.globalAlpha = 1; ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.setLineDash(dash || []);
+            ctx.strokeRect(x + 1.5, y + 0.5, Math.max(1, cw - 3), rowH - 1); ctx.setLineDash([]);
+        };
+        for (let i = 0; i < count; i++) box(X(i), yRay, acc, 0.22, acc);
+        for (let i = 0; i < width; i++) {
+            const fin = done.has(i);
+            if (i >= count) box(X(i), yThreads, mut, fin ? 0.25 : 0.1, mut, [3, 3]);
+            else box(X(i), yThreads, warm, fin ? 0.55 : 0.15, warm);
+        }
+        for (let i = 0; i < count; i++) {
+            const written = i < width && done.has(i);
+            box(X(i), yHit, ok, written ? 0.45 : 0.06, i < width ? ok : rule, i < width ? [] : [3, 3]);
+        }
+        if (cw >= 18) {
+            ctx.fillStyle = ink; ctx.textAlign = "center";
+            for (let i = 0; i < cols; i++) if (i < width || i < count) ctx.fillText(String(i), X(i) + cw / 2, yThreads + rowH / 2);
+            ctx.textAlign = "left";
+        }
+        /* the followed thread */
+        if (width > 0) {
+            const cx = X(sel) + cw / 2;
+            ctx.strokeStyle = ink; ctx.lineWidth = 2;
+            ctx.strokeRect(X(sel) + 0.5, yThreads - 2, cw - 1, rowH + 4);
+            if (sel < count) {
+                ctx.strokeStyle = acc; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(cx, yRay + rowH + 2); ctx.lineTo(cx, yThreads - 4); ctx.stroke();
+                ctx.strokeStyle = ok;
+                ctx.beginPath(); ctx.moveTo(cx, yThreads + rowH + 4); ctx.lineTo(cx, yHit - 2); ctx.stroke();
+            } else {
+                ctx.fillStyle = mut; ctx.textAlign = "center";
+                ctx.fillText("return", cx, yHit + rowH / 2); ctx.textAlign = "left";
+            }
+        }
+        if (count > width) {
+            ctx.fillStyle = tok("--err");
+            ctx.fillText(`rays ${width}..${count - 1}: no thread`, X(width) + 4, yHit + rowH + 14);
+        }
+        const active = Math.min(width, count);
+        const finished = [...done].length;
+        const addr = (b, i, s) => "0x" + (b + i * s).toString(16);
+        $("ln-read").innerHTML = `
+            <dt>launch</dt><dd>width ${width}, count ${count} → ${active} active, ${width - active} return at once</dd>
+            <dt>finished</dt><dd>${finished} of ${width} threads${running ? " (running…)" : ""}</dd>
+            <dt>thread i</dt><dd>${sel} = optix::launch_index_x()</dd>
+            ${sel < count
+                ? `<dt>read_ray</dt><dd class="acc">rays + ${sel} × 24 = ${addr(RAYS, sel, 24)}</dd>
+                    <dt>write_hit</dt><dd class="ok">hits + ${sel} × 8 = ${addr(HITS, sel, 8)}</dd>`
+                : `<dt>guard</dt><dd class="mut">${sel} ≥ count ${count}: return, touches no memory</dd>`}`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §3 Trace bench: one ray through the tracer bullet's scene (x–z plane)
+    ================================================================ */
+(() => {
+    const C = 10, R = 2; /* sphere centre z, radius */
+    function scene() {
+        const geo = $("tr-geo").value;
+        const th = +$("tr-ang").value * Math.PI / 180, ox = +$("tr-ox").value;
+        const d = [Math.sin(th), Math.cos(th)]; /* (x, z), unit length */
+        const o = [ox, 0];
+        let hit = null, boxHit = false;
+        if (geo === "triangle") {
+            const t = (5 - o[1]) / d[1];
+            const x = o[0] + t * d[0];
+            if (t > 0 && Math.abs(x) <= 0.5) hit = { t, p: [x, 5] };
+        } else {
+            /* slab test against the sphere's box x ∈ [−2, 2], z ∈ [8, 12] */
+            let t0 = 0, t1 = Infinity;
+            for (const [oi, di, lo, hi] of [[o[0], d[0], -R, R], [o[1], d[1], C - R, C + R]]) {
+                if (Math.abs(di) < 1e-12) { if (oi < lo || oi > hi) { t0 = 1; t1 = 0; } continue; }
+                let a = (lo - oi) / di, b = (hi - oi) / di;
+                if (a > b) [a, b] = [b, a];
+                t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+            }
+            boxHit = t0 <= t1;
+            /* Sphere::intersect, in the sphere's object space */
+            const oo = [o[0], o[1] - C];
+            const b = oo[0] * d[0] + oo[1] * d[1];
+            const c = oo[0] * oo[0] + oo[1] * oo[1] - R * R;
+            const disc = b * b - c;
+            if (boxHit && disc >= 0) {
+                const s = Math.sqrt(disc);
+                const tA = -b - s, tB = -b + s;
+                const t = tA > 0 ? tA : tB > 0 ? tB : null;
+                if (t !== null) hit = { t, p: [o[0] + t * d[0], o[1] + t * d[1]] };
+            }
+        }
+        return { geo, o, d, hit, boxHit };
+    }
+    bindRange("tr-ang", (v) => v.toFixed(1) + "°", draw);
+    bindRange("tr-ox", (v) => v.toFixed(2), draw);
+    $("tr-geo").addEventListener("change", draw);
+    function draw() {
+        const s = scene();
+        const { ctx, w, h } = fit($("tr-scene"));
+        const ink = tok("--ink"), mut = tok("--muted"), acc = tok("--accent"), warm = tok("--warm"), ok = tok("--exact"), rule = tok("--rule");
+        const z0 = -0.5, z1 = 14, xr = 4.2;
+        const sc = Math.min((w - 20) / (z1 - z0), (h - 20) / (2 * xr));
+        const Z = (z) => 10 + (z - z0) * sc, Xp = (x) => h / 2 - x * sc;
+        ctx.strokeStyle = rule; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(Z(z0), Xp(0)); ctx.lineTo(Z(z1), Xp(0)); ctx.stroke();
+        ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+        ctx.fillText("+z", Z(z1) - 18, Xp(0) - 6);
+        for (const z of [0, 5, 10]) ctx.fillText("z=" + z, Z(z) - 10, h - 4);
+        /* triangle (segment at z = 5) */
+        ctx.globalAlpha = s.geo === "triangle" ? 1 : 0.25;
+        ctx.strokeStyle = acc; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(Z(5), Xp(-0.5)); ctx.lineTo(Z(5), Xp(0.5)); ctx.stroke();
+        ctx.fillStyle = acc; ctx.fillText("triangle", Z(5) + 6, Xp(0.5) - 4);
+        /* sphere and its box */
+        ctx.globalAlpha = s.geo === "sphere" ? 1 : 0.25;
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = s.boxHit ? warm : mut; ctx.lineWidth = 1;
+        ctx.strokeRect(Z(C - R), Xp(R), 2 * R * sc, 2 * R * sc); ctx.setLineDash([]);
+        ctx.fillStyle = warm; ctx.globalAlpha *= 0.25;
+        ctx.beginPath(); ctx.arc(Z(C), Xp(0), R * sc, 0, 7); ctx.fill();
+        ctx.globalAlpha = s.geo === "sphere" ? 1 : 0.25;
+        ctx.strokeStyle = warm; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = warm; ctx.fillText("sphere (box dashed)", Z(C - R), Xp(R) - 6);
+        ctx.globalAlpha = 1;
+        /* the ray */
+        const tEnd = s.hit ? s.hit.t : 30;
+        ctx.strokeStyle = s.hit ? ok : mut; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(Z(s.o[1]), Xp(s.o[0])); ctx.lineTo(Z(s.o[1] + tEnd * s.d[1]), Xp(s.o[0] + tEnd * s.d[0])); ctx.stroke();
+        if (s.hit) {
+            ctx.setLineDash([3, 4]); ctx.strokeStyle = mut; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(Z(s.hit.p[1]), Xp(s.hit.p[0])); ctx.lineTo(Z(s.o[1] + 30 * s.d[1]), Xp(s.o[0] + 30 * s.d[0])); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = ok; ctx.beginPath(); ctx.arc(Z(s.hit.p[1]), Xp(s.hit.p[0]), 5, 0, 7); ctx.fill();
+        }
+        ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(Z(s.o[1]), Xp(s.o[0]), 4, 0, 7); ctx.fill();
+
+        /* the programs that run */
+        const steps = [`<li><b>__raygen__trace</b>: i = launch_index_x(); read_ray(rays, i); optix::trace(handle, ray, [0, Miss])</li>`];
+        if (s.geo === "triangle") {
+            steps.push(`<li>OptiX's built-in triangle test, in hardware: ${s.hit ? "hit" : "no hit"} (no program of ours)</li>`);
+        } else if (s.boxHit) {
+            steps.push(`<li><b>__intersection__sphere</b>: read_sphere(sbt_data_pointer()); sphere.intersect(&amp;ray, ray_tmax()) → ${s.hit ? `Some, report_intersection(${fmt(s.hit.t, 4)})` : "None, nothing reported"}</li>`);
+        } else {
+            steps.push(`<li class="skip">__intersection__sphere: not called, the ray misses the sphere's box</li>`);
+        }
+        if (s.hit) {
+            const kind = s.geo === "triangle" ? "Triangle" : "Sphere";
+            const hk = s.geo === "triangle" ? "0xFE or 0xFF → Primitive::Triangle" : "custom → Primitive::Custom";
+            steps.push(`<li><b>__closesthit__trace</b>: hit_primitive(): ${hk}; set_payload(0, ray_tmax().to_bits()); set_payload(1, HitKind::${kind})</li>`);
+            steps.push(`<li class="skip">__miss__trace: not called</li>`);
+        } else {
+            steps.push(`<li class="skip">__closesthit__trace: not called</li>`);
+            steps.push(`<li><b>__miss__trace</b>: set_payload(1, HitKind::Miss)</li>`);
+        }
+        steps.push(`<li><b>__raygen__trace</b> again: [t, kind] = payloads; write_hit(hits, i, HitRecord { t: f32::from_bits(t), kind })</li>`);
+        $("tr-steps").innerHTML = steps.join("");
+
+        const tf = s.hit ? Math.fround(s.hit.t) : null;
+        const p0 = s.hit ? toBits(tf) : 0;
+        const kindN = s.hit ? (s.geo === "triangle" ? 1 : 2) : 0;
+        const kindName = ["Miss", "Triangle", "Sphere"][kindN];
+        $("tr-read").innerHTML = `
+            <dt>direction</dt><dd>(${fmt(s.d[0], 4)}, 0, ${fmt(s.d[1], 4)})</dd>
+            <dt>payload 0</dt><dd>${hex(p0)}${s.hit ? "" : " (the starting 0)"}</dd>
+            <dt>payload 1</dt><dd>${kindN} = HitKind::${kindName}</dd>
+            <dt>HitRecord.t</dt><dd class="${s.hit ? "ok" : "mut"}">${s.hit ? fmtG(tf) : "0 (unspecified on a miss)"}</dd>
+            <dt>HitRecord.kind</dt><dd>${kindN}</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §4 Byte-map bench: the shared layouts, byte by byte
+    ================================================================ */
+(() => {
+    const LAYOUTS = {
+        LaunchParams: { size: 32, kind: "params", fields: [["handle", 0, 8, "u64"], ["rays", 8, 8, "u64"], ["hits", 16, 8, "u64"], ["count", 24, 4, "u32"]] },
+        MathParams: { size: 24, kind: "params", fields: [["args", 0, 8, "u64"], ["results", 8, 8, "u64"], ["count", 16, 4, "u32"], ["function", 20, 4, "u32"]] },
+        RayRecord: { size: 24, kind: "record", base: "rays", fields: [["o", 0, 12, "[f32; 3]"], ["d", 12, 12, "[f32; 3]"]] },
+        HitRecord: { size: 8, kind: "record", base: "hits", fields: [["t", 0, 4, "f32"], ["kind", 4, 4, "u32"]] },
+    };
+    const BASE = { rays: 0x7f40_0000_0000, hits: 0x7f40_0010_0000 };
+    const structEl = $("by-struct"), fieldEl = $("by-field");
+    function fillFields() {
+        const L = LAYOUTS[structEl.value];
+        fieldEl.innerHTML = L.fields.map(([n]) => `<option value="${n}">${n}</option>`).join("");
+        fieldEl.value = L.fields[L.kind === "params" ? 1 : 0][0];
+    }
+    structEl.addEventListener("change", () => { fillFields(); draw(); });
+    fieldEl.addEventListener("change", draw);
+    bindRange("by-i", (v) => v, draw);
+    function draw() {
+        const name = structEl.value, L = LAYOUTS[name];
+        const field = L.fields.find(([n]) => n === fieldEl.value) || L.fields[0];
+        const span = L.kind === "params" ? 32 : L.size;
+        const cells = [];
+        for (let b = 0; b < 32; b++) {
+            let cls = "byte";
+            if (b >= span) { cls += " out"; }
+            else {
+                const fi = L.fields.findIndex(([, off, sz]) => b >= off && b < off + sz);
+                cls += fi >= 0 ? " f" + fi : (b < L.size ? " pad" : " out");
+                if (b >= field[1] && b < field[1] + field[2]) cls += " sel";
+            }
+            cells.push(`<div class="${cls}" title="byte ${b}">${b < span || L.kind === "params" ? b : ""}</div>`);
+        }
+        $("by-map").innerHTML = cells.join("");
+        $("by-legend").innerHTML = L.fields.map(([n, off, sz, ty], i) => `<span><i class="f${i}"></i>${n}: ${ty}, bytes ${off}–${off + sz - 1}</span>`).join("")
+            + (name === "LaunchParams" ? `<span><i class="pad"></i>padding, bytes 28–31</span>` : "")
+            + (name === "MathParams" ? `<span>bytes 24–31 of params: unused by a math launch</span>` : "")
+            + (L.kind === "record" ? `<span>one record of ${L.size} bytes; the next starts at byte ${L.size}</span>` : "");
+        const [fname, off, sz, ty] = field;
+        let how;
+        if (L.kind === "params") {
+            const fn = sz === 8 ? "launch_param_u64" : "launch_param_u32";
+            const ins = sz === 8 ? "ld.const.u64" : "ld.const.u32";
+            how = `<dt>Rust</dt><dd>optix::${fn}::&lt;{ offset_of!(${name}, ${fname}) }&gt;()</dd>
+                    <dt>PTX</dt><dd class="acc">${ins} {w}, [params+${off}];</dd>
+                    <dt>same for</dt><dd>every thread of the launch</dd>`;
+        } else {
+            const i = +$("by-i").value;
+            const base = BASE[L.base];
+            const fn = L.base === "rays" ? "read_ray" : "write_hit";
+            how = `<dt>Rust</dt><dd>${fn}: (${L.base} as *${L.base === "rays" ? "const" : "mut"} ${name}).wrapping_add(${i})</dd>
+                    <dt>record ${i} at</dt><dd class="acc">${L.base} + ${i} × ${L.size} = 0x${(base + i * L.size).toString(16)}</dd>
+                    <dt>${fname} at</dt><dd>0x${(base + i * L.size + off).toString(16)} (record + ${off})</dd>
+                    <dt>used by</dt><dd>thread ${i} only</dd>`;
+        }
+        $("by-read").innerHTML = `
+            <dt>field</dt><dd>${name}::${fname}: ${ty}</dd>
+            <dt>offset, size</dt><dd>byte ${off}, ${sz} bytes · asserted: offset_of!(${name}, ${fname}) == ${off}</dd>
+            <dt>struct size</dt><dd>${L.size} bytes${name === "MathParams" ? " ≤ 32 = size_of::&lt;LaunchParams&gt;()" : ""}</dd>
+            ${how}`;
+    }
+    fillFields();
+    draw();
+})();
+
+/* ================================================================
+    §5 Math bench: MathFunction ids, evaluation and ULP distance
+    ================================================================ */
+(() => {
+    function erf(x) { /* Abramowitz and Stegun 7.1.26, |error| < 1.5e-7: a stand-in only */
+        const s = Math.sign(x); x = Math.abs(x);
+        const t = 1 / (1 + 0.3275911 * x);
+        const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return s * y;
+    }
+    const roundf = (x) => Math.sign(x) * Math.floor(Math.abs(x) + 0.5);
+    /* [name, arity, CPU stand-in on [a, b, c], bound] — bounds from tests/gpu/libdevice.rs */
+    const F = [
+        ["Fma", 3, (a, b, c) => a * b + c, "0 ULP (exact)", 0],
+        ["Sqrt", 1, (a) => Math.sqrt(a), "0 ULP (correctly rounded)", 0],
+        ["Floor", 1, (a) => Math.floor(a), "0 ULP (exact)", 0],
+        ["Ceil", 1, (a) => Math.ceil(a), "0 ULP (exact)", 0],
+        ["Roundf", 1, (a) => roundf(a), "0 ULP (exact)", 0],
+        ["Sinf", 1, (a) => Math.sin(a), "2 ULP", 2],
+        ["SinOfSinCos", 1, (a) => Math.sin(a), "|error| ≤ 2⁻²⁰ for |x| ≤ 2²⁰; 2 ULP beyond", null],
+        ["CosOfSinCos", 1, (a) => Math.cos(a), "|error| ≤ 2⁻²⁰ for |x| ≤ 2²⁰; 2 ULP beyond", null],
+        ["Tanf", 1, (a) => Math.tan(a), "4 ULP", 4],
+        ["Asinf", 1, (a) => Math.asin(a), "2 ULP", 2],
+        ["Acosf", 1, (a) => Math.acos(a), "2 ULP", 2],
+        ["Atan2", 2, (a, b) => Math.atan2(a, b), "3 ULP", 3],
+        ["Erf", 1, (a) => erf(a), "2 ULP", 2],
+        ["Expf", 1, (a) => Math.exp(a), "2 ULP", 2],
+        ["Powf", 2, (a, b) => Math.pow(a, b), "4 ULP", 4],
+        ["Logf", 1, (a) => Math.log(a), "1 ULP", 1],
+        ["Atanhf", 1, (a) => Math.atanh(a), "3 ULP", 3],
+        ["Coshf", 1, (a) => Math.cosh(a), "2 ULP", 2],
+    ];
+    const CALL = ["umbra_math::fma(a, b, c)", "umbra_math::sqrt(a)", "umbra_math::floor(a)", "umbra_math::ceil(a)", "umbra_math::roundf(a)",
+        "umbra_math::sinf(a)", "umbra_math::sin_cos(a).0", "umbra_math::sin_cos(a).1", "umbra_math::tanf(a)", "umbra_math::asinf(a)",
+        "umbra_math::acosf(a)", "umbra_math::atan2(a, b)", "umbra_math::erf(a)", "umbra_math::expf(a)", "umbra_math::powf(a, b)",
+        "umbra_math::logf(a)", "umbra_math::atanhf(a)", "umbra_math::coshf(a)"];
+    const f2 = (v) => v.toFixed(2);
+    bindRange("mf-a", f2, draw);
+    bindRange("mf-b", f2, draw);
+    bindRange("mf-c", f2, draw);
+    bindRange("mf-k", (v) => (v > 0 ? "+" : "") + v, draw);
+    bindRange("mf-id", (v) => v, draw);
+    $("mf-fn").addEventListener("change", () => { $("mf-id").value = $("mf-fn").value; $("mf-id-o").textContent = $("mf-fn").value; draw(); });
+    function draw() {
+        const idx = +$("mf-fn").value;
+        const [name, arity, fn, boundText, bound] = F[idx];
+        const a = Math.fround(+$("mf-a").value), b = Math.fround(+$("mf-b").value), c = Math.fround(+$("mf-c").value);
+        const cpu = Math.fround(fn(a, b, c));
+        const k = +$("mf-k").value;
+        const gpu = Number.isNaN(cpu) ? cpu : fromOrdinal(ordinal(cpu) + k);
+        const dist = Number.isNaN(cpu) ? 0 : Math.abs(ordinal(gpu) - ordinal(cpu));
+        const args = [a, b, c].map((v, i) => (i < arity ? fmtG(v) : "_")).join(", ");
+        let verdict;
+        if (bound === null) verdict = `<span class="mut">checked by absolute error here, not ULPs (see the Maths box)</span>`;
+        else verdict = dist <= bound ? `<span class="ok">within ${bound} ULP: pass</span>` : `<span class="bad">beyond ${bound} ULP: the test fails</span>`;
+        $("mf-read").innerHTML = `
+            <dt>function</dt><dd>MathFunction::${name} → ${CALL[idx]}</dd>
+            <dt>args[i]</dt><dd>[${args}]</dd>
+            <dt>"CPU"</dt><dd>${fmtG(cpu)} · bits ${hex(toBits(cpu))}</dd>
+            <dt>"GPU"</dt><dd>${fmtG(gpu)} · bits ${hex(toBits(gpu))}</dd>
+            <dt>distance</dt><dd>${Number.isNaN(cpu) ? "both NaN: 0 ULP (Distance::between)" : `${dist} ULP (ordinal ${ordinal(cpu)} → ${ordinal(gpu)})`}</dd>
+            <dt>bound</dt><dd>${boundText}</dd>
+            <dt>verdict</dt><dd>${verdict}</dd>`;
+        const id = +$("mf-id").value;
+        const known = id < F.length;
+        $("mf-id-read").innerHTML = `
+            <dt>u32::from</dt><dd>MathFunction::${name} → ${idx}</dd>
+            <dt>sent id</dt><dd>MathParams::function = ${id}</dd>
+            <dt>try_from(${id})</dt><dd class="${known ? "ok" : "bad"}">${known ? `Ok(MathFunction::${F[id][0]})` : "Err(UnknownMathFunction)"}</dd>
+            <dt>kernel</dt><dd>${known ? (id === idx ? "evaluates the function you picked" : `evaluates ${F[id][0]}, not ${name}`) : "optix::trap(): the launch aborts"}</dd>
+            <dt>MathFunction::ALL</dt><dd>${F.length} variants, ids 0–${F.length - 1}</dd>`;
+    }
+    draw();
+})();
+})();
+</script>
+</body>
+</html>
