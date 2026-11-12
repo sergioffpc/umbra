@@ -26,7 +26,10 @@ When an ADR and an arc42 section disagree, the later ADR is the decision and the
 
 ## Background
 
-- [`math/field-guide.html`](math/field-guide.html): an interactive explainer of the mathematics Umbra relies on, from `f32` rounding and error bounds in `umbra-math` to the sampling, spectral and microfacet maths of the crates still to come. Open it in a browser.
+Interactive explainers live next to the crate they explain, in its `docs/` folder. Open them in a browser.
+
+- [`umbra-math/docs/math-guide.html`](../crates/umbra-math/docs/math-guide.html): `f32` rounding, error bounds, intervals, compensated arithmetic, normals, frames, octahedral vectors and the perspective projection.
+- [`umbra-camera/docs/camera-guide.html`](../crates/umbra-camera/docs/camera-guide.html): how a Pixel Sample becomes a ray and radiance becomes sensor RGB: coordinate spaces, the pinhole and thin-lens camera, importance-sampled pixel filters, the camera sample and the pixel sensor, with diagrams for readers new to the maths.
 
 ## For contributors and agents
 
