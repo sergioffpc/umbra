@@ -1,4 +1,14 @@
 #![doc = include_str!("../README.md")]
 
-// Dependency edges of arc42 §5.1, used once the crate has code.
-use umbra_integrators as _;
+mod arena;
+mod error;
+mod options;
+mod scene;
+
+pub use arena::Arena;
+pub use error::SceneError;
+pub use options::{RenderJobOptions, Seed};
+pub use scene::{
+    FilmParameters, GaussianFilterParameters, HaltonSamplerParameters, PerspectiveCameraParameters,
+    Scene, SceneBuilder,
+};
