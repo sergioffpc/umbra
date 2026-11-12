@@ -4,8 +4,10 @@
 #![warn(clippy::disallowed_types)]
 
 mod hash;
+mod lowdiscrepancy;
 mod piecewise;
 mod rng;
+mod sampler;
 mod warp;
 
 // Dependency edge of arc42 §5.1, used once the crate has types to serialise.
@@ -13,8 +15,14 @@ mod warp;
 use serde as _;
 
 pub use hash::{Hashable, hash, hash_float, mix_bits, murmur_hash_64a};
+pub use lowdiscrepancy::{
+    DigitPermutation, DigitPermutations, PRIME_TABLE_SIZE, PRIMES, inverse_radical_inverse,
+    owen_scrambled_radical_inverse, permutation_element, radical_inverse,
+    scrambled_radical_inverse,
+};
 pub use piecewise::{
     PiecewiseConstant1D, PiecewiseConstant1DSample, PiecewiseConstant2D, PiecewiseConstant2DSample,
 };
 pub use rng::{Rng, Uniform, UniformBelow};
+pub use sampler::{HaltonRandomizer, HaltonSampler, RandomizeStrategy, Sampler, SamplerKind};
 pub use warp::*;
