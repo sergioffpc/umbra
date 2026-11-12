@@ -4,6 +4,7 @@
 #![warn(clippy::disallowed_types)]
 
 mod bounds;
+mod handle;
 mod ray;
 mod sphere;
 
@@ -13,6 +14,7 @@ mod sphere;
 use serde as _;
 use umbra_sampling as _;
 
-pub use bounds::Bounds3f;
+pub use bounds::{Bounds2f, Bounds3f};
+pub use handle::Handle;
 pub use ray::Ray;
 pub use sphere::{QuadricIntersection, Sphere};

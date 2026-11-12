@@ -1,6 +1,7 @@
-//! Axis-aligned bounding boxes (pbrt-v4 `Bounds3`, `src/pbrt/util/vecmath.h`).
+//! Axis-aligned bounding boxes (pbrt-v4 `Bounds2`, `Bounds3`,
+//! `src/pbrt/util/vecmath.h`).
 
-use umbra_math::{Point3f, Transform};
+use umbra_math::{Point2f, Point3f, Transform, lerp};
 
 /// The axis-aligned box from `p_min` to `p_max`, both included.
 ///
@@ -72,6 +73,44 @@ impl Bounds3f {
             pick(1, self.p_min.x, self.p_max.x),
             pick(2, self.p_min.y, self.p_max.y),
             pick(4, self.p_min.z, self.p_max.z),
+        )
+    }
+}
+
+/// The axis-aligned rectangle from `p_min` to `p_max`, both included.
+///
+/// PBR 4e §3.7, pbrt-v4 `Bounds2f`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bounds2f {
+    /// The corner with the smallest coordinates.
+    pub p_min: Point2f,
+    /// The corner with the largest coordinates.
+    pub p_max: Point2f,
+}
+
+impl Bounds2f {
+    /// The rectangle with `p1` and `p2` at opposite corners, in any order.
+    ///
+    /// pbrt-v4 `Bounds2(Point2, Point2)`.
+    #[inline]
+    #[must_use]
+    pub fn new(p1: Point2f, p2: Point2f) -> Self {
+        Self {
+            p_min: p1.min(p2),
+            p_max: p1.max(p2),
+        }
+    }
+
+    /// The point at the fractions `t` of the way from `p_min` to `p_max`,
+    /// per axis.
+    ///
+    /// pbrt-v4 `Bounds2::Lerp`.
+    #[inline]
+    #[must_use]
+    pub fn lerp(&self, t: Point2f) -> Point2f {
+        Point2f::new(
+            lerp(t.x, self.p_min.x, self.p_max.x),
+            lerp(t.y, self.p_min.y, self.p_max.y),
         )
     }
 }
