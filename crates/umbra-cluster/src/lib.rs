@@ -1,4 +1,11 @@
 #![doc = include_str!("../README.md")]
 
-// Dependency edges of arc42 §5.1, used once the crate has code.
-use umbra_render as _;
+mod coordinator;
+mod local_worker;
+mod report;
+mod transport;
+
+pub use coordinator::{
+    ClusterError, CoordinatorOptions, RenderJob, RenderJobOutcome, Threads, coordinate,
+};
+pub use report::{Outcome, RenderJobReport};

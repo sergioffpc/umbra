@@ -1,9 +1,14 @@
 //! Seam 2: the Film merges each Work Result as it arrives, in any order,
 //! and discards a second one for the same Work Unit unread (ADR 0022).
 
+use std::path::PathBuf;
+
+use umbra_math::Point2i;
 use umbra_render::{
-    Acceptance, Film, PassIndex, PixelSum, Renderer, TileIndex, WorkResult, WorkUnit,
+    Acceptance, BuildIdentity, Film, PassIndex, PixelSum, Renderer, ReproductionRecord, TileIndex,
+    Tree, WorkResult, WorkUnit,
 };
+use umbra_scene::ContentHash;
 
 use crate::scenes::{camera_only, options, render_all};
 
@@ -115,4 +120,55 @@ fn the_passes_of_a_tile_add_up() {
     assert_eq!(film.pixels()[15 * 40 + 15], expected, "pixel (15, 15)");
     assert_eq!(film.pixels()[16], PixelSum::default(), "pixel (16, 0)");
     assert!(!film.is_complete(), "the other Tiles are missing");
+}
+
+/// A Reproduction Record for tests: what it holds does not matter here.
+fn record() -> ReproductionRecord {
+    let identity = BuildIdentity {
+        commit: "test".to_owned(),
+        tree: Tree::Clean,
+        target_cpu: "test".to_owned(),
+    };
+    ReproductionRecord::new(
+        PathBuf::from("scene.pbrt"),
+        ContentHash([0; 32]),
+        &options(4, 4),
+        identity,
+    )
+}
+
+#[test]
+fn a_finished_film_is_each_pixels_weighted_mean_in_srgb() {
+    let scene = camera_only();
+    let options = options(4, 4);
+    let mut film = Film::new(&scene, &options).unwrap();
+    let units: Vec<WorkUnit> = Renderer::new(&scene, &options)
+        .unwrap()
+        .decomposition()
+        .work_units()
+        .collect();
+    for unit in units {
+        // Tile 0 is 16 × 16; its sums are XYZ (1, 2, 3) times a weight of 2.
+        let area = [256, 256, 128, 128, 128, 64][unit.tile.0 as usize];
+        let value = if unit.tile.0 == 0 { 2.0 } else { 0.0 };
+        film.accept(&uniform(unit, area, value));
+    }
+    let image = film.finish(record());
+
+    assert_eq!(image.resolution(), Point2i::new(40, 24));
+    // The default sensor's RGB is XYZ; sRGB from XYZ, Rec. ITU-R BT.709
+    // with D65 white, applied to (1, 2, 3).
+    let expected = [
+        3.240_454_2 - 1.537_138_5 * 2.0 - 0.498_531_4 * 3.0,
+        -0.969_266 + 1.876_010_8 * 2.0 + 0.041_556 * 3.0,
+        0.055_643_4 - 0.204_025_9 * 2.0 + 1.057_225_2 * 3.0,
+    ];
+    let pixel = image.pixels()[0];
+    for (channel, (got, want)) in pixel.iter().zip(expected).enumerate() {
+        assert!(
+            (got - want).abs() < 2e-3,
+            "channel {channel}: {got} vs {want}"
+        );
+    }
+    assert_eq!(image.pixels()[39], [0.0; 3], "no weight: black");
 }

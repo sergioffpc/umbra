@@ -6,8 +6,9 @@ use umbra_camera::{
 };
 use umbra_geometry::Bounds2f;
 use umbra_integrators::{SceneView, VolPathIntegrator};
-use umbra_math::{Point2f, Point2i, Transform, Vector2f};
+use umbra_math::{Point2f, Point2i, SquareMatrix, Transform, Vector2f};
 use umbra_sampling::RandomizeStrategy;
+use umbra_spectrum::RGBColorSpace;
 
 use crate::error::SceneError;
 
@@ -207,11 +208,14 @@ impl SceneBuilder {
             return Err(SceneError::FilterRadiusTooSmall);
         }
         let (shutter_open, shutter_close) = self.camera.shutter();
+        let sensor = PixelSensor::cie1931(imaging_ratio(shutter_close - shutter_open));
         Ok(Scene {
             resolution,
             camera: self.build_camera(shutter_open, shutter_close),
             filter: GaussianFilter::new_in(radius, sigma, |n| vec![0.0; n]).into(),
-            sensor: PixelSensor::cie1931(imaging_ratio(shutter_close - shutter_open)),
+            output_rgb_from_sensor_rgb: RGBColorSpace::srgb().rgb_from_xyz()
+                * *sensor.xyz_from_sensor_rgb(),
+            sensor,
             randomize: self.sampler.randomize,
             integrator: self.integrator,
         })
@@ -252,6 +256,7 @@ pub struct Scene {
     camera: CameraKind,
     filter: FilterKind<Vec<f32>>,
     sensor: PixelSensor<'static>,
+    output_rgb_from_sensor_rgb: SquareMatrix<3>,
     randomize: RandomizeStrategy,
     integrator: VolPathIntegrator,
 }
@@ -267,6 +272,15 @@ impl Scene {
     #[must_use]
     pub fn full_resolution(&self) -> Point2i {
         self.resolution
+    }
+
+    /// The matrix from the sensor's RGB to the final image's: sRGB, the
+    /// only output colour space so far.
+    ///
+    /// pbrt-v4 `RGBFilm::outputRGBFromSensorRGB`.
+    #[must_use]
+    pub fn output_rgb_from_sensor_rgb(&self) -> &SquareMatrix<3> {
+        &self.output_rgb_from_sensor_rgb
     }
 
     /// How the sampler randomises its sequence.

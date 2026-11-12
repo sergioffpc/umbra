@@ -18,6 +18,28 @@ pub struct PixelSum {
     pub weight: f64,
 }
 
+impl PixelSum {
+    /// The pixel's sensor RGB: the weighted sum over the sum of weights,
+    /// both narrowed to `f32` first, or the sum itself when no weight was
+    /// added.
+    ///
+    /// pbrt-v4 `RGBFilm::GetPixelRGB`.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "pbrt-v4 narrows its double sums to Float"
+    )]
+    pub fn sensor_rgb(&self) -> [f32; 3] {
+        let rgb = self.rgb.map(|c| c as f32);
+        let weight = self.weight as f32;
+        if weight == 0.0 {
+            rgb
+        } else {
+            rgb.map(|c| c / weight)
+        }
+    }
+}
+
 impl AddAssign<FilmSample> for PixelSum {
     /// Adds one Pixel Sample, as pbrt-v4 does: `weight · rgb` in `f32`,
     /// then summed in `f64`.
