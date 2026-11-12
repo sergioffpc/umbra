@@ -1,0 +1,2106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbra Camera Guide</title>
+<meta name="description" content="How umbra-camera turns a Pixel Sample into a ray and radiance into sensor RGB: coordinate spaces, the pinhole and thin-lens perspective camera, importance-sampled pixel filters, the camera sample and the pixel sensor, with interactive figures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Sister document of docs/math/field-guide.html: same tokens, same layout.
+    One 66ch reading column; each interactive "bench" widens to the full
+    1120px measure. Every section names the source file and PBR 4e section. */
+:root {
+    color-scheme: light;
+    --paper: #f2f4f7;
+    --surface: #ffffff;
+    --ink: #141a24;
+    --muted: #586274;
+    --rule: #d2d9e2;
+    --grid: #e4e9ef;
+    --code: #e9edf3;
+    --accent: #2f43c4;
+    --err: #c0391f;
+    --exact: #1d7a52;
+    --warm: #b4650a;
+    --cx: #c0391f;
+    --cy: #1d7a52;
+    --cz: #2f43c4;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --measure: 66ch;
+    --wide: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --paper: #0d1117;
+        --surface: #141b24;
+        --ink: #e3e8ef;
+        --muted: #94a0b2;
+        --rule: #2a3442;
+        --grid: #1e2732;
+        --code: #1a222d;
+        --accent: #8e9cff;
+        --err: #ff8a6e;
+        --exact: #5fcb98;
+        --warm: #f0a948;
+        --cx: #ff8a6e;
+        --cy: #5fcb98;
+        --cz: #8e9cff;
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0d1117;
+    --surface: #141b24;
+    --ink: #e3e8ef;
+    --muted: #94a0b2;
+    --rule: #2a3442;
+    --grid: #1e2732;
+    --code: #1a222d;
+    --accent: #8e9cff;
+    --err: #ff8a6e;
+    --exact: #5fcb98;
+    --warm: #f0a948;
+    --cx: #ff8a6e;
+    --cy: #5fcb98;
+    --cz: #8e9cff;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.62 var(--text);
+    font-optical-sizing: auto;
+}
+.page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding-block: 3rem 5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+}
+code, kbd, .mono { font-family: var(--mono); font-size: 0.86em; }
+p code, li code, td code, dd code, figcaption code { background: var(--code); padding: 0.05em 0.3em; border-radius: 3px; }
+var, .m { font-family: var(--text); font-style: italic; }
+sub, sup { font-size: 0.72em; line-height: 0; }
+
+/* ---------- prose ---------- */
+.prose { max-width: var(--measure); }
+.prose p, .prose ul, .prose ol { margin: 0 0 1em; }
+.prose li + li { margin-top: 0.35em; }
+.eq {
+    margin: 1.2em 0; padding: 0.8em 1em;
+    border-left: 2px solid var(--rule);
+    font-family: var(--text); font-style: italic; font-size: 1.12rem;
+    overflow-x: auto; white-space: nowrap;
+}
+.eq .note { font-style: normal; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); margin-left: 1.2em; }
+pre.code {
+    margin: 1.2em 0; padding: 0.9em 1.1em; background: var(--code); border-radius: 4px;
+    font: 400 0.82rem/1.55 var(--mono); overflow-x: auto; max-width: var(--measure);
+}
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.callout {
+    max-width: var(--measure); margin: 1.2em 0; padding: 0.8em 1em;
+    border: 1px solid var(--rule); border-left: 3px solid var(--warm); border-radius: 4px;
+    background: var(--surface); font-size: 0.98rem;
+}
+.callout b { font-family: var(--display); }
+
+/* ---------- hero ---------- */
+header.hero { display: grid; gap: 2rem; margin-bottom: 4rem; }
+.kicker {
+    font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+    font: 700 clamp(2.6rem, 7vw, 5.2rem)/0.95 var(--display);
+    letter-spacing: -0.035em; margin: 0.35rem 0 0; text-wrap: balance;
+}
+.lede { font-size: 1.24rem; line-height: 1.5; max-width: 58ch; margin: 0; }
+.howto { max-width: var(--measure); margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+/* the pipeline strip: one Pixel Sample through the crate */
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: stretch; }
+.flow li {
+    flex: 1 1 9.5rem; display: grid; gap: 0.25rem; align-content: start;
+    padding: 0.7rem 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    position: relative;
+}
+.flow li.fn { background: transparent; border-style: dashed; }
+.flow .ty { font: 600 0.86rem/1.25 var(--mono); }
+.flow .ty a { color: var(--ink); text-decoration: none; }
+.flow .ty a:hover { color: var(--accent); }
+.flow .what { font: 400 0.74rem/1.4 var(--mono); color: var(--muted); }
+.flow .who { font: 600 0.6rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.flow .who.ext { color: var(--muted); }
+
+.toc h2 { font: 600 0.72rem/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.8rem; }
+.toc-cols { display: grid; gap: 1.5rem 3rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .toc-cols { grid-template-columns: minmax(0, 1fr); } }
+.toc-part { display: grid; gap: 0.5rem; align-content: start; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.toc li a {
+    display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 0 0.4rem;
+    padding: 0.45rem 0; border-bottom: 1px solid var(--grid); color: var(--ink); text-decoration: none;
+}
+.toc li a:hover .t { color: var(--accent); }
+.toc .n { font: 600 0.8rem/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc .t { font: 500 1rem/1.35 var(--display); }
+.toc .c { grid-column: 2; font: 400 0.72rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- parts and sections ---------- */
+.part { margin: 5rem 0 2.5rem; display: grid; gap: 0.4rem; border-top: 3px solid var(--ink); padding-top: 1rem; }
+.part h2 { font: 700 clamp(1.8rem, 4vw, 2.6rem)/1.05 var(--display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.part p { margin: 0.5rem 0 0; max-width: var(--measure); color: var(--muted); }
+section.topic { margin: 0 0 4.5rem; scroll-margin-top: 1rem; }
+.topic-head { display: grid; gap: 0.35rem; margin-bottom: 1.2rem; max-width: var(--measure); }
+.eyebrow { font: 400 0.74rem/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.eyebrow .crate { color: var(--accent); font-weight: 600; }
+.eyebrow .no { color: var(--ink); font-weight: 600; margin-right: 0.4em; }
+h3 { font: 700 clamp(1.45rem, 3vw, 1.95rem)/1.12 var(--display); letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+h4 { font: 600 1.05rem/1.3 var(--display); margin: 1.8rem 0 0.5rem; }
+
+/* ---------- benches (interactive figures) ---------- */
+figure.bench {
+    margin: 1.6rem 0; padding: 1.1rem; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 1rem;
+}
+figure.bench figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.bench figcaption b { color: var(--ink); font-weight: 600; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: end; }
+.ctl { display: grid; gap: 0.25rem; min-width: 0; }
+.ctl label, .lbl { font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ctl output { font: 400 0.82rem var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.ctl .row { display: flex; gap: 0.6rem; align-items: center; }
+input[type="range"] { width: min(12rem, 62vw); accent-color: var(--accent); }
+select {
+    font: 400 0.88rem var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4em 0.55em; min-width: 0;
+}
+button {
+    font: 600 0.78rem/1 var(--mono); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.55em 0.8em; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trio { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 820px) {
+    .split, .split.even, .trio { grid-template-columns: minmax(0, 1fr); }
+}
+canvas { display: block; width: 100%; max-width: 100%; border-radius: 4px; background: var(--paper); touch-action: none; }
+.cv-wide { aspect-ratio: 16 / 7; }
+.cv-mid { aspect-ratio: 4 / 3; }
+.cv-sq { aspect-ratio: 1 / 1; }
+.cv-strip { aspect-ratio: 16 / 3.6; }
+.cv-render { aspect-ratio: 16 / 9; image-rendering: auto; cursor: crosshair; }
+@media (max-width: 560px) { .cv-wide { aspect-ratio: 4 / 3; } .cv-strip { aspect-ratio: 16 / 6; } }
+.panel-title { font: 600 0.72rem/1.3 var(--mono); color: var(--muted); margin: 0 0 0.4rem; letter-spacing: 0.03em; }
+.panel-foot { font: 400 0.76rem/1.4 var(--mono); color: var(--muted); margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+dl.readout { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 1rem; margin: 0; font: 400 0.82rem/1.45 var(--mono); }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ok { color: var(--exact); }
+.bad { color: var(--err); }
+.acc { color: var(--accent); }
+.mut { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font: 400 0.74rem var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em; border-radius: 2px; background: var(--sw); }
+table.data { border-collapse: collapse; font: 400 0.8rem/1.4 var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+table.data th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 0.35rem 0.6rem 0.35rem 0; }
+table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.35rem 0; vertical-align: top; }
+table.data.matrix td { text-align: right; }
+.tablewrap { overflow-x: auto; }
+.swatch { display: inline-block; width: 2.4em; height: 1.2em; border-radius: 3px; vertical-align: -0.25em; border: 1px solid var(--rule); }
+.sources { columns: 2 22rem; column-gap: 2.5rem; font-size: 0.95rem; }
+.sources li { break-inside: avoid; margin-bottom: 0.5em; }
+footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- plain-words boxes, diagrams, maths boxes ---------- */
+.plain {
+    max-width: var(--measure); margin: 0 0 1.4rem; padding: 0.9em 1.1em;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    border-left: 3px solid var(--accent); border-radius: 6px; font-size: 1.04rem;
+}
+.plain .tag { display: block; margin-bottom: 0.3em; font: 600 0.68rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+figure.diagram { margin: 1.6rem 0; padding: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; display: grid; gap: 0.8rem; }
+figure.diagram figcaption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); max-width: 90ch; }
+figure.diagram figcaption b { color: var(--ink); }
+.dg-wrap { overflow-x: auto; }
+.dg-wrap svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.dg-wide { min-width: 600px; max-width: 900px; }
+.dg-mid { min-width: 420px; max-width: 560px; }
+.dg-chain { min-width: 760px; }
+svg text { font-family: var(--mono); font-size: 13px; fill: var(--ink); }
+svg .t-bold { font-weight: 600; font-family: var(--display); font-size: 15px; }
+svg .t-mut { fill: var(--muted); }
+svg .t-acc { fill: var(--accent); }
+svg .t-warm { fill: var(--warm); }
+svg .k-ink { stroke: var(--ink); }
+svg .k-mut { stroke: var(--muted); }
+svg .k-acc { stroke: var(--accent); }
+svg .k-warm { stroke: var(--warm); }
+svg .k-cx { stroke: var(--cx); }
+svg .k-bad { stroke: var(--err); }
+svg .f-ink { fill: var(--ink); }
+svg .f-mut { fill: var(--muted); }
+svg .f-acc { fill: var(--accent); }
+svg .f-warm { fill: var(--warm); }
+svg .f-surf { fill: var(--surface); }
+svg .f-acc-soft { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+svg .f-warm-soft { fill: color-mix(in srgb, var(--warm) 22%, transparent); }
+svg .f-mut-soft { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
+svg .f-cx-soft { fill: color-mix(in srgb, var(--cx) 22%, transparent); }
+svg line, svg path, svg polyline, svg rect, svg circle, svg ellipse { vector-effect: non-scaling-stroke; }
+svg .step circle { fill: var(--accent); }
+svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 820px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+.card svg { display: block; width: 100%; height: auto; max-height: 220px; }
+.card h4 { margin: 0.3rem 0 0; }
+.card p { margin: 0; font-size: 0.98rem; }
+.card .f, .mb-f { font: italic 400 1.02rem/1.55 var(--text); padding: 0.5em 0.8em; background: var(--code); border-radius: 4px; overflow-x: auto; }
+.mathbox { margin: 1.6rem 0; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.mb-head { padding: 0.55rem 1rem; font: 600 0.7rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--surface); background: var(--ink); }
+.mb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; padding: 0.8rem 1rem; border-top: 1px solid var(--grid); align-items: center; }
+.mb-row:first-of-type { border-top: 0; }
+.mb-d { font-size: 0.95rem; }
+@media (max-width: 720px) { .mb-row { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; } }
+.hl-acc { color: var(--accent); font-weight: 600; }
+.hl-warm { color: var(--warm); font-weight: 600; }
+.howto b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Shared arrowheads for every diagram. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-ink"/></marker>
+        <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-acc"/></marker>
+        <marker id="ah-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-warm"/></marker>
+        <marker id="ah-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-mut"/></marker>
+    </defs>
+</svg>
+
+<header class="hero">
+    <div>
+        <div class="kicker">crates/umbra-camera/docs · Umbra, a pbrt-v4 renderer in Rust</div>
+        <h1>Umbra Camera Guide</h1>
+    </div>
+    <p class="lede">How does a renderer decide what each pixel shows? It shoots rays out of a virtual camera, one per Pixel Sample, and measures the light that comes back along them. <code>umbra-camera</code> handles both ends of that trip. This guide explains each step in pictures first and formulas second. It assumes only school maths.</p>
+
+    <figure class="diagram" aria-labelledby="big-cap">
+        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The camera's job in four steps">
+            <!-- lens -->
+            <ellipse cx="80" cy="160" rx="7" ry="34" class="f-surf k-ink" stroke-width="2"/>
+            <text x="80" y="215" text-anchor="middle">lens or pinhole</text>
+            <!-- film -->
+            <rect x="230" y="70" width="24" height="180" class="f-surf k-ink" stroke-width="1.5"/>
+            <rect x="230" y="130" width="24" height="30" class="f-acc-soft"/>
+            <path d="M230 100 H254 M230 130 H254 M230 160 H254 M230 190 H254 M230 220 H254" class="k-mut"/>
+            <text x="242" y="60" text-anchor="middle">film (pixels)</text>
+            <!-- ray -->
+            <line x1="80" y1="160" x2="644" y2="94" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <circle cx="242" cy="141" r="5" class="f-warm"/>
+            <!-- object -->
+            <circle cx="690" cy="100" r="45" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <!-- light -->
+            <circle cx="830" cy="250" r="13" class="f-warm"/>
+            <path d="M830 228 V220 M852 250 H860 M845 235 L851 229 M815 235 L809 229" class="k-warm" stroke-width="2"/>
+            <line x1="815" y1="240" x2="712" y2="143" class="k-warm" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#ah-warm)"/>
+            <line x1="636" y1="112" x2="262" y2="156" class="k-warm" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#ah-warm)"/>
+            <!-- steps -->
+            <g class="step"><circle cx="160" cy="282" r="11"/><text x="160" y="286" text-anchor="middle">1</text></g>
+            <text x="178" y="286">pick a point inside a pixel</text>
+            <g class="step"><circle cx="420" cy="182" r="11"/><text x="420" y="186" text-anchor="middle">2</text></g>
+            <text x="438" y="186">make a ray from the lens through it</text>
+            <g class="step"><circle cx="640" cy="30" r="11"/><text x="640" y="34" text-anchor="middle">3</text></g>
+            <text x="658" y="34">the ray hits something</text>
+            <g class="step"><circle cx="330" cy="40" r="11"/><text x="330" y="44" text-anchor="middle">4</text></g>
+            <text x="348" y="44">light comes back → weighted → RGB</text>
+        </svg></div>
+        <figcaption id="big-cap">The camera's job, step by step. Steps 1 and 2 happen in <a href="#camera-sample"><code>get_camera_sample</code></a> and <a href="#spaces"><code>generate_ray</code></a>. Step 3 is the integrator's job, in another crate. Step 4 is the <a href="#filter">filter weight</a> and the <a href="#sensor">sensor</a>. Repeat this many times per pixel, average the results, and the image appears.</figcaption>
+    </figure>
+
+    <ol class="flow" aria-label="One Pixel Sample through umbra-camera, as types and functions">
+        <li><span class="who ext">umbra-sampling</span><span class="ty">Sampler</span><span class="what">gives numbers in [0, 1)</span></li>
+        <li class="fn"><span class="who">umbra-camera</span><span class="ty"><a href="#camera-sample">get_camera_sample</a></span><span class="what">numbers → where on film and lens</span></li>
+        <li><span class="who">umbra-camera</span><span class="ty"><a href="#camera-sample">CameraSample</a></span><span class="what">p_film, p_lens, time, filter_weight</span></li>
+        <li class="fn"><span class="who">umbra-camera</span><span class="ty"><a href="#spaces">generate_ray</a></span><span class="what">film point → ray</span></li>
+        <li><span class="who ext">umbra-integrators</span><span class="ty">L(λ)</span><span class="what">light found along the ray</span></li>
+        <li class="fn"><span class="who">umbra-camera</span><span class="ty"><a href="#sensor">to_sensor_rgb</a></span><span class="what">light → sensor RGB</span></li>
+        <li><span class="who ext">umbra-render</span><span class="ty">Film</span><span class="what">weighted average per pixel</span></li>
+    </ol>
+
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last comes an interactive figure: move the sliders and watch the result change. New to the symbols? Start with <a href="#toolkit">section 0</a>. The figures repeat the Rust code's operations in JavaScript (in double precision, so the last digits can differ from Umbra's). Section references (“PBR 4e §5.2”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows. The matrix maths of <code>perspective()</code> is covered in more depth in the <a href="../../umbra-math/docs/field-guide.html">Umbra Math Field Guide</a>.</p>
+
+    <nav class="toc" aria-labelledby="toc-h">
+        <h2 id="toc-h">Contents</h2>
+        <div class="toc-cols">
+            <div class="toc-part">
+                <div class="kicker">Part I · Theory</div>
+                <ol>
+                    <li><a href="#toolkit"><span class="n">0</span><span class="t">The maths toolkit, in pictures</span><span class="c">vectors, angles, matrices, averages</span></a></li>
+                    <li><a href="#measurement"><span class="n">1</span><span class="t">What a pixel measures</span><span class="c">many samples, one weighted average</span></a></li>
+                    <li><a href="#spaces"><span class="n">2</span><span class="t">From a pixel to a ray: the pinhole</span><span class="c">PerspectiveCamera::new · generate_ray</span></a></li>
+                    <li><a href="#thin-lens"><span class="n">3</span><span class="t">The thin lens and depth of field</span><span class="c">ThinLens · concentric disc</span></a></li>
+                    <li><a href="#filter"><span class="n">4</span><span class="t">Pixel filters</span><span class="c">GaussianFilter · FilterSampler</span></a></li>
+                    <li><a href="#camera-sample"><span class="n">5</span><span class="t">The camera sample</span><span class="c">get_camera_sample · draw order</span></a></li>
+                    <li><a href="#sensor"><span class="n">6</span><span class="t">The pixel sensor: light to colour</span><span class="c">PixelSensor::to_sensor_rgb</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Part II · Implementation</div>
+                <ol>
+                    <li><a href="#map"><span class="n">7</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 sources</span></a></li>
+                    <li><a href="#dispatch"><span class="n">8</span><span class="t">Closed enums instead of trait objects</span><span class="c">CameraKind · FilterKind · ADR 0006</span></a></li>
+                    <li><a href="#storage"><span class="n">9</span><span class="t">A filter table without an allocator</span><span class="c">FilterSampler&lt;S&gt; · view() · ADR 0014</span></a></li>
+                    <li><a href="#render-space"><span class="n">10</span><span class="t">Camera-world rendering space</span><span class="c">CameraTransform</span></a></li>
+                    <li><a href="#tests"><span class="n">11</span><span class="t">Checked against pbrt-v4</span><span class="c">tests/umbra_camera</span></a></li>
+                    <li><a href="#not-yet"><span class="n">12</span><span class="t">Not here yet</span><span class="c">what later milestones add</span></a></li>
+                </ol>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part I · Theory</div>
+    <h2>How a camera sees</h2>
+    <p>For every Pixel Sample a camera answers two questions. Which ray does it follow into the scene? And how much does the light coming back along that ray count in the image?</p>
+</div>
+
+<section class="topic" id="toolkit">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">0</span>background · used by every section</div>
+        <h3>The maths toolkit, in pictures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The whole guide uses only five ideas: arrows with a length, angles turned into heights, boxes of numbers that move points, areas under curves, and averages. Each one has a picture below. If a formula later looks scary, come back here.</div>
+
+    <div class="cards">
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="A vector and its normalised version">
+                <path d="M40 170 H240 M40 170 V10" class="k-mut"/>
+                <path d="M80 170 A40 40 0 0 0 40 130" class="k-mut" stroke-dasharray="4 4" fill="none"/>
+                <line x1="40" y1="170" x2="158" y2="91" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+                <line x1="40" y1="170" x2="72" y2="149" class="k-warm" stroke-width="3.5" marker-end="url(#ah-warm)"/>
+                <text x="164" y="88">v = (3, 2)</text>
+                <text x="84" y="190" class="t-warm">normalize(v): length 1</text>
+                <text x="60" y="30">|v| = √(3² + 2²) ≈ 3.61</text>
+            </svg>
+            <h4>Points, vectors, length</h4>
+            <p>A <b>point</b> is a place, (x, y, z). A <b>vector</b> is an arrow: a direction and a length. A ray is a starting point plus a direction vector. Only the direction matters there, so the code shrinks the arrow to length 1. That is <em>normalising</em>.</p>
+            <div class="f">|v| = √(x² + y² + z²) &nbsp; normalize(v) = v ⁄ |v|</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 260 200" role="img" aria-label="tan of an angle as a height at distance one">
+                <line x1="30" y1="160" x2="210" y2="160" class="k-ink" stroke-width="1.5"/>
+                <line x1="210" y1="160" x2="210" y2="60" class="k-warm" stroke-width="3"/>
+                <line x1="30" y1="160" x2="210" y2="60" class="k-acc" stroke-width="2"/>
+                <path d="M70 160 A40 40 0 0 0 65 140.6" class="k-ink" fill="none"/>
+                <text x="76" y="153">θ</text>
+                <text x="120" y="182" text-anchor="middle">1 (straight ahead)</text>
+                <text x="217" y="115" class="t-warm">tan θ</text>
+                <circle cx="30" cy="160" r="4" class="f-ink"/>
+            </svg>
+            <h4>Angles become heights: tan</h4>
+            <p>Look straight ahead and raise your eyes by an angle θ. At distance 1 you are looking at height <b>tan θ</b>. That is how the camera's field of view becomes the size of the image: half the view angle gives half the image height.</p>
+            <div class="f">height at distance 1 = tan θ</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 190" role="img" aria-label="A square scaled and then translated">
+                <line x1="30" y1="150" x2="500" y2="150" class="k-mut"/>
+                <rect x="40" y="110" width="40" height="40" class="f-mut-soft k-mut"/>
+                <rect x="40" y="90" width="80" height="60" class="k-acc" fill="none" stroke-dasharray="5 4" stroke-width="1.6"/>
+                <rect x="200" y="90" width="80" height="60" class="f-warm-soft k-warm" stroke-width="1.6"/>
+                <line x1="126" y1="120" x2="194" y2="120" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
+                <text x="60" y="170" text-anchor="middle">unit square</text>
+                <text x="80" y="80" text-anchor="middle" class="t-acc">scale(2, 1.5)</text>
+                <text x="240" y="80" text-anchor="middle" class="t-warm">translate(4, 0)</text>
+                <text x="300" y="125">matrices chain:</text>
+                <text x="300" y="143">translate · scale</text>
+                <text x="300" y="161" class="t-mut">read right to left</text>
+            </svg>
+            <h4>Matrices move points</h4>
+            <p>A 4 × 4 <b>matrix</b> is a recipe that moves every point the same way: stretch it (<code>scale</code>), slide it (<code>translate</code>), turn it, or squash it with distance (<code>perspective</code>). Recipes chain by multiplying, read right to left, and the <b>inverse</b> undoes a recipe. The camera builds the recipe “camera → pixels” and then inverts it to go from pixels back to the camera.</p>
+            <div class="f">scale(a, b, c): (x, y, z) ↦ (a·x, b·y, c·z)<br>translate(t): p ↦ p + t</div>
+        </div>
+        <div class="card">
+            <svg viewBox="0 0 520 200" role="img" aria-label="Monte Carlo: uniform samples against importance samples">
+                <path d="M20 168.2 L23.7 167.6 L27.3 166.9 L31 166 L34.7 164.8 L38.3 163.5 L42 161.8 L45.7 159.8 L49.3 157.4 L53 154.6 L56.7 151.4 L60.3 147.6 L64 143.4 L67.7 138.7 L71.3 133.6 L75 127.9 L78.7 121.8 L82.3 115.4 L86 108.6 L89.7 101.7 L93.3 94.7 L97 87.7 L100.7 80.9 L104.3 74.5 L108 68.5 L111.7 63.2 L115.3 58.6 L119 54.9 L122.7 52.2 L126.3 50.6 L130 50 L133.7 50.6 L137.3 52.2 L141 54.9 L144.7 58.6 L148.3 63.2 L152 68.5 L155.7 74.5 L159.3 80.9 L163 87.7 L166.7 94.7 L170.3 101.7 L174 108.6 L177.7 115.4 L181.3 121.8 L185 127.9 L188.7 133.6 L192.3 138.7 L196 143.4 L199.7 147.6 L203.3 151.4 L207 154.6 L210.7 157.4 L214.3 159.8 L218 161.8 L221.7 163.5 L225.3 164.8 L229 166 L232.7 166.9 L236.3 167.6 L240 168.2 L240 170 L20 170 Z" class="f-acc-soft k-acc"/>
+                <path d="M35 170 V164.7 M75 170 V127.9 M110 170 V65.5 M150 170 V65.5 M200 170 V148 M230 170 V166.2" class="k-warm" stroke-width="3"/>
+                <path d="M280 168.2 L283.7 167.6 L287.3 166.9 L291 166 L294.7 164.8 L298.3 163.5 L302 161.8 L305.7 159.8 L309.3 157.4 L313 154.6 L316.7 151.4 L320.3 147.6 L324 143.4 L327.7 138.7 L331.3 133.6 L335 127.9 L338.7 121.8 L342.3 115.4 L346 108.6 L349.7 101.7 L353.3 94.7 L357 87.7 L360.7 80.9 L364.3 74.5 L368 68.5 L371.7 63.2 L375.3 58.6 L379 54.9 L382.7 52.2 L386.3 50.6 L390 50 L393.7 50.6 L397.3 52.2 L401 54.9 L404.7 58.6 L408.3 63.2 L412 68.5 L415.7 74.5 L419.3 80.9 L423 87.7 L426.7 94.7 L430.3 101.7 L434 108.6 L437.7 115.4 L441.3 121.8 L445 127.9 L448.7 133.6 L452.3 138.7 L456 143.4 L459.7 147.6 L463.3 151.4 L467 154.6 L470.7 157.4 L474.3 159.8 L478 161.8 L481.7 163.5 L485.3 164.8 L489 166 L492.7 166.9 L496.3 167.6 L500 168.2 L500 170 L280 170 Z" class="f-acc-soft k-acc"/>
+                <path d="M345 170 V110.5 M365 170 V73.4 M380 170 V54.1 M395 170 V51 M410 170 V65.5 M430 170 V101" class="k-warm" stroke-width="3"/>
+                <text x="130" y="28" text-anchor="middle">uniform: spots anywhere</text>
+                <text x="390" y="28" text-anchor="middle">importance: spots where it matters</text>
+                <text x="130" y="192" text-anchor="middle" class="t-mut">area ≈ width × average height</text>
+                <text x="390" y="192" text-anchor="middle" class="t-mut">area ≈ average of f(x) ⁄ p(x)</text>
+            </svg>
+            <h4>Areas under curves, estimated by averaging</h4>
+            <p>The <b>integral</b> ∫ f(x) dx is the area under a curve. Rendering is full of such areas, and none can be computed exactly. <b>Monte Carlo</b> estimates the area by measuring the height at random spots and averaging. More spots give a better estimate. <b>Importance sampling</b> picks spots more often where the curve is tall. To stay fair, each measurement is divided by how likely its spot was, the <b>probability density</b> p(x). If p has exactly the shape of f, every measurement f ⁄ p gives the same number, the true area. This trick drives the <a href="#filter">pixel filter</a> and the <a href="#sensor">sensor</a>.</p>
+            <div class="f">∫ f(x) dx ≈ (1⁄N) Σ f(x<sub>i</sub>) ⁄ p(x<sub>i</sub>)</div>
+        </div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:1.4rem; max-width: 52rem">
+        <table class="data symbols">
+            <thead><tr><th>symbol</th><th>read it as</th><th>example in this guide</th></tr></thead>
+            <tbody>
+                <tr><td>∫ … d<var>x</var></td><td>the area under a curve</td><td>how much light a pixel collects</td></tr>
+                <tr><td>Σ</td><td>add up a list</td><td>Σ <var>w</var> = the sum of all weights</td></tr>
+                <tr><td><var>p</var>(<var>x</var>)</td><td>how likely the spot <var>x</var> was to be picked</td><td>the filter's or the wavelength's density</td></tr>
+                <tr><td>|<var>v</var>|</td><td>length of an arrow</td><td><code>normalize</code> divides by it</td></tr>
+                <tr><td>[0, 1)</td><td>from 0, up to but not including 1</td><td>what the sampler hands out</td></tr>
+                <tr><td><var>λ</var> (lambda)</td><td>a wavelength of light, in nanometres</td><td>380 nm is violet, 700 nm is red</td></tr>
+                <tr><td><var>σ</var> (sigma)</td><td>how wide a bell curve is</td><td>the Gaussian filter's width</td></tr>
+                <tr><td><var>θ</var> (theta)</td><td>an angle</td><td>half the field of view</td></tr>
+                <tr><td>⌊<var>x</var>⌋, int(<var>x</var>)</td><td>round down to a whole number</td><td>the size of the filter table</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="topic" id="measurement">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-camera</span> · PBR 4e §5.1, §5.4, §8.8</div>
+        <h3>What a pixel measures</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A pixel is a small light bucket, not a dot. Light reaches it from slightly different spots on the film, through different parts of the lens, while the shutter is open, in every colour of the rainbow. The renderer can't add all of that up exactly. Instead it takes many random <em>Pixel Samples</em>, gives each one a weight, and averages them.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 220" class="dg-wide" role="img" aria-label="Many Pixel Samples in a pixel, each with a weight, averaged into one value">
+            <rect x="30" y="40" width="150" height="150" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="105" y="28" text-anchor="middle">one pixel</text>
+            <circle cx="62" cy="70" r="6" style="fill:hsl(0,65%,52%)"/>
+            <circle cx="140" cy="62" r="6" style="fill:hsl(137,65%,42%)"/>
+            <circle cx="98" cy="118" r="6" style="fill:hsl(275,65%,52%)"/>
+            <circle cx="150" cy="160" r="6" style="fill:hsl(52,75%,45%)"/>
+            <circle cx="60" cy="165" r="6" style="fill:hsl(190,65%,45%)"/>
+            <line x1="190" y1="115" x2="250" y2="115" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="265" y="62">sample 1: weight w₁, colour c₁</text>
+            <text x="265" y="88">sample 2: weight w₂, colour c₂</text>
+            <text x="265" y="114">sample 3: weight w₃, colour c₃</text>
+            <text x="265" y="140" class="t-mut">…</text>
+            <text x="265" y="166">sample N: weight w<tspan font-size="10" dy="3">N</tspan><tspan dy="-3">, colour c</tspan><tspan font-size="10" dy="3">N</tspan></text>
+            <line x1="520" y1="115" x2="570" y2="115" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="585" y="70" width="160" height="90" rx="6" class="f-acc-soft k-acc"/>
+            <text x="665" y="105" text-anchor="middle">pixel value =</text>
+            <text x="665" y="132" text-anchor="middle" class="t-acc">Σ w·c ⁄ Σ w</text>
+        </svg></div>
+        <figcaption>What the Film does with Pixel Samples. Each sample's weight is the <a href="#filter">filter weight</a>, and its colour is the <a href="#sensor">sensor</a> RGB of the light it found.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The full integral for one channel of pixel (<var>x</var>, <var>y</var>) has one ∫ for each thing that varies: film position, lens position, time and wavelength. <var>f</var> is the pixel filter and <var>r̄</var> the sensor's colour response:</p>
+        <div class="eq">I(x, y) = ∫<sub>film</sub> ∫<sub>lens</sub> ∫<sub>time</sub> ∫<sub>λ</sub> f(p − (x, y)) · r̄(λ) · L(p, p<sub>lens</sub>, t, λ) dλ dt dp<sub>lens</sub> dp</div>
+        <p>Monte Carlo replaces each ∫ with “pick a random value, divide by how likely it was”. The result splits neatly into the two halves of the crate:</p>
+        <div class="eq">one Pixel Sample = <span class="hl-acc">f(p) ⁄ p<sub>f</sub>(p)</span> × <span class="hl-warm">r̄(λ) L(λ) ⁄ p<sub>λ</sub>(λ)</span></div>
+        <ul>
+            <li><span class="hl-acc">The first factor</span> is the <code>filter_weight</code> of a <a href="#camera-sample"><code>CameraSample</code></a>.</li>
+            <li><span class="hl-warm">The second factor</span> is what <a href="#sensor"><code>PixelSensor::to_sensor_rgb</code></a> returns.</li>
+            <li>Between the two, <code>Camera::generate_ray</code> decides <em>which</em> light <var>L</var> gets measured, by turning the film and lens points into a ray.</li>
+        </ul>
+    </div>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="spaces">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-camera</span> · <a href="../src/camera.rs">camera.rs</a> · <code>PerspectiveCamera::new</code>, <code>generate_ray</code> · PBR 4e §5.1.1, §5.2</div>
+        <h3>From a pixel to a ray: the pinhole</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Picture a window in front of your eye, divided into a grid of pixels. To see what one pixel shows, draw a line from your eye through that pixel and keep going. That line is the ray. Most of the code converts “a position in pixels” into “a position on that window”, in a few small steps.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 520 260" class="dg-mid" role="img" aria-label="Side view of a pinhole camera: eye, image plane at distance one, field of view">
+            <line x1="40" y1="130" x2="500" y2="130" class="k-mut"/>
+            <text x="490" y="146" text-anchor="end" class="t-mut">+z (forward)</text>
+            <line x1="40" y1="130" x2="240" y2="15" class="k-mut" stroke-dasharray="5 4"/>
+            <line x1="40" y1="130" x2="240" y2="245" class="k-mut" stroke-dasharray="5 4"/>
+            <line x1="240" y1="15" x2="240" y2="245" class="k-ink" stroke-width="3"/>
+            <path d="M234 38 H246 M234 61 H246 M234 84 H246 M234 107 H246 M234 153 H246 M234 176 H246 M234 199 H246 M234 222 H246" class="k-ink"/>
+            <path d="M90 130 A50 50 0 0 0 83.3 105" class="k-ink" fill="none" stroke-width="1.5"/>
+            <text x="97" y="118">fov⁄2</text>
+            <path d="M258 130 H264 V15 H258" class="k-warm" fill="none" stroke-width="1.5"/>
+            <text x="270" y="78" class="t-warm">tan(fov⁄2)</text>
+            <text x="140" y="250" text-anchor="middle" class="t-mut">distance 1</text>
+            <line x1="40" y1="130" x2="500" y2="24" class="k-acc" stroke-width="2.2" marker-end="url(#ah-acc)"/>
+            <circle cx="240" cy="84" r="5" class="f-warm"/>
+            <text x="300" y="104" class="t-acc">ray d = normalize(p)</text>
+            <circle cx="40" cy="130" r="5" class="f-ink"/>
+            <text x="40" y="156" text-anchor="middle">eye (0, 0, 0)</text>
+            <text x="234" y="262" text-anchor="end" class="t-mut">image plane</text>
+        </svg></div>
+        <figcaption>A pinhole camera from the side. The image plane sits 1 unit ahead of the eye. Its half-height is tan(fov⁄2), so a wider field of view means a bigger plane, and the same number of pixels then covers more of the scene.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The film position <code>p_film</code> arrives in <b>raster</b> coordinates, counted in pixels from the top-left corner with <var>y</var> going <em>down</em>. The ray must leave the camera in <b>camera space</b>: the eye at (0, 0, 0) looking along +<var>z</var>, with +<var>y</var> up and +<var>x</var> to the right. In between are two helper spaces. The diagram shows the whole chain:</p>
+    </div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 980 225" class="dg-chain" role="img" aria-label="The chain of coordinate spaces: raster, NDC, screen, camera, rendering">
+            <!-- 1 raster -->
+            <text x="90" y="24" text-anchor="middle" class="t-bold">1 · raster</text>
+            <rect x="30" y="45" width="120" height="90" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M60 45 V135 M90 45 V135 M120 45 V135 M30 75 H150 M30 105 H150" class="k-mut"/>
+            <circle cx="30" cy="45" r="4" class="f-warm"/>
+            <text x="35" y="60" font-size="11">(0,0)</text>
+            <text x="90" y="156" text-anchor="middle" class="t-mut">pixels, y down</text>
+            <!-- 2 ndc -->
+            <text x="290" y="24" text-anchor="middle" class="t-bold">2 · NDC</text>
+            <rect x="245" y="45" width="90" height="90" class="f-surf k-ink" stroke-width="1.5"/>
+            <circle cx="245" cy="45" r="4" class="f-warm"/>
+            <text x="250" y="60" font-size="11">(0,0)</text>
+            <text x="330" y="130" font-size="11" text-anchor="end">(1,1)</text>
+            <text x="290" y="156" text-anchor="middle" class="t-mut">0 to 1, y down</text>
+            <!-- 3 screen -->
+            <text x="490" y="24" text-anchor="middle" class="t-bold">3 · screen</text>
+            <path d="M490 40 V140 M410 90 H570" class="k-mut"/>
+            <rect x="425" y="57" width="130" height="66" class="k-acc" fill="none" stroke-width="1.8"/>
+            <text x="496" y="50" font-size="11">+y</text>
+            <text x="490" y="156" text-anchor="middle" class="t-mut">short side −1 to 1, y up</text>
+            <!-- 4 camera -->
+            <text x="690" y="24" text-anchor="middle" class="t-bold">4 · camera</text>
+            <line x1="625" y1="90" x2="768" y2="90" class="k-mut" marker-end="url(#ah-mut)"/>
+            <path d="M625 90 L760 48 M625 90 L760 132" class="k-acc" stroke-width="1.5"/>
+            <line x1="700" y1="67" x2="700" y2="113" class="k-ink" stroke-width="2.5"/>
+            <circle cx="625" cy="90" r="4.5" class="f-ink"/>
+            <text x="742" y="108" font-size="11">+z</text>
+            <text x="690" y="156" text-anchor="middle" class="t-mut">eye at 0, looks along +z</text>
+            <!-- 5 rendering -->
+            <text x="890" y="24" text-anchor="middle" class="t-bold">5 · rendering</text>
+            <path d="M840 130 H900 M840 130 V75" class="k-mut" marker-end="url(#ah-mut)"/>
+            <rect x="870" y="78" width="34" height="22" rx="3" class="f-surf k-ink" stroke-width="1.5"/>
+            <path d="M904 84 L922 76 V102 L904 94 Z" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="890" y="156" text-anchor="middle" class="t-mut">world, camera moved to 0</text>
+            <!-- arrows -->
+            <line x1="160" y1="90" x2="232" y2="90" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <line x1="345" y1="90" x2="402" y2="90" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <line x1="575" y1="90" x2="612" y2="90" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <line x1="782" y1="90" x2="828" y2="90" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <text x="196" y="190" text-anchor="middle" class="t-acc">÷ resolution</text>
+            <text x="196" y="206" text-anchor="middle" class="t-acc">flip y</text>
+            <text x="374" y="190" text-anchor="middle" class="t-acc">stretch to the</text>
+            <text x="374" y="206" text-anchor="middle" class="t-acc">screen window</text>
+            <text x="593" y="190" text-anchor="middle" class="t-acc">undo</text>
+            <text x="593" y="206" text-anchor="middle" class="t-acc">perspective</text>
+            <text x="805" y="190" text-anchor="middle" class="t-acc">render_from</text>
+            <text x="805" y="206" text-anchor="middle" class="t-acc">_camera</text>
+        </svg></div>
+        <figcaption>The trip a film position makes. Steps 1 → 4 are the single matrix <code>camera_from_raster</code>, built once when the camera is created. Step 5 happens to the finished ray (see <a href="#render-space">section 10</a>).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <ul>
+            <li><b>Screen space</b> is the image plane. The <em>screen window</em> covers it: the shorter side of the image spans −1 to 1, and the longer side is stretched by the aspect ratio. A 16 × 9 image gets [−16⁄9, 16⁄9] × [−1, 1].</li>
+            <li><b>NDC</b> (normalised device coordinates) squeezes that window into 0 to 1, starting at its top-left corner.</li>
+            <li><b>Raster</b> multiplies NDC by the number of pixels and flips <var>y</var> to point down.</li>
+        </ul>
+        <p><code>PerspectiveCamera::new</code> writes that chain from the camera's side, in the same operations as pbrt-v4, and keeps only the inverse, which runs from the pixel back to the camera:</p>
+<pre class="code"><span class="k">let</span> screen_from_camera = perspective(fov, <span class="k">1e-2</span>, <span class="k">1000.0</span>);
+<span class="k">let</span> ndc_from_screen = scale(<span class="k">1.0</span> / (p_max.x - p_min.x), <span class="k">1.0</span> / (p_max.y - p_min.y), <span class="k">1.0</span>)
+    * translate(Vector3f::new(-p_min.x, -p_max.y, <span class="k">0.0</span>));
+<span class="k">let</span> raster_from_ndc = scale(resolution.x, -resolution.y, <span class="k">1.0</span>);
+<span class="k">let</span> raster_from_screen = raster_from_ndc * ndc_from_screen;
+<span class="k">let</span> camera_from_raster = screen_from_camera.inverse() * raster_from_screen.inverse();</pre>
+        <p>Making a pinhole ray then takes one matrix application and one normalisation. Every ray starts at the eye:</p>
+<pre class="code"><span class="k">let</span> p_camera = <span class="k">self</span>.camera_from_raster.apply(Point3f::new(p_film.x, p_film.y, <span class="k">0.0</span>));
+<span class="k">let</span> ray = Ray::new(Point3f::new(<span class="k">0.0</span>, <span class="k">0.0</span>, <span class="k">0.0</span>), Vector3f::from(p_camera).normalize());</pre>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">x<sub>ndc</sub> = (x<sub>s</sub> − p<sub>min,x</sub>) ⁄ (p<sub>max,x</sub> − p<sub>min,x</sub>)<br>y<sub>ndc</sub> = (p<sub>max,y</sub> − y<sub>s</sub>) ⁄ (p<sub>max,y</sub> − p<sub>min,y</sub>)</div><div class="mb-d"><b>Screen → NDC.</b> Slide the window's top-left corner to 0 and divide by the window's size. The <var>y</var> is measured downward from the top. <code>ndc_from_screen</code></div></div>
+        <div class="mb-row"><div class="mb-f">x<sub>r</sub> = W · x<sub>ndc</sub>, &nbsp; y<sub>r</sub> = H · y<sub>ndc</sub></div><div class="mb-d"><b>NDC → raster.</b> Multiply by the image's width <var>W</var> and height <var>H</var> in pixels. <code>raster_from_ndc</code></div></div>
+        <div class="mb-row"><div class="mb-f">x<sub>s</sub> = x ⁄ (z · tan(fov⁄2)), &nbsp; y<sub>s</sub> = y ⁄ (z · tan(fov⁄2))</div><div class="mb-d"><b>Perspective.</b> Divide by depth <var>z</var>, so things twice as far look half as big. Then divide by tan(fov⁄2), so the edge of the view lands at ±1. <code>perspective(fov, n, f)</code> in umbra-math</div></div>
+        <div class="mb-row"><div class="mb-f">z<sub>s</sub> = f (z − n) ⁄ (z (f − n))</div><div class="mb-d"><b>Depth.</b> The same matrix also maps depths between the near plane <var>n</var> = 0.01 and the far plane <var>f</var> = 1000 onto 0 to 1. A ray tracer barely uses this: raster points sit at <var>z<sub>s</sub></var> = 0, which lands on the near plane.</div></div>
+        <div class="mb-row"><div class="mb-f">d = p<sub>camera</sub> ⁄ |p<sub>camera</sub>|</div><div class="mb-d"><b>The direction.</b> The arrow from the eye to the point, shrunk to length 1. <code>Vector3f::normalize</code></div></div>
+    </div>
+
+    <figure class="bench" id="sp">
+        <div class="controls">
+            <div class="ctl"><label for="sp-w">width (px)</label><div class="row"><input id="sp-w" type="range" min="2" max="16" step="1" value="8"><output id="sp-w-o" for="sp-w"></output></div></div>
+            <div class="ctl"><label for="sp-h">height (px)</label><div class="row"><input id="sp-h" type="range" min="2" max="16" step="1" value="5"><output id="sp-h-o" for="sp-h"></output></div></div>
+            <div class="ctl"><label for="sp-fov">fov (°)</label><div class="row"><input id="sp-fov" type="range" min="10" max="150" step="1" value="60"><output id="sp-fov-o" for="sp-fov"></output></div></div>
+            <div class="ctl"><span class="lbl">snap to</span><div class="btns"><button type="button" id="sp-centre">pixel centre</button><button type="button" id="sp-corner">top-left corner</button></div></div>
+        </div>
+        <div class="trio">
+            <div><p class="panel-title">① raster (drag the dot, or use the arrow keys)</p><canvas id="sp-raster" class="cv-mid" tabindex="0" aria-label="The film in raster space, with a draggable film position"></canvas></div>
+            <div><p class="panel-title">③ screen (blue box: the screen window)</p><canvas id="sp-screen" class="cv-mid" aria-label="The same point in screen space"></canvas></div>
+            <div><p class="panel-title">④ camera, seen from above</p><canvas id="sp-top" class="cv-mid" aria-label="The ray in camera space, from above"></canvas></div>
+        </div>
+        <div class="split even">
+            <dl class="readout" id="sp-read"></dl>
+            <div><p class="panel-title">camera_from_raster (the whole chain in one matrix)</p><div class="tablewrap"><table class="data matrix" id="sp-mat"></table></div></div>
+        </div>
+        <figcaption><b>Try:</b> drag the dot to the top-left corner and watch the screen point go to the top-left of the blue box. Then widen the fov and watch the ray swing outward even though the dot stays put. Change the width to see the screen window stretch with the aspect ratio. The third row of the matrix is almost zero because every pixel lands on the same near plane.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="thin-lens">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-camera</span> · <a href="../src/camera.rs">camera.rs</a> · <code>ThinLens</code> · uses <span class="crate">umbra-sampling</span> <code>sample_uniform_disk_concentric</code> · PBR 4e §5.2.3</div>
+        <h3>The thin lens and depth of field</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A pinhole keeps everything sharp. A real lens is a disc: light passes through all of it and is bent to meet again at one distance, the <em>focal distance</em>. Things at that distance are sharp, and things nearer or farther are blurred. To copy this, each Pixel Sample starts its ray at a random point on the lens disc. The ray still passes through the same point on the plane of focus.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 260" class="dg-wide" role="img" aria-label="Thin lens: rays from several lens points meet on the plane of focus and spread elsewhere">
+            <line x1="20" y1="130" x2="630" y2="130" class="k-mut"/>
+            <line x1="420" y1="22" x2="420" y2="238" class="k-acc" stroke-dasharray="6 5" stroke-width="1.5"/>
+            <text x="420" y="16" text-anchor="middle" class="t-acc">plane of focus, z = d<tspan font-size="10" dy="3">f</tspan></text>
+            <ellipse cx="80" cy="130" rx="8" ry="60" class="f-surf k-ink" stroke-width="2"/>
+            <path d="M98 130 H104 V85 H98" class="k-ink" fill="none"/>
+            <text x="110" y="112">r</text>
+            <text x="80" y="210" text-anchor="middle">lens, radius r</text>
+            <line x1="80" y1="130" x2="420" y2="100" class="k-mut" stroke-width="1.6" stroke-dasharray="3 4"/>
+            <line x1="80" y1="85" x2="600" y2="108" class="k-warm" stroke-width="1.8"/>
+            <line x1="80" y1="175" x2="600" y2="60" class="k-warm" stroke-width="1.8"/>
+            <line x1="80" y1="130" x2="600" y2="84" class="k-warm" stroke-width="1.2" opacity="0.6"/>
+            <circle cx="80" cy="85" r="4.5" class="f-warm"/>
+            <circle cx="80" cy="175" r="4.5" class="f-warm"/>
+            <circle cx="420" cy="100" r="5" class="f-acc"/>
+            <line x1="250" y1="92.5" x2="250" y2="137.5" class="k-ink" stroke-width="5" opacity="0.8"/>
+            <text x="250" y="160" text-anchor="middle">near: blurred</text>
+            <text x="432" y="240">sharp</text>
+            <line x1="560" y1="69" x2="560" y2="106" class="k-ink" stroke-width="5" opacity="0.8"/>
+            <text x="560" y="128" text-anchor="middle">far: blurred</text>
+            <g class="step"><circle cx="190" cy="104" r="10"/><text x="190" y="108" text-anchor="middle">1</text></g>
+            <g class="step"><circle cx="58" cy="78" r="10"/><text x="58" y="82" text-anchor="middle">2</text></g>
+            <g class="step"><circle cx="340" cy="84" r="10"/><text x="340" y="88" text-anchor="middle">3</text></g>
+        </svg></div>
+        <figcaption><b>①</b> dotted: the pinhole ray through the pixel. It crosses the plane of focus at the blue point. <b>②</b> a random point on the lens. <b>③</b> the new ray, from the lens point to the blue point. All the rays of one pixel meet on the plane of focus, so things there are sharp. Elsewhere they fan out, and the black bars show how wide.</figcaption>
+    </figure>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 520 235" class="dg-mid" role="img" aria-label="Concentric mapping from square rings to disc rings">
+            <rect x="30" y="20" width="180" height="180" class="f-surf k-ink" stroke-width="1.5"/>
+            <rect x="60" y="50" width="120" height="120" class="k-mut" fill="none"/>
+            <rect x="90" y="80" width="60" height="60" class="k-mut" fill="none"/>
+            <path d="M180 50 L210 20 L210 200 L180 170 Z" class="f-warm-soft k-warm"/>
+            <path d="M30 20 L210 200 M210 20 L30 200" class="k-mut" stroke-dasharray="3 4"/>
+            <circle cx="400" cy="110" r="90" class="f-surf k-ink" stroke-width="1.5"/>
+            <circle cx="400" cy="110" r="60" class="k-mut" fill="none"/>
+            <circle cx="400" cy="110" r="30" class="k-mut" fill="none"/>
+            <path d="M442.4 67.6 L463.6 46.4 A90 90 0 0 1 463.6 173.6 L442.4 152.4 A60 60 0 0 0 442.4 67.6 Z" class="f-warm-soft k-warm"/>
+            <line x1="225" y1="110" x2="295" y2="110" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <text x="260" y="98" text-anchor="middle" class="t-acc">concentric</text>
+            <text x="120" y="222" text-anchor="middle">[0, 1)² from the sampler</text>
+            <text x="400" y="222" text-anchor="middle">lens disc (then × r)</text>
+        </svg></div>
+        <figcaption>The sampler gives points in a square, but the lens is a disc. The <b>concentric map</b> turns each square ring into a circle ring and each wedge into a wedge. Points that were evenly spread in the square stay evenly spread on the disc.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>In code, a radius above 0 turns the pinhole ray into a lens ray:</p>
+<pre class="code"><span class="k">if self</span>.lens.radius &gt; <span class="k">0.0</span> {
+    <span class="k">let</span> p_lens = sample_uniform_disk_concentric(sample.p_lens) * <span class="k">self</span>.lens.radius; <span class="c">// ②</span>
+    <span class="k">let</span> ft = <span class="k">self</span>.lens.focal_distance / ray.d.z;                                 <span class="c">// ①</span>
+    <span class="k">let</span> p_focus = ray.at(ft);
+    ray.o = Point3f::new(p_lens.x, p_lens.y, <span class="k">0.0</span>);                                 <span class="c">// ③</span>
+    ray.d = (p_focus - ray.o).normalize();
+}</pre>
+        <p>The ray's weight stays 1. The lens point is drawn evenly over the disc, so averaging the samples already averages over the lens. Umbra's <code>ThinLens</code> holds only a radius and a focal distance. A radius of 0 gives a pinhole, which is pbrt-v4's default.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">t = d<sub>f</sub> ⁄ d<sub>z</sub>, &nbsp; p<sub>focus</sub> = t · d</div><div class="mb-d"><b>Where the pinhole ray meets the plane of focus.</b> The ray climbs <var>d<sub>z</sub></var> in depth per unit of length, so it needs <var>t</var> units to reach depth <var>d<sub>f</sub></var>. <code>ray.at(ft)</code></div></div>
+        <div class="mb-row"><div class="mb-f">a = 2u − 1, &nbsp; b = 2v − 1<br>if |a| &gt; |b|: ρ = a, φ = (π⁄4)(b⁄a)<br>else: ρ = b, φ = π⁄2 − (π⁄4)(a⁄b)<br>p = (ρ cos φ, ρ sin φ)</div><div class="mb-d"><b>Concentric map, square → disc.</b> Centre the square on 0. The bigger coordinate gives the distance from the centre ρ, and the ratio of the two gives the angle φ. <code>sample_uniform_disk_concentric</code> in umbra-sampling</div></div>
+        <div class="mb-row"><div class="mb-f">o = (r · p<sub>x</sub>, r · p<sub>y</sub>, 0), &nbsp; d′ = normalize(p<sub>focus</sub> − o)</div><div class="mb-d"><b>The lens ray.</b> It starts on the lens and aims at the focus point.</div></div>
+        <div class="mb-row"><div class="mb-f">width(z) = 2r · |1 − z ⁄ d<sub>f</sub>|<br>blur angle ≈ 2r · |1⁄z − 1⁄d<sub>f</sub>|</div><div class="mb-d"><b>How blurred is depth z?</b> The width of the cone of rays at that depth, and the angle it covers as seen from the camera. The angle is 0 at the plane of focus and grows with the lens radius. The figure divides it by one pixel's angle to give the blur in pixels.</div></div>
+    </div>
+
+    <figure class="bench" id="tl">
+        <div class="controls">
+            <div class="ctl"><label for="tl-r">lens radius r</label><div class="row"><input id="tl-r" type="range" min="0" max="0.4" step="0.005" value="0.12"><output id="tl-r-o" for="tl-r"></output></div></div>
+            <div class="ctl"><label for="tl-fd">focal distance d<sub>f</sub></label><div class="row"><input id="tl-fd" type="range" min="1.5" max="22" step="0.1" value="5.5"><output id="tl-fd-o" for="tl-fd"></output></div></div>
+            <div class="ctl"><label for="tl-fov">fov (°)</label><div class="row"><input id="tl-fov" type="range" min="20" max="100" step="1" value="50"><output id="tl-fov-o" for="tl-fov"></output></div></div>
+            <div class="ctl"><label for="tl-z">object depth z</label><div class="row"><input id="tl-z" type="range" min="1" max="24" step="0.1" value="12"><output id="tl-z-o" for="tl-z"></output></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">a tiny render with this camera (click a ball to focus on it)</p>
+                <canvas id="tl-render" class="cv-render" aria-label="A small scene rendered with the thin-lens camera; click to focus"></canvas>
+                <p class="panel-foot" id="tl-render-f"></p>
+            </div>
+            <div>
+                <p class="panel-title">side view: rays of the centre pixel</p>
+                <canvas id="tl-side" class="cv-mid" aria-label="Side view of rays through the lens converging on the plane of focus"></canvas>
+                <dl class="readout" id="tl-read" style="margin-top:0.6rem"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> set the lens radius to 0 and everything turns sharp: that's a pinhole. Then raise it and click the far blue ball to move the focus there. The render follows Umbra's steps at 192 × 108 pixels: Gaussian filter sample, time, lens point, <code>generate_ray</code>, weighted average. The scene is lit by one sun, without path tracing. The side view stretches <var>y</var> so the cone of rays is visible, and the amber bar is the cone's width at the object depth.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="filter">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-camera</span> · <a href="../src/filter.rs">filter.rs</a> · <code>GaussianFilter</code>, <code>FilterSampler</code> · PBR 4e §8.8</div>
+        <h3>Pixel filters</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The filter decides how much a sample counts for a pixel, by how far it is from the pixel's centre. Samples near the centre count a lot, samples farther out count less, and past the radius they don't count. Umbra doesn't compute that weight afterwards. It <em>places</em> samples where the filter is high more often, so every sample ends up with the same weight and belongs to just one pixel.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 240" class="dg-wide" role="img" aria-label="Splatting sends one sample to nine pixels; importance sampling sends it to its own pixel">
+            <text x="115" y="22" text-anchor="middle" class="t-bold">splatting (not used)</text>
+            <rect x="40" y="40" width="150" height="150" class="f-surf k-ink" stroke-width="1.2"/>
+            <path d="M90 40 V190 M140 40 V190 M40 90 H190 M40 140 H190" class="k-mut"/>
+            <path d="M126 104 L65 65 M126 104 L115 65 M126 104 L165 65 M126 104 L65 115 M126 104 L165 115 M126 104 L65 165 M126 104 L115 165 M126 104 L165 165" class="k-mut" marker-end="url(#ah-mut)"/>
+            <circle cx="126" cy="104" r="5.5" class="f-warm"/>
+            <text x="115" y="215" text-anchor="middle" class="t-mut">one sample updates 9 pixels,</text>
+            <text x="115" y="231" text-anchor="middle" class="t-mut">each with a different weight</text>
+
+            <text x="455" y="22" text-anchor="middle" class="t-bold">importance sampling (Umbra)</text>
+            <circle cx="455" cy="115" r="72" class="k-acc" fill="none" stroke-dasharray="4 4"/>
+            <circle cx="455" cy="115" r="40" class="f-acc-soft k-acc" stroke-dasharray="4 4"/>
+            <rect x="380" y="40" width="150" height="150" class="k-ink" fill="none" stroke-width="1.2"/>
+            <path d="M430 40 V190 M480 40 V190 M380 90 H530 M380 140 H530" class="k-mut"/>
+            <rect x="430" y="90" width="50" height="50" class="k-ink" fill="none" stroke-width="2.5"/>
+            <circle cx="410" cy="78" r="5.5" class="f-warm"/>
+            <line x1="414" y1="82" x2="448" y2="108" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
+            <text x="455" y="215" text-anchor="middle" class="t-mut">the sample was drawn for the</text>
+            <text x="455" y="231" text-anchor="middle" class="t-mut">middle pixel; it counts there only</text>
+        </svg></div>
+        <figcaption>Two ways to apply a filter of radius 1.5 pixels. On the right, the dashed circles show where the filter is high, and samples land there more often. A sample may fall in a neighbouring square and still count only toward the pixel it was drawn for, the thick square. Since each sample touches one pixel, Workers can render separate parts of the image without coordinating (ADR 0001).</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>Umbra's Gaussian is pbrt-v4's: the familiar bell curve, lowered by its own value at the radius so that it reaches exactly zero there, and zero beyond. In two dimensions it is the bell in <var>x</var> times the bell in <var>y</var>.</p>
+        <p>To place samples in proportion to the filter, you need the inverse of its running total, and the Gaussian's running total has no simple formula. So <code>FilterSampler</code> tabulates the filter on a grid, then samples the table. The diagram shows the idea in one dimension:</p>
+    </div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 245" class="dg-wide" role="img" aria-label="Sampling from a table: bars, running total, inverse lookup">
+            <text x="160" y="22" text-anchor="middle" class="t-bold">① tabulate f</text>
+            <line x1="30" y1="200" x2="290" y2="200" class="k-mut"/>
+            <rect x="31" y="176.7" width="30.5" height="23.3" class="f-acc-soft k-acc"/>
+            <rect x="63.5" y="141.7" width="30.5" height="58.3" class="f-acc-soft k-acc"/>
+            <rect x="96" y="95" width="30.5" height="105" class="f-acc-soft k-acc"/>
+            <rect x="128.5" y="60" width="30.5" height="140" class="f-acc-soft k-acc"/>
+            <rect x="161" y="60" width="30.5" height="140" class="f-warm-soft k-warm" stroke-width="2"/>
+            <rect x="193.5" y="95" width="30.5" height="105" class="f-acc-soft k-acc"/>
+            <rect x="226" y="141.7" width="30.5" height="58.3" class="f-acc-soft k-acc"/>
+            <rect x="258.5" y="176.7" width="30.5" height="23.3" class="f-acc-soft k-acc"/>
+            <text x="160" y="222" text-anchor="middle" class="t-mut">cell values at cell centres</text>
+
+            <text x="480" y="22" text-anchor="middle" class="t-bold">② running total (CDF) ③ look up u</text>
+            <path d="M350 200 V40 M350 200 H610" class="k-mut"/>
+            <polyline points="350,200 382.5,194.3 415,180 447.5,154.3 480,120 512.5,85.7 545,60 577.5,45.7 610,40" class="k-acc" fill="none" stroke-width="2.2"/>
+            <path d="M350 104 H495.2 V200" class="k-warm" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ah-warm)"/>
+            <text x="344" y="108" text-anchor="end" class="t-warm">u</text>
+            <text x="344" y="44" text-anchor="end" class="t-mut">1</text>
+            <text x="495" y="220" text-anchor="middle" class="t-warm">x</text>
+            <text x="480" y="240" text-anchor="middle" class="t-mut">tall bars = steep steps = hit more often</text>
+        </svg></div>
+        <figcaption>Sampling from a table, the <b>inversion method</b>. Add up the bars from left to right and divide by the total: that is the cumulative distribution function (CDF), rising from 0 to 1. Pick a random <var>u</var> in [0, 1), go across to the curve and down to <var>x</var>. Tall bars make steep steps, and steep steps catch more of the <var>u</var> values. In 2D, Umbra first picks a row this way, then a cell within the row.</figcaption>
+    </figure>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">g<sub>σ</sub>(x) = e<sup>−x² ⁄ (2σ²)</sup> ⁄ √(2πσ²)</div><div class="mb-d"><b>The bell curve</b> (Gaussian) of width σ. <code>gaussian(x, 0, sigma)</code> in umbra-math</div></div>
+        <div class="mb-row"><div class="mb-f">f(x, y) = max(0, g<sub>σ</sub>(x) − g<sub>σ</sub>(r)) · max(0, g<sub>σ</sub>(y) − g<sub>σ</sub>(r))</div><div class="mb-d"><b>Umbra's filter.</b> The bell lowered to touch zero at the radius <var>r</var>. The defaults are <var>r</var> = 1.5 pixels, σ = 0.5. <code>GaussianFilter::evaluate</code></div></div>
+        <div class="mb-row"><div class="mb-f">∫f = (erf(r ⁄ (σ√2)) − 2r · g<sub>σ</sub>(r))²</div><div class="mb-d"><b>The filter's total area.</b> erf is the bell curve's running total, a standard function. The lowering removes a strip of height <var>g<sub>σ</sub></var>(<var>r</var>) and width 2<var>r</var>. Squared, because the filter is <var>x</var> times <var>y</var>. <code>integral()</code>, via <code>gaussian_integral</code></div></div>
+        <div class="mb-row"><div class="mb-f">n = int(32 · r), &nbsp; centre<sub>i</sub> = −r + 2r · (i + ½) ⁄ n</div><div class="mb-d"><b>The table.</b> <var>n</var> × <var>n</var> cells across [−<var>r</var>, <var>r</var>]², each holding the filter at its centre. 48 × 48 for the defaults. <code>table_size</code>, <code>cell_centre</code></div></div>
+        <div class="mb-row"><div class="mb-f">p(cell) = f<sub>cell</sub> ⁄ (Σ f · cell area)<br>w = f<sub>cell</sub> ⁄ p(cell) = Σ f · cell area</div><div class="mb-d"><b>The weight is always the same.</b> Its density matches the table exactly, so <var>f</var> ⁄ <var>p</var> is always the table's area. That is very close to ∫<var>f</var>, and a constant factor cancels in the Film's Σ <var>w</var>·<var>c</var> ⁄ Σ <var>w</var>. <code>FilterSampler::sample</code></div></div>
+    </div>
+
+    <figure class="bench" id="fi">
+        <div class="controls">
+            <div class="ctl"><label for="fi-r">radius r</label><div class="row"><input id="fi-r" type="range" min="0.5" max="2.5" step="0.03125" value="1.5"><output id="fi-r-o" for="fi-r"></output></div></div>
+            <div class="ctl"><label for="fi-s">sigma σ</label><div class="row"><input id="fi-s" type="range" min="0.1" max="1.2" step="0.01" value="0.5"><output id="fi-s-o" for="fi-s"></output></div></div>
+            <div class="ctl"><span class="lbl">Pixel Samples</span><div class="btns"><button type="button" id="fi-add" class="primary">draw 256</button><button type="button" id="fi-clear">clear</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">the table (darker = higher), samples (amber), the pixel itself (dashed)</p>
+                <canvas id="fi-map" class="cv-sq" style="max-width:34rem" aria-label="Heat map of the tabulated filter with sampled offsets"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div>
+                    <p class="panel-title">a slice through the middle</p>
+                    <canvas id="fi-prof" class="cv-mid" aria-label="Filter profile: Gaussian, shifted Gaussian and the tabulated steps"></canvas>
+                    <div class="legend" style="margin-top:0.4rem">
+                        <span style="--sw: var(--muted)">bell g<sub>σ</sub>(x)</span>
+                        <span style="--sw: var(--accent)">filter f (lowered)</span>
+                        <span style="--sw: var(--warm)">table steps</span>
+                    </div>
+                </div>
+                <dl class="readout" id="fi-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> draw samples and check that the weights are all equal. Raise σ and the samples spread wider, so more fall outside the pixel: the image gets softer. Lower σ to 0.1 and the table becomes coarse next to the narrow bell, so the table's area drifts away from ∫<var>f</var>.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="camera-sample">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-camera</span> · <a href="../src/camera.rs">camera.rs</a> · <code>get_camera_sample</code>, <code>CameraSample</code> · PBR 4e §5.1.1, §8.8.4</div>
+        <h3>The camera sample</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The sampler is like a tape of random numbers between 0 and 1. <code>get_camera_sample</code> takes five numbers off the tape, always in the same order. Two become the offset inside the pixel, via the filter. One becomes the time. Two become the point on the lens. The result is a <code>CameraSample</code>, everything the camera needs to make a ray.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 150" class="dg-wide" role="img" aria-label="Five sampler numbers split into filter offset, time and lens point">
+            <text x="320" y="20" text-anchor="middle" class="t-mut">the sampler's numbers for one Pixel Sample, in order (after the wavelengths)</text>
+            <rect x="20" y="36" width="100" height="40" rx="4" class="f-acc-soft k-acc"/><text x="70" y="61" text-anchor="middle">u₁</text>
+            <rect x="140" y="36" width="100" height="40" rx="4" class="f-acc-soft k-acc"/><text x="190" y="61" text-anchor="middle">u₂</text>
+            <rect x="260" y="36" width="100" height="40" rx="4" class="f-mut-soft k-mut"/><text x="310" y="61" text-anchor="middle">u₃</text>
+            <rect x="380" y="36" width="100" height="40" rx="4" class="f-warm-soft k-warm"/><text x="430" y="61" text-anchor="middle">u₄</text>
+            <rect x="500" y="36" width="100" height="40" rx="4" class="f-warm-soft k-warm"/><text x="550" y="61" text-anchor="middle">u₅</text>
+            <path d="M20 88 V96 H240 V88" class="k-acc" fill="none" stroke-width="1.5"/>
+            <path d="M260 88 V96 H360 V88" class="k-mut" fill="none" stroke-width="1.5"/>
+            <path d="M380 88 V96 H600 V88" class="k-warm" fill="none" stroke-width="1.5"/>
+            <text x="130" y="118" text-anchor="middle" class="t-acc">get_pixel_2d()</text>
+            <text x="130" y="136" text-anchor="middle">→ filter → p_film</text>
+            <text x="310" y="118" text-anchor="middle" class="t-mut">get_1d()</text>
+            <text x="310" y="136" text-anchor="middle">→ time</text>
+            <text x="490" y="118" text-anchor="middle" class="t-warm">get_2d()</text>
+            <text x="490" y="136" text-anchor="middle">→ p_lens</text>
+        </svg></div>
+        <figcaption>Why the order matters: good samplers (Halton, Sobol) spread their numbers evenly <em>position by position</em> on the tape. If two programs read the tape in different orders, they get different rays. Umbra reads it in pbrt-v4's order, and the tests depend on that.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">let</span> fs = filter.sample(sampler.get_pixel_2d());   <span class="c">// u₁ u₂: offset from the filter</span>
+CameraSample {
+    p_film: Point2f::from(pixel) + fs.p + Vector2f::new(<span class="k">0.5</span>, <span class="k">0.5</span>),
+    time: sampler.get_1d(),                         <span class="c">// u₃</span>
+    p_lens: sampler.get_2d(),                       <span class="c">// u₄ u₅</span>
+    filter_weight: fs.weight,
+}</pre>
+        <p>The time is drawn even though the camera doesn't move yet. Skipping it would shift every number after it on the tape, and the rays would no longer match pbrt-v4's.</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">p<sub>film</sub> = (x + ½ + δ<sub>x</sub>, y + ½ + δ<sub>y</sub>)</div><div class="mb-d"><b>Film position.</b> Pixel (<var>x</var>, <var>y</var>) covers the square from <var>x</var> to <var>x</var> + 1, so its centre is at + ½. Add the filter's offset δ, which can reach up to <var>r</var> in any direction.</div></div>
+        <div class="mb-row"><div class="mb-f">t = (1 − u) · t<sub>open</sub> + u · t<sub>close</sub></div><div class="mb-d"><b>Time in the shutter interval.</b> A straight-line blend from the opening time to the closing time. <code>Camera::sample_time</code>, via <code>lerp</code></div></div>
+    </div>
+
+    <figure class="bench" id="cs">
+        <div class="controls">
+            <div class="ctl"><span class="lbl">Pixel Samples of pixel (10, 20)</span><div class="btns"><button type="button" id="cs-one" class="primary">next</button><button type="button" id="cs-many">+ 63</button><button type="button" id="cs-reset">reset</button></div></div>
+        </div>
+        <div class="split">
+            <div>
+                <p class="panel-title">p_film in raster space (dashed box: the filter's reach)</p>
+                <canvas id="cs-film" class="cv-sq" style="max-width:30rem" aria-label="Film positions drawn around pixel 10, 20"></canvas>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div class="split even">
+                    <div><p class="panel-title">p_lens: the square</p><canvas id="cs-sq" class="cv-sq" aria-label="Lens samples in the unit square"></canvas></div>
+                    <div><p class="panel-title">→ on the lens disc</p><canvas id="cs-disc" class="cv-sq" aria-label="Lens samples mapped onto the disc"></canvas></div>
+                </div>
+                <div><p class="panel-title">time → shutter [0, 1]</p><canvas id="cs-time" class="cv-strip" aria-label="Time samples"></canvas></div>
+                <dl class="readout" id="cs-read"></dl>
+            </div>
+        </div>
+        <figcaption>Each colour is one Pixel Sample, so you can follow it across the panels, and the outlined dot is the newest. The ray uses the README's camera: 64 × 64 pixels, 90° field of view, a pinhole, so the lens point is drawn but ignored. The figure uses plain random numbers. Umbra's Halton sampler would spread them more evenly.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="sensor">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-camera</span> · <a href="../src/sensor.rs">sensor.rs</a> · <code>PixelSensor</code> · uses <span class="crate">umbra-spectrum</span> <code>SampledWavelengths</code> · PBR 4e §4.6.3, §5.4.2</div>
+        <h3>The pixel sensor: light to colour</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Umbra tracks light the way physics does: as an amount at each wavelength, not as RGB. A camera sensor has three kinds of cells, each sensitive to a different range of wavelengths. Each cell multiplies the light by its sensitivity at every wavelength and adds it all up. Umbra checks only four random wavelengths per Pixel Sample and divides by how likely each one was. Over many samples, the average comes out right.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 680 215" class="dg-wide" role="img" aria-label="Light spectrum times sensor curve equals product; its area is the channel value">
+            <text x="115" y="22" text-anchor="middle" class="t-bold">light L(λ)</text>
+            <text x="340" y="22" text-anchor="middle" class="t-bold">sensor curve x̄(λ)</text>
+            <text x="565" y="22" text-anchor="middle" class="t-bold">product → area = X</text>
+            <path d="M20 160 H210 M245 160 H435 M470 160 H660" class="k-mut"/>
+            <path d="M20 93.2 L29.5 84 L39 76.2 L48.5 70.1 L58 65.5 L67.5 62.4 L77 60.6 L86.5 60 L96 60.4 L105.5 61.5 L115 63.4 L124.5 65.7 L134 68.4 L143.5 71.4 L153 74.6 L162.5 77.9 L172 81.2 L181.5 84.6 L191 87.9 L200.5 91.2 L210 94.4" class="k-ink" fill="none" stroke-width="2.2"/>
+            <path d="M245 160 L254.5 160 L259.3 159.5 L264 156.7 L268.8 147.4 L273.5 132.1 L278.3 123.9 L283 127.7 L287.8 136.9 L292.5 147.8 L297.3 156.4 L302 159.8 L306.8 157.3 L311.5 149.4 L316.3 136.7 L321 119.8 L325.8 100.1 L330.5 80.3 L335.3 64.1 L340 55.3 L342.4 54.5 L344.8 57 L349.5 72 L354.3 94.8 L359 118.2 L363.8 136.8 L368.5 148.8 L373.3 155.3 L378 158.3 L382.8 159.5 L392.3 160 L435 160" class="k-cx" fill="none" stroke-width="2.2"/>
+            <path d="M470 160 L479.5 160 L484.3 159.6 L489 157.2 L493.8 149 L498.5 134.9 L503.3 126.6 L508 129.4 L512.8 137.7 L517.5 148.1 L522.3 156.5 L527 159.8 L531.8 157.3 L536.5 149.4 L541.3 136.7 L546 119.9 L550.8 100.6 L555.5 81.5 L560.3 66.3 L565 58.8 L567.4 58.6 L569.8 61.6 L574.5 77 L579.3 99.4 L584 121.7 L588.8 139.1 L593.5 150.1 L598.3 155.9 L603 158.6 L607.8 159.6 L612.5 159.9 L660 160 Z" class="f-cx-soft k-cx" stroke-width="1.5"/>
+            <path d="M506.4 160 V127.7 M538.7 160 V144 M567 160 V58.4 M591.3 160 V145.7" class="k-warm" stroke-width="3"/>
+            <text x="227" y="112" text-anchor="middle" font-size="20">×</text>
+            <text x="452" y="112" text-anchor="middle" font-size="20">=</text>
+            <text x="20" y="178" class="t-mut" font-size="11">360 nm</text><text x="210" y="178" class="t-mut" font-size="11" text-anchor="end">830 nm</text>
+            <text x="565" y="200" text-anchor="middle" class="t-warm">4 amber sticks: one Pixel Sample's guess</text>
+        </svg></div>
+        <figcaption>One channel of the sensor, here X of the CIE 1931 sensor, for daylight-like light (a 5500 K blackbody). The true value is the shaded area. A Pixel Sample measures the product at 4 wavelengths, the amber sticks, divides each by how likely that wavelength was, and averages. The same happens for Y and Z.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">let</span> l = l.safe_div(lambda.pdf());                               <span class="c">// divide by how likely each λ was</span>
+<span class="k">let</span> response = |bar: &amp;DenselySampledSpectrum&lt;'_&gt;| (bar.sample(lambda) * l).average();
+RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="k">self</span>.r_bar), ...)</pre>
+        <p>The four wavelengths come from <code>SampledWavelengths::sample_visible</code>. Wavelengths near 538 nm, where the eye is most sensitive, are picked most often, and the four are spread a quarter apart so they don't bunch up. The default sensor, <code>PixelSensor::cie1931</code>, uses the CIE 1931 colour-matching functions <var>x̄</var>, <var>ȳ</var>, <var>z̄</var> as its three curves. Its “RGB” is therefore the standard XYZ colour space. Real camera sensors and white balance come later (<a href="https://github.com/sergioffpc/umbra/issues/84">#84</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">X = k ∫ x̄(λ) L(λ) dλ ≈ k · ¼ Σ<sub>i=1..4</sub> x̄(λ<sub>i</sub>) L(λ<sub>i</sub>) ⁄ p(λ<sub>i</sub>)</div><div class="mb-d"><b>One channel.</b> The area under the product, estimated from 4 wavelengths. <var>k</var> is the <em>imaging ratio</em>, exposure time × ISO ⁄ 100, 1 by default. <code>to_sensor_rgb</code></div></div>
+        <div class="mb-row"><div class="mb-f">a ⁄ b if b ≠ 0, else 0</div><div class="mb-d"><b>Safe division.</b> A wavelength with density 0 contributes nothing instead of producing a NaN. <code>SampledSpectrum::safe_div</code></div></div>
+        <div class="mb-row"><div class="mb-f">λ(u) = 538 − 138.888889 · atanh(0.85691062 − 1.82750197 u)</div><div class="mb-d"><b>Picking a wavelength.</b> Turns a random <var>u</var> into a wavelength between 360 and 830 nm, most often near 538. This is the inversion method from <a href="#filter">section 4</a>, with a formula instead of a table. <code>sample_visible_wavelengths</code> in umbra-spectrum</div></div>
+        <div class="mb-row"><div class="mb-f">p(λ) = 0.0039398042 ⁄ cosh²(0.0072 (λ − 538))</div><div class="mb-d"><b>How likely each wavelength is.</b> A bump centred on 538 nm. cosh is a U-shaped curve, so 1 ⁄ cosh² is a bell-like bump.</div></div>
+        <div class="mb-row"><div class="mb-f">u<sub>i</sub> = u + i⁄4 (minus 1 if over 1), &nbsp; i = 0..3</div><div class="mb-d"><b>Four spread-out wavelengths</b> from one random number. <code>SampledWavelengths::sample_visible</code></div></div>
+    </div>
+
+    <figure class="bench" id="se">
+        <div class="controls">
+            <div class="ctl"><label for="se-kind">light L(λ)</label><select id="se-kind">
+                <option value="bb">blackbody (like a lamp or the sun)</option>
+                <option value="flat">constant 1</option>
+                <option value="narrow">narrow band (like a laser)</option>
+            </select></div>
+            <div class="ctl"><label for="se-p" id="se-p-l">temperature (K)</label><div class="row"><input id="se-p" type="range" min="1500" max="12000" step="50" value="5500"><output id="se-p-o" for="se-p"></output></div></div>
+            <div class="ctl"><label for="se-k">imaging ratio</label><div class="row"><input id="se-k" type="range" min="0.25" max="4" step="0.25" value="1"><output id="se-k-o" for="se-k"></output></div></div>
+            <div class="ctl"><span class="lbl">Pixel Samples</span><div class="btns"><button type="button" id="se-one" class="primary">draw 1</button><button type="button" id="se-many">+ 255</button><button type="button" id="se-reset">reset</button></div></div>
+        </div>
+        <div class="split">
+            <div style="display:grid; gap:0.9rem">
+                <div>
+                    <p class="panel-title">the light, the three sensor curves, the wavelength density, the last 4 wavelengths</p>
+                    <canvas id="se-spec" class="cv-wide" aria-label="Spectrum, matching functions and sampled wavelengths"></canvas>
+                    <div class="legend" style="margin-top:0.4rem">
+                        <span style="--sw: var(--ink)">L(λ)</span>
+                        <span style="--sw: var(--cx)">x̄</span>
+                        <span style="--sw: var(--cy)">ȳ</span>
+                        <span style="--sw: var(--cz)">z̄</span>
+                        <span style="--sw: var(--muted)">p(λ), scaled</span>
+                        <span style="--sw: var(--warm)">λ<sub>1..4</sub></span>
+                    </div>
+                </div>
+                <div>
+                    <p class="panel-title">the average of Y homing in on the true value (dashed)</p>
+                    <canvas id="se-conv" class="cv-strip" aria-label="Convergence of the Y estimate"></canvas>
+                </div>
+            </div>
+            <div style="display:grid; gap:0.9rem">
+                <div class="tablewrap"><table class="data" id="se-tab"></table></div>
+                <dl class="readout" id="se-read"></dl>
+            </div>
+        </div>
+        <figcaption><b>Try:</b> draw single samples and watch each guess jump around. Then add 255 and watch the average settle on the dashed line. Switch to a narrow band at 450 nm: few wavelengths land there, so the guesses are noisier and the average takes longer. Change the temperature and watch the swatch go from orange to blue-white. The curves here are an analytic fit to CIE 1931 (Wyman, Sloan and Shirley 2013); Umbra uses the tabulated originals.</figcaption>
+    </figure>
+</section>
+
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">Part II · Implementation</div>
+    <h2>How the crate is built</h2>
+    <p><code>umbra-camera</code> is a core crate: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects, so the same code can later run on a GPU. It sits above <code>umbra-geometry</code> and <code>umbra-spectrum</code>, and <code>umbra-integrators</code> depends on it (ADR 0014, ADR 0015).</p>
+</div>
+
+<section class="topic" id="map">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-camera</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a></div>
+        <h3>The crate at a glance</h3>
+    </div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 250" class="dg-wide" role="img" aria-label="The three modules of umbra-camera and how their types connect">
+            <rect x="20" y="30" width="300" height="200" rx="8" class="f-acc-soft k-acc"/>
+            <text x="34" y="54" class="t-bold">camera.rs</text>
+            <rect x="40" y="70" width="125" height="32" rx="4" class="f-surf k-ink"/><text x="102" y="91" text-anchor="middle" font-size="12">CameraSample</text>
+            <rect x="180" y="70" width="125" height="32" rx="4" class="f-surf k-ink"/><text x="242" y="91" text-anchor="middle" font-size="12">CameraRay</text>
+            <rect x="40" y="118" width="265" height="32" rx="4" class="f-surf k-ink"/><text x="172" y="139" text-anchor="middle" font-size="12">CameraKind ⊃ PerspectiveCamera</text>
+            <rect x="40" y="166" width="125" height="48" rx="4" class="f-surf k-ink"/><text x="102" y="186" text-anchor="middle" font-size="11">CameraBase-</text><text x="102" y="202" text-anchor="middle" font-size="11">Parameters</text>
+            <rect x="180" y="166" width="58" height="48" rx="4" class="f-surf k-ink"/><text x="209" y="194" text-anchor="middle" font-size="11">Thin</text>
+            <rect x="247" y="166" width="58" height="48" rx="4" class="f-surf k-ink"/><text x="276" y="187" text-anchor="middle" font-size="11">Camera</text><text x="276" y="202" text-anchor="middle" font-size="11">Transf.</text>
+            <rect x="360" y="30" width="250" height="200" rx="8" class="f-warm-soft k-warm"/>
+            <text x="374" y="54" class="t-bold">filter.rs</text>
+            <rect x="380" y="70" width="210" height="32" rx="4" class="f-surf k-ink"/><text x="485" y="91" text-anchor="middle" font-size="12">FilterKind&lt;S&gt;</text>
+            <rect x="380" y="118" width="210" height="32" rx="4" class="f-surf k-ink"/><text x="485" y="139" text-anchor="middle" font-size="12">GaussianFilter&lt;S&gt;</text>
+            <rect x="380" y="166" width="100" height="48" rx="4" class="f-surf k-ink"/><text x="430" y="186" text-anchor="middle" font-size="11">Filter-</text><text x="430" y="202" text-anchor="middle" font-size="11">Sampler&lt;S&gt;</text>
+            <rect x="490" y="166" width="100" height="48" rx="4" class="f-surf k-ink"/><text x="540" y="186" text-anchor="middle" font-size="11">Filter-</text><text x="540" y="202" text-anchor="middle" font-size="11">Sample</text>
+            <rect x="650" y="30" width="230" height="200" rx="8" class="f-mut-soft k-mut"/>
+            <text x="664" y="54" class="t-bold">sensor.rs</text>
+            <rect x="670" y="70" width="190" height="32" rx="4" class="f-surf k-ink"/><text x="765" y="91" text-anchor="middle" font-size="12">PixelSensor&lt;'a&gt;</text>
+            <text x="765" y="130" text-anchor="middle" font-size="12" class="t-mut">cie1931(k)</text>
+            <text x="765" y="150" text-anchor="middle" font-size="12" class="t-mut">to_sensor_rgb(L, λ)</text>
+            <path d="M380 86 C 340 86, 200 50, 102 68" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <text x="250" y="20" text-anchor="middle" font-size="11" class="t-mut">get_camera_sample: FilterKind → CameraSample</text>
+        </svg></div>
+        <figcaption>Three modules, everything re-exported at the crate root. The one link between modules is <code>get_camera_sample</code>, which samples a <code>FilterKind</code> to fill a <code>CameraSample</code>.</figcaption>
+    </figure>
+    <div class="tablewrap">
+        <table class="data">
+            <thead><tr><th>type or function</th><th>what it is</th><th>pbrt-v4 name</th></tr></thead>
+            <tbody>
+                <tr><td><code>CameraSample</code></td><td>film point, lens point, time, filter weight</td><td><code>CameraSample</code></td></tr>
+                <tr><td><code>get_camera_sample</code></td><td>draws a <code>CameraSample</code> for a pixel</td><td><code>GetCameraSample</code></td></tr>
+                <tr><td><code>CameraRay</code></td><td>a ray in rendering space, and its weight</td><td><code>CameraRay</code></td></tr>
+                <tr><td><code>CameraTransform</code></td><td>render_from_camera, world_from_render</td><td><code>CameraTransform</code></td></tr>
+                <tr><td><code>CameraBaseParameters</code></td><td>transform and shutter interval</td><td><code>CameraBaseParameters</code></td></tr>
+                <tr><td><code>ThinLens</code></td><td>lens radius, focal distance</td><td><code>lensradius</code>, <code>focaldistance</code></td></tr>
+                <tr><td><code>PerspectiveCamera</code></td><td>camera_from_raster and a thin lens</td><td><code>PerspectiveCamera</code></td></tr>
+                <tr><td><code>Camera</code>, <code>CameraKind</code></td><td>the interface and its closed enum</td><td><code>Camera</code></td></tr>
+                <tr><td><code>FilterSample</code></td><td>offset from the pixel centre, weight</td><td><code>FilterSample</code></td></tr>
+                <tr><td><code>FilterSampler&lt;S&gt;</code></td><td>tabulated filter and its distribution</td><td><code>FilterSampler</code></td></tr>
+                <tr><td><code>GaussianFilter&lt;S&gt;</code></td><td>the lowered Gaussian</td><td><code>GaussianFilter</code></td></tr>
+                <tr><td><code>Filter</code>, <code>FilterKind&lt;S&gt;</code></td><td>the interface and its closed enum</td><td><code>Filter</code></td></tr>
+                <tr><td><code>PixelSensor&lt;'a&gt;</code></td><td>three response curves, imaging ratio</td><td><code>PixelSensor</code></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="prose" style="margin-top:1.2rem">
+        <p>Two rules shape the crate. <b>Only what making a ray needs.</b> <code>PerspectiveCamera</code> keeps <code>camera_from_raster</code>, the lens and the base parameters. pbrt-v4's extra members arrive with the features that use them. <b>No Film in the core.</b> pbrt-v4's camera holds its Film. Umbra's camera takes only the resolution, and the Film lives in <code>umbra-render</code>.</p>
+    </div>
+</section>
+
+<section class="topic" id="dispatch">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-camera</span> · <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a></div>
+        <h3>Closed enums instead of trait objects</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>There will be several kinds of camera. Rust could point at “some camera” through a pointer to the heap, but the core has no heap and a GPU can't follow such pointers. So Umbra lists every kind in one <code>enum</code> and keeps the camera inline. Each call checks which kind it holds and runs that code.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 700 200" class="dg-wide" role="img" aria-label="Trait object through a heap pointer, crossed out, against a closed enum held by value">
+            <text x="160" y="22" text-anchor="middle" class="t-bold">Box&lt;dyn Camera&gt; (not used)</text>
+            <rect x="30" y="50" width="110" height="40" rx="4" class="f-surf k-mut"/><text x="85" y="75" text-anchor="middle" font-size="12">pointer</text>
+            <line x1="140" y1="70" x2="196" y2="70" class="k-mut" marker-end="url(#ah-mut)"/>
+            <rect x="200" y="40" width="100" height="60" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="250" y="66" text-anchor="middle" font-size="12">heap</text><text x="250" y="84" text-anchor="middle" font-size="12">+ vtable</text>
+            <path d="M30 120 L300 150 M30 150 L300 120" class="k-bad" stroke-width="2.5"/>
+            <text x="165" y="182" text-anchor="middle" class="t-mut">needs an allocator; GPUs can't follow vtables</text>
+
+            <text x="530" y="22" text-anchor="middle" class="t-bold">enum CameraKind (Umbra)</text>
+            <rect x="380" y="36" width="300" height="130" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <rect x="398" y="54" width="264" height="30" rx="4" class="f-surf k-ink"/><text x="530" y="74" text-anchor="middle" font-size="12">Perspective(PerspectiveCamera)</text>
+            <rect x="398" y="92" width="264" height="26" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/><text x="530" y="110" text-anchor="middle" font-size="12" class="t-mut">Orthographic(…) later</text>
+            <rect x="398" y="126" width="264" height="26" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/><text x="530" y="144" text-anchor="middle" font-size="12" class="t-mut">Spherical(…) later</text>
+            <text x="530" y="188" text-anchor="middle" class="t-mut">held by value; match picks the variant</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub enum</span> CameraKind {
+    Perspective(PerspectiveCamera),
+}
+
+<span class="k">impl</span> Camera <span class="k">for</span> CameraKind {
+    <span class="k">#[inline]</span>
+    <span class="k">fn</span> generate_ray(&amp;<span class="k">self</span>, sample: CameraSample, lambda: &amp;SampledWavelengths) -&gt; Option&lt;CameraRay&gt; {
+        <span class="k">match self</span> {
+            Self::Perspective(c) =&gt; c.generate_ray(sample, lambda),
+        }
+    }
+    ...
+}</pre>
+        <p>With one variant today, the <code>match</code> compiles away entirely. When a new camera arrives it becomes one more variant, and the compiler then flags every <code>match</code> that doesn't handle it yet. Each concrete type converts into its enum with <code>From</code>, so <code>PerspectiveCamera::new(...).into()</code> gives a <code>CameraKind</code>. <code>FilterKind&lt;S&gt;</code> works the same way.</p>
+    </div>
+</section>
+
+<section class="topic" id="storage">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-camera</span> · <a href="../src/filter.rs">filter.rs</a> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a></div>
+        <h3>A filter table without an allocator</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The filter's table needs memory, but the core crate can't allocate any. So the caller lends it the memory: whoever builds the filter passes a small function that produces storage of the requested size. The Scene can allocate, so it owns the table. The rendering loop only borrows a cheap view of it.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 760 170" class="dg-wide" role="img" aria-label="An alloc closure fills the Scene's owned filter; view() lends a borrowed copy to per-sample code">
+            <rect x="20" y="55" width="150" height="56" rx="6" class="f-surf k-mut" stroke-dasharray="4 3"/>
+            <text x="95" y="80" text-anchor="middle" font-size="12">alloc closure</text>
+            <text x="95" y="98" text-anchor="middle" font-size="12" class="t-mut">|n| vec![0.0; n]</text>
+            <line x1="172" y1="83" x2="216" y2="83" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="220" y="30" width="230" height="106" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
+            <text x="335" y="52" text-anchor="middle" class="t-bold">Scene (can allocate)</text>
+            <rect x="238" y="64" width="194" height="52" rx="4" class="f-surf k-ink"/>
+            <text x="335" y="86" text-anchor="middle" font-size="12">FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
+            <text x="335" y="104" text-anchor="middle" font-size="11" class="t-mut">owns 2 tables of n floats</text>
+            <line x1="452" y1="83" x2="506" y2="83" class="k-acc" stroke-width="1.8" marker-end="url(#ah-acc)"/>
+            <text x="479" y="74" text-anchor="middle" class="t-acc" font-size="12">view()</text>
+            <rect x="510" y="55" width="230" height="56" rx="6" class="f-warm-soft k-warm"/>
+            <text x="625" y="80" text-anchor="middle" font-size="12">FilterKind&lt;&amp;[f32]&gt;</text>
+            <text x="625" y="98" text-anchor="middle" font-size="11" class="t-mut">borrowed, per Pixel Sample</text>
+            <text x="380" y="160" text-anchor="middle" class="t-mut">built once → borrowed millions of times, never copied, never allocated again</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> new_in(
+    radius: Vector2f,
+    evaluate: <span class="k">impl</span> Fn(Point2f) -&gt; f32,
+    <span class="k">mut</span> alloc: <span class="k">impl</span> FnMut(usize) -&gt; S,   <span class="c">// called for the table, then the distribution</span>
+) -&gt; Self</pre>
+<pre class="code"><span class="c">// built once, in umbra-scene</span>
+<span class="k">let</span> filter: FilterKind&lt;Vec&lt;f32&gt;&gt; =
+    GaussianFilter::new_in(Vector2f::new(<span class="k">1.5</span>, <span class="k">1.5</span>), <span class="k">0.5</span>, |n| vec![<span class="k">0.0</span>; n]).into();
+
+<span class="c">// per Pixel Sample, allocation-free</span>
+<span class="k">let</span> sample = get_camera_sample(&amp;<span class="k">mut</span> sampler, pixel, &amp;filter.view());</pre>
+        <p><code>new_in</code> checks that the closure returned storage of the right length. It also checks that the radius is at least 1⁄32, since a smaller radius would give a table with no cells. A GPU backend can pass its own buffers through the same closure. <code>PixelSensor&lt;'a&gt;</code> solves the same problem with a lifetime: it borrows its curves, which are <code>static</code> for CIE 1931.</p>
+    </div>
+</section>
+
+<section class="topic" id="render-space">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-camera</span> · <a href="../src/camera.rs">camera.rs</a> · <code>CameraTransform</code> · PBR 4e §5.1.1</div>
+        <h3>Camera-world rendering space</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>Computer numbers (<code>f32</code>) are very precise near zero and get coarser the bigger they are. The things you see best are near the camera. So Umbra slides the whole world until the camera sits at zero, and the important geometry gets the most precise numbers. It slides the world but doesn't turn it.</div>
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 640 200" class="dg-wide" role="img" aria-label="f32 values get sparser away from zero; translating the camera to the origin puts nearby geometry where they are dense">
+            <text x="20" y="22" class="t-bold">where f32 values are (schematic)</text>
+            <line x1="20" y1="50" x2="620" y2="50" class="k-mut"/>
+            <path d="M20 42V58M21.5 42V58M23 42V58M24.5 42V58M26 42V58M27.5 42V58M29 42V58M32 42V58M35 42V58M38 42V58M41 42V58M44 42V58M47 42V58M53 42V58M59 42V58M65 42V58M71 42V58M77 42V58M83 42V58M95 42V58M107 42V58M119 42V58M131 42V58M143 42V58M155 42V58M179 42V58M203 42V58M227 42V58M251 42V58M275 42V58M299 42V58M347 42V58M395 42V58M443 42V58M491 42V58M539 42V58M587 42V58" class="k-acc"/>
+            <text x="20" y="76" class="t-acc">0: dense</text>
+            <text x="620" y="76" text-anchor="end" class="t-mut">far from 0: big gaps</text>
+            <circle cx="40" cy="150" r="5" class="f-ink"/><text x="40" y="176" text-anchor="middle" font-size="12">world origin</text>
+            <rect x="500" y="138" width="28" height="18" rx="3" class="f-surf k-ink"/>
+            <path d="M528 142 L542 136 V158 L528 152 Z" class="f-surf k-ink"/>
+            <circle cx="585" cy="140" r="12" class="f-warm-soft k-warm"/>
+            <text x="540" y="186" text-anchor="middle" font-size="12">camera and what it sees</text>
+            <path d="M490 125 C 380 95, 160 95, 52 138" class="k-acc" fill="none" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#ah-acc)"/>
+            <text x="270" y="96" text-anchor="middle" class="t-acc">translate(−camera position)</text>
+        </svg></div>
+    </figure>
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> new(world_from_camera: &amp;Transform) -&gt; Self {
+    <span class="k">let</span> p_camera = world_from_camera.apply(Point3f::new(<span class="k">0.0</span>, <span class="k">0.0</span>, <span class="k">0.0</span>));      <span class="c">// where the camera is</span>
+    <span class="k">let</span> world_from_render = translate(Vector3f::from(p_camera));               <span class="c">// slide only</span>
+    <span class="k">let</span> render_from_camera = world_from_render.inverse() * *world_from_camera; <span class="c">// keeps the rotation</span>
+    Self { render_from_camera, world_from_render }
+}</pre>
+        <p>The rotation stays in <code>render_from_camera</code>. The ray is built in camera space and then transformed once, by that matrix. Note the argument: <code>world_from_camera</code> is the <em>inverse</em> of the current transformation at a Scene File's <code>Camera</code> directive. The camera doesn't move while the shutter is open (yet), so both transforms are fixed.</p>
+    </div>
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">ULP(x) = 2<sup>⌊log₂|x|⌋ − 23</sup></div><div class="mb-d"><b>The gap between neighbouring f32 numbers near x.</b> It doubles every time <var>x</var> doubles. Near 1 the gap is about 0.00000012. Near 10 000 it is about 0.001. <code>f32</code> has 23 fraction bits, hence the 23.</div></div>
+    </div>
+    <figure class="bench" id="rs">
+        <div class="controls">
+            <div class="ctl"><label for="rs-d">camera's distance from the world origin</label><div class="row"><input id="rs-d" type="range" min="0" max="7" step="0.05" value="4"><output id="rs-d-o" for="rs-d"></output></div></div>
+        </div>
+        <dl class="readout" id="rs-read"></dl>
+        <figcaption>Take an object 1 unit in front of the camera. In world space its coordinates are as coarse as the camera's distance allows. In camera-world space they are as fine as the number 1 allows. Slide the camera away and watch the gap grow.</figcaption>
+    </figure>
+</section>
+
+<section class="topic" id="tests">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-camera</span> · <a href="../tests/umbra_camera/">tests/umbra_camera</a> · <a href="../../../docs/adr/0013-statistical-validation-against-a-published-pbrt-v4-reference.md">ADR 0013</a></div>
+        <h3>Checked against pbrt-v4</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>To prove Umbra's camera behaves like pbrt-v4's, a small C++ program asks pbrt-v4 itself for answers: these rays, these filter values, this sensor colour. The Rust tests compare against them.</div>
+    <div class="prose">
+        <ul>
+            <li><a href="../tests/umbra_camera/pbrt_v4/known_values.cpp"><code>known_values.cpp</code></a> links against a pbrt-v4 build at the pinned commit and prints the reference values. <a href="../tests/umbra_camera/pbrt_v4/known_values.rs"><code>known_values.rs</code></a> holds them.</li>
+            <li><a href="../tests/umbra_camera/pbrt_v4/cameras.rs"><code>cameras.rs</code></a> checks pinhole and thin-lens rays, and <code>get_camera_sample</code> with the Halton sampler. The latter checks the <a href="#camera-sample">draw order</a> too.</li>
+            <li><a href="../tests/umbra_camera/pbrt_v4/filters_test.rs"><code>filters_test.rs</code></a> ports pbrt-v4's own filter tests (zero past the radius, correct integral) and checks <code>evaluate</code>, <code>integral</code> and <code>sample</code>.</li>
+            <li><a href="../tests/umbra_camera/pbrt_v4/sensor.rs"><code>sensor.rs</code></a> checks the default sensor's RGB.</li>
+        </ul>
+        <p>The comparisons allow a few ULPs of difference. pbrt-v4's compiler may fuse a multiply and an add into one step, and its <code>sin</code> and <code>exp</code> come from a different maths library. A ray is compared in ULPs of its largest component, because a component near zero can come out of a subtraction of nearly equal numbers and carry a large relative error. Run the tests with <code>cargo nextest run -p umbra-camera</code>.</p>
+    </div>
+</section>
+
+<section class="topic" id="not-yet">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-camera</span> · roadmap</div>
+        <h3>Not here yet</h3>
+    </div>
+    <div class="prose">
+        <ul>
+            <li><b>Other cameras:</b> orthographic, spherical (360°) and realistic (real lens systems). Each becomes a new <code>CameraKind</code> variant.</li>
+            <li><b>Other filters:</b> box, triangle, Mitchell, Lanczos. Some have negative parts, which give samples negative weights. pbrt-v4 samples by the size of <var>f</var> and keeps its sign in the weight.</li>
+            <li><b>Importance functions</b> (<code>We</code>, <code>PDF_We</code>, <code>SampleWi</code>), for integrators that trace paths from the lights back to the camera.</li>
+            <li><b>Ray differentials:</b> the neighbouring pixels' rays, used to blur textures by the right amount.</li>
+            <li><b>Moving cameras</b> (motion blur), and the other rendering spaces.</li>
+            <li><b>Named camera sensors, white balance</b> and the other <code>RGBFilm</code> settings, with <a href="https://github.com/sergioffpc/umbra/issues/84">#84</a>.</li>
+        </ul>
+    </div>
+</section>
+
+<section class="topic" id="sources">
+    <div class="topic-head">
+        <div class="eyebrow">primary sources</div>
+        <h3>Where to read more</h3>
+    </div>
+    <ul class="sources">
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> Chapter 5 (cameras and film), §8.8 (sampling and reconstruction), §4.6 (colour), §2.1 to 2.3 (Monte Carlo, for the toolkit).</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/base/camera.h</code>, <code>cameras.h</code>, <code>cameras.cpp</code>, <code>base/filter.h</code>, <code>filters.h</code>, <code>filters.cpp</code>, <code>film.h</code>, and <code>GetCameraSample</code> in <code>samplers.h</code>.</li>
+        <li>Shirley and Chiu. A Low Distortion Map Between Disk and Square. <i>Journal of Graphics Tools</i> 2(3), 1997. The concentric map of the lens sample.</li>
+        <li>Kolb, Mitchell, Hanrahan. A Realistic Camera Model for Computer Graphics. SIGGRAPH 1995. Lens systems beyond the thin lens.</li>
+        <li>Wyman, Sloan, Shirley. <a href="https://jcgt.org/published/0002/02/01/">Simple Analytic Approximations to the CIE XYZ Color Matching Functions</a>. JCGT 2(2), 2013. Used by the sensor figures only.</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../umbra-math/docs/field-guide.html">Umbra Math Field Guide</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (numeric model, importance-sampled filters), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (closed enums), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (no_std core), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Pixel Sample, Film).</li>
+    </ul>
+</section>
+
+<footer>Umbra Camera Guide · crates/umbra-camera/docs/camera-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+/* ================================================================
+    Shared helpers: canvas setup, theme colours, number formatting.
+    ================================================================ */
+const $ = (id) => document.getElementById(id);
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function fit(cv) {
+    const r = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+}
+const fmt = (x, d = 4) => (Object.is(x, -0) ? 0 : x).toFixed(d);
+const fmtG = (x) => {
+    if (x === 0) return "0";
+    const a = Math.abs(x);
+    return a >= 1e4 || a < 1e-3 ? x.toExponential(3) : x.toPrecision(5);
+};
+const vec = (a, d = 4) => "(" + a.map((v) => fmt(v, d)).join(", ") + ")";
+function mulberry32(seed) {
+    return () => {
+        seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+const hue = (i, a = 1) => `hsla(${(i * 137.508) % 360}, 65%, 52%, ${a})`;
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+function bindRange(id, fmtFn, onInput) {
+    const el = $(id), out = $(id + "-o");
+    const show = () => { out.textContent = fmtFn(+el.value); };
+    el.addEventListener("input", () => { show(); onInput(); });
+    show();
+    return el;
+}
+
+/* ================================================================
+    4 × 4 transforms, row-major, as umbra-math's Transform.
+    ================================================================ */
+const M4 = {
+    mul(a, b) {
+        const r = new Array(16).fill(0);
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+            let s = 0;
+            for (let k = 0; k < 4; k++) s += a[i * 4 + k] * b[k * 4 + j];
+            r[i * 4 + j] = s;
+        }
+        return r;
+    },
+    scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
+    translate: (x, y, z) => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z, 0, 0, 0, 1],
+    inv(m) {
+        const a = m.slice(), r = M4.scale(1, 1, 1);
+        for (let c = 0; c < 4; c++) {
+            let p = c;
+            for (let i = c + 1; i < 4; i++) if (Math.abs(a[i * 4 + c]) > Math.abs(a[p * 4 + c])) p = i;
+            for (let j = 0; j < 4; j++) {
+                [a[c * 4 + j], a[p * 4 + j]] = [a[p * 4 + j], a[c * 4 + j]];
+                [r[c * 4 + j], r[p * 4 + j]] = [r[p * 4 + j], r[c * 4 + j]];
+            }
+            const d = a[c * 4 + c];
+            for (let j = 0; j < 4; j++) { a[c * 4 + j] /= d; r[c * 4 + j] /= d; }
+            for (let i = 0; i < 4; i++) if (i !== c) {
+                const f = a[i * 4 + c];
+                for (let j = 0; j < 4; j++) { a[i * 4 + j] -= f * a[c * 4 + j]; r[i * 4 + j] -= f * r[c * 4 + j]; }
+            }
+        }
+        return r;
+    },
+    apply(m, [x, y, z]) {
+        const xp = m[0] * x + m[1] * y + m[2] * z + m[3];
+        const yp = m[4] * x + m[5] * y + m[6] * z + m[7];
+        const zp = m[8] * x + m[9] * y + m[10] * z + m[11];
+        const wp = m[12] * x + m[13] * y + m[14] * z + m[15];
+        return wp === 1 ? [xp, yp, zp] : [xp / wp, yp / wp, zp / wp];
+    },
+};
+const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+
+/* umbra-math perspective(fov, n, f) */
+function perspective(fov, n, f) {
+    const persp = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, f / (f - n), -f * n / (f - n), 0, 0, 1, 0];
+    const k = 1 / Math.tan((fov * Math.PI / 180) / 2);
+    return M4.mul(M4.scale(k, k, 1), persp);
+}
+/* pbrt-v4's default screen window: the shorter side spans [-1, 1]. */
+function defaultScreenWindow(W, H) {
+    const a = W / H;
+    return a > 1 ? { pMin: [-a, -1], pMax: [a, 1] } : { pMin: [-1, -1 / a], pMax: [1, 1 / a] };
+}
+/* umbra-sampling sample_uniform_disk_concentric */
+function concentric([u, v]) {
+    const ox = 2 * u - 1, oy = 2 * v - 1;
+    if (ox === 0 && oy === 0) return [0, 0];
+    let r, th;
+    if (Math.abs(ox) > Math.abs(oy)) { r = ox; th = (Math.PI / 4) * (oy / ox); }
+    else { r = oy; th = Math.PI / 2 - (Math.PI / 4) * (ox / oy); }
+    return [r * Math.cos(th), r * Math.sin(th)];
+}
+/* PerspectiveCamera::new and Camera::generate_ray, camera at the origin. */
+function perspectiveCamera(W, H, fov, lens = { radius: 0, focalDistance: 1e6 }) {
+    const screen = defaultScreenWindow(W, H);
+    const { pMin, pMax } = screen;
+    const screenFromCamera = perspective(fov, 1e-2, 1000);
+    const ndcFromScreen = M4.mul(
+        M4.scale(1 / (pMax[0] - pMin[0]), 1 / (pMax[1] - pMin[1]), 1),
+        M4.translate(-pMin[0], -pMax[1], 0));
+    const rasterFromNdc = M4.scale(W, -H, 1);
+    const rasterFromScreen = M4.mul(rasterFromNdc, ndcFromScreen);
+    const screenFromRaster = M4.inv(rasterFromScreen);
+    const cameraFromScreen = M4.inv(screenFromCamera);
+    const cameraFromRaster = M4.mul(cameraFromScreen, screenFromRaster);
+    return {
+        W, H, fov, screen, lens, ndcFromScreen, screenFromRaster, cameraFromRaster,
+        generateRay(pFilm, pLens) {
+            const pCamera = M4.apply(cameraFromRaster, [pFilm[0], pFilm[1], 0]);
+            let o = [0, 0, 0], d = norm(pCamera);
+            if (lens.radius > 0) {
+                const pl = concentric(pLens);
+                const ft = lens.focalDistance / d[2];
+                const pFocus = [d[0] * ft, d[1] * ft, d[2] * ft];
+                o = [pl[0] * lens.radius, pl[1] * lens.radius, 0];
+                d = norm([pFocus[0] - o[0], pFocus[1] - o[1], pFocus[2] - o[2]]);
+            }
+            return { o, d, pCamera };
+        },
+    };
+}
+
+/* ================================================================
+    Gaussian filter and FilterSampler, as filter.rs.
+    ================================================================ */
+const gaussian = (x, mu, s) => Math.exp(-((x - mu) ** 2) / (2 * s * s)) / Math.sqrt(2 * Math.PI * s * s);
+function erf(x) { // Abramowitz and Stegun 7.1.26, |error| < 1.5e-7
+    const s = Math.sign(x); x = Math.abs(x);
+    const t = 1 / (1 + 0.3275911 * x);
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return s * y;
+}
+const gaussianIntegral = (x0, x1, mu, s) => 0.5 * (erf((mu - x0) / (Math.SQRT2 * s)) - erf((mu - x1) / (Math.SQRT2 * s)));
+
+/* 1D piecewise-constant distribution over [min, max] (umbra-sampling PiecewiseConstant1D). */
+function piecewise1D(func, min, max) {
+    const n = func.length, f = func.map(Math.abs);
+    const cdf = new Float64Array(n + 1);
+    for (let i = 1; i <= n; i++) cdf[i] = cdf[i - 1] + f[i - 1] * (max - min) / n;
+    const funcInt = cdf[n];
+    if (funcInt === 0) for (let i = 1; i <= n; i++) cdf[i] = i / n;
+    else for (let i = 1; i <= n; i++) cdf[i] /= funcInt;
+    return {
+        funcInt, func: f,
+        sample(u) {
+            let lo = 0, hi = n; // largest o with cdf[o] <= u
+            while (lo + 1 < hi) { const m = (lo + hi) >> 1; if (cdf[m] <= u) lo = m; else hi = m; }
+            const o = lo;
+            let du = u - cdf[o];
+            if (cdf[o + 1] - cdf[o] > 0) du /= cdf[o + 1] - cdf[o];
+            const pdf = funcInt > 0 ? f[o] / funcInt : 0;
+            return { x: min + (o + du) / n * (max - min), pdf, o };
+        },
+    };
+}
+function gaussianFilter(r, sigma) {
+    const e = gaussian(r, 0, sigma);
+    const evaluate = (x, y) => Math.max(0, gaussian(x, 0, sigma) - e) * Math.max(0, gaussian(y, 0, sigma) - e);
+    const integral = (gaussianIntegral(-r, r, 0, sigma) - 2 * r * e) ** 2;
+    const n = Math.trunc(32 * r);
+    const table = new Float64Array(n * n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+        table[y * n + x] = evaluate(-r + 2 * r * (x + 0.5) / n, -r + 2 * r * (y + 0.5) / n);
+    const conditional = [];
+    for (let y = 0; y < n; y++) conditional.push(piecewise1D(Array.from(table.subarray(y * n, y * n + n)), -r, r));
+    const marginal = piecewise1D(conditional.map((c) => c.funcInt), -r, r);
+    const cell = (2 * r / n) ** 2;
+    let tableIntegral = 0;
+    for (const v of table) tableIntegral += v * cell;
+    return {
+        r, sigma, n, table, evaluate, integral, tableIntegral, shift: e,
+        sample([u0, u1]) {
+            const sv = marginal.sample(u1);
+            const su = conditional[sv.o].sample(u0);
+            const pdf = sv.pdf * su.pdf;
+            return { p: [su.x, sv.x], weight: table[sv.o * n + su.o] / pdf };
+        },
+    };
+}
+
+/* ================================================================
+    Redraw orchestration: every bench registers a draw function that
+    is called again on resize and on a theme change.
+    ================================================================ */
+const drawers = [];
+const redrawAll = () => drawers.forEach((d) => d());
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================================================================
+    §2 Spaces bench
+    ================================================================ */
+(() => {
+    const st = { p: [3.5, 2.5], drag: false };
+    let cam;
+    const W = () => +$("sp-w").value, H = () => +$("sp-h").value;
+    const rebuild = () => {
+        cam = perspectiveCamera(W(), H(), +$("sp-fov").value);
+        st.p = [clamp(st.p[0], 0, W()), clamp(st.p[1], 0, H())];
+        draw();
+    };
+    bindRange("sp-w", (v) => v, rebuild);
+    bindRange("sp-h", (v) => v, rebuild);
+    bindRange("sp-fov", (v) => v + "°", rebuild);
+    $("sp-centre").addEventListener("click", () => {
+        st.p = [Math.min(Math.floor(st.p[0]), W() - 1) + 0.5, Math.min(Math.floor(st.p[1]), H() - 1) + 0.5]; draw();
+    });
+    $("sp-corner").addEventListener("click", () => { st.p = [0, 0]; draw(); });
+
+    const rasterCv = $("sp-raster");
+    function rasterLayout(w, h) {
+        const pad = 22, s = Math.min((w - 2 * pad) / W(), (h - 2 * pad) / H());
+        return { s, ox: (w - s * W()) / 2, oy: (h - s * H()) / 2 };
+    }
+    function pick(ev) {
+        const r = rasterCv.getBoundingClientRect();
+        const L = rasterLayout(r.width, r.height);
+        st.p = [clamp((ev.clientX - r.left - L.ox) / L.s, 0, W()), clamp((ev.clientY - r.top - L.oy) / L.s, 0, H())];
+        draw();
+    }
+    rasterCv.addEventListener("pointerdown", (ev) => { st.drag = true; rasterCv.setPointerCapture(ev.pointerId); pick(ev); });
+    rasterCv.addEventListener("pointermove", (ev) => { if (st.drag) pick(ev); });
+    rasterCv.addEventListener("pointerup", () => { st.drag = false; });
+    rasterCv.addEventListener("keydown", (ev) => {
+        const step = ev.shiftKey ? 1 : 0.1;
+        const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+        if (!k) return;
+        ev.preventDefault();
+        st.p = [clamp(st.p[0] + k[0], 0, W()), clamp(st.p[1] + k[1], 0, H())];
+        draw();
+    });
+
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const { screen } = cam;
+        const pScreen = M4.apply(cam.screenFromRaster, [st.p[0], st.p[1], 0]);
+        const pNdc = M4.apply(cam.ndcFromScreen, pScreen);
+        const ray = cam.generateRay(st.p, [0.5, 0.5]);
+
+        /* raster */
+        {
+            const { ctx, w, h } = fit(rasterCv);
+            const L = rasterLayout(w, h);
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            for (let x = 0; x <= W(); x++) { ctx.beginPath(); ctx.moveTo(L.ox + x * L.s, L.oy); ctx.lineTo(L.ox + x * L.s, L.oy + H() * L.s); ctx.stroke(); }
+            for (let y = 0; y <= H(); y++) { ctx.beginPath(); ctx.moveTo(L.ox, L.oy + y * L.s); ctx.lineTo(L.ox + W() * L.s, L.oy + y * L.s); ctx.stroke(); }
+            ctx.fillStyle = mut;
+            for (let y = 0; y < H(); y++) for (let x = 0; x < W(); x++) {
+                ctx.beginPath(); ctx.arc(L.ox + (x + 0.5) * L.s, L.oy + (y + 0.5) * L.s, 1.5, 0, 7); ctx.fill();
+            }
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText("(0, 0)", L.ox - 4, L.oy - 6);
+            ctx.textAlign = "right"; ctx.fillText(`(${W()}, ${H()})`, L.ox + W() * L.s + 4, L.oy + H() * L.s + 15); ctx.textAlign = "left";
+            const px = Math.min(Math.floor(st.p[0]), W() - 1), py = Math.min(Math.floor(st.p[1]), H() - 1);
+            ctx.fillStyle = acc; ctx.globalAlpha = 0.12; ctx.fillRect(L.ox + px * L.s, L.oy + py * L.s, L.s, L.s); ctx.globalAlpha = 1;
+            ctx.fillStyle = warm; ctx.beginPath(); ctx.arc(L.ox + st.p[0] * L.s, L.oy + st.p[1] * L.s, 6, 0, 7); ctx.fill();
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        /* screen */
+        {
+            const { ctx, w, h } = fit($("sp-screen"));
+            const ext = Math.max(screen.pMax[0], screen.pMax[1]) * 1.15;
+            const s = Math.min(w, h) / (2 * ext);
+            const X = (x) => w / 2 + x * s, Y = (y) => h / 2 - y * s;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), h); ctx.stroke();
+            ctx.strokeStyle = acc; ctx.lineWidth = 1.5;
+            ctx.strokeRect(X(screen.pMin[0]), Y(screen.pMax[1]), (screen.pMax[0] - screen.pMin[0]) * s, (screen.pMax[1] - screen.pMin[1]) * s);
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText(`p_max (${fmt(screen.pMax[0], 2)}, ${fmt(screen.pMax[1], 2)})`, X(screen.pMax[0]) - 120, Y(screen.pMax[1]) - 6);
+            ctx.fillText(`p_min`, X(screen.pMin[0]), Y(screen.pMin[1]) + 14);
+            ctx.fillText("+y", X(0) + 4, 12); ctx.fillText("+x", w - 18, Y(0) - 4);
+            ctx.fillStyle = warm; ctx.beginPath(); ctx.arc(X(pScreen[0]), Y(pScreen[1]), 6, 0, 7); ctx.fill();
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        /* top view */
+        {
+            const { ctx, w, h } = fit($("sp-top"));
+            const t = Math.tan((cam.fov * Math.PI / 180) / 2);
+            const halfX = t * screen.pMax[0]; // x extent at z = 1
+            const zMax = 1.15, xMax = Math.max(halfX * zMax, 0.4) * 1.08;
+            const s = Math.min((h - 24) / zMax, (w - 16) / (2 * xMax));
+            const X = (x) => w / 2 + x * s, Z = (z) => h - 12 - z * s;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(0), Z(zMax)); ctx.stroke();
+            ctx.fillStyle = acc; ctx.globalAlpha = 0.08;
+            ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(-halfX * zMax), Z(zMax)); ctx.lineTo(X(halfX * zMax), Z(zMax)); ctx.closePath(); ctx.fill();
+            ctx.globalAlpha = 1; ctx.strokeStyle = acc; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(-halfX * zMax), Z(zMax)); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(halfX * zMax), Z(zMax)); ctx.stroke();
+            // image plane at z = 1 with pixel columns
+            ctx.strokeStyle = mut; ctx.beginPath(); ctx.moveTo(X(-halfX), Z(1)); ctx.lineTo(X(halfX), Z(1)); ctx.stroke();
+            for (let i = 0; i <= W(); i++) {
+                const x = -halfX + 2 * halfX * i / W();
+                ctx.beginPath(); ctx.moveTo(X(x), Z(1) - 3); ctx.lineTo(X(x), Z(1) + 3); ctx.stroke();
+            }
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText("z = 1", X(halfX) + 4 > w - 40 ? 4 : X(halfX) + 4, Z(1) + 4);
+            ctx.fillText(`fov ${cam.fov}°`, 4, h - 4);
+            // the ray
+            const d = ray.d, tEnd = zMax / d[2];
+            ctx.strokeStyle = warm; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(d[0] * tEnd), Z(d[2] * tEnd)); ctx.stroke();
+            ctx.fillStyle = warm; ctx.beginPath(); ctx.arc(X(d[0] / d[2]), Z(1), 4, 0, 7); ctx.fill();
+            ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(X(0), Z(0), 3.5, 0, 7); ctx.fill();
+        }
+        $("sp-read").innerHTML = `
+            <dt>raster</dt><dd>${vec(st.p, 3)}</dd>
+            <dt>NDC</dt><dd>${vec([pNdc[0], pNdc[1]], 4)}</dd>
+            <dt>screen</dt><dd>${vec([pScreen[0], pScreen[1]], 4)}</dd>
+            <dt>p_camera</dt><dd>${vec(ray.pCamera, 5)}</dd>
+            <dt>ray.d</dt><dd class="acc">${vec(ray.d, 5)}</dd>
+            <dt>angle off axis</dt><dd>${fmt(Math.acos(ray.d[2]) * 180 / Math.PI, 2)}°</dd>`;
+        const m = cam.cameraFromRaster;
+        let rows = "";
+        for (let i = 0; i < 4; i++) rows += "<tr>" + [0, 1, 2, 3].map((j) => `<td>${fmtG(m[i * 4 + j])}</td>`).join("") + "</tr>";
+        $("sp-mat").innerHTML = rows;
+    }
+    cam = perspectiveCamera(W(), H(), +$("sp-fov").value);
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §3 Thin lens bench: a progressive render and a side view.
+    ================================================================ */
+(() => {
+    const RW = 192, RH = 108, MAX_SPP = 512;
+    const filter = gaussianFilter(1.5, 0.5);
+    const accum = new Float32Array(RW * RH * 3), wsum = new Float32Array(RW * RH);
+    let spp = 0, cam, rng = mulberry32(7), running = false, visible = true;
+    const off = document.createElement("canvas"); off.width = RW; off.height = RH;
+    const offCtx = off.getContext("2d");
+    const img = offCtx.createImageData(RW, RH);
+
+    // Scene in camera-world space: camera at the origin looking down +z.
+    const spheres = [
+        { c: [-1.5, -0.45, 3.2], r: 0.55, a: [0.80, 0.18, 0.12] },
+        { c: [0.35, -0.3, 5.5], r: 0.7, a: [0.12, 0.62, 0.55] },
+        { c: [2.4, 0.0, 9.0], r: 1.0, a: [0.85, 0.62, 0.10] },
+        { c: [-3.2, 0.5, 14.0], r: 1.5, a: [0.20, 0.30, 0.85] },
+        { c: [5.5, 1.0, 21.0], r: 2.0, a: [0.62, 0.25, 0.70] },
+    ];
+    const sun = norm([-0.55, 0.85, -0.5]);
+    function hit(o, d) {
+        let best = Infinity, n = null, a = null;
+        for (const s of spheres) {
+            const oc = [o[0] - s.c[0], o[1] - s.c[1], o[2] - s.c[2]];
+            const b = oc[0] * d[0] + oc[1] * d[1] + oc[2] * d[2];
+            const c = oc[0] * oc[0] + oc[1] * oc[1] + oc[2] * oc[2] - s.r * s.r;
+            const disc = b * b - c;
+            if (disc < 0) continue;
+            const t = -b - Math.sqrt(disc);
+            if (t > 1e-4 && t < best) {
+                best = t;
+                const p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+                n = [(p[0] - s.c[0]) / s.r, (p[1] - s.c[1]) / s.r, (p[2] - s.c[2]) / s.r];
+                a = s.a;
+            }
+        }
+        if (d[1] < 0) { // ground plane y = -1
+            const t = (-1 - o[1]) / d[1];
+            if (t > 1e-4 && t < best) {
+                best = t;
+                const x = o[0] + t * d[0], z = o[2] + t * d[2];
+                const chk = (Math.floor(x) + Math.floor(z)) & 1;
+                n = [0, 1, 0]; a = chk ? [0.75, 0.75, 0.72] : [0.12, 0.12, 0.13];
+            }
+        }
+        return best < Infinity ? { t: best, n, a } : null;
+    }
+    function radiance(o, d) {
+        const h = hit(o, d);
+        if (!h) { const k = 0.5 + 0.5 * d[1]; return [0.55 + 0.25 * k, 0.68 + 0.2 * k, 0.9]; }
+        const p = [o[0] + h.t * d[0], o[1] + h.t * d[1], o[2] + h.t * d[2]];
+        const ndl = Math.max(0, h.n[0] * sun[0] + h.n[1] * sun[1] + h.n[2] * sun[2]);
+        const lit = ndl > 0 && !hit(p, sun) ? ndl : 0;
+        const amb = 0.18 + 0.12 * h.n[1];
+        return h.a.map((c) => c * (amb + 1.05 * lit));
+    }
+    const lensParams = () => ({ radius: +$("tl-r").value, focalDistance: +$("tl-fd").value });
+    function reset() {
+        cam = perspectiveCamera(RW, RH, +$("tl-fov").value, lensParams());
+        accum.fill(0); wsum.fill(0); spp = 0; rng = mulberry32(7);
+        drawSide();
+        kick();
+    }
+    function pass() {
+        for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
+            // get_camera_sample: filter first, then time, then lens.
+            const fs = filter.sample([rng(), rng()]);
+            const pFilm = [x + fs.p[0] + 0.5, y + fs.p[1] + 0.5];
+            rng(); // time, drawn and unused: the camera does not move.
+            const pLens = [rng(), rng()];
+            const ray = cam.generateRay(pFilm, pLens);
+            const L = radiance(ray.o, ray.d);
+            const i = y * RW + x;
+            accum[3 * i] += fs.weight * L[0]; accum[3 * i + 1] += fs.weight * L[1]; accum[3 * i + 2] += fs.weight * L[2];
+            wsum[i] += fs.weight;
+        }
+        spp++;
+    }
+    const enc = (v) => { v = clamp(v, 0, 1); return 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055); };
+    function present() {
+        for (let i = 0; i < RW * RH; i++) {
+            const w = wsum[i] || 1;
+            img.data[4 * i] = enc(accum[3 * i] / w); img.data[4 * i + 1] = enc(accum[3 * i + 1] / w);
+            img.data[4 * i + 2] = enc(accum[3 * i + 2] / w); img.data[4 * i + 3] = 255;
+        }
+        offCtx.putImageData(img, 0, 0);
+        const { ctx, w, h } = fit($("tl-render"));
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(off, 0, 0, w, h);
+        $("tl-render-f").textContent = `${spp} Pixel Samples per pixel · filter weight of every sample ${fmt(filter.tableIntegral, 5)}`;
+    }
+    function frame() {
+        if (!visible || spp >= MAX_SPP) { running = false; present(); return; }
+        const t0 = performance.now();
+        do pass(); while (performance.now() - t0 < 12 && spp < MAX_SPP);
+        present();
+        requestAnimationFrame(frame);
+    }
+    function kick() { if (!running) { running = true; requestAnimationFrame(frame); } }
+    new IntersectionObserver((es) => { visible = es[0].isIntersecting; if (visible) kick(); }).observe($("tl-render"));
+
+    $("tl-render").addEventListener("click", (ev) => {
+        const r = ev.currentTarget.getBoundingClientRect();
+        const pFilm = [(ev.clientX - r.left) / r.width * RW, (ev.clientY - r.top) / r.height * RH];
+        const pin = perspectiveCamera(RW, RH, +$("tl-fov").value);
+        const ray = pin.generateRay(pFilm, [0.5, 0.5]);
+        const h = hit(ray.o, ray.d);
+        if (!h) return;
+        const z = ray.d[2] * h.t; // the plane of focus is z = focal distance
+        $("tl-fd").value = clamp(z, 1.5, 22).toFixed(1);
+        $("tl-fd").dispatchEvent(new Event("input"));
+    });
+
+    function drawSide() {
+        const { ctx, w, h } = fit($("tl-side"));
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const { radius: r, focalDistance: fd } = lensParams();
+        const z0 = +$("tl-z").value, zMax = 25;
+        const yMax = 0.55, pad = 14;
+        const X = (z) => pad + 26 + z / zMax * (w - 2 * pad - 26), Y = (y) => h / 2 - y / yMax * (h / 2 - pad);
+        ctx.strokeStyle = grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(zMax), Y(0)); ctx.stroke();
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = acc;
+        ctx.beginPath(); ctx.moveTo(X(fd), pad); ctx.lineTo(X(fd), h - pad); ctx.stroke();
+        ctx.strokeStyle = mut;
+        ctx.beginPath(); ctx.moveTo(X(z0), pad); ctx.lineTo(X(z0), h - pad); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = `11px ${tok("--mono")}`;
+        ctx.fillStyle = acc; ctx.fillText("plane of focus", Math.min(X(fd) + 4, w - 95), pad + 10);
+        ctx.fillStyle = mut; ctx.fillText("object", Math.min(X(z0) + 4, w - 45), h - pad - 4);
+        // rays from lens points through the centre pixel's focus point (on axis)
+        const n = 9;
+        ctx.strokeStyle = warm; ctx.globalAlpha = 0.75; ctx.lineWidth = 1;
+        for (let i = 0; i < n; i++) {
+            const yl = r * (2 * (i + 0.5) / n - 1);
+            const dy = (0 - yl) / fd;
+            ctx.beginPath(); ctx.moveTo(X(0), Y(yl)); ctx.lineTo(X(zMax), Y(yl + dy * zMax)); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        // the lens
+        ctx.strokeStyle = ink; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(X(0), Y(r)); ctx.lineTo(X(0), Y(-r)); ctx.stroke();
+        if (r === 0) { ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(X(0), Y(0), 3, 0, 7); ctx.fill(); }
+        // circle of confusion at the object depth
+        const spread = 2 * r * Math.abs(1 - z0 / fd);
+        ctx.strokeStyle = warm; ctx.lineWidth = 5; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.moveTo(X(z0), Y(spread / 2)); ctx.lineTo(X(z0), Y(-spread / 2)); ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = mut; ctx.fillText("lens", 4, Y(0) + 4);
+        // blur in pixels: angle 2r|1/z - 1/fd| over the angular size of a pixel
+        const t = Math.tan((+$("tl-fov").value * Math.PI / 180) / 2);
+        const pixelAngle = 2 * t / RH;
+        const blurPx = 2 * r * Math.abs(1 / z0 - 1 / fd) / pixelAngle;
+        $("tl-read").innerHTML = `
+            <dt>cone width at z</dt><dd>${fmt(spread, 4)}</dd>
+            <dt>blur on the film</dt><dd class="acc">≈ ${fmt(blurPx, 1)} px of ${RH}</dd>
+            <dt>ray weight</dt><dd>1</dd>`;
+    }
+    bindRange("tl-r", (v) => v.toFixed(3), reset);
+    bindRange("tl-fd", (v) => v.toFixed(1), reset);
+    bindRange("tl-fov", (v) => v + "°", reset);
+    bindRange("tl-z", (v) => v.toFixed(1), drawSide);
+    drawers.push(() => { drawSide(); present(); });
+    reset();
+})();
+
+/* ================================================================
+    §4 Filter bench
+    ================================================================ */
+(() => {
+    let filter, samples = [], rng = mulberry32(11);
+    const rebuild = () => { filter = gaussianFilter(+$("fi-r").value, +$("fi-s").value); samples = []; rng = mulberry32(11); draw(); };
+    bindRange("fi-r", (v) => v.toFixed(3), rebuild);
+    bindRange("fi-s", (v) => v.toFixed(2), rebuild);
+    $("fi-add").addEventListener("click", () => { for (let i = 0; i < 256; i++) samples.push(filter.sample([rng(), rng()])); draw(); });
+    $("fi-clear").addEventListener("click", () => { samples = []; draw(); });
+
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent"), warm = tok("--warm");
+        const { r, n, table } = filter;
+        /* heat map */
+        {
+            const { ctx, w, h } = fit($("fi-map"));
+            const R = 2.6, s = Math.min(w, h) / (2 * R);
+            const X = (x) => w / 2 + x * s, Y = (y) => h / 2 - y * s;
+            let maxv = 0; for (const v of table) maxv = Math.max(maxv, v);
+            const cs = 2 * r / n * s;
+            ctx.fillStyle = acc;
+            for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+                ctx.globalAlpha = 0.85 * table[y * n + x] / maxv;
+                ctx.fillRect(X(-r + 2 * r * x / n), Y(-r + 2 * r * (y + 1) / n), cs + 0.5, cs + 0.5);
+            }
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.strokeRect(X(-r), Y(r), 2 * r * s, 2 * r * s);
+            // neighbouring pixel grid
+            ctx.globalAlpha = 0.6;
+            for (let k = -2.5; k <= 2.5; k += 1) {
+                ctx.beginPath(); ctx.moveTo(X(k), Y(-R)); ctx.lineTo(X(k), Y(R)); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(X(-R), Y(k)); ctx.lineTo(X(R), Y(k)); ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            ctx.setLineDash([5, 4]); ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
+            ctx.strokeRect(X(-0.5), Y(0.5), s, s); ctx.setLineDash([]);
+            ctx.fillStyle = warm;
+            for (const sm of samples) { ctx.beginPath(); ctx.arc(X(sm.p[0]), Y(sm.p[1]), 2.2, 0, 7); ctx.fill(); }
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText(`${n} × ${n} cells over [−${r}, ${r}]²`, 6, h - 6);
+        }
+        /* profile */
+        {
+            const { ctx, w, h } = fit($("fi-prof"));
+            const R = 2.6, pad = 10;
+            const peak = gaussian(0, 0, filter.sigma);
+            const X = (x) => w / 2 + x / R * (w / 2 - pad), Y = (v) => h - pad - v / peak * (h - 2 * pad);
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+            for (const k of [-r, r]) { ctx.beginPath(); ctx.moveTo(X(k), pad); ctx.lineTo(X(k), h - pad); ctx.stroke(); }
+            const curve = (fn, color, wid) => {
+                ctx.strokeStyle = color; ctx.lineWidth = wid; ctx.beginPath();
+                for (let i = 0; i <= 300; i++) { const x = -R + 2 * R * i / 300; const y = Y(fn(x)); i ? ctx.lineTo(X(x), y) : ctx.moveTo(X(x), y); }
+                ctx.stroke();
+            };
+            curve((x) => gaussian(x, 0, filter.sigma), mut, 1);
+            curve((x) => (Math.abs(x) <= r ? Math.max(0, gaussian(x, 0, filter.sigma) - filter.shift) : 0), acc, 2);
+            // table steps along the middle row (cell centres): the 1D profile times the y factor at the centre row
+            const yc = -r + 2 * r * (Math.floor(n / 2) + 0.5) / n;
+            const fy = Math.max(0, gaussian(yc, 0, filter.sigma) - filter.shift);
+            ctx.strokeStyle = warm; ctx.lineWidth = 1.5; ctx.beginPath();
+            for (let x = 0; x < n; x++) {
+                const v = table[Math.floor(n / 2) * n + x] / (fy || 1);
+                ctx.moveTo(X(-r + 2 * r * x / n), Y(v)); ctx.lineTo(X(-r + 2 * r * (x + 1) / n), Y(v));
+            }
+            ctx.stroke();
+        }
+        const outside = samples.filter((sm) => Math.abs(sm.p[0]) > 0.5 || Math.abs(sm.p[1]) > 0.5).length;
+        const wmin = samples.length ? Math.min(...samples.map((s) => s.weight)) : NaN;
+        const wmax = samples.length ? Math.max(...samples.map((s) => s.weight)) : NaN;
+        $("fi-read").innerHTML = `
+            <dt>table size</dt><dd>int(32 · ${filter.r}) = ${n} → ${n}×${n}</dd>
+            <dt>∫f (integral())</dt><dd>${fmt(filter.integral, 6)}</dd>
+            <dt>table integral</dt><dd>${fmt(filter.tableIntegral, 6)} <span class="mut">(${fmt(100 * (filter.tableIntegral / filter.integral - 1), 3)} %)</span></dd>
+            <dt>sample weights</dt><dd class="acc">${samples.length ? (wmin.toFixed(6) + (wmax - wmin > 1e-9 ? " … " + wmax.toFixed(6) : " (all equal)")) : "draw some"}</dd>
+            <dt>outside the pixel</dt><dd>${samples.length ? `${outside} of ${samples.length} (${fmt(100 * outside / samples.length, 1)} %)` : "–"}</dd>`;
+    }
+    filter = gaussianFilter(+$("fi-r").value, +$("fi-s").value);
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §5 Camera sample bench
+    ================================================================ */
+(() => {
+    const filter = gaussianFilter(1.5, 0.5);
+    const cam = perspectiveCamera(64, 64, 90);
+    const pixel = [10, 20];
+    let list = [], rng = mulberry32(3);
+    const draw1 = () => {
+        // get_camera_sample's order: get_pixel_2d (filter), get_1d (time), get_2d (lens)
+        const fs = filter.sample([rng(), rng()]);
+        const time = rng();
+        const pLens = [rng(), rng()];
+        const pFilm = [pixel[0] + fs.p[0] + 0.5, pixel[1] + fs.p[1] + 0.5];
+        list.push({ pFilm, pLens, time, w: fs.weight, ray: cam.generateRay(pFilm, pLens) });
+    };
+    $("cs-one").addEventListener("click", () => { draw1(); draw(); });
+    $("cs-many").addEventListener("click", () => { for (let i = 0; i < 63; i++) draw1(); draw(); });
+    $("cs-reset").addEventListener("click", () => { list = []; rng = mulberry32(3); draw(); });
+
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), acc = tok("--accent");
+        /* film */
+        {
+            const { ctx, w, h } = fit($("cs-film"));
+            const x0 = pixel[0] - 2, y0 = pixel[1] - 2, N = 5, pad = 22;
+            const s = Math.min(w, h - pad) / N * 0.92, ox = (w - s * N) / 2, oy = pad;
+            const X = (x) => ox + (x - x0) * s, Y = (y) => oy + (y - y0) * s;
+            ctx.fillStyle = acc; ctx.globalAlpha = 0.1; ctx.fillRect(X(pixel[0]), Y(pixel[1]), s, s); ctx.globalAlpha = 1;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            for (let i = 0; i <= N; i++) {
+                ctx.beginPath(); ctx.moveTo(X(x0 + i), Y(y0)); ctx.lineTo(X(x0 + i), Y(y0 + N)); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(X(x0), Y(y0 + i)); ctx.lineTo(X(x0 + N), Y(y0 + i)); ctx.stroke();
+            }
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut; ctx.textAlign = "center";
+            for (let i = 0; i < N; i++) ctx.fillText(String(x0 + i), X(x0 + i + 0.5), oy - 6);
+            ctx.textAlign = "right";
+            for (let i = 0; i < N; i++) ctx.fillText(String(y0 + i), ox - 4, Y(y0 + i + 0.5) + 4);
+            ctx.textAlign = "left";
+            ctx.strokeStyle = ink; ctx.setLineDash([4, 4]);
+            ctx.strokeRect(X(pixel[0] + 0.5 - 1.5), Y(pixel[1] + 0.5 - 1.5), 3 * s, 3 * s); ctx.setLineDash([]);
+            ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(X(pixel[0] + 0.5), Y(pixel[1] + 0.5), 2.5, 0, 7); ctx.fill();
+            list.forEach((c, i) => {
+                ctx.fillStyle = hue(i); ctx.beginPath(); ctx.arc(X(c.pFilm[0]), Y(c.pFilm[1]), i === list.length - 1 ? 5 : 3, 0, 7); ctx.fill();
+                if (i === list.length - 1) { ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke(); }
+            });
+        }
+        /* lens square and disc */
+        {
+            const sq = fit($("cs-sq")), di = fit($("cs-disc"));
+            const pad = 8;
+            for (const { ctx, w, h } of [sq, di]) { ctx.strokeStyle = grid; ctx.lineWidth = 1; }
+            sq.ctx.strokeRect(pad, pad, sq.w - 2 * pad, sq.h - 2 * pad);
+            const R = Math.min(di.w, di.h) / 2 - pad;
+            di.ctx.beginPath(); di.ctx.arc(di.w / 2, di.h / 2, R, 0, 7); di.ctx.stroke();
+            list.forEach((c, i) => {
+                const last = i === list.length - 1;
+                sq.ctx.fillStyle = hue(i);
+                sq.ctx.beginPath(); sq.ctx.arc(pad + c.pLens[0] * (sq.w - 2 * pad), sq.h - pad - c.pLens[1] * (sq.h - 2 * pad), last ? 5 : 3, 0, 7); sq.ctx.fill();
+                const d = concentric(c.pLens);
+                di.ctx.fillStyle = hue(i);
+                di.ctx.beginPath(); di.ctx.arc(di.w / 2 + d[0] * R, di.h / 2 - d[1] * R, last ? 5 : 3, 0, 7); di.ctx.fill();
+                if (last) {
+                    sq.ctx.strokeStyle = ink; sq.ctx.lineWidth = 1.5; sq.ctx.stroke();
+                    di.ctx.strokeStyle = ink; di.ctx.lineWidth = 1.5; di.ctx.stroke();
+                }
+            });
+        }
+        /* time */
+        {
+            const { ctx, w, h } = fit($("cs-time"));
+            const pad = 10, Y = h / 2;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, Y); ctx.lineTo(w - pad, Y); ctx.stroke();
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText("open 0", pad, h - 4); ctx.textAlign = "right"; ctx.fillText("close 1", w - pad, h - 4); ctx.textAlign = "left";
+            list.forEach((c, i) => {
+                ctx.fillStyle = hue(i, 0.85);
+                ctx.fillRect(pad + c.time * (w - 2 * pad) - 1, Y - (i === list.length - 1 ? 10 : 6), i === list.length - 1 ? 3 : 2, i === list.length - 1 ? 20 : 12);
+            });
+        }
+        const c = list[list.length - 1];
+        $("cs-read").innerHTML = c ? `
+            <dt>sample</dt><dd>${list.length - 1}</dd>
+            <dt>p_film</dt><dd>${vec(c.pFilm, 4)}</dd>
+            <dt>p_lens</dt><dd>${vec(c.pLens, 4)}</dd>
+            <dt>time</dt><dd>${fmt(c.time, 4)}</dd>
+            <dt>filter_weight</dt><dd>${fmt(c.w, 6)}</dd>
+            <dt>ray.d</dt><dd class="acc">${vec(c.ray.d, 5)}</dd>` : `<dt>sample</dt><dd class="mut">press “next”</dd>`;
+    }
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §6 Sensor bench
+    ================================================================ */
+(() => {
+    const L0 = 360, L1 = 830;
+    // Wyman, Sloan, Shirley 2013, multi-lobe fit to CIE 1931 2°.
+    const g = (l, mu, s1, s2) => { const t = (l - mu) / (l < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+    const xbar = (l) => 1.056 * g(l, 599.8, 37.9, 31.0) + 0.362 * g(l, 442.0, 16.0, 26.7) - 0.065 * g(l, 501.1, 20.4, 26.2);
+    const ybar = (l) => 0.821 * g(l, 568.8, 46.9, 40.5) + 0.286 * g(l, 530.9, 16.3, 31.1);
+    const zbar = (l) => 1.217 * g(l, 437.0, 11.8, 36.0) + 0.681 * g(l, 459.0, 26.0, 13.8);
+    // umbra-spectrum SampleVisibleWavelengths / VisibleWavelengthsPDF
+    const sampleVisible1 = (u) => 538 - 138.888889 * Math.atanh(0.85691062 - 1.82750197 * u);
+    const visiblePdf = (l) => (l < L0 || l > L1 ? 0 : 0.0039398042 / Math.cosh(0.0072 * (l - 538)) ** 2);
+    function sampleVisible(u) {
+        const lambda = [], pdf = [];
+        for (let i = 0; i < 4; i++) {
+            let up = u + i / 4; if (up > 1) up -= 1;
+            lambda.push(sampleVisible1(up)); pdf.push(visiblePdf(lambda[i]));
+        }
+        return { lambda, pdf };
+    }
+    function planck(l, T) {
+        const c = 299792458, h = 6.62606957e-34, kb = 1.3806488e-23, m = l * 1e-9;
+        return (2 * h * c * c) / (m ** 5 * (Math.exp((h * c) / (m * kb * T)) - 1));
+    }
+    let spectrum;
+    function rebuildSpectrum() {
+        const kind = $("se-kind").value, p = +$("se-p").value;
+        if (kind === "bb") {
+            const peak = planck(2.8977721e-3 / p * 1e9, p);
+            spectrum = (l) => planck(l, p) / peak;
+        } else if (kind === "flat") spectrum = () => 1;
+        else spectrum = (l) => Math.exp(-0.5 * ((l - p) / 10) ** 2);
+    }
+    const pEl = $("se-p"), pLabel = $("se-p-l"), pOut = $("se-p-o");
+    function configureParam() {
+        const kind = $("se-kind").value;
+        if (kind === "bb") { pLabel.textContent = "temperature (K)"; pEl.min = 1500; pEl.max = 12000; pEl.step = 50; pEl.value = 5500; pEl.disabled = false; }
+        else if (kind === "narrow") { pLabel.textContent = "centre λ₀ (nm)"; pEl.min = 380; pEl.max = 780; pEl.step = 1; pEl.value = 450; pEl.disabled = false; }
+        else { pLabel.textContent = "no parameter"; pEl.disabled = true; }
+        pOut.textContent = kind === "flat" ? "–" : pEl.value;
+    }
+    let est = [], last = null, rng = mulberry32(5);
+    const k = () => +$("se-k").value;
+    function reference() {
+        let X = 0, Y = 0, Z = 0;
+        for (let l = L0; l <= L1; l += 1) {
+            const wgt = l === L0 || l === L1 ? 0.5 : 1, s = spectrum(l);
+            X += wgt * xbar(l) * s; Y += wgt * ybar(l) * s; Z += wgt * zbar(l) * s;
+        }
+        return [k() * X, k() * Y, k() * Z];
+    }
+    function drawOne() {
+        const wl = sampleVisible(rng());
+        const L = wl.lambda.map(spectrum);
+        const l = L.map((v, i) => (wl.pdf[i] !== 0 ? v / wl.pdf[i] : 0)); // safe_div
+        const avg = (bar) => wl.lambda.reduce((s, lam, i) => s + bar(lam) * l[i], 0) / 4;
+        const xyz = [k() * avg(xbar), k() * avg(ybar), k() * avg(zbar)];
+        last = { wl, L, xyz };
+        est.push(xyz);
+    }
+    const reset = () => { est = []; last = null; rng = mulberry32(5); draw(); };
+    $("se-kind").addEventListener("change", () => { configureParam(); rebuildSpectrum(); reset(); });
+    pEl.addEventListener("input", () => { pOut.textContent = pEl.value; rebuildSpectrum(); reset(); });
+    bindRange("se-k", (v) => v.toFixed(2), reset);
+    $("se-one").addEventListener("click", () => { drawOne(); draw(); });
+    $("se-many").addEventListener("click", () => { for (let i = 0; i < 255; i++) drawOne(); draw(); });
+    $("se-reset").addEventListener("click", reset);
+
+    function xyzToSwatch([X, Y, Z]) {
+        let r = 3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z;
+        let g2 = -0.969266 * X + 1.8760108 * Y + 0.041556 * Z;
+        let b = 0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z;
+        const m = Math.max(r, g2, b);
+        if (!(m > 0)) return "rgb(0,0,0)";
+        [r, g2, b] = [r, g2, b].map((v) => clamp(v / m, 0, 1));
+        const enc = (v) => Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055));
+        return `rgb(${enc(r)},${enc(g2)},${enc(b)})`;
+    }
+    function draw() {
+        const ink = tok("--ink"), mut = tok("--muted"), grid = tok("--rule"), warm = tok("--warm");
+        const cx = tok("--cx"), cy = tok("--cy"), cz = tok("--cz");
+        /* spectrum */
+        {
+            const { ctx, w, h } = fit($("se-spec"));
+            const pad = 14, vmax = 1.85;
+            const X = (l) => pad + (l - L0) / (L1 - L0) * (w - 2 * pad), Y = (v) => h - pad - v / vmax * (h - 2 * pad);
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(w - pad, Y(0)); ctx.stroke();
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            for (const l of [400, 500, 600, 700, 800]) { ctx.fillText(String(l), X(l) - 10, h - 1); }
+            const curve = (fn, color, wid, dash) => {
+                ctx.strokeStyle = color; ctx.lineWidth = wid; ctx.setLineDash(dash || []); ctx.beginPath();
+                for (let l = L0; l <= L1; l += 2) { const y = Y(fn(l)); l === L0 ? ctx.moveTo(X(l), y) : ctx.lineTo(X(l), y); }
+                ctx.stroke(); ctx.setLineDash([]);
+            };
+            curve(xbar, cx, 1.5); curve(ybar, cy, 1.5); curve(zbar, cz, 1.5);
+            curve((l) => visiblePdf(l) / visiblePdf(538), mut, 1, [4, 3]);
+            curve(spectrum, ink, 2.2);
+            if (last) {
+                ctx.strokeStyle = warm; ctx.lineWidth = 2;
+                for (const l of last.wl.lambda) { ctx.beginPath(); ctx.moveTo(X(l), Y(0)); ctx.lineTo(X(l), Y(vmax) + 4); ctx.stroke(); }
+            }
+        }
+        const ref = reference();
+        /* convergence */
+        {
+            const { ctx, w, h } = fit($("se-conv"));
+            const pad = 10;
+            ctx.strokeStyle = grid; ctx.lineWidth = 1;
+            const N = Math.max(est.length, 16);
+            let lo = ref[1] * 0.5, hi = ref[1] * 1.5;
+            const means = []; let s = 0;
+            est.forEach((e, i) => { s += e[1]; means.push(s / (i + 1)); });
+            for (const m of means) { lo = Math.min(lo, m); hi = Math.max(hi, m); }
+            if (!(hi > lo)) { lo = -1; hi = 1; }
+            const X = (i) => pad + i / Math.max(1, N - 1) * (w - 2 * pad), Y = (v) => h - pad - (v - lo) / (hi - lo) * (h - 2 * pad);
+            ctx.setLineDash([4, 4]); ctx.strokeStyle = cy;
+            ctx.beginPath(); ctx.moveTo(pad, Y(ref[1])); ctx.lineTo(w - pad, Y(ref[1])); ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = mut; ctx.globalAlpha = 0.5;
+            est.forEach((e, i) => { ctx.fillRect(X(i) - 1, clamp(Y(e[1]), 0, h) - 1, 2, 2); });
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = ink; ctx.lineWidth = 1.8; ctx.beginPath();
+            means.forEach((m, i) => (i ? ctx.lineTo(X(i), Y(m)) : ctx.moveTo(X(i), Y(m))));
+            ctx.stroke();
+            ctx.font = `11px ${tok("--mono")}`; ctx.fillStyle = mut;
+            ctx.fillText(`∫ ȳ L = ${fmt(ref[1], 3)}`, w - 120, 12);
+        }
+        /* table + readout */
+        if (last) {
+            const rows = last.wl.lambda.map((l, i) => `<tr><td>${fmt(l, 1)}</td><td>${fmt(last.wl.pdf[i], 5)}</td><td>${fmt(last.L[i], 4)}</td><td>${fmt(xbar(l), 3)}</td><td>${fmt(ybar(l), 3)}</td><td>${fmt(zbar(l), 3)}</td></tr>`).join("");
+            $("se-tab").innerHTML = `<thead><tr><th>λ (nm)</th><th>p(λ)</th><th>L(λ)</th><th>x̄</th><th>ȳ</th><th>z̄</th></tr></thead><tbody>${rows}</tbody>`;
+        } else {
+            $("se-tab").innerHTML = `<tbody><tr><td class="mut">press “draw 1” to sample four wavelengths</td></tr></tbody>`;
+        }
+        const mean = [0, 1, 2].map((c) => (est.length ? est.reduce((s, e) => s + e[c], 0) / est.length : NaN));
+        const relErr = est.length ? Math.abs(mean[1] / ref[1] - 1) : NaN;
+        $("se-read").innerHTML = `
+            <dt>this sample</dt><dd>${last ? "XYZ " + vec(last.xyz, 2) : "–"}</dd>
+            <dt>mean of ${est.length}</dt><dd class="acc">${est.length ? "XYZ " + vec(mean, 2) : "–"}</dd>
+            <dt>reference</dt><dd>XYZ ${vec(ref, 2)}</dd>
+            <dt>error in Y</dt><dd>${est.length ? fmt(100 * relErr, 2) + " %" : "–"}</dd>
+            <dt>colour</dt><dd><span class="swatch" style="background:${xyzToSwatch(est.length ? mean : ref)}"></span></dd>`;
+    }
+    configureParam(); rebuildSpectrum();
+    drawers.push(draw);
+    draw();
+})();
+
+/* ================================================================
+    §10 Render-space ULP readout
+    ================================================================ */
+(() => {
+    const ulp = (x) => {
+        x = Math.abs(x);
+        if (x < 2 ** -126) return 2 ** -149;
+        return 2 ** (Math.floor(Math.log2(x)) - 23);
+    };
+    function draw() {
+        const d = 10 ** +$("rs-d").value;
+        $("rs-read").innerHTML = `
+            <dt>camera at</dt><dd>x = ${fmtG(d)}</dd>
+            <dt>world space: ULP at x + 1</dt><dd class="bad">${fmtG(ulp(d + 1))}</dd>
+            <dt>camera-world: ULP at 1</dt><dd class="ok">${fmtG(ulp(1))}</dd>
+            <dt>ratio</dt><dd>${fmtG(ulp(d + 1) / ulp(1))} × coarser in world space</dd>`;
+    }
+    bindRange("rs-d", (v) => "10^" + v.toFixed(2), draw);
+    draw();
+})();
+})();
+</script>
+</body>
+</html>
