@@ -9,7 +9,6 @@ flowchart LR
     op(["Operator"])
     umbra["Umbra"]
     scenes[("mmp/pbrt-v4-scenes<br/>pinned commit")]
-    ref[("pbrt-v4 reference<br/>release assets")]
     pbrt["pbrt-v4<br/>pinned commit"]
     op -- "Scene File, options" --> umbra
     umbra -- "image, Render Job Report,<br/>status line" --> op
@@ -17,16 +16,14 @@ flowchart LR
     umbra -- "Pixel Trace on stdout" --> op
     scenes -- "Reference Scenes" --> umbra
     scenes -- "Reference Scenes" --> pbrt
-    pbrt -- "16-seed renders,<br/>Reference Image" --> ref
-    ref -- "umbra validate" --> umbra
 ```
 
-| Partner              | Input to Umbra                                                                                                                                                        | Output from Umbra                                                                                                                                                                    |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Operator             | A Scene File with its includes and assets; command-line options and overrides (`render`, `trace`, `bench`, `validate`); Ctrl-C                                        | The final image with its Reproduction Record; the Render Job Report; the status line on stderr; the reasons for an invalid Scene File; the Pixel Trace on stdout (§8.2, §8.9, §8.10) |
-| `mmp/pbrt-v4-scenes` | The Reference Scenes, downloaded at a pinned commit, never vendored (§8.4)                                                                                            | —                                                                                                                                                                                    |
-| pbrt-v4              | Through its published reference release: 16 seeds a side and a Reference Image per Reference Scene and variant (§8.11); its speed on the same machine for QS-5 (§8.4) | —                                                                                                                                                                                    |
-| Contributor          | Code, through PRs                                                                                                                                                     | Benchmark and validation results committed to `docs/benchmarks/` and `docs/validation/`, or attached to PRs (§8.4, §8.11)                                                            |
+| Partner              | Input to Umbra                                                                                                     | Output from Umbra                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Operator             | A Scene File with its includes and assets; command-line options and overrides (`render`, `trace`, `bench`); Ctrl-C | The final image with its Reproduction Record; the Render Job Report; the status line on stderr; the reasons for an invalid Scene File; the Pixel Trace on stdout (§8.2, §8.9, §8.10) |
+| `mmp/pbrt-v4-scenes` | The Reference Scenes, downloaded at a pinned commit, never vendored (§8.4)                                         | —                                                                                                                                                                                    |
+| pbrt-v4              | Its speed on the same machine for QS-5 (§8.4)                                                                      | —                                                                                                                                                                                    |
+| Contributor          | Code, through PRs                                                                                                  | Benchmark results committed to `docs/benchmarks/`, or attached to PRs (§8.4)                                                                                                         |
 
 ## 3.2 Technical context
 
@@ -35,17 +32,15 @@ flowchart LR
     subgraph opm["Operator machine"]
         fs[("Scene File,<br/>image, report")]
         coord["umbra render:<br/>Coordinator (+ Local Workers:<br/>CPU in-process, GPU child)"]
-        val["umbra validate"]
     end
     subgraph hosts["Other hosts on the LAN"]
         w["Workers"]
     end
-    gh[("GitHub:<br/>ghcr.io images,<br/>release assets")]
+    gh[("GitHub:<br/>ghcr.io images")]
     fs <--> coord
     coord -. "mDNS: Render Job announced" .-> w
     w -- "QUIC, UDP (ephemeral or --port)" --> coord
     w -. "docker pull (releases)" .-> gh
-    val -. "download reference" .-> gh
 ```
 
 | Channel            | Between                                         | Protocol and format                                                                                                                                                                    | Where it is decided                                                                                                                             |
@@ -56,7 +51,6 @@ flowchart LR
 | Coordinator–Worker | Coordinator and each remote Worker              | QUIC (`quinn`), an ephemeral UDP port unless `--port` sets one, on every interface unless `--interface` names one, unverified TLS, `postcard` messages and raw little-endian bulk data | §8.13, [ADR 0010](../adr/0010-quic-transport-between-coordinator-and-workers.md), [ADR 0016](../adr/0016-one-render-job-per-quic-connection.md) |
 | Local Worker       | Coordinator and the Workers it starts           | In-memory transport for the CPU one, QUIC on loopback for each GPU one in a child process; same messages                                                                               | §8.8                                                                                                                                            |
 | Releases           | CI and Linux hosts                              | One `x86-64-v3` container image on `ghcr.io`                                                                                                                                           | §7.2, [ADR 0025](../adr/0025-one-x86-64-v3-release-image.md)                                                                                    |
-| Reference          | GitHub release assets and `umbra validate`      | `pbrt-v4-reference/<commit>` release, downloaded and hash-checked                                                                                                                      | §8.11                                                                                                                                           |
 | Telemetry          | Coordinator and the operator                    | Status line on stderr; `tracing` logs; Tracy behind the `tracy` feature. No metrics endpoint                                                                                           | §8.4, §8.10                                                                                                                                     |
 
 ## 3.3 Out of scope

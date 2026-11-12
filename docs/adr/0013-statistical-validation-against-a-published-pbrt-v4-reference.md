@@ -3,6 +3,8 @@
 > **Amended by [ADR 0019](0019-milestones-defined-by-the-reference-scenes-they-unlock.md).** A feature no Reference Scene uses is validated on a Reference Scene Variant, a Reference Scene with one declared edit that pbrt-v4 renders too.
 >
 > **Amended by [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0023](0023-x86-64-only.md).** CI's golden Film hashes are single-Pass renders on x86-64 only. The statistical test is now also the only comparison between machines.
+>
+> **Superseded by [ADR 0031](0031-renders-checked-by-eye.md).** Umbra no longer compares its images with pbrt-v4's or with committed bits: `umbra validate`, the per-pixel Welch test, the reference release and its script, QS-1 and the Golden Film Hashes go. The owner checks renders by eye. The Reference Scenes and the statistical sampling tests stay.
 
 Umbra is correct when its images are statistically indistinguishable from pbrt-v4's on the Reference Scenes. Decided in [Correctness validation strategy](https://github.com/sergioffpc/umbra/issues/29). A bit-exact comparison with pbrt-v4 is impossible: Umbra uses the pure-Rust `libm`, explicit FMA and no flush-to-zero ([ADR 0002](0002-bit-identical-results-across-architectures.md)), while pbrt-v4 uses the platform libm and whatever FMA contraction its compiler picks, so paths diverge after a few bounces. The comparison is therefore a hypothesis test that tells bias from noise.
 
@@ -19,7 +21,7 @@ Umbra is correct when its images are statistically indistinguishable from pbrt-v
 ## Considered options
 
 - **An aggregate metric against a converged reference** (relMSE or FLIP under a per-Scene threshold): rejected as the bias test. The threshold cannot tell a small bias from noise. relMSE keeps its own role as the noise target QS-1. In the `umbra validate` report, relMSE and FLIP are diagnostics.
-- **Small Scenes written for Umbra, one feature each**: rejected. Failures would be easier to locate, but the Reference Scenes already exist, are pbrt-v4's own, and exercise features together. The statistical sampling tests ([arc42 §8.11](../architecture/08-crosscutting-concepts.md#811-correctness-validation)) locate the routine at fault.
+- **Small Scenes written for Umbra, one feature each**: rejected. Failures would be easier to locate, but the Reference Scenes already exist, are pbrt-v4's own, and exercise features together. The statistical sampling tests ([arc42 §8.11](../architecture/08-crosscutting-concepts.md#811-correctness-checks)) locate the routine at fault.
 - **Validation in CI on every pull request**: rejected. Sixteen renders per Reference Scene do not fit a shared 4-core runner, and the Film hashes already show exactly which pull requests change pixels.
 - **References generated locally on each machine**: rejected. Each machine would hold a slightly different reference, so the same commit could pass on one and fail on another, and every machine would need to build pbrt-v4.
 - **References in the repository through Git LFS**: rejected. It is subject to quotas and the repository grows with every milestone.

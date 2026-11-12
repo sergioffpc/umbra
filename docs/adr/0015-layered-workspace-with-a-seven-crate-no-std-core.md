@@ -1,6 +1,8 @@
 # A layered workspace with a seven-crate `no_std` core
 
 > **Amended by [ADR 0028](0028-one-core-for-cpu-and-gpu.md).** Two crates join the workspace, which now has fourteen: `umbra-kernels` (`no_std`, compiled only for `nvptx64`) and `umbra-gpu` (`std`, the GPU host side). The seven-crate core is unchanged. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** There is no `validate`: the binary holds `bench` and its statistics. Golden Film hashes are no longer among the cross-crate tests.
 
 Umbra is a Cargo workspace of twelve crates. Seven of them form the `no_std` core, and five run on `std`. Decided in [Code organisation and module boundaries](https://github.com/sergioffpc/umbra/issues/30). A crate boundary exists only where something concrete differs on each side: the environment (`no_std` or `std`), a heavy dependency (`nom`, `tokio`, `quinn`), or a contract narrow enough to test on its own. Each crate's interface and dependencies are in [arc42 §5](../architecture/05-building-block-view.md).
 

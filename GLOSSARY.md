@@ -25,16 +25,12 @@ The pbrt-v4 `.pbrt` file, with the files it includes, from which the Coordinator
 _Avoid_: Scene description, input file, scene source
 
 **Reference Scene**:
-A Scene from the pinned pbrt-v4 scene collection, used both to measure performance and to check correctness against pbrt-v4, with a fixed resolution, Pixel Samples per pixel, seed (seeds 0–15 for validation) and Tile size for each use. Once listed, a Reference Scene is never removed.
+A Scene from the pinned pbrt-v4 scene collection that a milestone must render, and whose render the owner checks by eye. `umbra bench` measures it at a fixed resolution, Pixel Samples per pixel, seed and Tile size. Once listed, a Reference Scene is never removed.
 _Avoid_: Benchmark scene, test scene, test asset
 
 **Reference Scene Variant**:
-A Reference Scene with one declared, minimal edit to its Scene File, such as a different integrator, camera, sampler, filter, film, texture or light. The same edit is applied before pbrt-v4 renders it, so it exercises a feature no Reference Scene uses while pbrt-v4 stays the judge. It is listed, measured and validated like a Reference Scene.
+A Reference Scene with one declared, minimal edit to its Scene File, such as a different integrator, camera, sampler, filter, film, texture or light, so that it exercises a feature no Reference Scene uses. pbrt-v4 renders it with the same edit when its speed is compared. It is listed, measured and checked like a Reference Scene.
 _Avoid_: Modified scene, custom scene, test scene
-
-**Reference Image**:
-The converged pbrt-v4 rendering of a Reference Scene, with far more Pixel Samples per pixel than the Reference Scene fixes, against which the correctness of Umbra's rendering is judged.
-_Avoid_: Ground truth, golden image, reference render
 
 **Render Job Report**:
 The structured record a Render Job leaves when it finishes: how long each phase took, how fast Pixel Samples were computed, what each Worker did and how the work was scheduled. Only some of its measurements are compared between runs; the rest explain them.
@@ -127,7 +123,3 @@ _Avoid_: Bad sample, NaN sample (a firefly is a valid, merely very bright, Pixel
 **Aggressive Optimisation**:
 A change made only for speed that departs from the readable, book-faithful implementation. It is admitted only with a benchmark showing an end-to-end gain, behind a simple contract, and tested against the readable reference it keeps.
 _Avoid_: Optimisation (unqualified), fast path, hack
-
-**Golden Film Hash**:
-The committed hash of the Film a Reference Scene produces at minimal settings, in a single Pass; a change to it means a change in rendered pixels.
-_Avoid_: Golden image, snapshot, expected output

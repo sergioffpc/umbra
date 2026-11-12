@@ -206,5 +206,5 @@ sequenceDiagram
 2. Closing a connection with `JOB_CANCELLED` ends every stream on it, so Workers need no separate `Cancel` per Work Unit.
 3. Workers are not stopped. They return to idle and join the next Render Job announced in their Cluster.
 4. A second Ctrl-C makes the Coordinator exit at once. Its Workers then detect the lost Coordinator through the QUIC idle timeout and return to idle. The announcement is already withdrawn, so they do not rejoin.
-5. The cancelled Render Job still leaves its Render Job Report, with `outcome: "cancelled"`; `umbra bench` and `umbra validate` reject it (§8.10). Exit codes are in §8.13.
+5. The cancelled Render Job still leaves its Render Job Report, with `outcome: "cancelled"`; `umbra bench` rejects it (§8.10). Exit codes are in §8.13.
 6. Ctrl-C or `SIGTERM` on a single Worker stops only that Worker. It closes with `WORKER_STOPPED` and exits 0, and the Coordinator reassigns its Work Units as in §6.3. A stopped Worker does not count as a failure of its Worker Slot.
