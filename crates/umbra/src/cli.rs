@@ -26,22 +26,22 @@ pub(crate) enum Command {
 pub(crate) struct RenderArgs {
     /// The pbrt-v4 Scene File to render.
     pub(crate) scene_file: PathBuf,
-    /// Pixel Samples per pixel, over the Scene File's; more gives less noise.
-    #[arg(long)]
-    pub(crate) spp: Option<NonZeroU32>,
-    /// The samplers' seed, over the Scene File's; 0 by default.
-    #[arg(long, allow_negative_numbers = true)]
-    pub(crate) seed: Option<i32>,
-    /// The output image, over the Film's; its extension names the format.
-    #[arg(long)]
-    pub(crate) outfile: Option<PathBuf>,
-    /// The side of a square Tile, in pixels.
-    #[arg(long, default_value = "32")]
-    pub(crate) tile_size: NonZeroU32,
-    /// Pixel Samples per pixel in one Pass: how the work is cut, not quality.
-    #[arg(long, default_value = "64")]
-    pub(crate) spp_per_pass: NonZeroU32,
     /// Threads to render with; one per logical CPU by default.
     #[arg(long)]
     pub(crate) nthreads: Option<NonZeroUsize>,
+    /// The output image, over the Film's; its extension names the format.
+    #[arg(long)]
+    pub(crate) outfile: Option<PathBuf>,
+    /// The samplers' seed, over the Scene File's; 0 by default.
+    #[arg(long, allow_negative_numbers = true)]
+    pub(crate) seed: Option<i32>,
+    /// Pixel Samples per pixel, over the Scene File's; more gives less noise.
+    #[arg(long)]
+    pub(crate) spp: Option<NonZeroU32>,
+    /// Pixel Samples per pixel in one Pass: how the work is cut, not quality.
+    #[arg(long, default_value = "64")]
+    pub(crate) spp_per_pass: NonZeroU32,
+    /// The side of a square Tile, in pixels.
+    #[arg(long, default_value = "32")]
+    pub(crate) tile_size: NonZeroU32,
 }
