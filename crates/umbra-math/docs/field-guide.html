@@ -132,14 +132,6 @@ h1 {
 .hero-strip .stored b { color: var(--accent); font-weight: 600; }
 .hero-strip .stored .tail { color: var(--err); }
 
-.pipeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.5rem), 1fr)); }
-.pipeline li { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 0.6rem; padding: 0.65rem 0.8rem; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
-.pipeline .ord { font: 600 0.72rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.pipeline a { font: 600 0.9rem var(--mono); color: var(--ink); text-decoration: none; }
-.pipeline a:hover { color: var(--accent); }
-.pill { font: 600 0.62rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.3em 0.55em; border-radius: 99px; white-space: nowrap; }
-.pill.live { background: color-mix(in srgb, var(--exact) 16%, transparent); color: var(--exact); }
-.pill.planned { border: 1px dashed var(--rule); color: var(--muted); }
 .pipeline-caption { font: 400 0.8rem/1.5 var(--mono); color: var(--muted); margin: 0.6rem 0 0; }
 
 .howto { max-width: var(--measure); font-size: 0.98rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 1rem; }
@@ -271,10 +263,10 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <header class="hero">
     <div>
-        <div class="kicker">docs/math · Umbra, a pbrt-v4 renderer in Rust</div>
+        <div class="kicker">crates/umbra-math/docs · Umbra, a pbrt-v4 renderer in Rust</div>
         <h1>Umbra Math Field Guide</h1>
     </div>
-    <p class="lede">Every pixel Umbra renders comes out of a long chain of <code>f32</code> operations. A sampler picks numbers, the numbers become wavelengths and rays, the rays meet surfaces, and the surfaces scatter light. This guide follows that chain crate by crate, and each step has a figure you can play with.</p>
+    <p class="lede">Every pixel Umbra renders comes out of a long chain of <code>f32</code> operations, and <code>umbra-math</code> is where that chain starts: floats and their rounding, error bounds, compensated arithmetic, vectors, frames and transforms. This guide explains the crate topic by topic, and each topic has a figure you can play with.</p>
 
     <div class="hero-strip" aria-live="polite">
         <div class="typed">You write <code>0.1_f32</code>. Umbra stores the nearest of the 2³² bit patterns, which is exactly:</div>
@@ -282,18 +274,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
         <div class="typed" id="hero-note">1 sign bit · 8 exponent bits · 23 significand bits = 0x3DCCCCCD. The red digits are rounding error, and the rest of this guide is about keeping errors like that under control.</div>
     </div>
 
-    <div>
-        <ol class="pipeline">
-            <li><span class="ord">1</span><a href="#float">umbra-math</a><span class="pill live">in code</span></li>
-            <li><span class="ord">2</span><a href="#monte-carlo">umbra-sampling</a><span class="pill planned">planned</span></li>
-            <li><span class="ord">3</span><a href="#wavelengths">umbra-spectrum</a><span class="pill planned">planned</span></li>
-            <li><span class="ord">4</span><a href="#intervals">umbra-geometry</a><span class="pill planned">planned</span></li>
-            <li><span class="ord">5</span><a href="#microfacets">umbra-shading</a><span class="pill planned">planned</span></li>
-            <li><span class="ord">6</span><a href="#projection">umbra-camera</a><span class="pill planned">planned</span></li>
-            <li><span class="ord">7</span><a href="#mis">umbra-integrators</a><span class="pill planned">planned</span></li>
-        </ol>
-        <p class="pipeline-caption">The seven <code>no_std</code> core crates, in the dependency order of <a href="../architecture/05-building-block-view.md">arc42 §5.1</a>. Only <code>umbra-math</code> has code so far, so Part I explains code that exists and Part II explains the maths the other crates will need.</p>
-    </div>
+    <p class="pipeline-caption"><code>umbra-math</code> is the bottom of the seven <code>no_std</code> core crates (<a href="../../../docs/architecture/05-building-block-view.md">arc42 §5.1</a>); every other core crate builds on it. The maths of the crates above it is explained next to their code, for example the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, which uses <code>perspective()</code>.</p>
 
     <p class="howto">How the figures compute: every figure runs in emulated <code>f32</code> (JavaScript's <code>Math.fround</code> after each operation, with an exactly rounded FMA). It performs the same operations, in the same order, as the Rust function it names. Where a figure compares against an exact answer, it says how that answer was obtained. Section references (“PBR 4e §6.8.1”) point to <a href="https://pbr-book.org/4ed/contents">Physically Based Rendering, 4th edition</a>, which Umbra follows.</p>
 
@@ -301,27 +282,21 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
         <h2 id="toc-h">Contents</h2>
         <div class="toc-cols">
             <div class="toc-part">
-                <div class="kicker">Part I · Arithmetic you can trust</div>
+                <div class="kicker">Floating point you can trust</div>
                 <ol>
                     <li><a href="#float"><span class="n">1</span><span class="t">The f32 number line</span><span class="c">float.rs · ULP, next_float_up</span></a></li>
                     <li><a href="#gamma"><span class="n">2</span><span class="t">How error grows: γ(n)</span><span class="c">gamma() · summation order</span></a></li>
                     <li><a href="#intervals"><span class="n">3</span><span class="t">Intervals, and where the next ray starts</span><span class="c">Interval · offset_ray_origin</span></a></li>
                     <li><a href="#compensated"><span class="n">4</span><span class="t">Cancellation, and the FMA that repairs it</span><span class="c">difference_of_products · CompensatedSum</span></a></li>
+                </ol>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Vectors, frames and transforms</div>
+                <ol>
                     <li><a href="#normals"><span class="n">5</span><span class="t">Points, vectors and normals transform differently</span><span class="c">Transform · inverse transpose</span></a></li>
                     <li><a href="#frames"><span class="n">6</span><span class="t">Shading frames and spherical coordinates</span><span class="c">Frame::from_z · spherical.rs</span></a></li>
                     <li><a href="#octahedral"><span class="n">7</span><span class="t">A unit vector in 32 bits</span><span class="c">OctahedralVector</span></a></li>
                     <li><a href="#projection"><span class="n">8</span><span class="t">The perspective projection</span><span class="c">perspective()</span></a></li>
-                </ol>
-            </div>
-            <div class="toc-part">
-                <div class="kicker">Part II · The maths still to come</div>
-                <ol>
-                    <li><a href="#monte-carlo"><span class="n">9</span><span class="t">Monte Carlo: estimating an integral with random numbers</span><span class="c">umbra-integrators · PCG32</span></a></li>
-                    <li><a href="#patterns"><span class="n">10</span><span class="t">Better than random: stratified and low-discrepancy samples</span><span class="c">umbra-sampling · radical inverse</span></a></li>
-                    <li><a href="#warps"><span class="n">11</span><span class="t">Warping the square onto discs and hemispheres</span><span class="c">umbra-sampling · concentric map</span></a></li>
-                    <li><a href="#wavelengths"><span class="n">12</span><span class="t">Four wavelengths per Pixel Sample</span><span class="c">umbra-spectrum · SampledWavelengths</span></a></li>
-                    <li><a href="#microfacets"><span class="n">13</span><span class="t">Microfacets: roughness as a distribution of tiny mirrors</span><span class="c">umbra-shading · Trowbridge–Reitz</span></a></li>
-                    <li><a href="#mis"><span class="n">14</span><span class="t">Multiple importance sampling</span><span class="c">umbra-integrators · power heuristic</span></a></li>
                 </ol>
                 <a class="after" href="#sources">Where to read more: primary sources</a>
             </div>
@@ -331,14 +306,14 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <!-- ================================================================= -->
 <div class="part">
-    <div class="kicker">Part I · in the code today</div>
+    <div class="kicker">umbra-math</div>
     <h2>Arithmetic you can trust</h2>
     <p>umbra-math holds the numeric ground floor: floats and their rounding, interval bounds, compensated products, vectors, frames and transforms. Everything is <code>f32</code> (ADR 0001) and gives the same bits on x86-64 and arm64 (ADR 0002).</p>
 </div>
 
 <section class="topic" id="float">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/float.rs">float.rs</a> · PBR 4e §6.8.1</div>
+        <div class="eyebrow"><span class="no">1</span><span class="crate">umbra-math</span> · <a href="../src/float.rs">float.rs</a> · PBR 4e §6.8.1</div>
         <h3>The <code>f32</code> number line</h3>
     </div>
     <div class="prose">
@@ -383,7 +358,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="gamma">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/float.rs">gamma()</a> · PBR 4e §6.8.1 · ADR 0004</div>
+        <div class="eyebrow"><span class="no">2</span><span class="crate">umbra-math</span> · <a href="../src/float.rs">gamma()</a> · PBR 4e §6.8.1 · ADR 0004</div>
         <h3>How error grows: <var>γ</var>(<var>n</var>)</h3>
     </div>
     <div class="prose">
@@ -414,7 +389,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
     <h4>Addition is not associative</h4>
     <div class="prose">
-        <p>Each addition rounds, so (<var>a</var> + <var>b</var>) + <var>c</var> and <var>a</var> + (<var>b</var> + <var>c</var>) can differ in the last bits. Below are eight <code>f32</code> values. Two of them nearly cancel, as bright and dark samples do. Shuffle their order and the <code>f32</code> sum changes. This is why <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> fixes a canonical summation order: each pixel sums its Pixel Samples in ascending sample index, so the Film is bit-identical however the Work Units were spread across Workers.</p>
+        <p>Each addition rounds, so (<var>a</var> + <var>b</var>) + <var>c</var> and <var>a</var> + (<var>b</var> + <var>c</var>) can differ in the last bits. Below are eight <code>f32</code> values. Two of them nearly cancel, as bright and dark samples do. Shuffle their order and the <code>f32</code> sum changes. This is why <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> fixes a canonical summation order: each pixel sums its Pixel Samples in ascending sample index, so the Film is bit-identical however the Work Units were spread across Workers.</p>
     </div>
     <figure class="bench" id="assoc">
         <div class="controls"><button class="primary" id="assoc-shuffle" type="button">Shuffle the order</button><button id="assoc-reset" type="button">Ascending index</button></div>
@@ -429,7 +404,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="intervals">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/interval.rs">interval.rs</a>, Point3fi · used by <span class="crate">umbra-geometry</span> · PBR 4e §6.8.2–§6.8.6 · ADR 0001</div>
+        <div class="eyebrow"><span class="no">3</span><span class="crate">umbra-math</span> · <a href="../src/interval.rs">interval.rs</a>, Point3fi · used by <span class="crate">umbra-geometry</span> · PBR 4e §6.8.2–§6.8.6 · ADR 0001</div>
         <h3>Intervals, and where the next ray starts</h3>
     </div>
     <div class="prose">
@@ -459,7 +434,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
     <div class="prose">
         <p>Why a renderer pays for this: when a ray hits a surface, the computed hit point <var>p</var> is almost never exactly on the surface. It can land a fraction of an ULP inside. A shadow or bounce ray that starts there can hit the same surface again at <var>t</var> ≈ 0, which shows up as the speckled artefact called <em>shadow acne</em>. pbrt-v4, and Umbra after it, keeps a conservative error box with every hit point (a <code>Point3fi</code> is a point made of Intervals). For a sphere the box is <var>γ</var>(5)·|<var>p</var>| per axis. <code>offset_ray_origin</code> then pushes the origin along the normal just far enough to leave that box, and steps one more float outward.</p>
-        <p><a href="../adr/0001-numeric-model.md">ADR 0001</a> rejected the alternative, a fixed epsilon offset, “because they are fragile under changes of scene scale”. Change the scale below to see why.</p>
+        <p><a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> rejected the alternative, a fixed epsilon offset, “because they are fragile under changes of scene scale”. Change the scale below to see why.</p>
     </div>
     <figure class="bench" id="sp">
         <div class="controls">
@@ -492,7 +467,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="compensated">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/math.rs">math.rs</a> · PBR 4e §B.2.9–§B.2.10</div>
+        <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-math</span> · <a href="../src/math.rs">math.rs</a> · PBR 4e §B.2.9–§B.2.10</div>
         <h3>Cancellation, and the FMA that repairs it</h3>
     </div>
     <div class="prose">
@@ -549,7 +524,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="normals">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/transform.rs">transform.rs</a>, <a href="../../crates/umbra-math/src/vecmath/normal.rs">normal.rs</a> · PBR 4e §3.5, §3.9–§3.10</div>
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-math</span> · <a href="../src/transform.rs">transform.rs</a>, <a href="../src/vecmath/normal.rs">normal.rs</a> · PBR 4e §3.5, §3.9–§3.10</div>
         <h3>Points, vectors and normals transform differently</h3>
     </div>
     <div class="prose">
@@ -583,7 +558,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="frames">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/vecmath/frame.rs">frame.rs</a>, <a href="../../crates/umbra-math/src/vecmath/spherical.rs">spherical.rs</a> · PBR 4e §3.3.3, §3.8</div>
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-math</span> · <a href="../src/vecmath/frame.rs">frame.rs</a>, <a href="../src/vecmath/spherical.rs">spherical.rs</a> · PBR 4e §3.3.3, §3.8</div>
         <h3>Shading frames and spherical coordinates</h3>
     </div>
     <div class="prose">
@@ -634,7 +609,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="octahedral">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/vecmath/octahedral.rs">octahedral.rs</a> · PBR 4e §3.8.4</div>
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-math</span> · <a href="../src/vecmath/octahedral.rs">octahedral.rs</a> · PBR 4e §3.8.4</div>
         <h3>A unit vector in 32 bits</h3>
     </div>
     <div class="prose">
@@ -662,7 +637,7 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 
 <section class="topic" id="projection">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-math</span> · <a href="../../crates/umbra-math/src/transform.rs">perspective()</a> · used by <span class="crate">umbra-camera</span> · PBR 4e §5.2.2</div>
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-math</span> · <a href="../src/transform.rs">perspective()</a> · used by <span class="crate">umbra-camera</span> · PBR 4e §5.2.2</div>
         <h3>The perspective projection</h3>
     </div>
     <div class="prose">
@@ -697,173 +672,6 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
     </figure>
 </section>
 
-<!-- ================================================================= -->
-<div class="part">
-    <div class="kicker">Part II · on the roadmap</div>
-    <h2>The maths still to come</h2>
-    <p>The remaining core crates are empty shells today (arc42 §5). This part covers the maths they will implement, following pbrt-v4. The figures use the book's formulas and are not tied to Umbra code yet.</p>
-</div>
-
-<section class="topic" id="monte-carlo">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-integrators</span>, <span class="crate">umbra-sampling</span> · PBR 4e ch. 2, ch. 13 · ADR 0004</div>
-        <h3>Monte Carlo: estimating an integral with random numbers</h3>
-    </div>
-    <div class="prose">
-        <p>The light leaving a point is an integral over every direction light can arrive from. This is the rendering equation:</p>
-        <div class="eq">L<sub>o</sub>(p, ω<sub>o</sub>) = L<sub>e</sub>(p, ω<sub>o</sub>) + ∫<sub>S²</sub> f(p, ω<sub>o</sub>, ω<sub>i</sub>) L<sub>i</sub>(p, ω<sub>i</sub>) |cos θ<sub>i</sub>| dω<sub>i</sub></div>
-        <p>It has no closed form, and <var>L<sub>i</sub></var> is itself the same integral seen from somewhere else. A renderer estimates it instead. Draw <var>N</var> samples <var>X<sub>i</sub></var> from any density <var>p</var> that is non-zero wherever the integrand is, and average:</p>
-        <div class="eq">F<sub>N</sub> = (1⁄N) Σ<sub>i</sub> f(X<sub>i</sub>) ⁄ p(X<sub>i</sub>),&emsp; E[F<sub>N</sub>] = ∫ f(x) dx</div>
-        <p>The estimate is right on average, and its error shrinks like 1⁄√<var>N</var>, so four times the Pixel Samples halve the noise. Picking <var>p</var> shaped like <var>f</var> (<em>importance sampling</em>) shrinks the constant in front of that rate. The figure estimates ∫₀¹ 4<var>x</var>³ d<var>x</var> = 1 both ways: with uniform samples, and with <var>p</var>(<var>x</var>) = 3<var>x</var>², drawn as <var>x</var> = ∛<var>u</var>.</p>
-    </div>
-    <figure class="bench" id="mc">
-        <div class="controls">
-            <div class="ctl"><label for="mc-seed">seed</label><div class="row"><input id="mc-seed" type="number" min="0" max="999999" value="0" style="width:6rem"><button id="mc-next" type="button">next seed</button></div></div>
-            <div class="ctl"><label for="mc-n">samples N</label><div class="row"><input id="mc-n" type="range" min="0" max="12" step="1" value="8"><output id="mc-n-o" for="mc-n"></output></div></div>
-        </div>
-        <div class="split">
-            <canvas id="mc-cv" class="cv-mid" aria-label="Running estimates converging to 1"></canvas>
-            <div style="display:grid; gap:0.9rem">
-                <dl class="readout">
-                    <dt>uniform estimate</dt><dd id="mc-u"></dd>
-                    <dt>importance estimate</dt><dd id="mc-i"></dd>
-                    <dt>σ uniform / importance</dt><dd>√(9⁄7) ≈ 1.134 / √(1⁄15) ≈ 0.258</dd>
-                </dl>
-                <div class="legend">
-                    <span style="--sw: var(--err)">uniform p = 1</span>
-                    <span style="--sw: var(--accent)">importance p = 3x²</span>
-                    <span style="--sw: var(--grid)">±σ⁄√N band</span>
-                </div>
-                <p class="panel-foot">The random numbers come from PCG32, the generator pbrt-v4 uses, here on stream <i>seed</i>. The same seed always draws the same numbers, which is what makes a Pixel Sample a pure function of (Scene, seed, pixel, sample index) in ADR 0004.</p>
-            </div>
-        </div>
-    </figure>
-</section>
-
-<section class="topic" id="patterns">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-sampling</span> · PBR 4e ch. 8</div>
-        <h3>Better than random: stratified and low-discrepancy samples</h3>
-    </div>
-    <div class="prose">
-        <p>Independent random points clump and leave holes, and the holes are noise. Stratification cuts the square into a grid and puts one jittered point in each cell. Low-discrepancy sequences go further and fill the square evenly for every prefix of the sequence. The simplest is the base-2 <em>radical inverse</em>: write <var>i</var> in binary and mirror the digits around the binary point, so 6 = 110₂ becomes 0.011₂ = 0.375. Pairing <var>i</var>⁄<var>N</var> with that gives the Hammersley set. pbrt-v4's default sampler (Z-Sobol) is a more refined member of the same family.</p>
-    </div>
-    <figure class="bench" id="pt">
-        <div class="controls">
-            <div class="ctl"><label for="pt-n">points</label><select id="pt-n"><option>16</option><option selected>64</option><option>256</option><option>1024</option></select></div>
-            <div class="ctl"><span class="lbl">random draws</span><button id="pt-seed" type="button">new seed</button></div>
-        </div>
-        <div class="trio">
-            <div><p class="panel-title">independent (PCG32)</p><canvas id="pt-a" class="cv-sq"></canvas><p class="panel-foot" id="pt-a-f"></p></div>
-            <div><p class="panel-title">stratified, jittered</p><canvas id="pt-b" class="cv-sq"></canvas><p class="panel-foot" id="pt-b-f"></p></div>
-            <div><p class="panel-title">Hammersley (radical inverse)</p><canvas id="pt-c" class="cv-sq"></canvas><p class="panel-foot" id="pt-c-f"></p></div>
-        </div>
-        <figcaption>Each panel estimates π as 4 × the share of points inside the quarter disc. Over many seeds the stratified and low-discrepancy errors fall faster than 1⁄√<var>N</var>, while independent points stay at that rate.</figcaption>
-        <div class="tablewrap"><table class="data" id="pt-ri"></table></div>
-    </figure>
-</section>
-
-<section class="topic" id="warps">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-sampling</span> · PBR 4e §2.3, app. A</div>
-        <h3>Warping the square onto discs and hemispheres</h3>
-    </div>
-    <div class="prose">
-        <p>Samplers produce points in [0, 1)². Rendering needs points on discs (lens apertures, area lights) and hemispheres (BSDF directions). The <em>inversion method</em> turns one into the other: if <var>P</var> is a cumulative distribution, then <var>X</var> = <var>P</var>⁻¹(<var>U</var>) has density <var>p</var>. The figure shows three ways to fill a disc:</p>
-        <ul>
-            <li>Polar coordinates with <var>r</var> = <var>u</var> crowd the centre, because a ring's area grows with its radius.</li>
-            <li><var>r</var> = √<var>u</var> fixes the density but stretches each stratum into a long thin wedge.</li>
-            <li>Shirley and Chiu's <em>concentric</em> map sends nested squares to nested circles. It keeps the strata compact, so stratified samples stay stratified.</li>
-        </ul>
-        <p>Lifting concentric disc samples straight up onto the hemisphere, <var>z</var> = √(1 − <var>x</var>² − <var>y</var>²), gives directions with density cos <var>θ</var> ⁄ π (Malley's method). That matches the |cos <var>θ</var>| factor in the rendering equation exactly.</p>
-    </div>
-    <figure class="bench" id="wp">
-        <div class="quad">
-            <div><p class="panel-title">[0, 1)² source</p><canvas id="wp-0" class="cv-sq"></canvas></div>
-            <div><p class="panel-title">polar, r = u</p><canvas id="wp-1" class="cv-sq"></canvas></div>
-            <div><p class="panel-title">polar, r = √u</p><canvas id="wp-2" class="cv-sq"></canvas></div>
-            <div><p class="panel-title">concentric</p><canvas id="wp-3" class="cv-sq"></canvas></div>
-            <div><p class="panel-title">cosine hemisphere, side view</p><canvas id="wp-4" class="cv-sq"></canvas></div>
-        </div>
-        <figcaption>1 024 Hammersley points, coloured by the 8 × 8 stratum they started in, with the stratum boundaries warped along with them.</figcaption>
-    </figure>
-</section>
-
-<section class="topic" id="wavelengths">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-spectrum</span> · PBR 4e §4.5–§4.6 · ADR 0001</div>
-        <h3>Four wavelengths per Pixel Sample</h3>
-    </div>
-    <div class="prose">
-        <p>Umbra is spectral only (ADR 0001). Each Pixel Sample carries radiance at <code>N_SPECTRUM_SAMPLES = 4</code> wavelengths, which fill one <code>Vec4</code> and one 128-bit register. The wavelengths come from one uniform number <var>u</var>, stratified into <var>u</var>, <var>u</var> + ¼, <var>u</var> + ½ and <var>u</var> + ¾ (wrapped into [0, 1)). Each is mapped through the inverse CDF of pbrt-v4's visible-wavelength density on [360, 830] nm:</p>
-        <div class="eq">p(λ) ∝ 1 ⁄ cosh²(0.0072 (λ − 538)),&emsp; λ(u) = 538 − 138.888889 · atanh(0.85691062 − 1.82750197 u)</div>
-        <p>The density looks much like the eye's luminous efficiency curve <var>ȳ</var>(λ), so samples gather where they change the image most. Each wavelength's radiance is later divided by its <var>p</var>(λ), and the estimate stays unbiased.</p>
-    </div>
-    <figure class="bench" id="wl">
-        <div class="controls">
-            <div class="ctl"><label for="wl-u">u</label><div class="row"><input id="wl-u" type="range" min="0" max="0.999" step="0.001" value="0.13"><output id="wl-u-o" for="wl-u"></output></div></div>
-        </div>
-        <canvas id="wl-cv" class="cv-wide" aria-label="Visible spectrum with the sampling density and four sampled wavelengths"></canvas>
-        <div class="tablewrap"><table class="data" id="wl-t"></table></div>
-        <div class="legend">
-            <span style="--sw: var(--accent)">p(λ), pbrt-v4 visible-wavelength pdf</span>
-            <span style="--sw: var(--muted)">ȳ(λ), CIE 1931 luminance, scaled to the same peak</span>
-        </div>
-        <figcaption>Spectral colours and <var>ȳ</var> are drawn from the analytic CIE fit of Wyman, Sloan and Shirley (2013), for display only. Umbra will use pbrt-v4's tabulated CIE data (arc42 §8.1).</figcaption>
-    </figure>
-</section>
-
-<section class="topic" id="microfacets">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-shading</span> · PBR 4e §9.6 · arc42 §8.11</div>
-        <h3>Microfacets: roughness as a distribution of tiny mirrors</h3>
-    </div>
-    <div class="prose">
-        <p>Rough metals and plastics are modelled as many tiny perfect mirrors whose normals <var>ω<sub>m</sub></var> scatter around the surface normal. The microfacet distribution <var>D</var>(<var>ω<sub>m</sub></var>) gives the density of those normals. pbrt-v4 uses Trowbridge–Reitz (also known as GGX). Its isotropic form, with roughness <var>α</var>, is:</p>
-        <div class="eq">D(ω<sub>m</sub>) = 1 ⁄ ( π α² cos⁴θ<sub>m</sub> (1 + tan²θ<sub>m</sub> ⁄ α²)² )</div>
-        <p>As <var>α</var> → 0 the surface becomes a mirror, and at <var>α</var> = 1 it is very rough. Whatever <var>α</var> is, the projected microfacet area has to add up to the macro surface: ∫ <var>D</var>(<var>ω<sub>m</sub></var>) cos <var>θ<sub>m</sub></var> d<var>ω<sub>m</sub></var> = 1. Normalisation checks like this are the kind <a href="../architecture/08-crosscutting-concepts.md#811-correctness-checks">arc42 §8.11</a> asks the crate that owns the routine to test.</p>
-    </div>
-    <figure class="bench" id="mf">
-        <div class="controls">
-            <div class="ctl"><label for="mf-a">roughness α</label><div class="row"><input id="mf-a" type="range" min="0.03" max="1" step="0.01" value="0.3"><output id="mf-a-o" for="mf-a"></output></div></div>
-        </div>
-        <div class="split">
-            <canvas id="mf-cv" class="cv-wide" aria-label="Polar plot of the microfacet distribution"></canvas>
-            <dl class="readout">
-                <dt>D(n) = 1 ⁄ (πα²)</dt><dd id="mf-d0"></dd>
-                <dt>half the mass within</dt><dd id="mf-half"></dd>
-                <dt>∫ D cos θ dω (numeric)</dt><dd id="mf-int" class="ok"></dd>
-            </dl>
-        </div>
-        <figcaption>A slice through the lobe: distance from the centre is <var>D</var>(<var>θ<sub>m</sub></var>) cos <var>θ<sub>m</sub></var>, scaled to its peak. The integral is evaluated live with Simpson's rule over 4 000 steps.</figcaption>
-    </figure>
-</section>
-
-<section class="topic" id="mis">
-    <div class="topic-head">
-        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-integrators</span> · PBR 4e §2.2.3</div>
-        <h3>Multiple importance sampling</h3>
-    </div>
-    <div class="prose">
-        <p>At each bounce a path tracer can find direct light in two ways. It can sample a point on the light, which works well for small lights and rough surfaces. Or it can sample the BSDF and see whether the ray hits a light, which works well for large lights and glossy surfaces. Neither wins everywhere. MIS takes one sample of each and weights each sample by how likely <em>both</em> strategies were to produce it. With pbrt-v4's power heuristic:</p>
-        <div class="eq">w<sub>light</sub>(ω) = p<sub>light</sub>(ω)² ⁄ (p<sub>light</sub>(ω)² + p<sub>bsdf</sub>(ω)²)</div>
-        <p>The weights of the two strategies add up to 1 at every direction, so the combined estimate stays unbiased. Each sample counts mostly where its own strategy was the better one.</p>
-    </div>
-    <figure class="bench" id="mi">
-        <div class="controls">
-            <div class="ctl"><label for="mi-l">light size</label><div class="row"><input id="mi-l" type="range" min="2" max="60" step="1" value="10"><output id="mi-l-o" for="mi-l"></output></div></div>
-            <div class="ctl"><label for="mi-r">BSDF lobe width</label><div class="row"><input id="mi-r" type="range" min="4" max="60" step="1" value="25"><output id="mi-r-o" for="mi-r"></output></div></div>
-            <div class="ctl"><label for="mi-h">heuristic</label><select id="mi-h"><option value="power" selected>power (pbrt-v4)</option><option value="balance">balance</option></select></div>
-        </div>
-        <canvas id="mi-cv" class="cv-wide" aria-label="Two densities over direction and the MIS weights they give"></canvas>
-        <div class="legend">
-            <span style="--sw: var(--bit-sig)">p<sub>light</sub>, uniform over the light</span>
-            <span style="--sw: var(--bit-sign)">p<sub>bsdf</sub>, a lobe around the reflection direction</span>
-            <span style="--sw: var(--accent)">w<sub>light</sub> (lower band; w<sub>bsdf</sub> = 1 − w<sub>light</sub>)</span>
-        </div>
-    </figure>
-</section>
-
 <section class="topic" id="sources">
     <div class="topic-head">
         <div class="eyebrow">primary sources</div>
@@ -871,16 +679,14 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
     </div>
     <ul class="sources">
         <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> Every section reference in this guide points here. Read §6.8 (floating-point error) and appendix B.2 (the numeric helpers) alongside <code>umbra-math</code>.</li>
-        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/util/float.h</code>, <code>math.h</code>, <code>vecmath.h</code>, <code>transform.h</code>, <code>sampling.h</code>, <code>spectrum.h</code>. Umbra's functions keep these names in snake case.</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/util/float.h</code>, <code>math.h</code>, <code>vecmath.h</code>, <code>transform.h</code>. Umbra's functions keep these names in snake case.</li>
         <li>Higham. <i>Accuracy and Stability of Numerical Algorithms</i>, 2nd ed., SIAM 2002. The source of the <var>γ</var>(<var>n</var>) notation and the summation bounds.</li>
         <li>Duff et al. <a href="https://jcgt.org/published/0006/01/01/">Building an Orthonormal Basis, Revisited</a>. JCGT 6(1), 2017. The <code>coordinate_system</code> construction.</li>
-        <li>Shirley and Chiu. A Low Distortion Map Between Disk and Square. <i>Journal of Graphics Tools</i> 2(3), 1997. The concentric mapping.</li>
-        <li>Wyman, Sloan, Shirley. <a href="https://jcgt.org/published/0002/02/01/">Simple Analytic Approximations to the CIE XYZ Color Matching Functions</a>. JCGT 2(2), 2013. Used here for display colours only.</li>
-        <li>In this repository: <a href="../adr/0001-numeric-model.md">ADR 0001</a> (numeric model), <a href="../adr/0002-bit-identical-results-across-architectures.md">ADR 0002</a> (bit-identical results), <a href="../adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../adr/0031-renders-checked-by-eye.md">ADR 0031</a> (renders checked by eye), <a href="../architecture/08-crosscutting-concepts.md">arc42 §8.1</a> (numerics and spectral representation).</li>
+        <li>In this repository: <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (numeric model), <a href="../../../docs/adr/0002-bit-identical-results-across-architectures.md">ADR 0002</a> (bit-identical results), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../../../docs/adr/0031-renders-checked-by-eye.md">ADR 0031</a> (renders checked by eye), <a href="../../../docs/architecture/08-crosscutting-concepts.md">arc42 §8.1</a> (numerics).</li>
     </ul>
 </section>
 
-<footer>Umbra Math Field Guide · docs/math/field-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
+<footer>Umbra Math Field Guide · crates/umbra-math/docs/field-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
 </div>
 
 <script>
@@ -1096,12 +902,6 @@ class Pcg32 {
     }
     uniform() { return Math.min(ONE_MINUS_EPSILON, f32(f32(this.u32()) * 2 ** -32)); }
 }
-function radicalInverse2(i) {
-    let r = 0, b = i >>> 0;
-    for (let k = 0; k < 32; k++) { r = (r << 1) | (b & 1); b >>>= 1; }
-    return (r >>> 0) * 2 ** -32;
-}
-
 /* ================================================================
     1 · the f32 number line
     ================================================================ */
@@ -1798,313 +1598,6 @@ function radicalInverse2(i) {
     }
     syncs.forEach((s) => s()); update();
     updaters.push(() => { paint(en); paint(ez); });
-})();
-
-/* ================================================================
-    9 · Monte Carlo
-    ================================================================ */
-(() => {
-    const en = canvasEntry("mc-cv", draw);
-    const NMAX = 4096;
-    let U = [], I = [];
-    const syncN = bindRange("mc-n", (e) => String(2 ** e), () => { readout(); paint(en); });
-    function simulate() {
-        const seed = Math.max(0, Math.floor(num("mc-seed")) || 0);
-        const rng = new Pcg32(seed);
-        U = []; I = [];
-        let su = 0, si = 0;
-        for (let i = 1; i <= NMAX; i++) {
-            const u = rng.uniform();
-            su += 4 * u * u * u;
-            const x = Math.cbrt(u);
-            si += x > 0 ? (4 * x * x * x) / (3 * x * x) : 0;
-            U.push(su / i); I.push(si / i);
-        }
-        readout(); paint(en);
-    }
-    function readout() {
-        const n = 2 ** num("mc-n");
-        const fe = (v) => `${v.toFixed(5)}  (error ${(v - 1 >= 0 ? "+" : "") + (v - 1).toFixed(5)})`;
-        setText("mc-u", fe(U[n - 1]));
-        setText("mc-i", fe(I[n - 1]));
-    }
-    function draw(ctx, W, H) {
-        if (!U.length) return;
-        const pl = 34, pr = 12, pt = 12, pb = 26;
-        const lo = 0.2, hi = 1.8;
-        const X = (i) => pl + Math.log2(i) / 12 * (W - pl - pr);
-        const Y = (v) => pt + (hi - Math.max(lo, Math.min(hi, v))) / (hi - lo) * (H - pt - pb);
-        for (let e = 0; e <= 12; e += 2) { line(ctx, [[X(2 ** e), pt], [X(2 ** e), H - pb]], C.grid, 1); label(ctx, String(2 ** e), X(2 ** e), H - 10, C.muted, "center", 10); }
-        [0.5, 1, 1.5].forEach((v) => label(ctx, v.toFixed(1), pl - 6, Y(v), C.muted, "right", 10));
-        const band = (sigma, col) => {
-            ctx.beginPath();
-            for (let i = 1; i <= NMAX; i *= 1.05) ctx.lineTo(X(i), Y(1 + sigma / Math.sqrt(i)));
-            for (let i = NMAX; i >= 1; i /= 1.05) ctx.lineTo(X(i), Y(1 - sigma / Math.sqrt(i)));
-            ctx.closePath(); ctx.fillStyle = col; ctx.fill();
-        };
-        band(Math.sqrt(9 / 7), alpha(C.err, 0.1));
-        band(Math.sqrt(1 / 15), alpha(C.accent, 0.14));
-        line(ctx, [[pl, Y(1)], [W - pr, Y(1)]], C.ink, 1, [4, 3]);
-        const path = (arr, col) => line(ctx, arr.map((v, i) => [X(i + 1), Y(v)]), col, 1.6);
-        path(U, C.err); path(I, C.accent);
-        const n = 2 ** num("mc-n");
-        line(ctx, [[X(n), pt], [X(n), H - pb]], C.muted, 1, [2, 3]);
-        dot(ctx, X(n), Y(U[n - 1]), 3.5, C.err); dot(ctx, X(n), Y(I[n - 1]), 3.5, C.accent);
-        label(ctx, "N (log scale)", W - pr, H - pb - 8, C.muted, "right", 10);
-    }
-    $("mc-seed").addEventListener("input", simulate);
-    $("mc-next").addEventListener("click", () => { $("mc-seed").value = (Math.floor(num("mc-seed")) || 0) + 1; simulate(); });
-    syncN(); simulate();
-    updaters.push(() => paint(en));
-})();
-
-/* ================================================================
-    10 · sample patterns
-    ================================================================ */
-(() => {
-    let seed = 0;
-    const pts = { a: [], b: [], c: [] };
-    const ens = ["a", "b", "c"].map((k) => canvasEntry("pt-" + k, (ctx, W, H) => draw(ctx, W, H, k)));
-    function build() {
-        const N = +$("pt-n").value, k = Math.round(Math.sqrt(N));
-        const r1 = new Pcg32(2 * seed), r2 = new Pcg32(2 * seed + 1);
-        pts.a = Array.from({ length: N }, () => [r1.uniform(), r1.uniform()]);
-        pts.b = [];
-        for (let j = 0; j < k; j++) for (let i = 0; i < k; i++) pts.b.push([(i + r2.uniform()) / k, (j + r2.uniform()) / k]);
-        pts.c = Array.from({ length: N }, (_, i) => [i / N, radicalInverse2(i)]);
-        for (const key of ["a", "b", "c"]) {
-            const inside = pts[key].filter(([x, y]) => x * x + y * y < 1).length;
-            const est = 4 * inside / N;
-            setText(`pt-${key}-f`, `π ≈ ${est.toFixed(4)} · error ${(est - Math.PI >= 0 ? "+" : "") + (est - Math.PI).toFixed(4)}`);
-        }
-        ens.forEach(paint);
-    }
-    function draw(ctx, W, H, key) {
-        const m = 8, s = Math.min(W, H) - 2 * m;
-        const X = (x) => m + x * s, Y = (y) => m + (1 - y) * s;
-        ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.strokeRect(m, m, s, s);
-        const arc = [];
-        for (let i = 0; i <= 60; i++) { const a = Math.PI / 2 * i / 60; arc.push([X(Math.cos(a)), Y(Math.sin(a))]); }
-        line(ctx, arc, C.muted, 1.2);
-        const N = pts[key].length, r = N > 300 ? 1.6 : N > 80 ? 2.3 : 3.2;
-        for (const [x, y] of pts[key]) dot(ctx, X(x), Y(y), r, x * x + y * y < 1 ? C.accent : C.muted);
-    }
-    const ri = $("pt-ri");
-    let rows = "<thead><tr><th>i</th><th>i in binary</th><th>mirrored</th><th>radical inverse</th></tr></thead><tbody>";
-    for (let i = 0; i < 8; i++) {
-        const b = i.toString(2).padStart(3, "0");
-        rows += `<tr><td>${i}</td><td>${b}₂</td><td>0.${b.split("").reverse().join("")}₂</td><td>${radicalInverse2(i)}</td></tr>`;
-    }
-    ri.innerHTML = rows + "</tbody>";
-    $("pt-n").addEventListener("input", build);
-    $("pt-seed").addEventListener("click", () => { seed++; build(); });
-    build();
-    updaters.push(() => ens.forEach(paint));
-})();
-
-/* ================================================================
-    11 · warps
-    ================================================================ */
-(() => {
-    const N = 1024;
-    const src = Array.from({ length: N }, (_, i) => [i / N, radicalInverse2(i)]);
-    const polar = (r) => ([u, v]) => [r(u) * Math.cos(2 * Math.PI * v), r(u) * Math.sin(2 * Math.PI * v)];
-    function concentric([u, v]) {
-        const x = 2 * u - 1, y = 2 * v - 1;
-        if (x === 0 && y === 0) return [0, 0];
-        let r, t;
-        if (Math.abs(x) > Math.abs(y)) { r = x; t = (Math.PI / 4) * (y / x); }
-        else { r = y; t = Math.PI / 2 - (Math.PI / 4) * (x / y); }
-        return [r * Math.cos(t), r * Math.sin(t)];
-    }
-    const maps = [([u, v]) => [u, v], polar((u) => u), polar(Math.sqrt), concentric];
-    const color = ([u, v]) => ((Math.floor(u * 8) + Math.floor(v * 8)) % 2 ? C.accent : C.sign);
-    const ens = maps.map((m, k) => canvasEntry("wp-" + k, (ctx, W, H) => {
-        const s = Math.min(W, H);
-        const isSq = k === 0;
-        const X = isSq ? (x) => (W - s) / 2 + 6 + x * (s - 12) : (x) => W / 2 + x * (s / 2 - 6);
-        const Y = isSq ? (y) => (H - s) / 2 + 6 + (1 - y) * (s - 12) : (y) => H / 2 - y * (s / 2 - 6);
-        for (let g = 0; g <= 8; g++) {
-            const a = [], b = [];
-            for (let i = 0; i <= 64; i++) {
-                const t = i / 64;
-                const p = m([g / 8, Math.min(t, 0.99999)]), q = m([Math.min(t, 0.99999), g / 8]);
-                a.push([X(p[0]), Y(p[1])]); b.push([X(q[0]), Y(q[1])]);
-            }
-            line(ctx, a, C.rule, 1); line(ctx, b, C.rule, 1);
-        }
-        for (const p of src) { const [x, y] = m(p); dot(ctx, X(x), Y(y), 1.5, color(p)); }
-    }));
-    const side = canvasEntry("wp-4", (ctx, W, H) => {
-        const s = Math.min(W, H) / 2 - 8;
-        const X = (x) => W / 2 + x * s, Y = (z) => H / 2 + s * 0.5 - z * s;
-        const arc = [];
-        for (let i = 0; i <= 60; i++) { const a = Math.PI * i / 60; arc.push([X(Math.cos(a)), Y(Math.sin(a))]); }
-        line(ctx, arc, C.rule, 1);
-        line(ctx, [[X(-1), Y(0)], [X(1), Y(0)]], C.muted, 1.2);
-        for (const p of src) { const [x, y] = concentric(p); const z = Math.sqrt(Math.max(0, 1 - x * x - y * y)); dot(ctx, X(x), Y(z), 1.5, color(p)); }
-        label(ctx, "pdf = cos θ ⁄ π", W / 2, H - 10, C.muted, "center", 10);
-    });
-    updaters.push(() => { ens.forEach(paint); paint(side); });
-})();
-
-/* ================================================================
-    12 · visible wavelengths
-    ================================================================ */
-(() => {
-    const en = canvasEntry("wl-cv", draw);
-    const lam = (u) => 538 - 138.888889 * Math.atanh(0.85691062 - 1.82750197 * u);
-    const pdf = (l) => (l < 360 || l > 830) ? 0 : 0.0039398042 / Math.cosh(0.0072 * (l - 538)) ** 2;
-    const g = (x, mu, s1, s2) => { const t = (x - mu) / (x < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
-    const xyz = (l) => [
-        1.056 * g(l, 599.8, 37.9, 31.0) + 0.362 * g(l, 442.0, 16.0, 26.7) - 0.065 * g(l, 501.1, 20.4, 26.2),
-        0.821 * g(l, 568.8, 46.9, 40.5) + 0.286 * g(l, 530.9, 16.3, 31.1),
-        1.217 * g(l, 437.0, 11.8, 36.0) + 0.681 * g(l, 459.0, 26.0, 13.8),
-    ];
-    const lin = ([X, Y, Z]) => [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.2040 * Y + 1.0570 * Z].map((c) => Math.max(0, c));
-    let peak = 0;
-    for (let l = 360; l <= 830; l++) peak = Math.max(peak, ...lin(xyz(l)));
-    const enc = (c) => { c = Math.min(1, c / peak * 1.25); return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)); };
-    const rgb = (l) => { const c = lin(xyz(l)); return `rgb(${enc(c[0])},${enc(c[1])},${enc(c[2])})`; };
-    let ls = [];
-    const sync = bindRange("wl-u", (u) => u.toFixed(3), update);
-    function update() {
-        const u = num("wl-u");
-        const us = [0, 1, 2, 3].map((i) => { let up = u + i / 4; if (up > 1) up -= 1; return up; });
-        ls = us.map(lam);
-        const sub = "₀₁₂₃";
-        setHTML("wl-t", "<thead><tr><th>i</th><th>uᵢ</th><th>λᵢ</th><th>p(λᵢ)</th><th>colour</th></tr></thead><tbody>" +
-            ls.map((l, i) => `<tr><td>λ${sub[i]}</td><td>${us[i].toFixed(3)}</td><td>${l.toFixed(1)} nm</td><td>${pdf(l).toExponential(3)}</td><td><span class="swatch" style="background:${rgb(l)}"></span></td></tr>`).join("") + "</tbody>");
-        paint(en);
-    }
-    function draw(ctx, W, H) {
-        const pl = 14, pr = 14, pt = 18, strip = 22, pb = 22;
-        const X = (l) => pl + (l - 360) / 470 * (W - pl - pr);
-        const top = pt, bot = H - pb - strip - 8;
-        const pmax = pdf(538);
-        const Y = (v) => bot - v * (bot - top);
-        for (let l = 360; l <= 830; l += 1) { ctx.fillStyle = rgb(l); ctx.fillRect(X(l), H - pb - strip, Math.ceil(X(l + 1) - X(l)) + 0.5, strip); }
-        for (let l = 400; l <= 800; l += 50) { line(ctx, [[X(l), top], [X(l), bot]], C.grid, 1); label(ctx, String(l), X(l), H - 9, C.muted, "center", 10); }
-        label(ctx, "nm", W - pr, H - 9, C.muted, "right", 10);
-        const yb = [], pp = [];
-        let ymax = 0;
-        for (let l = 360; l <= 830; l += 2) ymax = Math.max(ymax, xyz(l)[1]);
-        for (let l = 360; l <= 830; l += 2) { yb.push([X(l), Y(xyz(l)[1] / ymax)]); pp.push([X(l), Y(pdf(l) / pmax)]); }
-        line(ctx, yb, C.muted, 1.4, [5, 4]);
-        ctx.beginPath(); pp.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-        ctx.lineTo(X(830), bot); ctx.lineTo(X(360), bot); ctx.closePath(); ctx.fillStyle = alpha(C.accent, 0.12); ctx.fill();
-        line(ctx, pp, C.accent, 2);
-        ls.forEach((l, i) => {
-            const x = X(l), y = Y(pdf(l) / pmax);
-            line(ctx, [[x, y], [x, H - pb - strip]], C.ink, 1.2);
-            dot(ctx, x, y, 5, rgb(l)); dot(ctx, x, y, 5.5, C.ink, true);
-            label(ctx, `λ${"₀₁₂₃"[i]}`, x, y - 13, C.ink, "center", 11);
-        });
-    }
-    sync(); update();
-    updaters.push(() => paint(en));
-})();
-
-/* ================================================================
-    13 · Trowbridge–Reitz
-    ================================================================ */
-(() => {
-    const en = canvasEntry("mf-cv", draw);
-    const D = (t, a) => {
-        const c = Math.cos(t), c2 = c * c, t2 = (1 - c2) / c2;
-        return 1 / (Math.PI * a * a * c2 * c2 * (1 + t2 / (a * a)) ** 2);
-    };
-    let A = 0.3;
-    const sync = bindRange("mf-a", (a) => a.toFixed(2), update);
-    function update() {
-        A = num("mf-a");
-        const n = 4000, h = (Math.PI / 2) / n;
-        const fn = (t) => t >= Math.PI / 2 ? 0 : D(t, A) * Math.cos(t) * Math.sin(t) * 2 * Math.PI;
-        let s = fn(0) + fn(Math.PI / 2);
-        for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * fn(i * h);
-        s *= h / 3;
-        setText("mf-d0", D(0, A).toPrecision(5));
-        setText("mf-half", `θ = atan α = ${deg(Math.atan(A)).toFixed(1)}°`);
-        setText("mf-int", s.toFixed(6));
-        paint(en);
-    }
-    function draw(ctx, W, H) {
-        const cx = W / 2, cy = H - 18, R = Math.min(W / 2 - 16, H - 30);
-        line(ctx, [[16, cy], [W - 16, cy]], C.muted, 1.5);
-        const arc = [];
-        for (let i = 0; i <= 90; i++) { const t = Math.PI * i / 90; arc.push([cx + R * Math.cos(t), cy - R * Math.sin(t)]); }
-        line(ctx, arc, C.grid, 1);
-        [30, 60].forEach((d) => {
-            [-1, 1].forEach((sg) => line(ctx, [[cx, cy], [cx + sg * R * Math.sin(rad(d)), cy - R * Math.cos(rad(d))]], C.grid, 1));
-            label(ctx, `${d}°`, cx + R * Math.sin(rad(d)) + 4, cy - R * Math.cos(rad(d)) - 6, C.muted, "left", 10);
-        });
-        const peak = D(0, A);
-        const pts = [];
-        for (let i = -400; i <= 400; i++) {
-            const t = (Math.PI / 2) * i / 400 * 0.999;
-            const r = D(Math.abs(t), A) * Math.cos(t) / peak;
-            pts.push([cx + R * r * Math.sin(t), cy - R * r * Math.cos(t)]);
-        }
-        ctx.beginPath(); ctx.moveTo(cx, cy); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.closePath();
-        ctx.fillStyle = alpha(C.accent, 0.16); ctx.fill();
-        line(ctx, pts, C.accent, 2);
-        arrow(ctx, cx, cy, cx, cy - R * 1.02, C.muted, 1.2);
-        label(ctx, "n", cx + 8, cy - R + 4, C.muted, "left", 11);
-        label(ctx, "macro surface", 18, cy - 9, C.muted, "left", 10);
-    }
-    sync(); update();
-    updaters.push(() => paint(en));
-})();
-
-/* ================================================================
-    14 · MIS weights
-    ================================================================ */
-(() => {
-    const en = canvasEntry("mi-cv", draw);
-    const syncs = [bindRange("mi-l", (v) => `${v}°`, () => paint(en)), bindRange("mi-r", (v) => `${v}°`, () => paint(en))];
-    $("mi-h").addEventListener("input", () => paint(en));
-    const LC = 35;
-    function draw(ctx, W, H) {
-        const size = num("mi-l"), sig = num("mi-r") / 2, power = $("mi-h").value === "power";
-        const pl = 16, pr = 16;
-        const X = (t) => pl + (t + 90) / 180 * (W - pl - pr);
-        const topH = H * 0.58, bandTop = topH + 26, bandBot = H - 22;
-        const pL = (t) => Math.abs(t - LC) <= size / 2 ? 1 / size : 0;
-        let Z = 0;
-        for (let t = -90; t <= 90; t += 0.1) Z += Math.exp(-0.5 * (t / sig) ** 2) * 0.1;
-        const pB = (t) => Math.exp(-0.5 * (t / sig) ** 2) / Z;
-        let m = 0;
-        for (let t = -90; t <= 90; t += 0.5) m = Math.max(m, pL(t), pB(t));
-        const Y = (v) => topH - v / m * (topH - 14);
-        for (let d = -90; d <= 90; d += 30) { line(ctx, [[X(d), 10], [X(d), bandBot]], C.grid, 1); label(ctx, `${d}°`, X(d), H - 8, C.muted, "center", 10); }
-        const curve = (fn, col) => {
-            const pts = [];
-            for (let t = -90; t <= 90; t += 0.25) pts.push([X(t), Y(fn(t))]);
-            ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-            ctx.lineTo(X(90), Y(0)); ctx.lineTo(X(-90), Y(0)); ctx.closePath(); ctx.fillStyle = alpha(col, 0.14); ctx.fill();
-            line(ctx, pts, col, 2);
-        };
-        curve(pB, C.sign); curve(pL, C.sig);
-        line(ctx, [[pl, Y(0)], [W - pr, Y(0)]], C.muted, 1);
-        ctx.fillStyle = alpha(C.muted, 0.1); ctx.fillRect(pl, bandTop, W - pl - pr, bandBot - bandTop);
-        const BY = (w) => bandBot - w * (bandBot - bandTop);
-        const wpts = [];
-        for (let t = -90; t <= 90; t += 0.25) {
-            const a = pL(t), b = pB(t);
-            const w = a + b === 0 ? 0 : power ? a * a / (a * a + b * b) : a / (a + b);
-            wpts.push([X(t), BY(w)]);
-        }
-        ctx.beginPath(); ctx.moveTo(X(-90), BY(0)); wpts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(X(90), BY(0)); ctx.closePath();
-        ctx.fillStyle = alpha(C.accent, 0.35); ctx.fill();
-        line(ctx, wpts, C.accent, 1.6);
-        label(ctx, "w_light", pl + 4, bandTop - 9, C.accent, "left", 10);
-        label(ctx, "pdf over direction", pl + 4, 12, C.muted, "left", 10);
-        const a = pL(LC), b = pB(LC);
-        const wc = power ? a * a / (a * a + b * b) : a / (a + b);
-        label(ctx, `at the light's centre: w_light = ${wc.toFixed(3)}, w_bsdf = ${(1 - wc).toFixed(3)}`, W - pr, bandTop - 9, C.ink, "right", 10);
-    }
-    syncs.forEach((s) => s());
-    updaters.push(() => paint(en));
 })();
 
 /* ---------- start ---------- */
