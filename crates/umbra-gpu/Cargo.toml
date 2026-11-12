@@ -24,6 +24,7 @@ math-program = []
 [dependencies]
 cudarc = { workspace = true }
 libloading = { workspace = true }
+thiserror = { workspace = true }
 umbra-geometry = { workspace = true }
 umbra-math = { workspace = true }
 

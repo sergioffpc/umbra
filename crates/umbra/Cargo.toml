@@ -13,6 +13,7 @@ publish.workspace = true
 
 [dependencies]
 clap = { workspace = true }
+thiserror = { workspace = true }
 umbra-cluster = { workspace = true }
 umbra-parser = { workspace = true }
 umbra-render = { workspace = true }

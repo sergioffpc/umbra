@@ -54,6 +54,10 @@ serde_json = "1.0.145"
 # The content hash of a Scene File, its includes and its assets (arc42 §8.9).
 sha2 = "0.10.9"
 tempfile = "3.23.0"
+# `#[derive(Error)]` for every error type. Without `std` it derives
+# `core::error::Error`, the same trait as `std::error::Error`, so one
+# declaration serves the core and the `std` crates.
+thiserror = { version = "2.0.21", default-features = false }
 # The runtime `coordinate` owns (arc42 §5.3).
 tokio = { version = "1.48.0", default-features = false, features = ["rt", "sync"] }
 umbra-camera = { path = "crates/umbra-camera" }

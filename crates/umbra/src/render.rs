@@ -1,14 +1,14 @@
 //! `umbra render`: parse, apply the overrides, render through
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
-use std::error::Error;
 use std::ffi::OsString;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use umbra_cluster::{CoordinatorOptions, RenderJob, Threads, coordinate};
+use thiserror::Error;
+use umbra_cluster::{ClusterError, CoordinatorOptions, RenderJob, Threads, coordinate};
 use umbra_parser::{Overrides, ParseError, Parsed, ParserError};
 use umbra_render::{ExrWriter, ImageWriter, ReproductionRecord, write_atomically};
 use umbra_scene::{RenderJobOptions, Seed};
@@ -17,31 +17,33 @@ use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
 
 /// Why `umbra render` did not write an image.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum RenderFailure {
     /// The Scene File is invalid: every `ParserError`.
+    #[error("{}", lines(.0))]
     Refused(Vec<ParserError>),
-    /// Something failed that a retry may fix.
-    Failed(Box<dyn Error>),
+    /// The Scene File could not be read.
+    #[error("error: cannot read the Scene File: {0}")]
+    Unreadable(#[source] io::Error),
+    /// A file could not be resolved or written.
+    #[error("error: {0}")]
+    Io(#[from] io::Error),
+    /// The Render Job did not finish.
+    #[error("error: {0}")]
+    Cluster(#[from] ClusterError),
 }
 
-impl fmt::Display for RenderFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Refused(diagnostics) => {
-                let mut lines = diagnostics.iter().map(ToString::to_string);
-                write!(f, "{}", lines.next().unwrap_or_default())?;
-                lines.try_for_each(|line| write!(f, "\n{line}"))
-            }
-            Self::Failed(error) => write!(f, "error: {error}"),
-        }
-    }
-}
-
-impl<E: Error + 'static> From<E> for RenderFailure {
-    fn from(error: E) -> Self {
-        Self::Failed(Box::new(error))
-    }
+/// `diagnostics`, one per line.
+fn lines(diagnostics: &[ParserError]) -> impl Display {
+    fmt::from_fn(move |f| {
+        diagnostics
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, d)| match i {
+                0 => write!(f, "{d}"),
+                _ => write!(f, "\n{d}"),
+            })
+    })
 }
 
 /// Renders the Scene File of `args`, writing its warnings and progress to
@@ -87,7 +89,7 @@ fn parse(args: &RenderArgs) -> Result<Parsed, RenderFailure> {
     };
     umbra_parser::parse(&args.scene_file, &overrides).map_err(|error| match error {
         ParseError::Invalid(diagnostics) => RenderFailure::Refused(diagnostics),
-        io @ ParseError::Io(_) => io.into(),
+        ParseError::Io(error) => RenderFailure::Unreadable(error),
     })
 }
 

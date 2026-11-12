@@ -1,10 +1,9 @@
 //! How a Render Job is cut into Work Units: Tiles of the image times Passes
 //! of the sample indices (arc42 §8.8, ADR 0009).
 
-use std::error::Error;
-use std::fmt;
 use std::ops::Range;
 
+use thiserror::Error;
 use umbra_math::Point2i;
 use umbra_scene::RenderJobOptions;
 
@@ -72,25 +71,16 @@ impl TileBounds {
 }
 
 /// Why a Render Job cannot be cut into Work Units.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum RenderError {
     /// More Tiles than a `u32` counts.
+    #[error("the image has more than 2^32 - 1 Tiles")]
     TooManyTiles,
     /// A Tile size larger than an image can be.
+    #[error("the Tile size is above 2^31 - 1 pixels")]
     TileTooLarge,
 }
-
-impl fmt::Display for RenderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyTiles => write!(f, "the image has more than 2^32 - 1 Tiles"),
-            Self::TileTooLarge => write!(f, "the Tile size is above 2^31 - 1 pixels"),
-        }
-    }
-}
-
-impl Error for RenderError {}
 
 /// The Tiles and Passes of a Render Job: its image and Render Job Options
 /// fix them, never the Workers (arc42 §8.2).

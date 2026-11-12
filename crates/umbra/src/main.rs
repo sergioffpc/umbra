@@ -51,7 +51,9 @@ fn report(failure: &RenderFailure, stderr: &mut dyn Write) -> Exit {
     let _ = writeln!(stderr, "{failure}");
     match failure {
         RenderFailure::Refused(_) => Exit::Refused,
-        RenderFailure::Failed(_) => Exit::Failure,
+        RenderFailure::Unreadable(_) | RenderFailure::Io(_) | RenderFailure::Cluster(_) => {
+            Exit::Failure
+        }
     }
 }
 

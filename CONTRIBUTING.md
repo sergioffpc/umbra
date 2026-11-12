@@ -255,6 +255,10 @@ container.
   [`clippy.toml`](clippy.toml) lists it, and each core crate's `lib.rs` turns
   the lint on; `umbra-math`'s x86-64 backends `#[expect]` it. The `std`
   crates, tests and build scripts keep `f64`.
+- Error types derive `thiserror::Error`: the message in `#[error(...)]`,
+  the cause in `#[source]` or `#[from]`. No hand-written `Display` or
+  `Error` impl for an error type. `thiserror` has `default-features = false`
+  and derives `core::error::Error`, so the core crates can use it too.
 - No `print!` or `eprint!` outside tests: use `tracing`.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.

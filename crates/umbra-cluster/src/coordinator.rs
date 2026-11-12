@@ -1,13 +1,12 @@
 //! `coordinate`: a Render Job from its Scene to its image, through the
 //! Local Worker (arc42 §5.3, §6.2).
 
-use std::error::Error;
-use std::fmt;
 use std::io;
 use std::num::NonZeroUsize;
 use std::thread;
 
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
+use thiserror::Error;
 use tokio::runtime::Builder;
 use umbra_render::{Decomposition, Film, Image, RenderError, Renderer, ReproductionRecord};
 use umbra_scene::{RenderJobOptions, Scene};
@@ -58,45 +57,21 @@ pub struct RenderJobOutcome {
 }
 
 /// Why a Render Job did not finish.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ClusterError {
     /// The Render Job cannot be cut into Work Units.
-    Render(RenderError),
+    #[error("cannot render the Render Job: {0}")]
+    Render(#[from] RenderError),
     /// The runtime could not start.
-    Runtime(io::Error),
+    #[error("cannot start the Coordinator's runtime: {0}")]
+    Runtime(#[source] io::Error),
     /// The Local Worker's threads could not start.
-    ThreadPool(ThreadPoolBuildError),
+    #[error("cannot start the Local Worker's threads: {0}")]
+    ThreadPool(#[source] ThreadPoolBuildError),
     /// Every Worker went away before the last Work Unit was merged.
+    #[error("every Worker went away before the end")]
     NoWorkers,
-}
-
-impl fmt::Display for ClusterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Render(e) => write!(f, "cannot render the Render Job: {e}"),
-            Self::Runtime(e) => write!(f, "cannot start the Coordinator's runtime: {e}"),
-            Self::ThreadPool(e) => write!(f, "cannot start the Local Worker's threads: {e}"),
-            Self::NoWorkers => write!(f, "every Worker went away before the end"),
-        }
-    }
-}
-
-impl Error for ClusterError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Render(e) => Some(e),
-            Self::Runtime(e) => Some(e),
-            Self::ThreadPool(e) => Some(e),
-            Self::NoWorkers => None,
-        }
-    }
-}
-
-impl From<RenderError> for ClusterError {
-    fn from(e: RenderError) -> Self {
-        Self::Render(e)
-    }
 }
 
 /// Renders `job` to its image with the Local Worker, assigning Work Units
