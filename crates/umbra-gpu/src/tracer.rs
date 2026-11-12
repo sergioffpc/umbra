@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, DevicePtrMut};
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, DevicePtrMut, DeviceRepr};
 use umbra_geometry::{Ray, Sphere};
 use umbra_math::Point3f;
 
@@ -17,6 +17,9 @@ use crate::optix::{
 };
 use crate::records::SbtRecord;
 use crate::{Error, Geometry, Hit};
+
+#[cfg(feature = "math-program")]
+mod math;
 
 /// The PTX of `umbra-kernels`, which the build script compiles.
 const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/umbra_kernels.ptx"));
@@ -31,6 +34,8 @@ pub struct Tracer {
     // context the stream holds.
     pipeline: Pipeline,
     raygen: CudaSlice<SbtRecord<()>>,
+    #[cfg(feature = "math-program")]
+    math_raygen: CudaSlice<SbtRecord<()>>,
     miss: CudaSlice<SbtRecord<()>>,
     triangle: Gas,
     triangle_hitgroup: CudaSlice<SbtRecord<()>>,
@@ -49,12 +54,28 @@ struct Gas {
     _geometry: CudaSlice<f32>,
 }
 
-/// The program groups of the pipeline, in the order `Pipeline::new` takes.
+/// The program groups of the pipeline.
 struct Groups {
     raygen: Rc<ProgramGroup>,
+    #[cfg(feature = "math-program")]
+    math_raygen: Rc<ProgramGroup>,
     miss: Rc<ProgramGroup>,
     triangle: Rc<ProgramGroup>,
     sphere: Rc<ProgramGroup>,
+}
+
+impl Groups {
+    /// Every group, for `Pipeline::new`.
+    fn all(&self) -> Vec<&Rc<ProgramGroup>> {
+        #[cfg(feature = "math-program")]
+        let math = Some(&self.math_raygen);
+        #[cfg(not(feature = "math-program"))]
+        let math = None;
+        [&self.raygen, &self.miss, &self.triangle, &self.sphere]
+            .into_iter()
+            .chain(math)
+            .collect()
+    }
 }
 
 impl Tracer {
@@ -81,15 +102,7 @@ impl Tracer {
         };
         let context = DeviceContext::new(&api, cuda.cu_ctx().cast(), validation)?;
         let groups = program_groups(&context)?;
-        let pipeline = Pipeline::new(
-            &context,
-            &[
-                &groups.raygen,
-                &groups.miss,
-                &groups.triangle,
-                &groups.sphere,
-            ],
-        )?;
+        let pipeline = Pipeline::new(&context, &groups.all())?;
         let triangle_vertices: Vec<f32> = vertices.iter().flat_map(|p| [p.x, p.y, p.z]).collect();
         let bounds = sphere.bounds();
         let sphere_box: Vec<f32> = [bounds.p_min, bounds.p_max]
@@ -99,6 +112,8 @@ impl Tracer {
         Ok(Self {
             pipeline,
             raygen: record(&stream, &groups.raygen, ())?,
+            #[cfg(feature = "math-program")]
+            math_raygen: record(&stream, &groups.math_raygen, ())?,
             miss: record(&stream, &groups.miss, ())?,
             triangle: build_gas(&context, &stream, &triangle_vertices, Geometry::Triangle)?,
             triangle_hitgroup: record(&stream, &groups.triangle, ())?,
@@ -126,7 +141,7 @@ impl Tracer {
         let mut hit_buffer = self
             .stream
             .clone_htod(&vec![HitRecord::default(); rays.len()])?;
-        self.launch(geometry, count, &ray_buffer, &mut hit_buffer)?;
+        self.trace_launch(geometry, count, &ray_buffer, &mut hit_buffer)?;
         self.stream
             .clone_dtoh(&hit_buffer)?
             .into_iter()
@@ -136,7 +151,7 @@ impl Tracer {
 
     /// Launches one thread per ray of `rays` against `geometry`, writing
     /// `hits`, and waits for it.
-    fn launch(
+    fn trace_launch(
         &self,
         geometry: Geometry,
         count: u32,
@@ -152,44 +167,67 @@ impl Tracer {
             hits,
             count,
         };
+        self.launch(params, count, &sbt)
+    }
+
+    /// Launches `width` threads with the launch parameters `params` and the
+    /// records of `sbt`, and waits for them.
+    fn launch<P: DeviceRepr>(
+        &self,
+        params: P,
+        width: u32,
+        sbt: &ShaderBindingTable,
+    ) -> Result<(), Error> {
         let params = self.stream.clone_htod(&[params])?;
         let (address, _params_read) = params.device_ptr(&self.stream);
         let launch = Launch {
             address,
-            size: size_of::<LaunchParams>(),
-            width: count,
+            size: size_of::<P>(),
+            width,
         };
         self.pipeline
-            .launch(stream_handle(&self.stream), launch, &sbt)?;
+            .launch(stream_handle(&self.stream), launch, sbt)?;
         self.stream.synchronize()?;
         Ok(())
     }
 
-    /// The traversable of `geometry` and the shader binding table its
-    /// launches use.
+    /// The traversable of `geometry` and the shader binding table that
+    /// traces it.
     fn target(&self, geometry: Geometry) -> (TraversableHandle, ShaderBindingTable) {
-        let (raygen, _) = self.raygen.device_ptr(&self.stream);
+        let handle = match geometry {
+            Geometry::Triangle => self.triangle.handle,
+            Geometry::Sphere => self.sphere.handle,
+        };
+        (handle, self.binding_table(&self.raygen, geometry))
+    }
+
+    /// The shader binding table of launches by the ray-generation record
+    /// `raygen`, with the miss record and the hit group record of
+    /// `geometry`.
+    fn binding_table(
+        &self,
+        raygen: &CudaSlice<SbtRecord<()>>,
+        geometry: Geometry,
+    ) -> ShaderBindingTable {
+        let (raygen, _) = raygen.device_ptr(&self.stream);
         let (miss, _) = self.miss.device_ptr(&self.stream);
-        let (handle, hitgroup, hitgroup_stride) = match geometry {
+        let (hitgroup, hitgroup_stride) = match geometry {
             Geometry::Triangle => (
-                self.triangle.handle,
                 self.triangle_hitgroup.device_ptr(&self.stream).0,
                 size_of::<SbtRecord<()>>(),
             ),
             Geometry::Sphere => (
-                self.sphere.handle,
                 self.sphere_hitgroup.device_ptr(&self.stream).0,
                 size_of::<SbtRecord<Sphere>>(),
             ),
         };
-        let sbt = ShaderBindingTable {
+        ShaderBindingTable {
             raygen,
             miss,
             miss_stride: stride(size_of::<SbtRecord<()>>()),
             hitgroup,
             hitgroup_stride: stride(hitgroup_stride),
-        };
-        (handle, sbt)
+        }
     }
 }
 
@@ -204,11 +242,14 @@ fn stream_handle(stream: &CudaStream) -> *mut c_void {
     stream.cu_stream().cast()
 }
 
-/// The module of `umbra-kernels` and its four program groups.
+/// The module of `umbra-kernels` and its program groups: four, and the math
+/// program's with the `math-program` feature.
 fn program_groups(context: &Rc<DeviceContext>) -> Result<Groups, Error> {
     let module = Module::new(context, PTX)?;
     Ok(Groups {
         raygen: ProgramGroup::new(&module, Programs::Raygen(c"__raygen__trace"))?,
+        #[cfg(feature = "math-program")]
+        math_raygen: ProgramGroup::new(&module, Programs::Raygen(c"__raygen__math"))?,
         miss: ProgramGroup::new(&module, Programs::Miss(c"__miss__trace"))?,
         triangle: ProgramGroup::new(
             &module,
@@ -234,7 +275,7 @@ fn record<T>(
     data: T,
 ) -> Result<CudaSlice<SbtRecord<T>>, Error>
 where
-    SbtRecord<T>: cudarc::driver::DeviceRepr,
+    SbtRecord<T>: DeviceRepr,
 {
     let record = SbtRecord {
         header: group.record_header()?,

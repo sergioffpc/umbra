@@ -4,11 +4,17 @@ mod error;
 // The layout shared with the device: one file, compiled by both crates.
 #[path = "../../umbra-kernels/src/launch.rs"]
 mod launch;
+// The math program's, with the `math-program` feature alone (#146).
+#[cfg(feature = "math-program")]
+#[path = "../../umbra-kernels/src/math_launch.rs"]
+mod math_launch;
 mod optix;
 mod records;
 mod tracer;
 
 pub use error::Error;
+#[cfg(feature = "math-program")]
+pub use math_launch::{MathFunction, UnknownMathFunction};
 pub use tracer::Tracer;
 
 /// The geometry a [`Tracer`] traces rays against.

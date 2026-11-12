@@ -54,6 +54,8 @@ device_repr!(
     SbtRecord<()>,
     SbtRecord<Sphere>
 );
+#[cfg(feature = "math-program")]
+device_repr!(crate::math_launch::MathParams);
 
 impl From<&Ray> for RayRecord {
     fn from(ray: &Ray) -> Self {

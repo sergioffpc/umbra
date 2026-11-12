@@ -10,6 +10,10 @@
 #![warn(clippy::disallowed_types)]
 
 mod launch;
+#[cfg(feature = "math-program")]
+mod math;
+#[cfg(feature = "math-program")]
+mod math_launch;
 mod optix;
 
 use core::mem::offset_of;
@@ -77,6 +81,28 @@ pub extern "ptx-kernel" fn __raygen__trace() {
             kind,
         },
     );
+}
+
+/// Ray generation for a math launch: evaluates the launch's function on
+/// argument record `i`, for the launch index `i`, and writes result `i`.
+/// Only with the `math-program` feature, for the GPU tests (#146).
+#[cfg(feature = "math-program")]
+#[expect(
+    unsafe_code,
+    reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
+)]
+#[unsafe(no_mangle)]
+pub extern "ptx-kernel" fn __raygen__math() {
+    let params = math::math_params();
+    let i = optix::launch_index_x();
+    if i >= params.count {
+        return;
+    }
+    let Ok(function) = math_launch::MathFunction::try_from(params.function) else {
+        optix::trap()
+    };
+    let result = function.evaluate(math::read_args(params.args, i));
+    math::write_result(params.results, i, result);
 }
 
 /// Miss: the ray hit nothing.

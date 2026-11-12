@@ -7,4 +7,5 @@
 //! runs only those: `cargo nextest run --profile gpu`
 //! (`.config/nextest.toml`).
 
+mod libdevice;
 mod optix;

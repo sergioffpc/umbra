@@ -17,11 +17,13 @@ is the way to run it.
 
 ## What is in it
 
-| Module   | Contents                                                                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib.rs` | The four programs of the tracer bullet, the `.const` launch parameters `params`, and the panic handler                                     |
-| `optix`  | The OptiX 9.0 device API: one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
-| `launch` | The layout the host shares: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`; `umbra-gpu` compiles the same file by `#[path]`        |
+| Module        | Contents                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib.rs`      | The four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                |
+| `math`        | What the math program runs: its function of `umbra-math`, and its launch parameters, arguments and results                                 |
+| `math_launch` | The math program's layout the host shares: `MathParams`, `MathFunction` and its ids; `umbra-gpu` compiles the same file by `#[path]`       |
+| `optix`       | The OptiX 9.0 device API: one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
+| `launch`      | The layout the host shares: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`; `umbra-gpu` compiles the same file by `#[path]`        |
 
 The programs, for one triangle and one sphere traced from the host
 ([#126](https://github.com/sergioffpc/umbra/issues/126)):
@@ -32,6 +34,7 @@ The programs, for one triangle and one sphere traced from the host
 | `__miss__trace`          | Marks the ray as a miss                                                                             |
 | `__closesthit__trace`    | Returns the hit's distance, and whether a triangle or the sphere was hit                            |
 | `__intersection__sphere` | Intersects the ray with the `Sphere` of its hit group record through the core's `Sphere::intersect` |
+| `__raygen__math`         | Evaluates the launch's `MathFunction` on argument record `i` and writes result `i` (#146)           |
 
 Not here yet: the wavefront kernels of the integrators, which arrive with
 each feature on both Render Devices
@@ -63,6 +66,18 @@ OptiX passes a launch's parameters in a `.const` variable the pipeline names.
 declared with `global_asm!` and read field by field with `ld.const`, at the
 offsets `launch.rs` asserts.
 
+### The GPU's math, run as a launch
+
+The checks of `umbra-math`'s `nvptx64` backend against glibc
+([#146](https://github.com/sergioffpc/umbra/issues/146)) need the GPU to
+evaluate each `libdevice` function on chosen arguments. A second
+ray-generation program does it in the tracer's own pipeline: a math launch
+puts `MathParams` in the same `params` variable, which is sized for the
+larger `LaunchParams`, and selects `__raygen__math` by its shader binding
+table record. It traces no ray. It, `math` and `math_launch` exist only
+with the `math-program` feature, which `umbra-gpu`'s feature of the same
+name passes to the kernels' build; production PTX has no math program.
+
 ### Panics trap
 
 A panic is a bug (ADR 0014): the handler executes `trap`, which aborts the
@@ -71,8 +86,9 @@ launch, and the host sees a CUDA error.
 ## Things to know when using it
 
 - The programs read device memory by the addresses the host passes: the
-  host must size the ray and hit buffers to `LaunchParams::count` and give
-  the sphere's hit group record a `Sphere` (`umbra-gpu` does both).
+  host must size the ray and hit buffers to `LaunchParams::count`, the
+  argument and result buffers to `MathParams::count`, and give the sphere's
+  hit group record a `Sphere` (`umbra-gpu` does all three).
 - The pipeline must name `params` as its launch-parameter variable and use
   two payload values, which `umbra-gpu`'s compile options do.
 
