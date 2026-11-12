@@ -264,6 +264,9 @@ container.
   impl for it. `thiserror` has `default-features = false` and derives
   `core::error::Error`, so the core crates can use it too.
 - No `print!` or `eprint!` outside tests: use `tracing`.
+- Text the user reads, such as `--help`, errors, Diagnostics and status
+  lines, cites no ADR, arc42 section or issue: they mean nothing to the
+  user. Say what happens instead. Code docs and lint reasons may cite them.
 - To silence a lint, use `#[expect(clippy::lint_name, reason = "...")]` on the
   narrowest item possible. `#[allow]` and reasonless attributes are rejected.
 
