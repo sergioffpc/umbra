@@ -17,11 +17,22 @@ pub enum Outcome {
     Finished,
 }
 
+/// The version of the Render Job Report's schema, written as
+/// `{"major": 0, "minor": 1}`. Reports of one major version can be
+/// compared; see [`RenderJobReport::SCHEMA_VERSION`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SchemaVersion {
+    /// Changes with the meaning of a comparable field.
+    pub major: u32,
+    /// Changes with any other field.
+    pub minor: u32,
+}
+
 /// What a Render Job leaves behind besides its image, written next to it
 /// as `<image>.report.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RenderJobReport {
-    schema_version: &'static str,
+    schema_version: SchemaVersion,
     outcome: Outcome,
     #[serde(serialize_with = "hex")]
     film_hash: Option<FilmHash>,
@@ -31,7 +42,7 @@ pub struct RenderJobReport {
 impl RenderJobReport {
     /// The schema version: the major part changes with the meaning of a
     /// comparable field, the minor part with any other change.
-    pub const SCHEMA_VERSION: &str = "0.1";
+    pub const SCHEMA_VERSION: SchemaVersion = SchemaVersion { major: 0, minor: 1 };
 
     /// The report of a finished Render Job whose Film hashes to
     /// `film_hash`, made as `reproduction_record` says.
