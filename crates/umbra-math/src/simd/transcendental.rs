@@ -56,7 +56,8 @@ impl Vec4 {
     /// zeros, infinities and NaNs. An exponent of 0 gives 1 and of 1 the
     /// lanes themselves, exactly; a signalling NaN exponent gives NaN, as
     /// IEEE 754 asks (Apple's libm gives 1 for a lane of 1), and any other
-    /// infinite or NaN exponent falls back to `powf`.
+    /// infinite or NaN exponent falls back to `powf`, as every exponent
+    /// does on arm64.
     ///
     /// pbrt-v4 `std::pow`, lane by lane.
     #[must_use]
@@ -71,7 +72,10 @@ impl Vec4 {
         if is_signalling(e) {
             return Self::splat(f32::NAN);
         }
-        if !e.is_finite() {
+        // On arm64 the backend's kernel is `powf` itself, which already
+        // gives C's value in every lane: the sign and special-value
+        // handling below would only repeat it, at 40 % of the cost.
+        if !e.is_finite() || cfg!(target_arch = "aarch64") {
             return Self(self.0.map(|x| powf(x, e)));
         }
         let r = self.abs().pow_magnitude(e);
