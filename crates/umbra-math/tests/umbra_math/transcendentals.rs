@@ -21,11 +21,21 @@ use umbra_math::{Vec4, atan2f, erff, expf, powf, sincosf};
 use crate::rng::Rng;
 
 // Explicit path, so the benchmark can include this file by `#[path]` too.
-#[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
+#[cfg(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_env = "gnu",
+    not(miri)
+))]
 #[path = "transcendentals/libmvec.rs"]
 mod libmvec;
 
-#[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
+#[cfg(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_env = "gnu",
+    not(miri)
+))]
 pub(crate) use libmvec::{Libmvec4, Libmvec8};
 
 /// The inputs per batch: a multiple of eight, the widest call.

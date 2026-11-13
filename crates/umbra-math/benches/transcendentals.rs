@@ -29,7 +29,12 @@ use crate::transcendentals::{
     BATCH, GAMMA, GlibcScalar, Transcendentals, Umbra, angles, atan2_args, erf_args,
     optical_depths, reflectances,
 };
-#[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
+#[cfg(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_env = "gnu",
+    not(miri)
+))]
 use crate::transcendentals::{Libmvec4, Libmvec8};
 
 fn main() {
@@ -42,11 +47,11 @@ macro_rules! bench {
     ($(#[$attr:meta])* fn $name:ident<K>($bencher:ident) $body:block) => {
         $(#[$attr])*
         #[cfg_attr(
-            all(target_os = "linux", target_env = "gnu", not(miri)),
+            all(target_arch = "x86_64", target_os = "linux", target_env = "gnu", not(miri)),
             divan::bench(types = [Umbra, GlibcScalar, Libmvec4, Libmvec8])
         )]
         #[cfg_attr(
-            not(all(target_os = "linux", target_env = "gnu", not(miri))),
+            not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu", not(miri))),
             divan::bench(types = [Umbra, GlibcScalar])
         )]
         fn $name<K: Transcendentals>($bencher: Bencher<'_, '_>) $body
