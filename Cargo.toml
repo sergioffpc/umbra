@@ -162,6 +162,9 @@ unused_import_braces = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
+# `--cfg umbra_libm_bench`: the PTX of `umbra-gpu`'s libm bench, which its
+# build script compiles from `umbra-gpu-programs` without the OptiX programs.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(umbra_libm_bench)"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

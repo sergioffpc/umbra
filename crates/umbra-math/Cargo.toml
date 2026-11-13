@@ -26,10 +26,11 @@ divan = { workspace = true }
 name = "kernels"
 harness = false
 
-# The transcendentals from Umbra and glibc (issue #138). `libmvec` is linked
-# by this target and its tests only, never by the library.
+# What libm costs: umbra-math's 19 C functions against glibc's and the best
+# SIMD, with the report the math guide plots (`benches/libm.rs`). `libmvec`
+# is loaded by this target only, never by the library.
 [[bench]]
-name = "transcendentals"
+name = "libm"
 harness = false
 
 [lints]

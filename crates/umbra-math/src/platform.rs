@@ -25,9 +25,9 @@ mod libm;
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub use libm::{
-    acos, acosf, asinf, atan2, atan2f, atanhf, cbrt, ceilf, cos, cosf, coshf, erf, erff, exp,
-    exp2f, expf, floorf, fma, fmaf, hypot, lgamma, log, logf, pow, powf, roundf, sin, sincosf,
-    sinf, sqrt, sqrtf, tanf,
+    acos, acosf, asin, asinf, atan2, atan2f, atanh, atanhf, cbrt, ceilf, cos, cosf, cosh, coshf,
+    erf, erff, exp, exp2, exp2f, expf, floorf, fma, fmaf, hypot, lgamma, log, logf, pow, powf,
+    roundf, sin, sincosf, sinf, sqrt, sqrtf, tan, tanf,
 };
 
 // On `nvptx64`, `libdevice`'s wrappers (ADR 0028): those the core calls, so
