@@ -22,7 +22,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `main`           | The exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
-| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`              |
+| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
 
@@ -40,8 +40,16 @@ Copyright (c) 2026 Sérgio Carvalho
 MIT License. Includes code from pbrt-v4, under the Apache License 2.0; see NOTICE.
 ```
 
-Not here yet: Ctrl-C and exit code 130, `--log` and `--log-format`, with
-[#86](https://github.com/sergioffpc/umbra/issues/86); `trace`, with
+While a Render Job runs, the status line is redrawn on stderr when it is a
+terminal, and logged as `info` events about every 10 s otherwise. Logs go
+to stderr through `tracing`: human-readable on a terminal and JSON lines
+otherwise, or as `--log-format human|json` says, filtered by `--log`, a
+`RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
+Job: its report says `Render Job: cancelled`, no image is written, and
+`umbra` exits 130; a second Ctrl-C exits at once. The `tracy` feature, off
+by default, sends the `tracing` spans to Tracy.
+
+Not here yet: `trace`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); `bench`, with
 [#93](https://github.com/sergioffpc/umbra/issues/93); `validate`, with
 [#92](https://github.com/sergioffpc/umbra/issues/92); `worker`, with
@@ -64,8 +72,15 @@ The Reproduction Record holds the Scene File's absolute, canonical path, so
 
 ### Writes are atomic
 
-The image and its report are each written to a temporary file in their
-directory, synced, and renamed over the target (arc42 §8.15).
+The image is written to a temporary file in its directory, synced, and
+renamed over the target (arc42 §8.15).
+
+### The report is text on stdout
+
+The Render Job Report is the command's output: one `Name: value` line per
+figure on stdout, and nothing else is written there. Logs, the status line
+and Diagnostics go to stderr. There is no report file and no JSON for now;
+`umbra render scene.pbrt > report.txt` keeps one.
 
 ## `--spp` and `--spp-per-pass`
 
@@ -107,7 +122,7 @@ Tiles has 60 × 34 = 2040 Tiles, so 4 × 2040 = 8160 Work Units. With
   will use one Pass for that reason
   ([#87](https://github.com/sergioffpc/umbra/issues/87)).
 
-The Reproduction Record in the Render Job Report stores them as `spp` and
+The Reproduction Record in the Render Job Report shows them as `spp` and
 `spp_per_pass`, the names of the `RenderJobOptions` fields they set.
 
 `--spp-per-pass` does not decide how a Worker fills its cores: it asks for
@@ -122,9 +137,10 @@ an interactive calculator.
 - **Exit codes** (arc42 §8.13): 0 rendered; 1 an I/O error or a panic,
   including a Scene File that cannot be read; 2 invalid usage; 3 an invalid
   Scene File, with every `Diagnostic` on stderr as `file:line:column:
-error: ...`.
-- **Warnings and the final status go to stderr** with `writeln!` until
-  `tracing` arrives with #86.
+error: ...`; 130 cancelled by Ctrl-C.
+- **The version line, Diagnostics and errors are plain text on stderr**,
+  written with `writeln!`, whatever `--log-format`: they are the command's
+  own output, not log events.
 - **The Build Identity's tree is checked when the git index or `HEAD`
   changes**, not on every edit: a binary rebuilt after an unstaged edit alone
   may still say `clean`.
@@ -134,15 +150,19 @@ error: ...`.
 The integration tests are the cross-crate tests of arc42 §5.4:
 
 - `tests/render/`, `umbra render` through the binary (spec #72, Seam 1): a
-  camera-only Scene File renders a black RGB EXR and a report with
-  `outcome: "finished"`; the EXR's bytes are the same on every run; the
+  camera-only Scene File renders a black RGB EXR, and a report on stdout
+  that says `Render Job: finished` and writes no report file; the EXR's bytes are the same on every run; the
   report carries the Reproduction Record, with the overrides; the seed's
   precedence; the Film hash is the same with 1 thread and with all; output
   paths resolve as in pbrt-v4; includes resolve and are hashed; unsupported
   Scene Files give located Diagnostics and exit 3, with no image; unused
   parameters warn; a missing Scene File exits 1 and invalid usage 2; the
   version line starts every command on stderr, and `--version` adds the
-  copyright and the licences, with nothing on stdout.
+  copyright and the licences, with nothing on stdout; the report has the
+  options, phase times, Pixel Samples and their rate, the Local Worker's
+  figures and a cost per Tile; logs are JSON lines without a terminal, text
+  with `--log-format human`, and filtered by `--log`, with the final status
+  among them; Ctrl-C writes a cancelled report, no image, and exits 130.
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.

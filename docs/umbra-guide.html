@@ -427,7 +427,7 @@ input[type="search"] {
             <rect x="794" y="96" width="92" height="40" rx="4" class="f-acc-soft k-acc"/>
             <text x="840" y="121" text-anchor="middle">image.exr</text>
             <rect x="794" y="144" width="92" height="40" rx="4" class="f-mut-soft k-mut"/>
-            <text x="840" y="169" text-anchor="middle">report.json</text>
+            <text x="840" y="169" text-anchor="middle">report</text>
         </svg></div>
         <figcaption id="big-cap">The whole project in one picture. The <b>Coordinator</b> reads the Scene File once and cuts the image into <b>Work Units</b>. <b>Workers</b> render them, and each answer, a <b>Work Result</b>, is merged into the <b>Film</b> as soon as it arrives. The dashed GPU Worker and the second machine are on the roadmap; <a href="#journey">section 2</a> follows every step and marks what runs today.</figcaption>
     </figure>
@@ -1055,9 +1055,9 @@ function buildStrip(el) {
         },
         {
             t: "Write the image and the report", on: ["umbra-render", "umbra"],
-            d: "Film::finish turns the sums into pixels. The EXR writer stores them with the Reproduction Record, atomically, and the Render Job Report is written next to the image as JSON.",
+            d: "Film::finish turns the sums into pixels. The image writer stores them atomically, and the Render Job Report, with the Reproduction Record, is printed to stdout as text.",
             st: "part", s: "written today; every RGBFilm parameter arrives with #84, the full report and status line with #86.",
-            l: [adr("0020"), ["umbra-render README", README("umbra-render")]], v: "image.exr + report.json",
+            l: [adr("0020"), ["umbra-render README", README("umbra-render")]], v: "image.exr + report on stdout",
         },
     ];
     const light = buildStrip($("j-strip"));

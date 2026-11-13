@@ -136,6 +136,12 @@ impl Decomposition {
         self.samples_per_pixel.div_ceil(self.samples_per_pass)
     }
 
+    /// The Pixel Samples of every pixel, over every Pass.
+    #[must_use]
+    pub fn samples_per_pixel(&self) -> u32 {
+        self.samples_per_pixel
+    }
+
     /// Whether `unit` is one of this Render Job's.
     #[must_use]
     pub fn contains(&self, unit: WorkUnit) -> bool {
