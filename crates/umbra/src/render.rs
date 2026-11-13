@@ -2,7 +2,7 @@
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
 use std::fs;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Stderr, Write};
 use std::path::Path;
 use std::time::Instant;
 
@@ -18,21 +18,24 @@ use umbra_scene::{RenderJobOptions, Seed};
 use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
 use crate::error::Error;
+use crate::footer::Footer;
 
-/// Renders the Scene File of `args`, writing its warnings and progress to
-/// `stderr`, then the image, and its Render Job Report to `stdout`; or,
-/// once `cancel` is made, the report alone.
+/// Renders the Scene File of `args`, writing its warnings to `stderr` and
+/// its progress to the footer of `stderr` on a terminal, then the image,
+/// and its Render Job Report to `stdout`; or, once `cancel` is made, the
+/// report alone.
 pub(crate) fn render(
     args: &RenderArgs,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
+    stderr: &Footer<Stderr>,
 ) -> Result<(), Error> {
     let _span = info_span!("render_job").entered();
     let parsed = parse(args)?;
+    let mut warnings = stderr;
     for warning in &parsed.warnings {
         // Warnings are informative: a closed stderr does not fail the render.
-        let _ = writeln!(stderr, "{warning}");
+        let _ = writeln!(warnings, "{warning}");
     }
     let options = RenderJobOptions {
         tile_size: args.tile_size,
@@ -52,12 +55,16 @@ pub(crate) fn render(
         record,
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);
+    let mut footer = stderr.redrawn();
     let status = if io::stderr().is_terminal() {
-        StatusLine::Redrawn(stderr)
+        StatusLine::Redrawn(&mut footer)
     } else {
         StatusLine::Logged
     };
     let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status)?;
+    // The last status stays on the terminal, above the errors and logs
+    // that follow it.
+    drop(footer);
     finish(outcome, parsed.times, &parsed.output, stdout)
 }
 

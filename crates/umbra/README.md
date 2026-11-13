@@ -24,6 +24,8 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
+| `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature         |
+| `footer`         | `Footer`: stderr with the status line kept at its bottom, log events printed above it                                 |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
@@ -40,8 +42,9 @@ Copyright (c) 2026 Sérgio Carvalho
 MIT License. Includes code from pbrt-v4, under the Apache License 2.0; see NOTICE.
 ```
 
-While a Render Job runs, the status line is redrawn on stderr when it is a
-terminal, and logged as `info` events about every 10 s otherwise. Logs go
+While a Render Job runs, the status line is redrawn at the bottom of
+stderr when it is a terminal, with log events printed above it, and
+logged as `info` events about every 10 s otherwise. Logs go
 to stderr through `tracing`: human-readable on a terminal and JSON lines
 otherwise, or as `--log-format human|json` says, filtered by `--log`, a
 `RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
@@ -167,3 +170,7 @@ The integration tests are the cross-crate tests of arc42 §5.4:
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.
+
+The `footer` unit tests check, over an in-memory terminal, that a status
+update replaces the last one and that a log event prints above the status
+line, which is redrawn below it.

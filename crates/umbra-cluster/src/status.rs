@@ -15,7 +15,8 @@ const LOG_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Where the status line goes.
 pub enum StatusLine<'w> {
-    /// Redrawn in place on this terminal.
+    /// Redrawn in place by this writer: each update is its two lines, then
+    /// a flush, and the writer shows them in place of the previous ones.
     Redrawn(&'w mut dyn Write),
     /// Logged as `info` events, about every 10 s and once at the end.
     Logged,
@@ -35,15 +36,7 @@ impl fmt::Debug for StatusLine<'_> {
 pub(crate) struct Status<'w> {
     line: StatusLine<'w>,
     threads: usize,
-    drawn: Drawn,
     last_logged: Option<Instant>,
-}
-
-/// Whether the redrawn lines are on the terminal yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Drawn {
-    No,
-    Yes,
 }
 
 impl<'w> Status<'w> {
@@ -52,7 +45,6 @@ impl<'w> Status<'w> {
         Self {
             line,
             threads,
-            drawn: Drawn::No,
             last_logged: None,
         }
     }
@@ -94,25 +86,21 @@ impl<'w> Status<'w> {
         self.last_logged = Some(now);
     }
 
-    /// Redraws both lines over the previous ones.
+    /// Writes both lines and flushes them, for the writer to show in
+    /// place of the previous ones.
     fn redraw(&mut self, progress: &Progress<'_>, now: Instant) {
         let StatusLine::Redrawn(out) = &mut self.line else {
             return;
-        };
-        let up = match self.drawn {
-            Drawn::No => "",
-            Drawn::Yes => "\x1b[2A",
         };
         // The status line is informative: a closed terminal does not stop
         // the Render Job.
         let _ = write!(
             out,
-            "{up}\r\x1b[2K{}\n\r\x1b[2K{}\n",
+            "{}\n{}\n",
             aggregate(progress, now),
             local_worker(progress, self.threads)
         );
         let _ = out.flush();
-        self.drawn = Drawn::Yes;
     }
 }
 

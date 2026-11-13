@@ -3,6 +3,7 @@
 mod build_identity;
 mod cli;
 mod error;
+mod footer;
 mod logs;
 mod render;
 
@@ -19,6 +20,7 @@ use umbra_render::Cancellation;
 use crate::build_identity::{version_line, version_notice};
 use crate::cli::{Cli, Command};
 use crate::error::Error;
+use crate::footer::Footer;
 
 /// How `umbra` exits (arc42 §8.13). Invalid usage exits 2 from `clap`
 /// itself.
@@ -54,13 +56,17 @@ fn main() -> ExitCode {
         }
         Err(error) => error.exit(),
     };
-    logs::init(cli.log_format, &cli.log);
+    // Logs and the status line share stderr: events print above the
+    // status line.
+    let terminal = Arc::new(Footer::new(stderr));
+    logs::init(cli.log_format, &cli.log, Arc::clone(&terminal));
     let cancel = cancel_on_ctrl_c();
+    let mut stderr = &*terminal;
     // Informative: a closed stderr does not stop the command.
     let _ = writeln!(stderr, "{}", version_line());
     let exit = match cli.command {
         Command::Render(args) => {
-            match render::render(&args, &cancel, &mut io::stdout(), &mut stderr) {
+            match render::render(&args, &cancel, &mut io::stdout(), &terminal) {
                 Ok(()) => Exit::Success,
                 Err(error) => report(&error, &mut stderr),
             }
