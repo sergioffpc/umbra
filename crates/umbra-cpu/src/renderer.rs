@@ -1,58 +1,19 @@
-//! The Renderer: everything between a Work Unit and its Work Result (arc42
-//! §5.3).
+//! The CPU's Renderer: everything between a Work Unit and its Work Result
+//! on the cores of one NUMA node (arc42 §5.3).
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
 use umbra_integrators::{
     NoRecorder, PixelSampleId, PixelSampleState, RayIntegrator, SceneView, evaluate_pixel_sample,
 };
 use umbra_math::Point2i;
+use umbra_render::{Cancellation, Decomposition, Error, PixelSum, Rendered, WorkResult, WorkUnit};
 use umbra_sampling::{
     DigitPermutations, HaltonRandomizer, HaltonSampler, RandomizeStrategy, SamplerKind,
 };
 use umbra_scene::{RenderJobOptions, Scene};
-
-use crate::decomposition::{Decomposition, WorkUnit};
-use crate::error::Error;
-use crate::work_result::{PixelSum, WorkResult};
-
-/// A request to stop rendering, shared between whoever cancels and the
-/// renders it stops. Rendering checks it between rows of a Tile.
-#[derive(Debug, Default)]
-pub struct Cancellation {
-    cancelled: AtomicBool,
-}
-
-impl Cancellation {
-    /// A request not made yet.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Makes the request: renders still running stop at their next row.
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
-    }
-
-    /// Whether the request has been made.
-    #[must_use]
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
-    }
-}
-
-/// How a render of a Work Unit ended.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Rendered {
-    /// Every Pixel Sample was computed.
-    Done(WorkResult),
-    /// It was cancelled before the end; what was computed is dropped.
-    Cancelled,
-}
 
 /// A render stopped by its [`Cancellation`].
 #[derive(Debug)]
@@ -173,8 +134,8 @@ impl Randomization {
     }
 }
 
-/// Renders the Work Units of a Render Job of one Scene into Work Results,
-/// in this process (arc42 §5.3). `render` may run for several Work Units at
+/// Renders the Work Units of a Render Job of one Scene into Work Results on
+/// the CPU, in this process (arc42 §5.3). `render` may run for several Work Units at
 /// once, from any threads; each render splits its rows over rayon's pool.
 #[derive(Debug)]
 pub struct Renderer<'s> {

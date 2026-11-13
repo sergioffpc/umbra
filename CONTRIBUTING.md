@@ -81,8 +81,8 @@ version to state. To upgrade, bump `channel` to a date that has every listed
 component, in its own `build:` commit, and fix any new lints.
 
 Use stable language and library features only. `#![feature(...)]` belongs in
-`umbra-kernels` alone, for what the GPU kernels cannot do without; every other
-crate builds as if on stable.
+`umbra-gpu-programs` alone, on `nvptx64`, for what the GPU's programs cannot
+do without; every other crate builds as if on stable.
 
 Tools used by the hooks, CI and the checks below. Install them all, at the
 versions CI uses, with:

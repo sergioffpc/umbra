@@ -7,7 +7,7 @@ watches the same code path that renders (ADR 0011).
 
 It is a core crate: `#![no_std]` without `alloc` (ADR 0014, ADR 0015), and the
 top of the core. It depends on `umbra-shading` and `umbra-camera`, and
-`umbra-scene` and `umbra-render` depend on it (arc42 §5.1, §5.2). It covers
+`umbra-scene`, `umbra-render` and `umbra-cpu` depend on it (arc42 §5.1, §5.2). It covers
 PBR 4e chapters 13–15.
 
 A Scene is built by `umbra-scene`, and its Pixel Samples are computed one at
@@ -68,7 +68,7 @@ Not here yet: intersections, emission and shading in `VolPathIntegrator`,
 with the Shapes and lights of
 [#79](https://github.com/sergioffpc/umbra/issues/79) and
 [#80](https://github.com/sergioffpc/umbra/issues/80); the `TraceRecorder`
-of Pixel Traces, which is `umbra-render`'s, with
+of Pixel Traces, which is `umbra-cpu`'s, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); and leaving out
 Anomalous Pixel Samples, with
 [#85](https://github.com/sergioffpc/umbra/issues/85). Until then a NaN or
@@ -98,7 +98,7 @@ threads or the Film, so the GPU's wavefront can call the same steps.
 ### `RayIntegrator` is generic, not `dyn`
 
 `RayIntegrator::li` is generic over the recorder, so it cannot be a trait
-object. The `dyn Integrator` of arc42 §5.3 is `umbra-render`'s, called once
+object. The `dyn Integrator` of arc42 §5.3 is `umbra-cpu`'s, called once
 per Work Unit around a loop that calls `evaluate_pixel_sample` statically
 (ADR 0006).
 
@@ -111,7 +111,7 @@ per Work Unit around a loop that calls `evaluate_pixel_sample` statically
 
 ## Tests
 
-No tests of their own yet: `umbra-render`'s tests render through
+No tests of their own yet: `umbra-cpu`'s tests render through
 `evaluate_pixel_sample` and `VolPathIntegrator` (a black frame, identical
 Work Results on any number of threads), and the counting-allocator test in
 `crates/umbra/tests/` checks that a Pixel Sample allocates nothing. The

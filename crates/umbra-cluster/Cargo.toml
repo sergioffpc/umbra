@@ -16,6 +16,8 @@ rayon = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+umbra-cpu = { workspace = true }
+umbra-gpu = { workspace = true }
 umbra-render = { workspace = true }
 umbra-scene = { workspace = true }
 

@@ -3,10 +3,11 @@
 //! (#146). With the `math-program` feature alone.
 
 use cudarc::driver::{DevicePtr, DevicePtrMut};
+use umbra_gpu_programs::{MathFunction, MathParams};
 
 use super::Tracer;
-use crate::math_launch::{MathFunction, MathParams};
 use crate::optix::ShaderBindingTable;
+use crate::records::DeviceCopy;
 use crate::{Error, Geometry};
 
 impl Tracer {
@@ -35,7 +36,7 @@ impl Tracer {
                 count,
                 function: u32::from(function),
             };
-            self.launch(params, count, &self.math_binding_table())?;
+            self.launch(DeviceCopy(params), count, &self.math_binding_table())?;
         }
         Ok(self.stream.clone_dtoh(&result_buffer)?)
     }

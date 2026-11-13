@@ -1,29 +1,36 @@
-# umbra-kernels
+# umbra-gpu-programs
 
-The GPU's programs: the OptiX entry points that run the core on the GPU, the
-OptiX device API they call, in inline PTX, and the panic handler that traps
-(ADR 0026, ADR 0028).
+The GPU's renderer, device side: the OptiX entry points that run the core on
+the GPU, the OptiX device API they call, in inline PTX, and the panic handler
+that traps (ADR 0026, ADR 0028), with the layout they share with the host
+(ADR 0033).
 
-It is `#![no_std]` and built for `nvptx64-nvidia-cuda` only: on any other
-target the crate is empty, so a host build of the workspace compiles it
-without the GPU's toolchain. It uses the core crates, `umbra-geometry` and
-`umbra-math` so far, and nothing depends on it: `umbra-gpu`'s build script
-compiles it to PTX and embeds that (arc42 §5.1). It is the only crate that
-enables unstable features (ADR 0027): `abi_ptx` for the `ptx-kernel` entry
-points and `asm_experimental_arch` for inline PTX.
+It compiles for the host and for `nvptx64-nvidia-cuda`. On both it holds the
+shared layout: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`, and
+with the `math-program` feature `MathParams` and `MathFunction`. On
+`nvptx64` only it is `#![no_std]` and holds the programs, `optix`, `math`
+and the panic handler, so a host build of the workspace compiles the layout
+alone, without the GPU's toolchain. It uses the core crates,
+`umbra-geometry` and, on `nvptx64`, `umbra-math`. `umbra-gpu` depends on it
+for the layout, and its build script compiles it to PTX and embeds that
+(arc42 §5.1). It is the only crate that enables unstable features, on
+`nvptx64` only (ADR 0027): `abi_ptx` for the `ptx-kernel` entry points and
+`asm_experimental_arch` for inline PTX.
 
-There is no example: nothing in it runs on the host. `umbra-gpu`'s `Tracer`
-is the way to run it.
+There is no example: none of its programs runs on the host. `umbra-gpu`'s
+`Tracer` is the way to run them.
 
 ## What is in it
 
-| Module        | Contents                                                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib.rs`      | The four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                |
-| `math`        | What the math program runs: its function of `umbra-math`, and its launch parameters, arguments and results                                 |
-| `math_launch` | The math program's layout the host shares: `MathParams`, `MathFunction` and its ids; `umbra-gpu` compiles the same file by `#[path]`       |
-| `optix`       | The OptiX 9.0 device API: one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
-| `launch`      | The layout the host shares: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`; `umbra-gpu` compiles the same file by `#[path]`        |
+| Module        | Contents                                                                                                                                                 |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `programs`    | On `nvptx64`: the four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                |
+| `math`        | On `nvptx64`, with `math-program`: what the math program runs, its function of `umbra-math`, and its launch parameters, arguments and results            |
+| `optix`       | On `nvptx64`: the OptiX 9.0 device API, one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
+| `launch`      | On both targets: the layout the host shares, `LaunchParams`, `RayRecord` (from the core's `Ray`), `HitRecord` and `HitKind`                              |
+| `math_launch` | On both targets, with `math-program`: the math program's layout the host shares, `MathParams`, `MathFunction` and its ids, `UnknownMathFunction`         |
+
+The layout's types are public at the crate root.
 
 The programs, for one triangle and one sphere traced from the host
 ([#126](https://github.com/sergioffpc/umbra/issues/126)):
@@ -36,11 +43,20 @@ The programs, for one triangle and one sphere traced from the host
 | `__intersection__sphere` | Intersects the ray with the `Sphere` of its hit group record through the core's `Sphere::intersect` |
 | `__raygen__math`         | Evaluates the launch's `MathFunction` on argument record `i` and writes result `i` (#146)           |
 
-Not here yet: the wavefront kernels of the integrators, which arrive with
+Not here yet: the wavefront stages of the integrators, which arrive with
 each feature on both Render Devices
 ([#127](https://github.com/sergioffpc/umbra/issues/127)).
 
 ## Design decisions
+
+### One crate, two targets
+
+The layout is defined once and compiled on both sides, so the host and the
+device cannot disagree on it; `umbra-gpu` uses it through an ordinary
+dependency (ADR 0033). The library is an `rlib` for that dependency;
+`umbra-gpu`'s build script asks for a `cdylib` with `cargo rustc
+--crate-type cdylib`, which the `nvptx64` target links into one PTX module.
+No build script compiles its own crate.
 
 ### Upstream `rustc`, at the target's default GPU
 
@@ -76,7 +92,8 @@ puts `MathParams` in the same `params` variable, which is sized for the
 larger `LaunchParams`, and selects `__raygen__math` by its shader binding
 table record. It traces no ray. It, `math` and `math_launch` exist only
 with the `math-program` feature, which `umbra-gpu`'s feature of the same
-name passes to the kernels' build; production PTX has no math program.
+name turns on, in the programs' build and in the layout it uses; production
+PTX has no math program.
 
 ### Panics trap
 
@@ -95,5 +112,5 @@ launch, and the host sees a CUDA error.
 ## Tests
 
 None run on the host. `umbra-gpu`'s tests run these programs on the P620
-(`cargo nextest run --profile gpu`), and `scripts/check.sh` builds the crate for `nvptx64`
-and runs clippy on it.
+(`cargo nextest run --profile gpu`), and `scripts/check.sh` builds the crate
+for `nvptx64` and runs clippy on it.

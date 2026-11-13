@@ -8,7 +8,8 @@ and tests that build Scenes directly are the other.
 
 It is a `std` crate, outside the core. It depends on `umbra-integrators`, with
 the core's `serde` feature on so that a Scene can be replicated to the Workers,
-and `umbra-parser` and `umbra-render` depend on it (arc42 §5.1). Its contract
+and `umbra-parser`, `umbra-render`, `umbra-cpu` and `umbra-gpu` depend on it
+(arc42 §5.1). Its contract
 is sketched in arc42 §5.3.
 
 ```rust
@@ -69,7 +70,7 @@ interactions will carry handles.
 `Scene` names the sampler's randomisation; the number of Pixel Samples and
 the seed are `RenderJobOptions`, as pbrt-v4's `--spp` and `--seed` override
 the Scene File's. The digit permutations a seed chooses are computed by
-`umbra-render`'s `Renderer`, once per Render Job.
+`umbra-cpu`'s `Renderer`, once per Render Job.
 
 ### The output colour space is the Scene's
 
@@ -91,4 +92,4 @@ image (pbrt-v4 `RGBFilm::outputRGBFromSensorRGB`).
 `tests/umbra_scene/` checks that each handle of an `Arena` gets its own
 object, and that `SceneBuilder::build` refuses a film without pixels and a
 filter too small to tabulate. Rendering a built Scene is tested in
-`umbra-render`.
+`umbra-cpu`.

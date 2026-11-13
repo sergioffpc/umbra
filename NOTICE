@@ -50,7 +50,7 @@ they are Umbra's own work: the names and operands of the `_optix_*` device
 built-ins, the slot order of the host function table of ABI version 105,
 the layout of the structs passed to it, and their constants.
 
--   crates/umbra-kernels/src/optix.rs: the device API, in inline PTX.
+-   crates/umbra-gpu-programs/src/optix.rs: the device API, in inline PTX.
 -   crates/umbra-gpu/src/optix/ffi.rs: the host function table and types.
 
 OptiX and NVIDIA are trademarks of NVIDIA Corporation.

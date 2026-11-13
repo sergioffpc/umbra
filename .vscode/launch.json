@@ -127,6 +127,7 @@
       "options": [
         "umbra-camera",
         "umbra-cluster",
+        "umbra-cpu",
         "umbra-geometry",
         "umbra-integrators",
         "umbra-math",

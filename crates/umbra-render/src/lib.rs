@@ -5,7 +5,7 @@ mod decomposition;
 mod error;
 mod film;
 mod image;
-mod renderer;
+mod rendered;
 mod reproduction;
 mod work_result;
 
@@ -14,6 +14,6 @@ pub use decomposition::{Decomposition, PassIndex, TileBounds, TileIndex, WorkUni
 pub use error::Error;
 pub use film::{Acceptance, Film, FilmHash};
 pub use image::Image;
-pub use renderer::{Cancellation, Rendered, Renderer};
+pub use rendered::{Cancellation, Rendered};
 pub use reproduction::{BuildIdentity, ReproductionRecord, Tree};
 pub use work_result::{PixelSum, WorkResult};

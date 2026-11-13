@@ -1,6 +1,6 @@
 [package]
 name = "umbra-render"
-description = "Renders Work Units into Work Results in one process; Film and its merge order; Pixel Traces; the final image"
+description = "What every Render Device shares: Work Units and Work Results, the Film and its merge order, the final image and its Reproduction Record"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -13,10 +13,8 @@ publish.workspace = true
 
 [dependencies]
 image = { workspace = true }
-rayon = { workspace = true }
 umbra-integrators = { workspace = true }
 umbra-math = { workspace = true }
-umbra-sampling = { workspace = true }
 umbra-scene = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }
 thiserror = { workspace = true }

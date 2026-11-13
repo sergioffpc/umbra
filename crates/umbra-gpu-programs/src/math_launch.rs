@@ -1,24 +1,25 @@
 //! The launch parameters of the math program, `__raygen__math`, and the
 //! functions it evaluates: the layout shared by the host and the device.
 //!
-//! As `launch.rs`, `umbra-kernels` and `umbra-gpu` both compile this file,
-//! the second by `#[path]`, and only with their `math-program` feature,
-//! which the GPU tests turn on (#146). It depends on `core` only.
+//! As `launch.rs`, it compiles on both targets, and `umbra-gpu` uses it
+//! through an ordinary dependency; only with the `math-program` feature,
+//! which the GPU tests turn on through `umbra-gpu`'s (#146). It depends on
+//! `core` only.
 
 /// What the host passes to one launch of the math program, in the same
 /// `.const` variable `params` as `LaunchParams`, which is no smaller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-pub(crate) struct MathParams {
+pub struct MathParams {
     /// Device address of `count` argument records, `[f32; 3]` each: the
     /// function's arguments in order, the unused ones ignored.
-    pub(crate) args: u64,
+    pub args: u64,
     /// Device address of `count` `f32` results, written by the launch.
-    pub(crate) results: u64,
+    pub results: u64,
     /// The number of argument records, at most the launch width.
-    pub(crate) count: u32,
+    pub count: u32,
     /// The [`MathFunction`], as `u32::from` gives it.
-    pub(crate) function: u32,
+    pub function: u32,
 }
 
 const _: () = {

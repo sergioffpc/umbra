@@ -3,7 +3,7 @@
 The `umbra` binary: the `render`, `worker`, `trace` and `bench` subcommands,
 and how they put the other crates together. It parses the Scene File with
 `umbra-parser`, applies the command-line overrides, builds the Reproduction
-Record, and calls `umbra-cluster`, or `umbra-render` for `trace`. The
+Record, and calls `umbra-cluster`, or `umbra-cpu` for `trace`. The
 statistics of `bench` are modules of the binary.
 
 It is the root of the workspace graph: it depends on `umbra-parser`,

@@ -1641,7 +1641,7 @@ r * Point2f::new(cos, sin)</pre>
                 <rect x="20" y="20" width="150" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="95" y="39" text-anchor="middle">umbra-camera</text><text x="95" y="56" text-anchor="middle" class="t-mut" font-size="11">disk, 2D table, Sampler</text>
                 <rect x="185" y="20" width="150" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="260" y="39" text-anchor="middle">umbra-spectrum</text><text x="260" y="56" text-anchor="middle" class="t-mut" font-size="11">visible wavelengths</text>
                 <rect x="350" y="20" width="160" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="430" y="39" text-anchor="middle">umbra-integrators</text><text x="430" y="56" text-anchor="middle" class="t-mut" font-size="11">Sampler, SamplerKind</text>
-                <rect x="525" y="20" width="160" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="605" y="39" text-anchor="middle">umbra-render</text><text x="605" y="56" text-anchor="middle" class="t-mut" font-size="11">builds the sampler</text>
+                <rect x="525" y="20" width="160" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="605" y="39" text-anchor="middle">umbra-cpu</text><text x="605" y="56" text-anchor="middle" class="t-mut" font-size="11">builds the sampler</text>
                 <rect x="700" y="20" width="180" height="46" rx="5" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="790" y="39" text-anchor="middle">umbra-scene</text><text x="790" y="56" text-anchor="middle" class="t-mut" font-size="11">RandomizeStrategy</text>
             </g>
             <line x1="450" y1="70" x2="450" y2="92" class="k-mut" marker-end="url(#ah-mut)"/>
@@ -1773,7 +1773,7 @@ r * Point2f::new(cos, sin)</pre>
     </figure>
     <div class="prose">
 <pre class="code"><span class="k">pub fn</span> new_in(f: &amp;[f32], domain: Range&lt;f32&gt;, alloc: <span class="k">impl</span> FnOnce(usize) -&gt; S) -&gt; Self</pre>
-<pre class="code"><span class="c">// once per Render Job, in a crate that can allocate (umbra-render)</span>
+<pre class="code"><span class="c">// once per Render Job, in a crate that can allocate (umbra-cpu)</span>
 <span class="k">let</span> permutations = DigitPermutations::new_in(seed, |n| vec![<span class="k">0</span>; n]);
 
 <span class="c">// the sampler borrows them: a small value each thread copies</span>

@@ -1,0 +1,33 @@
+[package]
+name = "umbra-gpu-programs"
+description = "The GPU's programs, OptiX entry points and device bindings, for nvptx64; on the host, the layout they share with umbra-gpu"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[features]
+# The math program, `__raygen__math`, which evaluates umbra-math's functions
+# for `umbra-gpu`'s GPU tests (#146), and its layout. Off in production;
+# `umbra-gpu`'s `math-program` feature turns it on, in the PTX it builds and
+# in the layout it uses.
+math-program = []
+
+# The library is an `rlib`, which `umbra-gpu` depends on for the layout.
+# `umbra-gpu`'s build script asks for a `cdylib` with `cargo rustc
+# --crate-type cdylib`, which the `nvptx64` target links into one PTX module
+# through the toolchain's `llvm-bitcode-linker` (ADR 0028, ADR 0033).
+[dependencies]
+umbra-geometry = { workspace = true }
+
+# On the GPU only: the programs' math.
+[target.'cfg(target_arch = "nvptx64")'.dependencies]
+umbra-math = { workspace = true }
+
+[lints]
+workspace = true

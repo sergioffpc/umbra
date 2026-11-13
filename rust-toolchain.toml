@@ -1,5 +1,6 @@
-# One pinned nightly for the whole workspace (ADR 0027). Only `umbra-kernels`
-# enables unstable features; every other crate stays on stable ones.
+# One pinned nightly for the whole workspace (ADR 0027). Only
+# `umbra-gpu-programs` enables unstable features, on `nvptx64`; every other
+# crate stays on stable ones.
 #
 # Pinned, not floating: clippy `pedantic`/`cargo` gain new lints with every
 # nightly, so a floating channel would break CI without any code change. The
@@ -7,7 +8,8 @@
 # in its own `build:` commit and fix any new lints. Dependabot does not update
 # this file.
 #
-# `nvptx64-nvidia-cuda` and `llvm-bitcode-linker` build `umbra-kernels` to PTX.
+# `nvptx64-nvidia-cuda` and `llvm-bitcode-linker` build `umbra-gpu-programs`
+# to PTX.
 # The Miri job adds `miri` and `rust-src` to this same toolchain.
 [toolchain]
 channel = "nightly-2026-11-05"

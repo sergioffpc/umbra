@@ -916,7 +916,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 820 250" class="dg-wide" role="img" aria-label="One code path used with two recorders: NoRecorder for rendering, a recording one for a Pixel Trace">
             <rect x="20" y="40" width="190" height="60" rx="6" class="f-surf k-ink"/>
-            <text x="115" y="66" text-anchor="middle" font-size="12">rendering: umbra-render</text>
+            <text x="115" y="66" text-anchor="middle" font-size="12">rendering: umbra-cpu</text>
             <text x="115" y="84" text-anchor="middle" font-size="11" class="t-mut">Renderer, every pixel</text>
             <rect x="20" y="150" width="190" height="60" rx="6" class="k-mut" fill="none" stroke-dasharray="5 4"/>
             <text x="115" y="176" text-anchor="middle" font-size="12" class="t-mut">umbra trace (#88)</text>
@@ -939,7 +939,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="707" y="194" text-anchor="middle" font-size="11" class="t-mut">bit-identical FilmSample</text>
             <text x="410" y="236" text-anchor="middle" class="t-mut">recording only reads values already computed, so it cannot change the result</text>
         </svg></div>
-        <figcaption>One code path, two recorders (ADR 0011). The trait <code>Recorder</code> and the do-nothing <code>NoRecorder</code> live here, in the core. The recording <code>TraceRecorder</code> may allocate, so it will live outside the core, in <code>umbra-render</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Dashed: not built yet.</figcaption>
+        <figcaption>One code path, two recorders (ADR 0011). The trait <code>Recorder</code> and the do-nothing <code>NoRecorder</code> live here, in the core. The recording <code>TraceRecorder</code> may allocate, so it will live outside the core, in <code>umbra-cpu</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Dashed: not built yet.</figcaption>
     </figure>
 
     <figure class="diagram">
@@ -1077,7 +1077,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     <span class="k">pub fn</span> sensor(&amp;<span class="k">self</span>) -&gt; &amp;'a PixelSensor&lt;'a&gt;
 }</pre>
         <p><code>umbra-scene</code>'s <code>Scene::view</code> builds it with <code>SceneView::new(&amp;self.camera, self.filter.view(), &amp;self.sensor)</code>. Why not just pass <code>&amp;Scene</code>? Three reasons from the architecture. <b>Layering:</b> <code>umbra-scene</code> depends on this crate, not the other way round, so this crate cannot even name <code>Scene</code> (ADR 0015). <b>No heap in the core:</b> the view holds only borrows and slices, never a <code>Vec</code>, so it fits a <code>no_std</code> crate without <code>alloc</code> (ADR 0014). <b>One core for CPU and GPU:</b> the GPU will build a <code>SceneView</code> over device copies of the same arrays, and the same per-sample code runs on it (ADR 0028). Shapes, lights and the BVH will join the view as more borrowed arena slices, with the features that use them.</p>
-        <p>The fields are private and read through methods, so they can change shape later without touching callers. Building a view is cheap: <code>umbra-render</code> builds one per Work Unit and shares it between the threads that render it.</p>
+        <p>The fields are private and read through methods, so they can change shape later without touching callers. Building a view is cheap: <code>umbra-cpu</code>'s renderer builds one per Work Unit and shares it between the threads that render it.</p>
     </div>
 
     <div class="mathbox">
@@ -1184,7 +1184,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-integrators</code> is the top of Umbra's rendering core: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects on the per-ray path, so the same code can later run on a GPU (ADR 0014, ADR 0015, ADR 0028). It depends on <code>umbra-camera</code>, <code>umbra-shading</code>, <code>umbra-spectrum</code>, <code>umbra-sampling</code>, <code>umbra-geometry</code> and <code>umbra-math</code>; <code>umbra-scene</code> and <code>umbra-render</code> depend on it. It covers PBR 4e chapters 13 to 15, and today implements the frame those chapters hang on.</p>
+    <p><code>umbra-integrators</code> is the top of Umbra's rendering core: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects on the per-ray path, so the same code can later run on a GPU (ADR 0014, ADR 0015, ADR 0028). It depends on <code>umbra-camera</code>, <code>umbra-shading</code>, <code>umbra-spectrum</code>, <code>umbra-sampling</code>, <code>umbra-geometry</code> and <code>umbra-math</code>; <code>umbra-scene</code>, <code>umbra-parser</code>, <code>umbra-render</code> and <code>umbra-cpu</code> depend on it. It covers PBR 4e chapters 13 to 15, and today implements the frame those chapters hang on.</p>
 </div>
 
 <section class="topic" id="map">
@@ -1273,7 +1273,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="20" y="190" font-size="12" class="t-mut">start_pixel_sample(pixel, sample_index, 0) rebuilds the sampler from the id, so what ran before on this</text>
             <text x="20" y="208" font-size="12" class="t-mut">thread, or on another, does not matter. No clock, no thread-local RNG, no shared counter on the render path.</text>
         </svg></div>
-        <figcaption>The same Pixel Sample (3, 4) #2 computed on two threads after different histories. The amber boxes give identical results. This property is what <code>umbra-render</code>'s test “Work Results do not depend on the thread count” checks.</figcaption>
+        <figcaption>The same Pixel Sample (3, 4) #2 computed on two threads after different histories. The amber boxes give identical results. This property is what <code>umbra-cpu</code>'s test “Work Results do not depend on the thread count” checks.</figcaption>
     </figure>
     <div class="prose">
         <p><code>evaluate_pixel_sample</code> is pbrt-v4's <code>EvaluatePixelSample</code> with <code>StartPixelSample</code> moved inside. pbrt-v4 leaves the restart to its caller; Umbra puts it inside, so no caller can forget it or call it differently. The README states the rule for users: <em>callers do not call <code>start_pixel_sample</code> themselves</em>.</p>
@@ -1282,7 +1282,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
         <div class="mb-row"><div class="mb-f">FilmSample = E(view, seed, id)</div><div class="mb-d"><b>A pure function.</b> The seed reaches <code>E</code> through the sampler's randomizer, the Scene through the view, the id directly. Nothing else goes in. <code>evaluate_pixel_sample</code></div></div>
-        <div class="mb-row"><div class="mb-f">pixel sum = Σ<sub>i = first … last</sub> FilmSample(pixel, i), in ascending i</div><div class="mb-d"><b>A fixed order of additions.</b> Floating-point addition gives different last bits in a different order, so the order is fixed (ADR 0022). Done by <code>umbra-render</code>'s pixel loop, which folds the sample indices in order.</div></div>
+        <div class="mb-row"><div class="mb-f">pixel sum = Σ<sub>i = first … last</sub> FilmSample(pixel, i), in ascending i</div><div class="mb-d"><b>A fixed order of additions.</b> Floating-point addition gives different last bits in a different order, so the order is fixed (ADR 0022). Done by <code>umbra-cpu</code>'s pixel loop, which folds the sample indices in order.</div></div>
     </div>
 </section>
 
@@ -1319,7 +1319,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="422" y="186" text-anchor="middle" font-size="12" class="t-mut">the core stops at the FilmSample: the caller decides where it goes</text>
             <text x="422" y="204" text-anchor="middle" font-size="12" class="t-mut">(a pixel's sum on the CPU, a queue slot on the GPU later)</text>
         </svg></div>
-        <figcaption>The CPU driver, <code>umbra-render</code>'s pixel loop, owns the state and the sums. This crate only computes. <code>PixelSampleState</code> holds its sampler by value; cloning it per row copies a small value, not a table.</figcaption>
+        <figcaption>The CPU driver, <code>umbra-cpu</code>'s pixel loop, owns the state and the sums; the sums' type, <code>PixelSum</code>, is <code>umbra-render</code>'s. This crate only computes. <code>PixelSampleState</code> holds its sampler by value; cloning it per row copies a small value, not a table.</figcaption>
     </figure>
     <div class="prose">
 <pre class="code"><span class="k">pub struct</span> PixelSampleState&lt;'s, R&gt; {
@@ -1331,7 +1331,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     <span class="k">pub</span> rgb: RGB,       <span class="c">// the radiance in the sensor's RGB</span>
     <span class="k">pub</span> weight: f32,    <span class="c">// the filter weight of the camera sample</span>
 }</pre>
-        <p>And the caller, abridged from <code>umbra-render</code>'s <code>PixelLoop::render_pixel</code>, which folds a pixel's sample indices in ascending order:</p>
+        <p>And the caller, abridged from <code>umbra-cpu</code>'s <code>PixelLoop::render_pixel</code>, which folds a pixel's sample indices in ascending order:</p>
 <pre class="code">samples.clone().fold(PixelSum::default(), |<span class="k">mut</span> sum, sample_index| {
     <span class="k">let</span> id = PixelSampleId { pixel, sample_index };
     sum += evaluate_pixel_sample(&amp;<span class="k">self</span>.<span class="k">0</span>, &amp;job.view, id, state);
@@ -1355,7 +1355,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 820 220" class="dg-wide" role="img" aria-label="A dyn Integrator called once per Work Unit wraps a statically dispatched loop over Pixel Samples">
             <rect x="20" y="30" width="780" height="170" rx="10" class="f-mut-soft k-mut" stroke-dasharray="6 4"/>
-            <text x="36" y="54" class="t-bold">umbra-render: Box&lt;dyn Integrator&gt;</text>
+            <text x="36" y="54" class="t-bold">umbra-cpu: Box&lt;dyn Integrator&gt;</text>
             <text x="36" y="72" font-size="11" class="t-mut">render(job, unit): one dynamic call per Work Unit (thousands per Render Job)</text>
             <rect x="50" y="90" width="720" height="92" rx="8" class="f-acc-soft k-acc" stroke-width="1.6"/>
             <text x="66" y="114" class="t-bold">PixelLoop&lt;VolPathIntegrator&gt;: static, per pixel</text>
@@ -1366,10 +1366,10 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="594" y="152" text-anchor="middle" font-size="12">VolPathIntegrator::li::&lt;R&gt; (inlined)</text>
             <text x="410" y="214" text-anchor="middle" font-size="11" class="t-mut">millions of static calls per Render Job, inside</text>
         </svg></div>
-        <figcaption>The coarse seam is dynamic, the fine one static. <code>dyn Integrator</code> and <code>PixelLoop</code> are <code>umbra-render</code>'s; this crate provides the generic inside.</figcaption>
+        <figcaption>The coarse seam is dynamic, the fine one static. <code>dyn Integrator</code> and <code>PixelLoop</code> are <code>umbra-cpu</code>'s; this crate provides the generic inside.</figcaption>
     </figure>
     <div class="prose">
-        <p>A Rust trait with a generic method, like <code>fn li&lt;R: Recorder&gt;</code>, cannot be made into a trait object: there would be one method per <code>R</code>, too many to put in a table. So <code>RayIntegrator</code> is not object-safe, on purpose. ADR 0006 bans trait objects on the per-ray path anyway, and asks for closed enums where several kinds exist (as <code>CameraKind</code> and <code>SamplerKind</code> do). With one integrator so far, there is no enum of integrators yet; <code>umbra-render</code> wraps the concrete integrator in a generic <code>PixelLoop&lt;I&gt;</code> and calls it through <code>Box&lt;dyn Integrator&gt;</code> once per Work Unit, which ADR 0006 allows because it is not per ray.</p>
+        <p>A Rust trait with a generic method, like <code>fn li&lt;R: Recorder&gt;</code>, cannot be made into a trait object: there would be one method per <code>R</code>, too many to put in a table. So <code>RayIntegrator</code> is not object-safe, on purpose. ADR 0006 bans trait objects on the per-ray path anyway, and asks for closed enums where several kinds exist (as <code>CameraKind</code> and <code>SamplerKind</code> do). With one integrator so far, there is no enum of integrators yet; <code>umbra-cpu</code> wraps the concrete integrator in a generic <code>PixelLoop&lt;I&gt;</code> and calls it through <code>Box&lt;dyn Integrator&gt;</code> once per Work Unit, which ADR 0006 allows because it is not per ray.</p>
     </div>
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
@@ -1398,7 +1398,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <rect x="580" y="130" width="210" height="44" rx="6" class="f-warm-soft k-warm"/>
             <text x="685" y="157" text-anchor="middle" font-size="12">li = splat(0.0) at all 4 λ</text>
         </svg></div>
-        <figcaption>What <code>li</code> computes today. Returning zero is not a shortcut: for a Scene with only a camera, zero <em>is</em> the radiance. That is why <code>umbra-render</code>'s first test is a black frame.</figcaption>
+        <figcaption>What <code>li</code> computes today. Returning zero is not a shortcut: for a Scene with only a camera, zero <em>is</em> the radiance. That is why <code>umbra-cpu</code>'s first test is a black frame.</figcaption>
     </figure>
     <div class="prose">
         <p>All of <a href="../src/volpath.rs"><code>volpath.rs</code></a>'s logic:</p>
@@ -1436,7 +1436,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
 
 <section class="topic" id="tests">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-integrators</span> · tested from <code>umbra-render</code> and <code>umbra</code></div>
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-integrators</span> · tested from <code>umbra-cpu</code> and <code>umbra</code></div>
         <h3>How it is tested</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>The crate has no test files of its own yet. It is tested from the outside, through the renderer that calls it: the image must be black, must not depend on how many threads rendered it, and rendering must not allocate memory per Pixel Sample. The README's example also runs as a test.</div>
@@ -1450,18 +1450,18 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <rect x="570" y="30" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="685" y="54" text-anchor="middle" font-size="12">allocations per Work Unit</text>
             <rect x="570" y="100" width="230" height="40" rx="4" class="f-surf k-ink"/><text x="685" y="124" text-anchor="middle" font-size="12">README doctest</text>
             <path d="M252 30 L298 74 M252 84 H298 M252 138 L298 100 M568 50 L522 74 M568 120 L522 100" class="k-ink" marker-end="url(#ah-ink)"/>
-            <text x="135" y="168" text-anchor="middle" font-size="11" class="t-mut">umbra-render/tests</text>
+            <text x="135" y="168" text-anchor="middle" font-size="11" class="t-mut">umbra-cpu/tests</text>
             <text x="685" y="164" text-anchor="middle" font-size="11" class="t-mut">umbra/tests · README.md</text>
         </svg></div>
     </figure>
     <div class="prose">
         <ul>
-            <li><a href="../../umbra-render/tests/umbra_render/renderer.rs"><code>umbra-render/tests/umbra_render/renderer.rs</code></a>: <code>a_camera_only_scene_renders_black</code> checks every pixel's RGB sum is 0; <code>work_results_do_not_depend_on_the_thread_count</code> compares 1 and 4 threads; <code>a_render_is_a_pure_function_of_its_work_unit</code> renders every Work Unit again, in reverse order, with a new Renderer, and compares. All go through <code>evaluate_pixel_sample</code> and <code>VolPathIntegrator</code>.</li>
+            <li><a href="../../umbra-cpu/tests/umbra_cpu/renderer.rs"><code>umbra-cpu/tests/umbra_cpu/renderer.rs</code></a>: <code>a_camera_only_scene_renders_black</code> checks every pixel's RGB sum is 0; <code>work_results_do_not_depend_on_the_thread_count</code> compares 1 and 4 threads; <code>a_render_is_a_pure_function_of_its_work_unit</code> renders every Work Unit again, in reverse order, with a new Renderer, and compares. All go through <code>evaluate_pixel_sample</code> and <code>VolPathIntegrator</code>.</li>
             <li><a href="../../umbra/tests/allocation.rs"><code>umbra/tests/allocation.rs</code></a>: <code>rendering_allocates_per_work_unit_not_per_pixel_sample</code> counts heap blocks with <code>dhat</code> for 4 and then 8 Pixel Samples per pixel and expects the same count, so nothing is allocated per Pixel Sample (ADR 0008). Every integrator will join it.</li>
             <li>The <a href="../README.md">README</a>'s example builds the camera, filter and sensor by hand, computes Pixel Sample (3, 4) #2 with <code>NoRecorder</code>, and asserts the RGB is (0, 0, 0) and the weight is above 0. It runs as a doctest.</li>
             <li>At compile time: <code>size_of::&lt;NoRecorder&gt;() == 0</code>.</li>
         </ul>
-        <p>Run them with <code>cargo nextest run -p umbra-render -p umbra</code> and <code>cargo test --doc -p umbra-integrators</code>. Tests that compare radiance with pbrt-v4 will come with the first Shapes and lights; the Reference Scenes are checked by eye (ADR 0031).</p>
+        <p>Run them with <code>cargo nextest run -p umbra-cpu -p umbra</code> and <code>cargo test --doc -p umbra-integrators</code>. Tests that compare radiance with pbrt-v4 will come with the first Shapes and lights; the Reference Scenes are checked by eye (ADR 0031).</p>
     </div>
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
@@ -1506,10 +1506,10 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <li><b>Intersections, emission and shading</b> in <code>VolPathIntegrator::li</code>, with <a href="https://github.com/sergioffpc/umbra/issues/79">#79</a> (emissive spheres visible to the camera) and <a href="https://github.com/sergioffpc/umbra/issues/80">#80</a> (diffuse surfaces lit by area lights). Shapes, lights and the BVH join <code>SceneView</code> as arena slices, and the path loop of <a href="#path-tracing">section 6</a> takes shape: BSDF sampling, light sampling, MIS, Russian roulette, <code>max_depth</code>.</li>
             <li><b>Media</b> (fog, smoke, the “vol” in volpath): v0.1.0 refuses Scenes that have them.</li>
             <li><b>Leaving out Anomalous Pixel Samples</b>, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>. Until then a NaN or infinite radiance reaches the Film, where pbrt-v4 would zero it.</li>
-            <li><b><code>TraceRecorder</code></b> and text Pixel Traces through <code>umbra trace</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. It lives in <code>umbra-render</code>, not here.</li>
+            <li><b><code>TraceRecorder</code></b> and text Pixel Traces through <code>umbra trace</code>, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. It lives in <code>umbra-cpu</code>, not here.</li>
             <li><b>More recorder events</b>: path vertices, light and BSDF samples, Russian roulette, termination, BVH node visits and primitive tests (ADR 0011), added with the code that makes them.</li>
             <li><b>Ray differentials</b> and pbrt-v4's scaling of them by the number of Pixel Samples, once textures need them.</li>
-            <li><b>Other integrators</b>: BDPT, SPPM, MLT, with CPU drivers of their own (arc42 §8.12), and the GPU's wavefront over the same steps in <code>umbra-kernels</code>.</li>
+            <li><b>Other integrators</b>: BDPT, SPPM, MLT, with CPU drivers of their own (arc42 §8.12), and the GPU's wavefront over the same steps in <code>umbra-gpu-programs</code>.</li>
         </ul>
     </div>
 </section>
@@ -1525,7 +1525,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
         <li>Kajiya. The Rendering Equation. SIGGRAPH 1986. Where the equation and path tracing began.</li>
         <li>Veach. <i>Robust Monte Carlo Methods for Light Transport Simulation</i>. PhD thesis, Stanford, 1997. Multiple importance sampling and bidirectional methods.</li>
         <li>In this repository: <a href="../README.md">the crate README</a>, <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Pixel Sample, Pixel Trace, Anomalous Pixel Sample, Work Unit, Film), <a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a> (Pixel Traces), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> and <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> (determinism), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (no dyn per ray), <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> (no allocation per Pixel Sample), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>, <a href="../../../docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md">ADR 0015</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (the core), <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a>.</li>
-        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Camera</a>, <a href="../../umbra-sampling/docs/sampling-guide.html">Sampling</a>, <a href="../../umbra-spectrum/docs/spectrum-guide.html">Spectrum</a>, <a href="../../umbra-geometry/docs/geometry-guide.html">Geometry</a>, <a href="../../umbra-math/docs/math-guide.html">Math</a>.</li>
+        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Camera</a>, <a href="../../umbra-sampling/docs/sampling-guide.html">Sampling</a>, <a href="../../umbra-spectrum/docs/spectrum-guide.html">Spectrum</a>, <a href="../../umbra-geometry/docs/geometry-guide.html">Geometry</a>, <a href="../../umbra-math/docs/math-guide.html">Math</a>, <a href="../../umbra-cpu/docs/cpu-guide.html">CPU</a>.</li>
     </ul>
 </section>
 

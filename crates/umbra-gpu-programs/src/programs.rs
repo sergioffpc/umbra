@@ -1,20 +1,6 @@
-#![doc = include_str!("../README.md")]
-// The whole crate is device code (ADR 0028): on any other target it is empty,
-// so a host build of the workspace compiles it without the GPU toolchain.
-#![cfg(target_arch = "nvptx64")]
-#![no_std]
-// `ptx-kernel` entry points and inline PTX: the only unstable features of
-// the workspace (ADR 0027).
-#![feature(abi_ptx, asm_experimental_arch)]
-// No `f64` on the GPU (ADR 0028): `clippy.toml` lists it.
-#![warn(clippy::disallowed_types)]
-
-mod launch;
-#[cfg(feature = "math-program")]
-mod math;
-#[cfg(feature = "math-program")]
-mod math_launch;
-mod optix;
+//! The OptiX programs and what they read and write: the entry points of the
+//! tracer bullet and of the math program, the `.const` launch parameters
+//! `params`, and the panic handler. On `nvptx64` only.
 
 use core::mem::offset_of;
 use core::panic::PanicInfo;
@@ -23,7 +9,11 @@ use umbra_geometry::{Ray, Sphere};
 use umbra_math::{Point3f, Vector3f};
 
 use crate::launch::{HitKind, HitRecord, LaunchParams, RayRecord};
-use crate::optix::{Primitive, TraceRay};
+#[cfg(feature = "math-program")]
+use crate::math;
+#[cfg(feature = "math-program")]
+use crate::math_launch::MathFunction;
+use crate::optix::{self, Primitive, TraceRay};
 
 /// The launch parameters: the `.const` variable the host's pipeline names
 /// `params`, as large as `LaunchParams`. A module of its own, the narrowest
@@ -58,7 +48,7 @@ fn panic(_: &PanicInfo<'_>) -> ! {
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
 )]
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn __raygen__trace() {
+extern "ptx-kernel" fn __raygen__trace() {
     let params = launch_params();
     let i = optix::launch_index_x();
     if i >= params.count {
@@ -92,13 +82,13 @@ pub extern "ptx-kernel" fn __raygen__trace() {
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
 )]
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn __raygen__math() {
+extern "ptx-kernel" fn __raygen__math() {
     let params = math::math_params();
     let i = optix::launch_index_x();
     if i >= params.count {
         return;
     }
-    let Ok(function) = math_launch::MathFunction::try_from(params.function) else {
+    let Ok(function) = MathFunction::try_from(params.function) else {
         optix::trap()
     };
     let result = function.evaluate(math::read_args(params.args, i));
@@ -111,7 +101,7 @@ pub extern "ptx-kernel" fn __raygen__math() {
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
 )]
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn __miss__trace() {
+extern "ptx-kernel" fn __miss__trace() {
     optix::set_payload(PAYLOAD_KIND, HitKind::Miss as u32);
 }
 
@@ -122,7 +112,7 @@ pub extern "ptx-kernel" fn __miss__trace() {
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
 )]
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn __closesthit__trace() {
+extern "ptx-kernel" fn __closesthit__trace() {
     let kind = match optix::hit_primitive() {
         Primitive::Triangle => HitKind::Triangle,
         Primitive::Custom => HitKind::Sphere,
@@ -138,7 +128,7 @@ pub extern "ptx-kernel" fn __closesthit__trace() {
     reason = "an OptiX entry point keeps its name in the PTX (ADR 0007, ADR 0028)"
 )]
 #[unsafe(no_mangle)]
-pub extern "ptx-kernel" fn __intersection__sphere() {
+extern "ptx-kernel" fn __intersection__sphere() {
     let sphere = read_sphere(optix::sbt_data_pointer());
     let [ox, oy, oz] = optix::object_ray_origin();
     let [dx, dy, dz] = optix::object_ray_direction();

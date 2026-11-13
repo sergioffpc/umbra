@@ -4,6 +4,7 @@ mod coordinator;
 mod error;
 mod local_worker;
 mod progress;
+mod renderer;
 mod report;
 mod status;
 mod transport;

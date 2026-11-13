@@ -1,6 +1,6 @@
 # Formatting rules. Only stable options are used, like the stable language
-# features every crate but `umbra-kernels` keeps to on the pinned nightly
-# (ADR 0027).
+# features every crate but `umbra-gpu-programs` keeps to on the pinned
+# nightly (ADR 0027).
 edition = "2024"
 style_edition = "2024"
 max_width = 100

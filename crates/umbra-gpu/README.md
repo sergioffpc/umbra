@@ -1,15 +1,19 @@
 # umbra-gpu
 
-The GPU's host side: the CUDA driver through `cudarc`, OptiX through its
-function table, and the PTX of `umbra-kernels`, which its build script
-compiles and it embeds (ADR 0026, ADR 0028). It will become the GPU Worker's
-renderer; for now it holds the tracer bullet of
+The GPU's renderer, host side: the CUDA driver through `cudarc`, OptiX
+through its function table, and the PTX of `umbra-gpu-programs`, which its
+build script compiles and it embeds (ADR 0026, ADR 0028, ADR 0033). Its
+`Renderer` has the shape of `umbra-cpu`'s, a Work Unit in and its Work
+Result out, but renders nothing yet: `Renderer::new` refuses every Scene
+until the wavefront arrives. What runs today is the tracer bullet of
 [#126](https://github.com/sergioffpc/umbra/issues/126): one triangle and one
 sphere, traced through OptiX and read back on the host.
 
-It is a `std` crate. It depends on `umbra-geometry` and `umbra-math`, on
-`cudarc` for the CUDA driver API and on `libloading` for OptiX, and, at build
-time only, on `umbra-kernels` (arc42 §5.1).
+It is a `std` crate. It depends on `umbra-render` for the contract every
+Render Device shares, on `umbra-scene`, `umbra-geometry` and `umbra-math`,
+on `umbra-gpu-programs` for the layout it shares with the device, on
+`cudarc` for the CUDA driver API and on `libloading` for OptiX;
+`umbra-cluster` depends on it (arc42 §5.1).
 
 ```rust,no_run
 use umbra_geometry::{Ray, Sphere};
@@ -32,26 +36,26 @@ assert_eq!(hits[0].map(|hit| hit.t), Some(8.0));
 
 ## What is in it
 
-| Module        | Contents                                                                                                                                |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracer`      | `Tracer`: the pipeline, one GAS per geometry, their shader binding tables, `trace`; and in `tracer/math`, `evaluate` for the GPU's math |
-| `optix`       | OptiX loaded from the driver, and an owning wrapper per object: context, module, program groups, pipeline; GAS builds and launches      |
-| `optix/ffi`   | OptiX 9.0's host ABI (105): the function table and the structs and constants Umbra's calls take, with their layout asserted             |
-| `records`     | Shader binding table records, `cudarc`'s `DeviceRepr` for what is copied to the GPU, and the conversions of rays and hits               |
-| `launch`      | `umbra-kernels`' `src/launch.rs`, compiled here by `#[path]`: the layout of the launch parameters and the ray and hit records           |
-| `math_launch` | `umbra-kernels`' `src/math_launch.rs`, likewise: the math program's launch parameters and `MathFunction`                                |
-| `error`       | `Error`                                                                                                                                 |
-| `build.rs`    | Compiles `umbra-kernels` for `nvptx64` in a target directory of its own, with `libdevice` linked in                                     |
+| Module      | Contents                                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `renderer`  | `Renderer`: `new(&Scene, &RenderJobOptions)` and `render(WorkUnit, &Cancellation) -> Rendered`, as `umbra-cpu`'s; `new` refuses every Scene yet     |
+| `tracer`    | `Tracer`: the pipeline, one GAS per geometry, their shader binding tables, `trace`; and in `tracer/math`, `evaluate` for the GPU's math             |
+| `optix`     | OptiX loaded from the driver, and an owning wrapper per object: context, module, program groups, pipeline; GAS builds and launches                  |
+| `optix/ffi` | OptiX 9.0's host ABI (105): the function table and the structs and constants Umbra's calls take, with their layout asserted                         |
+| `records`   | Shader binding table records, `DeviceCopy`, which carries `cudarc`'s `DeviceRepr` for `umbra-gpu-programs`' layout, and the hits a hit record holds |
+| `error`     | `Error`                                                                                                                                             |
+| `build.rs`  | Compiles `umbra-gpu-programs` for `nvptx64` as a `cdylib`, in a target directory of its own, with `libdevice` linked in                             |
 
-`Geometry`, `Hit`, `Tracer` and `Error` are public at the crate root.
+`Geometry`, `Hit`, `Renderer`, `Tracer` and `Error` are public at the crate
+root.
 
 The `math-program` feature, off by default, adds the math program to the
 PTX and the pipeline, `Tracer::evaluate`, and `MathFunction` and
 `UnknownMathFunction` at the crate root: for the GPU tests alone, which turn
 it on by a dev-dependency of the crate on itself (#146).
 
-Not here yet: the `SceneView` upload, the wavefront queues and the GPU
-Worker's renderer, which arrive with the features on both Render Devices
+Not here yet: the `SceneView` upload, the wavefront queues and a GPU
+`Renderer` that renders, which arrive with the features on both Render Devices
 ([#127](https://github.com/sergioffpc/umbra/issues/127)) and the GPU Local
 Worker ([#128](https://github.com/sergioffpc/umbra/issues/128)).
 
@@ -67,15 +71,26 @@ no SDK header copied (NOTICE): only the slots of the function table Umbra
 calls are typed, and the struct members it leaves unset are zeroed arrays of
 the same size, each struct's layout asserted.
 
-### The kernels built by a nested `cargo`
+### The layout by an ordinary dependency
 
-`build.rs` runs `cargo rustc` on `umbra-kernels` for `nvptx64-nvidia-cuda`,
+The launch parameters, the ray and hit records and the math program's
+parameters are defined once, in `umbra-gpu-programs`, which compiles for the
+host as well as for `nvptx64`; this crate depends on it for those types
+alone (ADR 0033). Their types are that crate's, so `cudarc`'s `DeviceRepr`
+cannot be implemented on them here: `records::DeviceCopy` wraps each,
+`#[repr(transparent)]`, and carries the promise instead.
+
+### The programs built by a nested `cargo`
+
+`build.rs` runs `cargo rustc --lib --crate-type cdylib` on
+`umbra-gpu-programs` for `nvptx64-nvidia-cuda`, whose manifest makes its
+library an `rlib` for the dependency above,
 in release and without debug information, into a target directory under
 `OUT_DIR`, with the outer build's `RUSTFLAGS` and wrappers removed: they are
 for the host. It links CUDA's `libdevice.10.bc` with `-C link-arg`, which the
 toolchain's `llvm-bitcode-linker` inlines, so the PTX keeps no `.extern`
 (ADR 0028, [#146](https://github.com/sergioffpc/umbra/issues/146)). It reruns
-when a source of the kernels' build changes, as their dep-info lists them.
+when a source of the programs' build changes, as their dep-info lists them.
 Every host build thereby also checks that the core builds without `std`.
 
 ### One shader binding table per geometry

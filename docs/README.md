@@ -40,8 +40,9 @@ The crate guides:
 - [`umbra-integrators/docs/integrators-guide.html`](../crates/umbra-integrators/docs/integrators-guide.html): the rendering equation, evaluating a Pixel Sample, recorders for Pixel Traces, and the path-tracing theory still to come.
 - [`umbra-scene/docs/scene-guide.html`](../crates/umbra-scene/docs/scene-guide.html): building a Scene, arenas and handles, the scene view and Render Job Options.
 - [`umbra-render/docs/render-guide.html`](../crates/umbra-render/docs/render-guide.html): Tiles, Passes and Work Units, accumulating the Film, floating-point merge order and determinism.
+- [`umbra-cpu/docs/cpu-guide.html`](../crates/umbra-cpu/docs/cpu-guide.html): the CPU's renderer, a Work Unit's rows split over threads, one Pixel Sample at a time through the core, and why a Work Result does not depend on the thread count.
 - [`umbra-gpu/docs/gpu-guide.html`](../crates/umbra-gpu/docs/gpu-guide.html): GPUs for ray tracing, OptiX programs and the shader binding table, and the FFI boundary from Rust.
-- [`umbra-kernels/docs/kernels-guide.html`](../crates/umbra-kernels/docs/kernels-guide.html): the core compiled for the GPU, kernels and launches, and the math kernels tested against the CPU.
+- [`umbra-gpu-programs/docs/gpu-programs-guide.html`](../crates/umbra-gpu-programs/docs/gpu-programs-guide.html): the core compiled for the GPU, programs and launches, the layout shared with the host, and the math kernels tested against the CPU.
 
 ## For contributors and agents
 

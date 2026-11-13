@@ -353,8 +353,8 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
             <text x="540" y="305" text-anchor="middle" font-size="11">seed · Tiles · Passes · spp</text>
             <line x1="642" y1="290" x2="696" y2="290" class="k-ink" marker-end="url(#ah-ink)"/>
             <rect x="700" y="262" width="180" height="56" rx="6" class="f-mut-soft k-mut"/>
-            <text x="790" y="284" text-anchor="middle" class="t-bold">umbra-render</text>
-            <text x="790" y="305" text-anchor="middle" font-size="11">Renderer, Film</text>
+            <text x="790" y="284" text-anchor="middle" class="t-bold">umbra-render, -cpu</text>
+            <text x="790" y="305" text-anchor="middle" font-size="11">Film, Renderer</text>
             <!-- steps -->
             <g class="step"><circle cx="215" cy="60" r="11"/><text x="215" y="64" text-anchor="middle">1</text></g>
             <text x="233" y="64" font-size="12">fill in settings</text>
@@ -970,7 +970,7 @@ builder
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-scene</code> is a <code>std</code> crate outside the core. It depends on five core crates and is used by <code>umbra-render</code> and, once it has code, <code>umbra-parser</code> (ADR 0015, arc42 §5.1). It is small: under 500 lines of Rust in four modules.</p>
+    <p><code>umbra-scene</code> is a <code>std</code> crate outside the core. It depends on five core crates and is used by <code>umbra-parser</code>, <code>umbra-render</code>, the renderers in <code>umbra-cpu</code> and <code>umbra-gpu</code>, <code>umbra-cluster</code> and the <code>umbra</code> binary (ADR 0015, arc42 §5.1). It is small: under 500 lines of Rust in four modules.</p>
 </div>
 
 <section class="topic" id="map">
@@ -993,7 +993,7 @@ builder
             <rect x="360" y="116" width="160" height="62" rx="4" class="f-surf k-ink"/><text x="440" y="138" text-anchor="middle" font-weight="600">arena.rs</text><text x="440" y="160" text-anchor="middle" font-size="11">Arena&lt;T&gt;</text>
             <rect x="540" y="116" width="180" height="62" rx="4" class="f-surf k-ink"/><text x="630" y="138" text-anchor="middle" font-weight="600">options.rs</text><text x="630" y="160" text-anchor="middle" font-size="11">RenderJobOptions · Seed</text>
             <rect x="740" y="116" width="124" height="62" rx="4" class="f-surf k-ink"/><text x="802" y="138" text-anchor="middle" font-weight="600">error.rs</text><text x="802" y="160" text-anchor="middle" font-size="11">Error</text>
-            <rect x="160" y="222" width="260" height="40" rx="4" class="f-surf k-ink"/><text x="290" y="247" text-anchor="middle" font-size="12">umbra-render: Renderer, Film</text>
+            <rect x="160" y="222" width="260" height="40" rx="4" class="f-surf k-ink"/><text x="290" y="247" text-anchor="middle" font-size="12">umbra-render, umbra-cpu</text>
             <rect x="480" y="222" width="260" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="610" y="247" text-anchor="middle" font-size="12" class="t-mut">umbra-parser (no code yet)</text>
             <path d="M290 220 V198 M610 220 V198" class="k-ink" marker-end="url(#ah-ink)"/>
         </svg></div>
@@ -1204,7 +1204,7 @@ builder
 }</pre>
         <p>The fields are private. Outside the crate, a Scene can only be made by <code>SceneBuilder::build</code> and read through four methods: <code>view</code>, <code>full_resolution</code> (“both sides are positive”, which <code>build</code> guarantees), <code>randomize_strategy</code> and <code>integrator</code>. <code>Scene</code> derives <code>Clone</code>: a copy per NUMA node inside one Worker remains possible later (ADR 0008, arc42 §8.14).</p>
         <p><code>FilterKind&lt;S&gt;</code> is generic over its storage <code>S</code>. The Scene picks <code>Vec&lt;f32&gt;</code>, owned memory; the view gets <code>&amp;[f32]</code>, borrowed slices. Same filter code, two kinds of storage. The sensor's lifetime is <code>'static</code> because the CIE 1931 colour-matching curves are constant tables compiled into the program.</p>
-        <p>One part of the Scene's job is not in this struct: the sampler's seed and its number of Pixel Samples. Those are <a href="#options-impl">Render Job Options</a>. The digit permutations that a seed chooses are computed by <code>umbra-render</code>'s <code>Renderer</code>, once per Render Job.</p>
+        <p>One part of the Scene's job is not in this struct: the sampler's seed and its number of Pixel Samples. Those are <a href="#options-impl">Render Job Options</a>. The digit permutations that a seed chooses are computed by <code>umbra-cpu</code>'s <code>Renderer</code>, once per Render Job.</p>
     </div>
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
@@ -1308,7 +1308,7 @@ builder
         <ul>
             <li><a href="../tests/umbra_scene/arena.rs"><code>arena.rs</code></a>: handles are minted in order, each gives back its own object, slices come in handle order, and a handle past the end gets <code>None</code>.</li>
             <li><a href="../tests/umbra_scene/builder.rs"><code>builder.rs</code></a>: the defaults build to pbrt-v4's 1280 × 720 film; a film with a zero or negative side, and a filter radius of 0.01, are refused with the exact error expected.</li>
-            <li>Elsewhere, Scenes built with <code>SceneBuilder</code> feed <code>umbra-render</code>'s tests and the counting-allocator test in the <code>umbra</code> crate (<a href="#view">section 4</a>).</li>
+            <li>Elsewhere, Scenes built with <code>SceneBuilder</code> feed <code>umbra-render</code>'s and <code>umbra-cpu</code>'s tests and the counting-allocator test in the <code>umbra</code> crate (<a href="#view">section 4</a>).</li>
         </ul>
         <p>Run them with <code>cargo nextest run -p umbra-scene</code>. The README's example is also a doc test, since <code>lib.rs</code> includes the README as the crate's documentation.</p>
     </div>

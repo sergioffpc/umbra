@@ -3,10 +3,10 @@
 
 use umbra_math::Point2i;
 use umbra_render::{
-    Acceptance, Film, PassIndex, PixelSum, Renderer, TileIndex, WorkResult, WorkUnit,
+    Acceptance, Decomposition, Film, PassIndex, PixelSum, TileIndex, WorkResult, WorkUnit,
 };
 
-use crate::scenes::{camera_only, options, render_all};
+use crate::scenes::{camera_only, options};
 
 /// A Work Result of `unit`, a Tile of `area` pixels, every pixel's sums
 /// `value`.
@@ -22,7 +22,15 @@ fn uniform(unit: WorkUnit, area: usize, value: f64) -> WorkResult {
 fn single_pass_work_results_merge_to_the_same_film_in_any_order() {
     let scene = camera_only();
     let options = options(4, 4);
-    let results = render_all(&Renderer::new(&scene, &options).unwrap());
+    // A Work Result per Work Unit, each Tile's sums its own.
+    let decomposition = Decomposition::new(scene.full_resolution(), &options).unwrap();
+    let results: Vec<WorkResult> = decomposition
+        .work_units()
+        .map(|unit| {
+            let area = decomposition.tile_bounds(unit.tile).area();
+            uniform(unit, area, f64::from(unit.tile.0) + 0.5)
+        })
+        .collect();
     let film_of = |order: &[usize]| {
         let mut film = Film::new(&scene, &options).unwrap();
         for &i in order {
@@ -123,12 +131,8 @@ fn a_finished_film_is_each_pixels_weighted_mean_in_srgb() {
     let scene = camera_only();
     let options = options(4, 4);
     let mut film = Film::new(&scene, &options).unwrap();
-    let units: Vec<WorkUnit> = Renderer::new(&scene, &options)
-        .unwrap()
-        .decomposition()
-        .work_units()
-        .collect();
-    for unit in units {
+    let decomposition = Decomposition::new(scene.full_resolution(), &options).unwrap();
+    for unit in decomposition.work_units() {
         // Tile 0 is 16 × 16; its sums are XYZ (1, 2, 3) times a weight of 2.
         let area = [256, 256, 128, 128, 128, 64][unit.tile.0 as usize];
         let value = if unit.tile.0 == 0 { 2.0 } else { 0.0 };
