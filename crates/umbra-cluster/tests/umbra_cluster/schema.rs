@@ -19,7 +19,6 @@ fn the_committed_schema_is_the_generated_one() {
     let committed = fs::read_to_string(Path::new(SCHEMA)).unwrap_or_default();
     assert!(
         committed == generated,
-        "{SCHEMA} is stale: regenerate it with \
-         `UMBRA_BLESS=1 cargo test -p umbra-cluster --test umbra_cluster schema`"
+        "{SCHEMA} is stale: rerun this test with UMBRA_BLESS=1 to regenerate it"
     );
 }
