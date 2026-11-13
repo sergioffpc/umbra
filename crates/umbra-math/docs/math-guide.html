@@ -32,6 +32,14 @@
     --s-base: #2a78d6;
     --s-umbra: #eb6834;
     --s-best: #1baf7a;
+    /* the libm figures across machines (§9): one hue per machine, and the
+        diverging speed-up and sequential error scales of the heatmap */
+    --m-p620: #6250d6;
+    --m-r630: #eda100;
+    --m-m2: #008300;
+    --d-fast: #2a78d6;
+    --d-slow: #e34948;
+    --d-mid: #eceff3;
     --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
     --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
     --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -57,6 +65,12 @@
         --s-base: #3987e5;
         --s-umbra: #d95926;
         --s-best: #199e70;
+        --m-p620: #9085e9;
+        --m-r630: #c98500;
+        --m-m2: #008300;
+        --d-fast: #3987e5;
+        --d-slow: #e66767;
+        --d-mid: #262e39;
     }
 }
 :root[data-theme="dark"] {
@@ -77,6 +91,12 @@
     --s-base: #3987e5;
     --s-umbra: #d95926;
     --s-best: #199e70;
+    --m-p620: #9085e9;
+    --m-r630: #c98500;
+    --m-m2: #008300;
+    --d-fast: #3987e5;
+    --d-slow: #e66767;
+    --d-mid: #262e39;
 }
 
 * { box-sizing: border-box; }
@@ -277,6 +297,12 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 table.data td.num, table.data th.num { text-align: right; }
 table.data td.what { color: var(--muted); }
 .libm-headline { font: 400 0.86rem/1.5 var(--mono); margin: 0; }
+table.data.heat { border-collapse: separate; border-spacing: 2px; width: auto; }
+table.data.heat th { padding: 0.3rem 0.5rem; text-align: center; }
+table.data.heat th.group { border-bottom-color: var(--muted); }
+table.data.heat td { border: 0; padding: 0.3rem 0.5rem; }
+table.data.heat td.cell { text-align: right; min-width: 4.2rem; background: var(--bg); border-radius: 2px; }
+table.data.heat td.cell.none { color: var(--muted); background: transparent; }
 
 @media (prefers-reduced-motion: no-preference) {
     .bits button { transition: background-color 120ms ease, color 120ms ease; }
@@ -744,6 +770,38 @@ table.data td.what { color: var(--muted); }
         <figcaption><b>Time per element on a log scale, one row per function.</b> Hover a mark for what ran, its speed-up over glibc and its largest error; the table has the same numbers. × is the speed-up over the glibc column, ULP the largest error.</figcaption>
     </figure>
     <div class="prose">
+        <p>The same functions on different machines answer two other questions. The first is which CPU is fastest, and by how much. Only the CPUs share a time axis for that: a CPU time is the latency of one call on one core, and a GPU time is the throughput of a whole device, so putting them on one axis would only show that a GPU is a different kind of machine.</p>
+    </div>
+    <figure class="bench" id="lx">
+        <div class="controls">
+            <div class="ctl"><label for="lx-impl">implementation</label><select id="lx-impl"></select></div>
+            <div class="legend shapes" id="lx-legend"></div>
+        </div>
+        <p class="libm-headline" id="lx-headline"></p>
+        <div class="libm-plot">
+            <p class="panel-title">time per element in ns, log scale</p>
+            <canvas id="lx-cv" class="cv-libm" aria-label="Time per element of each function on each CPU, log scale; the table below has the same numbers"></canvas>
+            <div class="libm-tip" id="lx-tip" hidden></div>
+        </div>
+        <div class="tablewrap"><table class="data" id="lx-table"></table></div>
+        <figcaption><b>One implementation on every CPU, one row per function.</b> Colour and shape name the machine; the grey bar spans the fastest to the slowest. Hover a mark for what ran, its largest error and how far it is behind the fastest CPU.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>The second question is whether what <code>umbra-math</code> chose pays off everywhere. A speed-up over the machine's own glibc (or <code>libdevice</code>) has no unit, so here the GPU joins the CPUs. A function can win on one machine and lose on another: an own kernel tuned against x86-64's glibc need not beat arm64's.</p>
+    </div>
+    <figure class="bench" id="lh">
+        <div class="controls">
+            <div class="ctl"><label for="lh-mode">show</label><select id="lh-mode"><option value="speed">speed-up over glibc</option><option value="ulp">largest error, ULP</option></select></div>
+            <div class="legend" id="lh-legend"></div>
+        </div>
+        <p class="libm-headline" id="lh-headline"></p>
+        <div class="libm-plot">
+            <div class="tablewrap"><table class="data heat" id="lh-table"></table></div>
+            <div class="libm-tip" id="lh-tip" hidden></div>
+        </div>
+        <figcaption><b>Every machine and implementation, one row per function.</b> As a speed-up, blue is faster than that machine's glibc and red slower, on a log scale that saturates at 16×. As an error, the darker the cell, the larger the error. Hover a cell for what ran and its time; — is a form the machine does not have.</figcaption>
+    </figure>
+    <div class="prose">
         <p>To refresh a machine's results, run <code>scripts/bench-libm.sh p620</code> (or <code>r630</code>, <code>m2</code>) in the dev container and commit this file. The script replaces that machine's lines in the results block at the end of this page and leaves the others alone. On the M2 the dev container is <code>linux/arm64</code> (<a href="../../../docs/adr/0034-linux-only.md">ADR 0034</a>), so all three machines run the dev container's glibc.</p>
     </div>
 </section>
@@ -897,6 +955,7 @@ function readTheme() {
         rule: g("--rule"), grid: g("--grid"), accent: g("--accent"), err: g("--err"),
         exact: g("--exact"), sign: g("--bit-sign"), sig: g("--bit-sig"),
         base: g("--s-base"), umbra: g("--s-umbra"), best: g("--s-best"),
+        m: { p620: g("--m-p620"), r630: g("--m-r630"), m2: g("--m-m2") },
         mono: g("--mono") || "monospace",
     };
 }
@@ -1695,7 +1754,7 @@ class Pcg32 {
     ================================================================ */
 (() => {
     const records = [...LIBM_RESULTS];
-    if (!records.length) { $("lb-empty").hidden = false; $("lb-body").hidden = true; return; }
+    if (!records.length) { $("lb-empty").hidden = false; $("lb-body").hidden = true; $("lx").hidden = true; $("lh").hidden = true; return; }
     const ORDER = ["p620-cpu", "r630-cpu", "m2-cpu", "p620-gpu"];
     const rank = (id) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length);
     records.sort((a, b) => rank(a.id) - rank(b.id));
@@ -1732,12 +1791,10 @@ class Pcg32 {
         };
         $("lb-legend").innerHTML = COLS.map((c) => `<span>${svg(c)}${c.name(rec)}</span>`).join("");
     }
-    function draw(ctx, W, H) {
-        const { k } = unit(rec);
-        const rows = rec.rows;
-        const vals = rows.flatMap((row) => COLS.map((c) => row[c.key]).filter(Boolean).map((v) => v[0] * k));
-        // The 1-2-5 ticks, from the one at or below the fastest to the one at
-        // or above the slowest: decades always labelled, 2 and 5 when few.
+    /* A log axis over vals, one row per name: the 1-2-5 ticks from the one
+        at or below the fastest to the one at or above the slowest, decades
+        always labelled, 2 and 5 when few. Returns X and Y. */
+    function logAxis(ctx, W, H, vals, names) {
         const ticks = [];
         for (let d = Math.floor(Math.log10(Math.min(...vals))); d <= Math.ceil(Math.log10(Math.max(...vals))); d++) {
             [1, 2, 5].forEach((m) => ticks.push(m * 10 ** d));
@@ -1748,17 +1805,32 @@ class Pcg32 {
         const L = Math.log10(lo), R = Math.log10(hi);
         const left = 74, right = 18, top = 8, bottom = 24;
         const X = (v) => left + (Math.log10(v) - L) / (R - L) * (W - left - right);
-        const rowH = (H - top - bottom) / rows.length, Y = (i) => top + (i + 0.5) * rowH;
+        const rowH = (H - top - bottom) / names.length, Y = (i) => top + (i + 0.5) * rowH;
         shown.forEach((t) => {
             const decade = Math.abs(Math.log10(t) - Math.round(Math.log10(t))) < 1e-9;
             line(ctx, [[X(t), top], [X(t), H - bottom]], decade ? C.rule : C.grid, 1);
             if (decade || R - L <= 2.5) label(ctx, String(Number(t.toPrecision(1))), X(t), H - bottom + 12, C.muted, "center", 10);
         });
+        names.forEach((name, i) => label(ctx, name, left - 10, Y(i), C.ink, "right", 11));
+        return { X, Y };
+    }
+    /* Shows a hover card beside the point (x, y) of a box, below it if it fits. */
+    function placeTip(tip, html, x, y, box) {
+        tip.innerHTML = html;
+        tip.hidden = false;
+        tip.style.left = `${Math.max(4, Math.min(x + 14, box.width - tip.offsetWidth - 4))}px`;
+        const below = y + 12 + tip.offsetHeight <= box.height;
+        tip.style.top = `${box.top + (below ? y + 12 : y - 12 - tip.offsetHeight)}px`;
+    }
+    function draw(ctx, W, H) {
+        const { k } = unit(rec);
+        const rows = rec.rows;
+        const vals = rows.flatMap((row) => COLS.map((c) => row[c.key]).filter(Boolean).map((v) => v[0] * k));
+        const { X, Y } = logAxis(ctx, W, H, vals, rows.map((row) => row.f));
         marks = [];
         rows.forEach((row, i) => {
             const y = Y(i);
             const xs = COLS.map((c) => row[c.key]).filter(Boolean).map((v) => X(v[0] * k));
-            label(ctx, row.f, left - 10, y, C.ink, "right", 11);
             line(ctx, [[Math.min(...xs), y], [Math.max(...xs), y]], C.rule, 2);
             COLS.forEach((c) => {
                 const cell = row[c.key];
@@ -1796,14 +1868,9 @@ class Pcg32 {
         marks.forEach((m) => { const d = (m.x - mx) ** 2 + (m.y - my) ** 2; if (d < d2) { d2 = d; near = m; } });
         if (!near) { tip.hidden = true; return; }
         const { u, k } = unit(rec), s = speedup(near.row, near.cell);
-        tip.innerHTML = `<b>${near.row.f}</b> · ${near.c.name(rec)}<br>${esc(near.cell[2])}<br>${sig(near.cell[0] * k)} ${u} per element` +
-            (near.c.key === "base" || s === null ? "" : ` · ${s.toFixed(1)}× ${COLS[0].name(rec)}`) + `<br>largest error ${ulp(near.cell[1])} ULP`;
-        tip.hidden = false;
-        const box = cv.offsetParent === tip.offsetParent ? cv.offsetTop : 0;
-        const x = Math.min(near.x + 14, r.width - tip.offsetWidth - 4);
-        tip.style.left = `${Math.max(4, x)}px`;
-        const below = near.y + 12 + tip.offsetHeight <= r.height;
-        tip.style.top = `${box + (below ? near.y + 12 : near.y - 12 - tip.offsetHeight)}px`;
+        placeTip(tip, `<b>${near.row.f}</b> · ${near.c.name(rec)}<br>${esc(near.cell[2])}<br>${sig(near.cell[0] * k)} ${u} per element` +
+            (near.c.key === "base" || s === null ? "" : ` · ${s.toFixed(1)}× ${COLS[0].name(rec)}`) + `<br>largest error ${ulp(near.cell[1])} ULP`,
+            near.x, near.y, { width: r.width, height: r.height, top: cv.offsetTop });
     }
     cv.addEventListener("pointermove", showTip);
     cv.addEventListener("pointerleave", () => { tip.hidden = true; });
@@ -1812,6 +1879,149 @@ class Pcg32 {
     sel.addEventListener("change", update);
     update();
     updaters.push(() => paint(en));
+
+    /* Across machines (1): one implementation on every CPU, one time axis.
+        The GPU stays out: its time is a device's throughput, not a call's
+        latency. Each machine keeps its colour and shape whatever is shown. */
+    const cpus = records.filter((r) => !gpu(r));
+    const machineKey = (r) => r.id.split("-")[0];
+    const SHAPES = { p620: "circle", r630: "square", m2: "diamond" };
+    const fns = records[0].rows.map((row) => row.f);
+    const cellOf = (r, f, key) => r.rows.find((row) => row.f === f)?.[key] ?? null;
+    if (cpus.length < 2) $("lx").hidden = true;
+    else {
+        const impl = $("lx-impl"), xtip = $("lx-tip"), xcv = $("lx-cv");
+        COLS.forEach((c) => impl.add(new Option(c.name(cpus[0]), c.key)));
+        let xmarks = [];
+        $("lx-legend").innerHTML = cpus.map((r) => {
+            const p = { circle: '<circle cx="5" cy="5" r="4.5"/>', square: '<rect x="0.5" y="0.5" width="9" height="9"/>', diamond: '<path d="M5 -0.6 L10.6 5 L5 10.6 L-0.6 5 Z"/>' }[SHAPES[machineKey(r)]];
+            return `<span><svg viewBox="0 0 10 10" aria-hidden="true" fill="var(--m-${machineKey(r)})">${p}</svg>${r.machine}</span>`;
+        }).join("");
+        // The fastest CPU's time for f, or null when none has the form.
+        const fastest = (f) => {
+            const ts = cpus.map((r) => cellOf(r, f, impl.value)).filter(Boolean).map((v) => v[0]);
+            return ts.length ? Math.min(...ts) : null;
+        };
+        function drawX(ctx, W, H) {
+            const vals = cpus.flatMap((r) => fns.map((f) => cellOf(r, f, impl.value)).filter(Boolean).map((v) => v[0]));
+            if (!vals.length) return;
+            const { X, Y } = logAxis(ctx, W, H, vals, fns);
+            xmarks = [];
+            fns.forEach((f, i) => {
+                const y = Y(i);
+                const xs = cpus.map((r) => cellOf(r, f, impl.value)).filter(Boolean).map((v) => X(v[0]));
+                if (xs.length) line(ctx, [[Math.min(...xs), y], [Math.max(...xs), y]], C.rule, 2);
+                cpus.forEach((r) => {
+                    const cell = cellOf(r, f, impl.value);
+                    if (!cell) return;
+                    const x = X(cell[0]);
+                    mark(ctx, SHAPES[machineKey(r)], x, y, C.m[machineKey(r)]);
+                    xmarks.push({ x, y, f, r, cell });
+                });
+            });
+        }
+        function textsX() {
+            const name = COLS.find((c) => c.key === impl.value).name(cpus[0]);
+            const wins = cpus.map((r) => ({ r, n: fns.filter((f) => { const c = cellOf(r, f, impl.value); return c && c[0] === fastest(f); }).length }))
+                .filter((w) => w.n).sort((a, b) => b.n - a.n);
+            setText("lx-headline", `With ${name}, the fastest CPU is ` + wins.map((w) => `the ${w.r.machine} on ${w.n}`).join(", ") + ` of ${fns.length} functions.`);
+            const head = `<thead><tr><th>function</th>${cpus.map((r) => `<th class="num">${r.machine}, ns</th><th class="num">ULP</th>`).join("")}</tr></thead>`;
+            const body = fns.map((f) => `<tr><td><code>${f}</code></td>${cpus.map((r) => {
+                const c = cellOf(r, f, impl.value);
+                return c ? `<td class="num">${sig(c[0])}</td><td class="num">${ulp(c[1])}</td>` : '<td class="num">—</td><td class="num"></td>';
+            }).join("")}</tr>`).join("");
+            $("lx-table").innerHTML = head + `<tbody>${body}</tbody>`;
+        }
+        xcv.addEventListener("pointermove", (ev) => {
+            const r = xcv.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+            let near = null, d2 = 14 * 14;
+            xmarks.forEach((m) => { const d = (m.x - mx) ** 2 + (m.y - my) ** 2; if (d < d2) { d2 = d; near = m; } });
+            if (!near) { xtip.hidden = true; return; }
+            const behind = near.cell[0] / fastest(near.f);
+            placeTip(xtip, `<b>${near.f}</b> · ${near.r.machine}<br>${esc(near.cell[2])}<br>${sig(near.cell[0])} ns per element · ` +
+                (behind < 1 + 1e-9 ? "the fastest CPU" : `${behind.toFixed(1)}× the fastest CPU`) + `<br>largest error ${ulp(near.cell[1])} ULP`,
+                near.x, near.y, { width: r.width, height: r.height, top: xcv.offsetTop });
+        });
+        xcv.addEventListener("pointerleave", () => { xtip.hidden = true; });
+        const xen = canvasEntry("lx-cv", drawX);
+        impl.addEventListener("change", () => { xtip.hidden = true; textsX(); paint(xen); });
+        textsX();
+        updaters.push(() => paint(xen));
+    }
+
+    /* Across machines (2): a heatmap of every machine and implementation.
+        A speed-up over the machine's own glibc has no unit, so the GPU joins
+        in. Cells take their colour from the theme's tokens through
+        color-mix, so a theme change needs no repaint. */
+    const MODES = {
+        speed: {
+            cols: ["umbra", "best"],
+            // log2 of the speed-up, saturating at 16× either way
+            bg: (row, cell) => {
+                const t = Math.max(-1, Math.min(1, Math.log2(speedup(row, cell)) / 4));
+                return `color-mix(in oklab, var(${t > 0 ? "--d-fast" : "--d-slow"}) ${Math.round(Math.abs(t) * 60)}%, var(--d-mid))`;
+            },
+            text: (row, cell) => `${speedup(row, cell).toFixed(1)}×`,
+            legend: [[1 / 4, "¼×"], [1 / 2, "½×"], [1, "1×"], [2, "2×"], [4, "4×"], [16, "≥ 16×"]],
+        },
+        ulp: {
+            cols: ["base", "umbra", "best"],
+            bg: (row, cell) => `color-mix(in oklab, var(--err) ${ULP_BINS[ulpBin(cell[1])][1]}%, var(--d-mid))`,
+            text: (row, cell) => ulp(cell[1]),
+        },
+    };
+    // The error bins, each an upper bound and its share of --err, which stops
+    // at 45 % so the ink stays legible on it in both themes; NaN falls in the last.
+    const ULP_BINS = [[0, 0, "0"], [1, 9, "1"], [2, 18, "2"], [4, 27, "≤ 4"], [99, 36, "≤ 99"], [Infinity, 45, "≥ 100"]];
+    const ulpBin = (e) => (e === null ? ULP_BINS.length - 1 : ULP_BINS.findIndex(([hi]) => e <= hi));
+    MODES.speed.legend = MODES.speed.legend.map(([s, t]) => {
+        const v = Math.max(-1, Math.min(1, Math.log2(s) / 4));
+        return [`color-mix(in oklab, var(${v > 0 ? "--d-fast" : "--d-slow"}) ${Math.round(Math.abs(v) * 60)}%, var(--d-mid))`, t];
+    });
+    MODES.ulp.legend = ULP_BINS.map(([, pct, t]) => [`color-mix(in oklab, var(--err) ${pct}%, var(--d-mid))`, t]);
+    const mode = $("lh-mode"), htip = $("lh-tip"), htable = $("lh-table");
+    let tips = [];
+    function heat() {
+        const m = MODES[mode.value];
+        const colName = (r, key) => COLS.find((c) => c.key === key).name(r);
+        const head = `<thead><tr><th></th>${records.map((r) => `<th class="group" colspan="${m.cols.length}">${r.machine} · ${r.kind.toUpperCase()}</th>`).join("")}</tr>` +
+            `<tr><th>function</th>${records.map((r) => m.cols.map((key) => `<th>${colName(r, key)}</th>`).join("")).join("")}</tr></thead>`;
+        tips = [];
+        const body = fns.map((f) => `<tr><td><code>${f}</code></td>${records.map((r) => m.cols.map((key) => {
+            const row = r.rows.find((x) => x.f === f), cell = row?.[key];
+            if (!cell || (mode.value === "speed" && !row.base)) return '<td class="cell none">—</td>';
+            const { u, k } = unit(r), s = speedup(row, cell);
+            tips.push(`<b>${f}</b> · ${r.machine} · ${r.kind.toUpperCase()} · ${colName(r, key)}<br>${esc(cell[2])}<br>${sig(cell[0] * k)} ${u} per element` +
+                (key === "base" || s === null ? "" : ` · ${s.toFixed(1)}× ${colName(r, "base")}`) + `<br>largest error ${ulp(cell[1])} ULP`);
+            return `<td class="cell" data-tip="${tips.length - 1}" style="--bg: ${m.bg(row, cell)}">${m.text(row, cell)}</td>`;
+        }).join("")).join("")}</tr>`).join("");
+        htable.innerHTML = head + `<tbody>${body}</tbody>`;
+        $("lh-legend").innerHTML = m.legend.map(([bg, t]) => `<span style="--sw: ${bg}">${t}</span>`).join("");
+        if (mode.value === "speed") {
+            const losses = records.flatMap((r) => r.rows.filter((row) => row.umbra && row.base && speedup(row, row.umbra) < 1 / 1.1)
+                .map((row) => `${row.f} on the ${r.machine} ${r.kind.toUpperCase()} (${speedup(row, row.umbra).toFixed(2)}×)`));
+            setText("lh-headline", losses.length
+                ? `umbra-math is more than 10 % slower than glibc in ${losses.length} place${losses.length > 1 ? "s" : ""}: ${losses.join(", ")}.`
+                : "umbra-math is never more than 10 % slower than glibc, on any machine.");
+        } else {
+            // the largest error of a column over every machine of a kind; NaN beats any number
+            const worst = (kind, key) => {
+                const e = Math.max(...records.filter((r) => r.kind === kind).flatMap((r) => r.rows.map((row) => row[key]).filter(Boolean).map((c) => c[1] ?? Infinity)));
+                return ulp(Number.isFinite(e) ? e : null);
+            };
+            setText("lh-headline", `The largest error of umbra-math is ${worst("cpu", "umbra")} ULP on the CPUs` +
+                (records.some(gpu) ? ` and ${worst("gpu", "umbra")} ULP on the GPU; the fast intrinsics reach ${worst("gpu", "best")} ULP.` : "."));
+        }
+    }
+    htable.addEventListener("pointerover", (ev) => {
+        const td = ev.target.closest("td[data-tip]");
+        if (!td) { htip.hidden = true; return; }
+        const plot = htable.closest(".libm-plot").getBoundingClientRect(), c = td.getBoundingClientRect();
+        placeTip(htip, tips[Number(td.dataset.tip)], c.right - plot.left - 14, c.bottom - plot.top - 12, { width: plot.width, height: Infinity, top: 0 });
+    });
+    htable.addEventListener("pointerleave", () => { htip.hidden = true; });
+    mode.addEventListener("change", () => { htip.hidden = true; heat(); });
+    heat();
 })();
 
 /* ---------- start ---------- */
