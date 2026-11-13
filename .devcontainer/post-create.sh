@@ -7,9 +7,29 @@ cd "$(git rev-parse --show-toplevel)"
 # Named volumes are created owned by root; hand them to the dev user.
 sudo chown -R "$(id -u):$(id -g)" target /usr/local/cargo/registry /usr/local/cargo/git
 
-# Same git setup as on the host: hooks, commit template, local
-# settings. It writes to this clone's .git/config, which the host shares.
-scripts/setup-git.sh
+# Git settings for this clone: hooks, commit template, rebase on pull, prune
+# on fetch, rerere, zdiff3 conflicts, histogram diffs. They go in this clone's
+# .git/config, which the host shares, so the host clone gets them too.
+while read -r key value; do
+    git config --local "$key" "$value"
+done <<'EOF_GIT'
+core.hooksPath .githooks
+commit.template .gitmessage
+pull.rebase true
+rebase.autoStash true
+rebase.autoSquash true
+rebase.updateRefs true
+fetch.prune true
+fetch.pruneTags true
+push.autoSetupRemote true
+push.followTags true
+rerere.enabled true
+rerere.autoUpdate true
+merge.conflictStyle zdiff3
+diff.algorithm histogram
+diff.colorMoved default
+transfer.fsckObjects true
+EOF_GIT
 
 # Matt Pocock's engineering skills (the ones CLAUDE.md and docs/agents refer
 # to). Not fatal: it needs network access and must not block the container.
