@@ -1,5 +1,7 @@
 # A layered workspace with a seven-crate `no_std` core
 
+> **Amended by [ADR 0033](0033-one-crate-per-render-device-over-a-shared-contract.md).** `umbra-cpu` joins the workspace, which now has fifteen crates, with the CPU renderer that was in `umbra-render`; `umbra-render` keeps what every Render Device shares. `umbra-kernels` is renamed `umbra-gpu-programs`. The rest of this ADR still applies.
+>
 > **Amended by [ADR 0028](0028-one-core-for-cpu-and-gpu.md).** Two crates join the workspace, which now has fourteen: `umbra-kernels` (`no_std`, compiled only for `nvptx64`) and `umbra-gpu` (`std`, the GPU host side). The seven-crate core is unchanged. The rest of this ADR still applies.
 >
 > **Amended by [ADR 0031](0031-renders-checked-by-eye.md).** There is no `validate`: the binary holds `bench` and its statistics. Golden Film hashes are no longer among the cross-crate tests.

@@ -1,5 +1,7 @@
 # A pinned nightly toolchain
 
+> **Amended by [ADR 0033](0033-one-crate-per-render-device-over-a-shared-contract.md).** `umbra-kernels` is renamed `umbra-gpu-programs`, which enables its unstable features on `nvptx64` only. The rest of this ADR still applies.
+
 The whole workspace builds with one pinned nightly toolchain, `nightly-YYYY-MM-DD` in `rust-toolchain.toml`, instead of stable `1.99.1`. Decided with the owner on 2026-11-11. This amends [ADR 0023](0023-x86-64-only.md), which rejected `-Zbuild-std` because it needs nightly.
 
 The GPU kernels of [ADR 0026](0026-gpu-workers-from-the-first-milestone.md) need unstable features: `abi_ptx` for `extern "ptx-kernel"` entry points, `stdarch_nvptx` for thread and block indices, and `asm_experimental_arch` for the inline PTX that OptiX's device API requires. The owner preferred one toolchain for every crate over a second toolchain for the kernels alone.

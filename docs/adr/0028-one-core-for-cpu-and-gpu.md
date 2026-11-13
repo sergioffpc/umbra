@@ -1,5 +1,7 @@
 # One core for CPU and GPU
 
+> **Amended on 2026-11-13 by [ADR 0033](0033-one-crate-per-render-device-over-a-shared-contract.md).** `umbra-kernels` is renamed `umbra-gpu-programs`. It compiles for the host too, where it holds the host-device layout that `umbra-gpu` uses as an ordinary dependency, and its programs only on `nvptx64`. The CPU driver moves from `umbra-render` to a new crate, `umbra-cpu`. The rest of this ADR still applies.
+>
 > **Amended on 2026-11-11 by [#142](https://github.com/sergioffpc/umbra/issues/142).** The `nvptx64` backend of `umbra-math` takes its C math from CUDA's `libdevice`, which `umbra-gpu`'s build links into the PTX. The rest of this ADR still applies.
 >
 > **Amended on 2026-11-11 by [#124](https://github.com/sergioffpc/umbra/issues/124).** The `nvptx64` backend reaches its PTX instructions through `libdevice` too, declared by FFI: `__nv_fmaf`, `__nv_fsqrt_rn`, `__nv_floorf` and `__nv_ceilf` for the scalar primitives, `__nv_fast_sinf` and `__nv_fast_cosf` for `sin.approx` and `cos.approx`. On stable Rust, `core` has no `f32` `sqrt`, `mul_add`, `floor` or `ceil` (they need `core_float_math`), and inline PTX needs `asm_experimental_arch`; [ADR 0027](0027-a-pinned-nightly-toolchain.md) keeps unstable features to `umbra-kernels`. Its `atan2`, `erf`, `Vec4::exp` and `Vec4::pow` are `libdevice`'s `atan2f`, `erff`, `expf` and `powf`, with the CUDA Math API's bounds; its `sin_cos` is a reduction of Umbra's own followed by the approximate instructions.
