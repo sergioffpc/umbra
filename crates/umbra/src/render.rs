@@ -48,6 +48,7 @@ pub(crate) fn render(
     let job = RenderJob {
         scene: parsed.scene,
         options,
+        output: parsed.output.clone(),
         record,
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);

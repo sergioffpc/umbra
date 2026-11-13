@@ -159,10 +159,11 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   parameters warn; a missing Scene File exits 1 and invalid usage 2; the
   version line starts every command on stderr, and `--version` adds the
   copyright and the licences, with nothing on stdout; the report has the
-  options, phase times, Pixel Samples and their rate, the Local Worker's
-  figures and a cost per Tile; logs are JSON lines without a terminal, text
-  with `--log-format human`, and filtered by `--log`, with the final status
-  among them; Ctrl-C writes a cancelled report, no image, and exits 130.
+  options with the output path, phase times, Pixel Samples and their
+  rate, the Local Worker's host, CPU and figures, and a cost per Tile;
+  logs are JSON lines without a terminal, text with `--log-format human`,
+  and filtered by `--log`, with the final status among them; Ctrl-C writes
+  a cancelled report, no image, and exits 130.
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.

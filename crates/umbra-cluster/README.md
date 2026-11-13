@@ -32,7 +32,8 @@ let identity = BuildIdentity {
 };
 let record =
     ReproductionRecord::new(PathBuf::from("scene.pbrt"), ContentHash([0; 32]), &options, identity);
-let job = RenderJob { scene, options, record };
+let output = PathBuf::from("pbrt.exr");
+let job = RenderJob { scene, options, output, record };
 
 let cancel = Cancellation::new();
 let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, StatusLine::Logged)?;
@@ -52,6 +53,7 @@ assert_eq!(image.resolution(), resolution);
 | `error`        | `Error`: why a Render Job did not finish                                                                                                                          |
 | `local_worker` | The CPU Local Worker: renders its Work Units with its `Renderer`, several at once on its own rayon pool, and times each                                           |
 | `renderer`     | `Renderer`, the CPU's or the GPU's, chosen by the Worker's `RenderDevice` (ADR 0033)                                                                              |
+| `host`         | `Host`: the Local Worker's host name and CPU model, read from `/proc`                                                                                             |
 | `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
 | `status`       | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                              |
 | `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |
@@ -119,4 +121,5 @@ Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
 the image and report of a camera-only Scene File, and the same Film hash
 with one thread and with all of them, the report's fields, the logged
 status, and Ctrl-C. Scheduling is checked there, not through internal
-interfaces. The status line's number formats are unit tests in `status`.
+interfaces. The status line's number formats are unit tests in `status`,
+and the CPU model read from `/proc/cpuinfo` on x86-64 and arm64 in `host`.

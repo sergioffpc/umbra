@@ -1,6 +1,7 @@
 //! The Render Job Report of a finished Render Job, on stdout (arc42 §8.10).
 
 use std::collections::BTreeMap;
+use std::fs;
 
 use crate::cli::{CAMERA_ONLY, Workspace, code, field, report, stderr};
 
@@ -69,6 +70,16 @@ fn the_report_has_the_local_workers_figures() {
 }
 
 #[test]
+fn the_report_names_the_local_workers_host_and_cpu() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    let worker = &report["Local Worker"];
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").expect("Linux names its host");
+    assert_eq!(field(worker, "host"), host.trim(), "{worker}");
+    assert!(!field(worker, "CPU").is_empty(), "{worker}");
+}
+
+#[test]
 fn the_report_summarises_the_tile_costs() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
@@ -83,6 +94,16 @@ fn the_report_summarises_the_tile_costs() {
         .parse()
         .unwrap();
     assert!(costliest < 3 * 2, "one of the 6 Tiles: {costs}");
+}
+
+#[test]
+fn the_report_lists_the_render_job_options_with_the_output_path() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    assert_eq!(
+        report["Options"],
+        "seed 0, spp 4, spp per pass 3, tile size 16, output black.exr"
+    );
 }
 
 #[test]

@@ -2,6 +2,7 @@
 
 mod coordinator;
 mod error;
+mod host;
 mod local_worker;
 mod progress;
 mod renderer;
