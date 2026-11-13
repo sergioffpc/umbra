@@ -1,6 +1,6 @@
 //! glibc's vector transcendentals, through FFI: the variants of `libmvec`,
 //! 4 lanes for SSE (`_ZGVbN4…`) and 8 for AVX2 (`_ZGVdN8…`). Only on
-//! `linux-gnu`, and never under Miri, which cannot pass `__m128` arguments.
+//! x86-64, and never under Miri, which cannot pass `__m128` arguments.
 //! glibc's scalar functions come through `umbra_math`'s wrappers instead.
 //!
 //! The `unsafe` follows ADR 0007: one FFI call or one lane conversion per

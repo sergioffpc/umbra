@@ -1,7 +1,7 @@
 //! The transcendentals Umbra uses, from every implementation there is,
 //! side by side (<https://github.com/sergioffpc/umbra/issues/138>): Umbra's
 //! own kernels (the crate's public interface), glibc's scalar `libm.so`
-//! through `umbra_math`'s wrappers, and on `linux-gnu` glibc's vector `libmvec`
+//! through `umbra_math`'s wrappers, and on x86-64 glibc's vector `libmvec`
 //! at 4 lanes (SSE) and 8 (AVX2). Elsewhere, and under Miri, the `libmvec`
 //! lines are absent.
 //!
@@ -29,12 +29,7 @@ use crate::transcendentals::{
     BATCH, GAMMA, GlibcScalar, Transcendentals, Umbra, angles, atan2_args, erf_args,
     optical_depths, reflectances,
 };
-#[cfg(all(
-    target_arch = "x86_64",
-    target_os = "linux",
-    target_env = "gnu",
-    not(miri)
-))]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 use crate::transcendentals::{Libmvec4, Libmvec8};
 
 fn main() {
@@ -47,11 +42,11 @@ macro_rules! bench {
     ($(#[$attr:meta])* fn $name:ident<K>($bencher:ident) $body:block) => {
         $(#[$attr])*
         #[cfg_attr(
-            all(target_arch = "x86_64", target_os = "linux", target_env = "gnu", not(miri)),
+            all(target_arch = "x86_64", not(miri)),
             divan::bench(types = [Umbra, GlibcScalar, Libmvec4, Libmvec8])
         )]
         #[cfg_attr(
-            not(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu", not(miri))),
+            not(all(target_arch = "x86_64", not(miri))),
             divan::bench(types = [Umbra, GlibcScalar])
         )]
         fn $name<K: Transcendentals>($bencher: Bencher<'_, '_>) $body

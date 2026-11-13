@@ -344,7 +344,7 @@ builds use that target's default. Override `RUSTFLAGS` for binaries that
 must run on other machines. On x86-64 an override must keep at least
 `-C target-cpu=x86-64-v3`: `umbra-math` requires FMA, SSE4.1 and AVX2 and
 stops the build without them ([ADR 0023](docs/adr/0023-x86-64-only.md)). On
-arm64, Linux or macOS, an empty `RUSTFLAGS` builds for any arm64 CPU
+arm64 an empty `RUSTFLAGS` builds for any arm64 CPU
 ([ADR 0032](docs/adr/0032-arm64-back-as-a-cpu-target.md)).
 
 ## Before opening a pull request

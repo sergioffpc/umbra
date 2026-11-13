@@ -1,6 +1,6 @@
 //! The C math functions Umbra takes from the platform's math library, one
-//! safe wrapper per function (ADR 0007, ADR 0022): glibc's `libm.so.6` on
-//! Linux, `libSystem` on macOS, on x86-64 and arm64 alike.
+//! safe wrapper per function (ADR 0007, ADR 0022): glibc's `libm.so.6`, on
+//! x86-64 and arm64 alike.
 //!
 //! Umbra's own kernels come first where they exist: [`sin_cos`](crate::sin_cos),
 //! [`atan2`](crate::atan2), [`erf`](crate::erf), [`Vec4::exp`](crate::Vec4::exp)
