@@ -9,13 +9,22 @@
 #![warn(clippy::disallowed_types)]
 
 mod launch;
-#[cfg(all(target_arch = "nvptx64", feature = "math-program"))]
+// The kernels of `umbra-gpu`'s libm bench, in a PTX of their own: its build
+// script passes `--cfg umbra_libm_bench`, which takes the OptiX programs out,
+// since a plain CUDA module cannot load them.
+#[cfg(all(target_arch = "nvptx64", umbra_libm_bench))]
+mod libm_bench;
+#[cfg(all(
+    target_arch = "nvptx64",
+    feature = "math-program",
+    not(umbra_libm_bench)
+))]
 mod math;
 #[cfg(feature = "math-program")]
 mod math_launch;
-#[cfg(target_arch = "nvptx64")]
+#[cfg(all(target_arch = "nvptx64", not(umbra_libm_bench)))]
 mod optix;
-#[cfg(target_arch = "nvptx64")]
+#[cfg(all(target_arch = "nvptx64", not(umbra_libm_bench)))]
 mod programs;
 
 pub use launch::{HitKind, HitRecord, LaunchParams, RayRecord};

@@ -8,5 +8,6 @@
 //! [`erf`](crate::erf).
 
 pub use crate::platform::{
-    acos, atan2, cbrt, cos, erf, exp, fma, hypot, lgamma, log, pow, sin, sqrt,
+    acos, asin, atan2, atanh, cbrt, cos, cosh, erf, exp, exp2, fma, hypot, lgamma, log, pow, sin,
+    sqrt, tan,
 };

@@ -20,6 +20,9 @@ build = "build.rs"
 # for the GPU tests alone (#146), which turn it on by the dev-dependency on
 # this crate below. Off in production.
 math-program = ["umbra-gpu-programs/math-program"]
+# The PTX of the libm bench's kernels, which the build script compiles
+# beside the programs', for `benches/libm.rs` alone. Off in production.
+libm-bench = []
 
 [dependencies]
 cudarc = { workspace = true }
@@ -34,8 +37,18 @@ umbra-render = { workspace = true }
 umbra-scene = { workspace = true }
 
 [dev-dependencies]
+# `Ptx`, which loads the libm bench's kernels into a plain CUDA module; the
+# library itself loads its PTX through OptiX.
+cudarc = { workspace = true, features = ["nvrtc"] }
 # This crate with the math program, for the GPU tests (`tests/gpu/libdevice.rs`).
 umbra-gpu = { path = ".", features = ["math-program"] }
+
+# What libm costs on the GPU, the counterpart of `umbra-math`'s
+# `benches/libm.rs`, with the report the math guide plots.
+[[bench]]
+name = "libm"
+harness = false
+required-features = ["libm-bench"]
 
 [lints]
 workspace = true

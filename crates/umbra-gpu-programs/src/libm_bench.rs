@@ -1,7 +1,9 @@
-//! The GPU kernels of the libm benchmark: each function as CUDA's
-//! `libdevice` (`*_libdevice`), as umbra-math's `nvptx64` backend computes it
-//! (`*_umbra`), and as the approximate intrinsics (`*_fast`), where there are
-//! such forms.
+//! The kernels of `umbra-gpu`'s libm bench: each function as CUDA's
+//! `libdevice` computes it (`*_libdevice`), as `umbra-math`'s `nvptx64`
+//! backend does (`*_umbra`), and as the approximate intrinsics do
+//! (`*_fast`), where there are such forms. Plain CUDA kernels, without
+//! OptiX: built only into the bench's own PTX, under `--cfg
+//! umbra_libm_bench`, which leaves the OptiX programs out.
 //!
 //! - `bench_<kernel>(a, b, c, acc, iters)`: thread `t` evaluates `iters`
 //!   inputs, entries `t, t + 1, …` of the 1024-entry inputs (which stay in
@@ -10,10 +12,8 @@
 //! - `eval_<kernel>(a, b, c, out1, out2)`: thread `t < 1024` writes the
 //!   results for entry `t`, for the error check.
 
-#![no_std]
-#![feature(abi_ptx, asm_experimental_arch, stdarch_nvptx)]
-
-use core::arch::{asm, nvptx};
+use core::arch::asm;
+use core::panic::PanicInfo;
 
 use umbra_math::Vec4;
 
@@ -22,43 +22,68 @@ const N: usize = 1024;
 /// The exponent of `powf`, as the host's.
 const GAMMA: f32 = 2.2;
 
+/// A panic is a bug: it aborts the launch, which the host reports.
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
+fn panic(_: &PanicInfo<'_>) -> ! {
     loop {}
 }
 
-// CUDA's `libdevice`, linked in by the build.
-unsafe extern "C" {
-    fn __nv_sinf(x: f32) -> f32;
-    fn __nv_cosf(x: f32) -> f32;
-    fn __nv_sincosf(x: f32, s: *mut f32, c: *mut f32);
-    fn __nv_tanf(x: f32) -> f32;
-    fn __nv_asinf(x: f32) -> f32;
-    fn __nv_acosf(x: f32) -> f32;
-    fn __nv_atan2f(y: f32, x: f32) -> f32;
-    fn __nv_coshf(x: f32) -> f32;
-    fn __nv_atanhf(x: f32) -> f32;
-    fn __nv_expf(x: f32) -> f32;
-    fn __nv_exp2f(x: f32) -> f32;
-    fn __nv_logf(x: f32) -> f32;
-    fn __nv_powf(x: f32, y: f32) -> f32;
-    fn __nv_erff(x: f32) -> f32;
-    fn __nv_fsqrt_rn(x: f32) -> f32;
-    fn __nv_fmaf(a: f32, b: f32, c: f32) -> f32;
-    fn __nv_floorf(x: f32) -> f32;
-    fn __nv_ceilf(x: f32) -> f32;
-    fn __nv_roundf(x: f32) -> f32;
-    fn __nv_fast_sinf(x: f32) -> f32;
-    fn __nv_fast_cosf(x: f32) -> f32;
-    fn __nv_fast_sincosf(x: f32, s: *mut f32, c: *mut f32);
-    fn __nv_fast_tanf(x: f32) -> f32;
-    fn __nv_fast_expf(x: f32) -> f32;
-    fn __nv_fast_logf(x: f32) -> f32;
-    fn __nv_fast_powf(x: f32, y: f32) -> f32;
+/// Declares CUDA's `libdevice` functions of `f32` values, which
+/// `umbra-gpu`'s build script links in, and a safe wrapper of each, of the
+/// same name: the functions `umbra-math` does not wrap itself.
+macro_rules! libdevice {
+    ($($name:ident($($arg:ident),+);)*) => {
+        /// The declarations: only the wrappers, and [`sin_cos`], call them.
+        #[expect(unsafe_code, reason = "FFI to CUDA's libdevice (ADR 0007)")]
+        mod ffi {
+            unsafe extern "C" {
+                $(pub(super) fn $name($($arg: f32),+) -> f32;)*
+                pub(super) fn __nv_sincosf(x: f32, s: *mut f32, c: *mut f32);
+                pub(super) fn __nv_fast_sincosf(x: f32, s: *mut f32, c: *mut f32);
+            }
+        }
+
+        $(
+            #[expect(unsafe_code, reason = "a call into CUDA's libdevice (ADR 0007)")]
+            fn $name($($arg: f32),+) -> f32 {
+                // SAFETY: a `libdevice` function of `f32` values, with no
+                // precondition, that touches no memory.
+                unsafe { ffi::$name($($arg),+) }
+            }
+        )*
+    };
+}
+
+libdevice! {
+    __nv_sinf(x);
+    __nv_cosf(x);
+    __nv_tanf(x);
+    __nv_asinf(x);
+    __nv_acosf(x);
+    __nv_coshf(x);
+    __nv_atanhf(x);
+    __nv_expf(x);
+    __nv_exp2f(x);
+    __nv_logf(x);
+    __nv_erff(x);
+    __nv_fsqrt_rn(x);
+    __nv_floorf(x);
+    __nv_ceilf(x);
+    __nv_roundf(x);
+    __nv_atan2f(y, x);
+    __nv_powf(x, y);
+    __nv_fmaf(a, b, c);
+    __nv_fast_sinf(x);
+    __nv_fast_cosf(x);
+    __nv_fast_tanf(x);
+    __nv_fast_expf(x);
+    __nv_fast_logf(x);
+    __nv_fast_powf(x, y);
 }
 
 /// `ex2.approx.ftz.f32`. `asm!` has integer registers only on `nvptx64`, so
 /// the operand moves through a `.f32` register of the block's own.
+#[expect(unsafe_code, reason = "one PTX instruction in inline assembly")]
 fn ex2_approx(x: f32) -> f32 {
     let r: u32;
     // SAFETY: one arithmetic instruction on registers.
@@ -74,6 +99,7 @@ fn ex2_approx(x: f32) -> f32 {
 }
 
 /// `sqrt.approx.ftz.f32`, as [`ex2_approx`].
+#[expect(unsafe_code, reason = "one PTX instruction in inline assembly")]
 fn sqrt_approx(x: f32) -> f32 {
     let r: u32;
     // SAFETY: one arithmetic instruction on registers.
@@ -89,6 +115,10 @@ fn sqrt_approx(x: f32) -> f32 {
 }
 
 /// A `sincosf` of `libdevice`, which writes through pointers.
+#[expect(
+    unsafe_code,
+    reason = "a libdevice function that writes through pointers"
+)]
 fn sin_cos(f: unsafe extern "C" fn(f32, *mut f32, *mut f32), x: f32) -> (f32, f32) {
     let (mut s, mut c) = (0.0, 0.0);
     // SAFETY: writes one float through each pointer, to live locals.
@@ -96,11 +126,19 @@ fn sin_cos(f: unsafe extern "C" fn(f32, *mut f32, *mut f32), x: f32) -> (f32, f3
     (s, c)
 }
 
-/// This thread's index in the launch.
+/// This thread's index in the launch: `%ctaid.x · %ntid.x + %tid.x`.
+#[expect(unsafe_code, reason = "special registers in inline assembly")]
 fn thread() -> usize {
-    // SAFETY: special registers, readable in any kernel.
-    let t = unsafe { nvptx::_block_idx_x() * nvptx::_block_dim_x() + nvptx::_thread_idx_x() };
-    usize::try_from(t).unwrap_or_default()
+    let t: u32;
+    // SAFETY: reads special registers, readable in any kernel.
+    unsafe {
+        asm!(
+            "{{ .reg .u32 b, d, i; mov.u32 b, %ctaid.x; mov.u32 d, %ntid.x; mov.u32 i, %tid.x; mad.lo.u32 {t}, b, d, i; }}",
+            t = out(reg32) t,
+            options(pure, nomem, nostack),
+        );
+    }
+    t as usize
 }
 
 /// Entry `j` of an input.
@@ -108,36 +146,39 @@ fn thread() -> usize {
 /// # Safety
 ///
 /// `p` points to [`N`] floats and `j < N`.
+#[expect(unsafe_code, reason = "reads an input the host wrote")]
 unsafe fn load(p: *const f32, j: usize) -> f32 {
     // SAFETY: as the caller guarantees.
-    unsafe { *p.add(j) }
+    unsafe { *p.wrapping_add(j) }
 }
 
 /// The kernels of functions of up to three scalars, with two results
 /// (the second is zero but for `sincosf`).
 macro_rules! scalar {
     ($($kernel:ident: |$a:ident, $b:ident, $c:ident| $e:expr;)*) => {$(
-        #[allow(non_snake_case, unused_variables, unused_unsafe, reason = "generated")]
+        #[expect(unsafe_code, reason = "a CUDA kernel's entry points (ADR 0007)")]
         mod $kernel {
             use super::*;
 
             #[inline(always)]
             fn f($a: f32, $b: f32, $c: f32) -> (f32, f32) {
-                // SAFETY: `libdevice` functions of `f32` values, no preconditions.
-                unsafe { $e }
+                // Every kernel takes three arguments; most use fewer.
+                let _ = ($a, $b, $c);
+                $e
             }
 
             /// # Safety
             ///
             /// `a`, `b`, `c` point to [`N`] floats, `acc` to one `u32` per thread.
             #[unsafe(export_name = concat!("bench_", stringify!($kernel)))]
-            pub unsafe extern "ptx-kernel" fn bench(a: *const f32, b: *const f32, c: *const f32, acc: *mut u32, iters: u32) {
+            unsafe extern "ptx-kernel" fn bench(a: *const f32, b: *const f32, c: *const f32, acc: *mut u32, iters: u32) {
                 let t = thread();
                 let mut bits = 0_u32;
                 for k in 0..iters as usize {
                     let j = (t + k) % N;
                     // SAFETY: `j < N`.
-                    let (r, s) = unsafe { f(load(a, j), load(b, j), load(c, j)) };
+                    let (x, y, z) = unsafe { (load(a, j), load(b, j), load(c, j)) };
+                    let (r, s) = f(x, y, z);
                     bits ^= r.to_bits() ^ s.to_bits();
                 }
                 // SAFETY: one `u32` per thread.
@@ -148,15 +189,16 @@ macro_rules! scalar {
             ///
             /// Every pointer points to [`N`] floats.
             #[unsafe(export_name = concat!("eval_", stringify!($kernel)))]
-            pub unsafe extern "ptx-kernel" fn eval(a: *const f32, b: *const f32, c: *const f32, out1: *mut f32, out2: *mut f32) {
+            unsafe extern "ptx-kernel" fn eval(a: *const f32, b: *const f32, c: *const f32, out1: *mut f32, out2: *mut f32) {
                 let t = thread();
                 if t < N {
                     // SAFETY: `t < N`.
-                    unsafe {
-                        let (r, s) = f(load(a, t), load(b, t), load(c, t));
-                        *out1.add(t) = r;
-                        *out2.add(t) = s;
-                    }
+                    let (x, y, z) = unsafe { (load(a, t), load(b, t), load(c, t)) };
+                    let (r, s) = f(x, y, z);
+                    // SAFETY: `t < N`.
+                    unsafe { *out1.add(t) = r };
+                    // SAFETY: `t < N`.
+                    unsafe { *out2.add(t) = s };
                 }
             }
         }
@@ -167,7 +209,7 @@ macro_rules! scalar {
 /// same number of evaluations.
 macro_rules! vec4 {
     ($($kernel:ident: |$v:ident| $e:expr;)*) => {$(
-        #[allow(non_snake_case, reason = "generated")]
+        #[expect(unsafe_code, reason = "a CUDA kernel's entry points (ADR 0007)")]
         mod $kernel {
             use super::*;
 
@@ -190,7 +232,7 @@ macro_rules! vec4 {
             ///
             /// `a` points to [`N`] floats, `acc` to one `u32` per thread.
             #[unsafe(export_name = concat!("bench_", stringify!($kernel)))]
-            pub unsafe extern "ptx-kernel" fn bench(a: *const f32, _b: *const f32, _c: *const f32, acc: *mut u32, iters: u32) {
+            unsafe extern "ptx-kernel" fn bench(a: *const f32, _b: *const f32, _c: *const f32, acc: *mut u32, iters: u32) {
                 let t = thread();
                 let mut bits = 0_u32;
                 for k in 0..iters as usize / 4 {
@@ -206,7 +248,7 @@ macro_rules! vec4 {
             ///
             /// `a` and `out1` point to [`N`] floats.
             #[unsafe(export_name = concat!("eval_", stringify!($kernel)))]
-            pub unsafe extern "ptx-kernel" fn eval(a: *const f32, _b: *const f32, _c: *const f32, out1: *mut f32, _out2: *mut f32) {
+            unsafe extern "ptx-kernel" fn eval(a: *const f32, _b: *const f32, _c: *const f32, out1: *mut f32, _out2: *mut f32) {
                 let t = thread();
                 if t < N / 4 {
                     // SAFETY: `4t + 4 <= N`.
@@ -229,9 +271,9 @@ scalar! {
     sinf_fast: |a, b, c| (__nv_fast_sinf(a), 0.0);
     cosf_libdevice: |a, b, c| (__nv_cosf(a), 0.0);
     cosf_fast: |a, b, c| (__nv_fast_cosf(a), 0.0);
-    sincosf_libdevice: |a, b, c| sin_cos(__nv_sincosf, a);
+    sincosf_libdevice: |a, b, c| sin_cos(ffi::__nv_sincosf, a);
     sincosf_umbra: |a, b, c| m::sin_cos(a);
-    sincosf_fast: |a, b, c| sin_cos(__nv_fast_sincosf, a);
+    sincosf_fast: |a, b, c| sin_cos(ffi::__nv_fast_sincosf, a);
     tanf_libdevice: |a, b, c| (__nv_tanf(a), 0.0);
     tanf_umbra: |a, b, c| (m::tanf(a), 0.0);
     tanf_fast: |a, b, c| (__nv_fast_tanf(a), 0.0);

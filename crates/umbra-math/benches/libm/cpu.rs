@@ -8,33 +8,17 @@ use std::hint::black_box;
 use umbra_math::Vec4;
 
 use crate::funcs::{GAMMA, Inputs};
-use crate::{Column, Implementation, Run};
+use crate::report::Column;
 
-/// glibc's scalar `libm`, declared here rather than taken through
-/// umbra-math's wrappers, so the column is glibc and nothing else.
-mod glibc {
-    #[link(name = "m")]
-    unsafe extern "C" {
-        pub fn sinf(x: f32) -> f32;
-        pub fn cosf(x: f32) -> f32;
-        pub fn sincosf(x: f32, s: *mut f32, c: *mut f32);
-        pub fn tanf(x: f32) -> f32;
-        pub fn asinf(x: f32) -> f32;
-        pub fn acosf(x: f32) -> f32;
-        pub fn atan2f(y: f32, x: f32) -> f32;
-        pub fn coshf(x: f32) -> f32;
-        pub fn atanhf(x: f32) -> f32;
-        pub fn expf(x: f32) -> f32;
-        pub fn exp2f(x: f32) -> f32;
-        pub fn logf(x: f32) -> f32;
-        pub fn powf(x: f32, y: f32) -> f32;
-        pub fn erff(x: f32) -> f32;
-        pub fn sqrtf(x: f32) -> f32;
-        pub fn fmaf(a: f32, b: f32, c: f32) -> f32;
-        pub fn floorf(x: f32) -> f32;
-        pub fn ceilf(x: f32) -> f32;
-        pub fn roundf(x: f32) -> f32;
-    }
+/// Maps a batch: inputs, first output, second output (`sincosf`'s cosine).
+pub(crate) type Run = Box<dyn Fn(&Inputs, &mut [f32], &mut [f32])>;
+
+/// One implementation of a function.
+pub(crate) struct Implementation {
+    pub(crate) column: Column,
+    /// What it is, for the table: a symbol or a short description.
+    pub(crate) note: String,
+    pub(crate) run: Run,
 }
 
 // ---- batch maps: one call per N elements, each result through black_box,
@@ -103,22 +87,22 @@ fn lanes(f: impl Fn(f32, f32, f32) -> f32 + 'static) -> Run {
     })
 }
 
-// ---- libmvec, found by `dlsym`: a glibc without a function gives no column ----
+// ---- libmvec, found by `dlsym`: a glibc without a function gives no cell ----
 
 #[cfg(target_arch = "x86_64")]
 mod arch {
     /// AVX2, which umbra-math requires on x86-64.
-    pub type V = core::arch::x86_64::__m256;
-    pub const LANES: usize = 8;
-    pub const PREFIX: &str = "_ZGVdN8";
+    pub(super) type V = core::arch::x86_64::__m256;
+    pub(super) const LANES: usize = 8;
+    pub(super) const PREFIX: &str = "_ZGVdN8";
 }
 
 #[cfg(target_arch = "aarch64")]
 mod arch {
     /// AdvSIMD (NEON), in every arm64 CPU.
-    pub type V = core::arch::aarch64::float32x4_t;
-    pub const LANES: usize = 4;
-    pub const PREFIX: &str = "_ZGVnN4";
+    pub(super) type V = core::arch::aarch64::float32x4_t;
+    pub(super) const LANES: usize = 4;
+    pub(super) const PREFIX: &str = "_ZGVnN4";
 }
 
 use arch::{LANES, PREFIX, V};
@@ -130,18 +114,25 @@ type Unary = unsafe extern "C" fn(V) -> V;
 type Binary = unsafe extern "C" fn(V, V) -> V;
 type SinCos = unsafe extern "C" fn(V, *mut f32, *mut f32);
 
-unsafe extern "C" {
-    fn dlopen(file: *const c_char, mode: c_int) -> *mut c_void;
-    fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
+/// The dynamic loader, which finds `libmvec`'s functions.
+#[expect(unsafe_code, reason = "the dynamic loader, through FFI")]
+mod dl {
+    use super::{c_char, c_int, c_void};
+
+    unsafe extern "C" {
+        pub(super) fn dlopen(file: *const c_char, mode: c_int) -> *mut c_void;
+        pub(super) fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
+    }
 }
 
 /// `libmvec.so.1`, or null when it is not installed.
+#[expect(unsafe_code, reason = "loads glibc's libmvec")]
 fn libmvec() -> *mut c_void {
     const RTLD_NOW: c_int = 2;
     const LIBMVEC: &CStr = c"libmvec.so.1";
     // SAFETY: a valid C string; loading glibc's libmvec runs no initialiser
     // of ours.
-    unsafe { dlopen(LIBMVEC.as_ptr(), RTLD_NOW) }
+    unsafe { dl::dlopen(LIBMVEC.as_ptr(), RTLD_NOW) }
 }
 
 /// The `libmvec` function `name` as the function pointer type `T`.
@@ -149,6 +140,7 @@ fn libmvec() -> *mut c_void {
 /// # Safety
 ///
 /// `T` must be the function's signature under the vector ABI.
+#[expect(unsafe_code, reason = "looks a libmvec function up by name")]
 unsafe fn symbol<T: Copy>(name: &str) -> Option<T> {
     const {
         assert!(
@@ -162,42 +154,47 @@ unsafe fn symbol<T: Copy>(name: &str) -> Option<T> {
     }
     let name = CString::new(name).ok()?;
     // SAFETY: a live handle and a valid C string.
-    let address = unsafe { dlsym(handle, name.as_ptr()) };
-    // SAFETY: a non-null address of the function, whose type the caller vouches for.
+    let address = unsafe { dl::dlsym(handle, name.as_ptr()) };
+    // SAFETY: a non-null address of the function, whose type the caller
+    // vouches for.
     (!address.is_null()).then(|| unsafe { std::mem::transmute_copy::<*mut c_void, T>(&address) })
 }
 
+#[expect(unsafe_code, reason = "reinterprets lanes as a SIMD vector")]
 fn to_vector(x: [f32; LANES]) -> V {
     // SAFETY: `V` is `LANES` f32 lanes in order, the same size, every bit
     // pattern valid for both.
     unsafe { std::mem::transmute(x) }
 }
 
+#[expect(unsafe_code, reason = "reinterprets a SIMD vector as lanes")]
 fn from_vector(x: V) -> [f32; LANES] {
     // SAFETY: as in `to_vector`, the other way round.
     unsafe { std::mem::transmute(x) }
 }
 
 /// `libmvec`'s unary `name`.
+#[expect(unsafe_code, reason = "calls a libmvec function")]
 fn libmvec_unary(name: &str) -> Option<(String, Run)> {
     let symbol_name = format!("{PREFIX}v_{name}");
     // SAFETY: `_ZGV?N?v_<f>` takes and returns one vector.
     let f: Unary = unsafe { symbol(&symbol_name) }?;
-    // SAFETY: a pure function of its vector argument.
     let run: Run = Box::new(move |i, o, _| {
+        // SAFETY: a pure function of its vector argument.
         map::<LANES>(i, o, |a, _, _| from_vector(unsafe { f(to_vector(a)) }));
     });
     Some((symbol_name, run))
 }
 
 /// `libmvec`'s binary `name`.
+#[expect(unsafe_code, reason = "calls a libmvec function")]
 fn libmvec_binary(name: &str) -> Option<(String, Run)> {
     let symbol_name = format!("{PREFIX}vv_{name}");
     // SAFETY: `_ZGV?N?vv_<f>` takes two vectors and returns one.
     let f: Binary = unsafe { symbol(&symbol_name) }?;
-    // SAFETY: a pure function of its vector arguments.
     let run: Run = Box::new(move |i, o, _| {
         map::<LANES>(i, o, |a, b, _| {
+            // SAFETY: a pure function of its vector arguments.
             from_vector(unsafe { f(to_vector(a), to_vector(b)) })
         });
     });
@@ -206,6 +203,7 @@ fn libmvec_binary(name: &str) -> Option<(String, Run)> {
 
 /// `libmvec`'s `sincosf` with linear pointers where this glibc has it,
 /// else its `sinf` and `cosf`.
+#[expect(unsafe_code, reason = "calls libmvec functions")]
 fn libmvec_sincos() -> Option<(String, Run)> {
     let symbol_name = format!("{PREFIX}vl4l4_sincosf");
     // SAFETY: `_ZGV?N?vl4l4_sincosf` takes a vector and two pointers to
@@ -216,18 +214,19 @@ fn libmvec_sincos() -> Option<(String, Run)> {
     }
     let (sin, cos) = (libmvec_vector_fn("sinf")?, libmvec_vector_fn("cosf")?);
     let run: Run = Box::new(move |i, p, q| {
-        // SAFETY: pure functions of their vector argument.
-        map_pair::<LANES>(i, p, q, |a| unsafe {
-            (
-                from_vector(sin(to_vector(a))),
-                from_vector(cos(to_vector(a))),
-            )
+        map_pair::<LANES>(i, p, q, |a| {
+            // SAFETY: a pure function of its vector argument.
+            let s = unsafe { sin(to_vector(a)) };
+            // SAFETY: as above.
+            let c = unsafe { cos(to_vector(a)) };
+            (from_vector(s), from_vector(c))
         });
     });
     Some((format!("{PREFIX}v_sinf + {PREFIX}v_cosf"), run))
 }
 
 /// The sines and cosines of `a` from the linear-pointer `sincosf`.
+#[expect(unsafe_code, reason = "calls libmvec's sincosf")]
 fn sin_cos_lanes(f: SinCos, a: [f32; LANES]) -> ([f32; LANES], [f32; LANES]) {
     let (mut s, mut c) = ([0.0; LANES], [0.0; LANES]);
     // SAFETY: both point to `LANES` writable floats.
@@ -235,6 +234,7 @@ fn sin_cos_lanes(f: SinCos, a: [f32; LANES]) -> ([f32; LANES], [f32; LANES]) {
     (s, c)
 }
 
+#[expect(unsafe_code, reason = "looks a libmvec function up by name")]
 fn libmvec_vector_fn(name: &str) -> Option<Unary> {
     // SAFETY: `_ZGV?N?v_<f>` takes and returns one vector.
     unsafe { symbol(&format!("{PREFIX}v_{name}")) }
@@ -242,41 +242,31 @@ fn libmvec_vector_fn(name: &str) -> Option<Unary> {
 
 // ---- the three columns ----
 
-/// glibc's scalar function, one call per element.
+/// glibc's scalar function through umbra-math's wrapper, one call per
+/// element.
 fn baseline(name: &'static str) -> Implementation {
-    use glibc::{
-        acosf, asinf, atan2f, atanhf, ceilf, cosf, coshf, erff, exp2f, expf, floorf, fmaf, logf,
-        powf, roundf, sincosf, sinf, sqrtf, tanf,
-    };
-    // SAFETY (every call): a glibc math function of `f32` values, no
-    // preconditions; `sincosf` writes one float through each pointer.
-    let run = unsafe {
-        match name {
-            "sinf" => scalar(|a, _, _| sinf(a)),
-            "cosf" => scalar(|a, _, _| cosf(a)),
-            "sincosf" => scalar_pair(|a| {
-                let (mut s, mut c) = (0.0, 0.0);
-                sincosf(a, &raw mut s, &raw mut c);
-                (s, c)
-            }),
-            "tanf" => scalar(|a, _, _| tanf(a)),
-            "asinf" => scalar(|a, _, _| asinf(a)),
-            "acosf" => scalar(|a, _, _| acosf(a)),
-            "atan2f" => scalar(|a, b, _| atan2f(a, b)),
-            "coshf" => scalar(|a, _, _| coshf(a)),
-            "atanhf" => scalar(|a, _, _| atanhf(a)),
-            "expf" => scalar(|a, _, _| expf(a)),
-            "exp2f" => scalar(|a, _, _| exp2f(a)),
-            "logf" => scalar(|a, _, _| logf(a)),
-            "powf" => scalar(|a, b, _| powf(a, b)),
-            "erff" => scalar(|a, _, _| erff(a)),
-            "sqrtf" => scalar(|a, _, _| sqrtf(a)),
-            "fmaf" => scalar(|a, b, c| fmaf(a, b, c)),
-            "floorf" => scalar(|a, _, _| floorf(a)),
-            "ceilf" => scalar(|a, _, _| ceilf(a)),
-            "roundf" => scalar(|a, _, _| roundf(a)),
-            _ => unreachable!("no glibc function {name}"),
-        }
+    use umbra_math as m;
+    let run = match name {
+        "sinf" => scalar(|a, _, _| m::sinf(a)),
+        "cosf" => scalar(|a, _, _| m::cosf(a)),
+        "sincosf" => scalar_pair(m::sincosf),
+        "tanf" => scalar(|a, _, _| m::tanf(a)),
+        "asinf" => scalar(|a, _, _| m::asinf(a)),
+        "acosf" => scalar(|a, _, _| m::acosf(a)),
+        "atan2f" => scalar(|a, b, _| m::atan2f(a, b)),
+        "coshf" => scalar(|a, _, _| m::coshf(a)),
+        "atanhf" => scalar(|a, _, _| m::atanhf(a)),
+        "expf" => scalar(|a, _, _| m::expf(a)),
+        "exp2f" => scalar(|a, _, _| m::exp2f(a)),
+        "logf" => scalar(|a, _, _| m::logf(a)),
+        "powf" => scalar(|a, b, _| m::powf(a, b)),
+        "erff" => scalar(|a, _, _| m::erff(a)),
+        "sqrtf" => scalar(|a, _, _| m::sqrtf(a)),
+        "fmaf" => scalar(m::fmaf),
+        "floorf" => scalar(|a, _, _| m::floorf(a)),
+        "ceilf" => scalar(|a, _, _| m::ceilf(a)),
+        "roundf" => scalar(|a, _, _| m::roundf(a)),
+        _ => unreachable!("no glibc function {name}"),
     };
     Implementation {
         column: Column::Baseline,
@@ -340,7 +330,7 @@ fn best(name: &str) -> Option<Implementation> {
 }
 
 /// The implementations of `name` on this CPU.
-pub fn implementations(name: &'static str) -> Vec<Implementation> {
+pub(crate) fn implementations(name: &'static str) -> Vec<Implementation> {
     [Some(baseline(name)), Some(umbra(name)), best(name)]
         .into_iter()
         .flatten()

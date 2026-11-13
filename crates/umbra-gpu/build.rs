@@ -14,6 +14,9 @@
 //!
 //! With this crate's `math-program` feature, which the GPU tests turn on,
 //! the programs are built with theirs, and the PTX has the math program.
+//! With its `libm-bench` feature, the script also builds a second PTX,
+//! `libm_bench.ptx`, of the libm bench's plain CUDA kernels, for
+//! `benches/libm.rs`.
 //!
 //! Building the programs on every host build is also the check that no core
 //! crate pulls `std`: `nvptx64` has none.
@@ -34,22 +37,86 @@ const LIBDEVICE: &str = "nvvm/libdevice/libdevice.10.bc";
 const NO_LIBDEVICE: &str = "libdevice.10.bc not found (set UMBRA_LIBDEVICE or CUDA_PATH): \
                             the GPU programs build, but the GPU cannot run them";
 
+/// A PTX module built from `umbra-gpu-programs`.
+#[derive(Clone, Copy, Debug)]
+enum Programs {
+    /// The OptiX programs the renderer runs, with the math program under
+    /// this crate's `math-program` feature: embedded by `src/tracer.rs`.
+    Tracer,
+    /// The plain CUDA kernels of the libm bench, under `--cfg
+    /// umbra_libm_bench` and without the OptiX programs, which a CUDA module
+    /// cannot load: built under this crate's `libm-bench` feature for
+    /// `benches/libm.rs`.
+    LibmBench,
+}
+
+impl Programs {
+    /// The build's own target directory under `OUT_DIR`: the two take
+    /// different flags, so sharing one would rebuild both every time.
+    fn target_dir(self) -> &'static str {
+        match self {
+            Self::Tracer => "programs",
+            Self::LibmBench => "libm-bench",
+        }
+    }
+
+    /// The PTX's name in `OUT_DIR`.
+    fn ptx(self) -> &'static str {
+        match self {
+            Self::Tracer => "umbra_gpu_programs.ptx",
+            Self::LibmBench => "libm_bench.ptx",
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("cargo sets OUT_DIR")?);
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("cargo sets CARGO_MANIFEST_DIR")?);
-    let programs = manifest_dir.join("../umbra-gpu-programs/Cargo.toml");
-    let target_dir = out_dir.join("programs");
+    let manifest = manifest_dir.join("../umbra-gpu-programs/Cargo.toml");
     let libdevice = find_libdevice();
+    if libdevice.is_none() {
+        println!("cargo::warning={NO_LIBDEVICE}");
+    }
 
-    let mut cargo = programs_build(&programs, &target_dir);
-    match &libdevice {
-        Some(path) => {
-            cargo
-                .arg("--")
-                .arg(format!("-Clink-arg={}", path.display()));
-        }
-        None => println!("cargo::warning={NO_LIBDEVICE}"),
+    build(Programs::Tracer, &manifest, &out_dir, libdevice.as_deref())?;
+    if env::var_os("CARGO_FEATURE_LIBM_BENCH").is_some() {
+        build(
+            Programs::LibmBench,
+            &manifest,
+            &out_dir,
+            libdevice.as_deref(),
+        )?;
+    }
+    println!("cargo::rerun-if-changed={}", manifest.display());
+    println!(
+        "cargo::rerun-if-changed={}",
+        manifest_dir.join("../../Cargo.lock").display()
+    );
+    for var in ["UMBRA_LIBDEVICE", "CUDA_PATH", "CUDA_HOME"] {
+        println!("cargo::rerun-if-env-changed={var}");
+    }
+    Ok(())
+}
+
+/// Builds `programs` and copies their PTX to `OUT_DIR`, with `libdevice`
+/// linked in where there is one.
+fn build(
+    programs: Programs,
+    manifest: &Path,
+    out_dir: &Path,
+    libdevice: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
+    let target_dir = out_dir.join(programs.target_dir());
+    let mut cargo = programs_build(manifest, &target_dir, programs);
+    let link = libdevice.map(|path| format!("-Clink-arg={}", path.display()));
+    let cfg = match programs {
+        Programs::Tracer => None,
+        Programs::LibmBench => Some("--cfg=umbra_libm_bench".to_owned()),
+    };
+    let rustc_args: Vec<String> = cfg.into_iter().chain(link).collect();
+    if !rustc_args.is_empty() {
+        cargo.arg("--").args(rustc_args);
     }
     let status = cargo.status()?;
     if !status.success() {
@@ -61,17 +128,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     if libdevice.is_some() && ptx.contains(".extern .func") {
         return Err("libdevice was linked, but the PTX still has an .extern .func".into());
     }
-    fs::write(out_dir.join("umbra_gpu_programs.ptx"), ptx)?;
-    rerun_if_sources_change(&built.join("umbra_gpu_programs.d"))?;
-    println!("cargo::rerun-if-changed={}", programs.display());
-    println!(
-        "cargo::rerun-if-changed={}",
-        manifest_dir.join("../../Cargo.lock").display()
-    );
-    for var in ["UMBRA_LIBDEVICE", "CUDA_PATH", "CUDA_HOME"] {
-        println!("cargo::rerun-if-env-changed={var}");
-    }
-    Ok(())
+    fs::write(out_dir.join(programs.ptx()), ptx)?;
+    rerun_if_sources_change(&built.join("umbra_gpu_programs.d"))
 }
 
 /// The nested `cargo rustc` that builds the programs' PTX: their library as
@@ -84,7 +142,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// business in the PTX. `-C target-cpu` stays at the target's default,
 /// `sm_70`, whose PTX the driver compiles for any newer GPU; setting it would
 /// mismatch the prebuilt `core`.
-fn programs_build(manifest: &Path, target_dir: &Path) -> Command {
+fn programs_build(manifest: &Path, target_dir: &Path, programs: Programs) -> Command {
     let mut cargo = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     cargo
         .arg("rustc")
@@ -96,7 +154,9 @@ fn programs_build(manifest: &Path, target_dir: &Path) -> Command {
         .arg(target_dir)
         .args(["--config", "profile.release.debug=false"])
         .args(["--config", "profile.release.strip=\"debuginfo\""]);
-    if env::var_os("CARGO_FEATURE_MATH_PROGRAM").is_some() {
+    if let Programs::Tracer = programs
+        && env::var_os("CARGO_FEATURE_MATH_PROGRAM").is_some()
+    {
         cargo.args(["--features", "math-program"]);
     }
     for var in [

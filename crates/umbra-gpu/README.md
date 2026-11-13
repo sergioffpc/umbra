@@ -54,6 +54,12 @@ PTX and the pipeline, `Tracer::evaluate`, and `MathFunction` and
 `UnknownMathFunction` at the crate root: for the GPU tests alone, which turn
 it on by a dev-dependency of the crate on itself (#146).
 
+The `libm-bench` feature, off by default, makes the build script compile a
+second PTX, of `umbra-gpu-programs`' libm bench kernels, for
+`benches/libm.rs`: what each C math function costs on the GPU, the
+counterpart of `umbra-math`'s bench of the same name, whose README says how
+to run both.
+
 Not here yet: the `SceneView` upload, the wavefront queues and a GPU
 `Renderer` that renders, which arrive with the features on both Render Devices
 ([#127](https://github.com/sergioffpc/umbra/issues/127)) and the GPU Local
