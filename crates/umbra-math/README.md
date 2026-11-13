@@ -275,7 +275,7 @@ Chebyshev ones.
 
 ### The arm64 backend (ADR 0032)
 
-The core builds for arm64 on Linux and macOS, with no CPU baseline to
+The core builds for arm64 Linux, with no CPU baseline to
 require: NEON and FMA are in every arm64 CPU. It keeps ADR 0022's bits on one
 machine; across machines, its images are statistically equal to x86-64's.
 
@@ -288,13 +288,11 @@ machine; across machines, its images are statistically equal to x86-64's.
 - **`sin_cos`, `atan2` and `erf` are Umbra's own**, the `f64` kernels x86-64
   uses (`src/transcendental/cpu.rs`).
 - **`Vec4::exp` and `Vec4::pow` are the C library's `expf` and `powf`** per
-  lane, within 1 ULP with glibc and with Apple's libm (checked by
-  `tests/umbra_math/accuracy/`), not the x86-64 backend's AVX2 kernels. The
-  facade pins a signalling NaN exponent of `pow` to NaN, where Apple's libm
-  gives 1 for a base of 1.
-- **The C math wrappers** (`src/platform/libm.rs`) bind glibc on Linux and
-  `libSystem` on macOS. macOS has no `sincosf`; the wrapper calls `sinf` and
-  `cosf` there.
+  lane, within 1 ULP with glibc (checked by `tests/umbra_math/accuracy/`),
+  not the x86-64 backend's AVX2 kernels. The facade pins a signalling NaN
+  exponent of `pow` to NaN.
+- **The C math wrappers** (`src/platform/libm.rs`) bind glibc, as on
+  x86-64.
 
 ### The `nvptx64` backend (ADR 0028)
 

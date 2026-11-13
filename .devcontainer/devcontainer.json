@@ -21,9 +21,8 @@
 
   "remoteUser": "vscode",
 
-  // The build output and the cargo download cache live in named volumes:
-  // on macOS and Windows a bind-mounted target/ is many times slower, and
-  // the volumes survive container rebuilds.
+  // The build output and the cargo download cache live in named volumes,
+  // which survive container rebuilds.
   "mounts": [
     {
       "type": "volume",

@@ -1,7 +1,7 @@
 //! The transcendentals Umbra uses, from every implementation there is to
 //! compare (<https://github.com/sergioffpc/umbra/issues/138>): Umbra's own
 //! kernels, glibc's scalar `libm.so` through `umbra_math`'s wrappers, and, on
-//! `linux-gnu` outside Miri, glibc's vector `libmvec` at four and eight
+//! x86-64 outside Miri, glibc's vector `libmvec` at four and eight
 //! lanes.
 //!
 //! `benches/transcendentals.rs` includes this module by `#[path]` and times
@@ -21,21 +21,11 @@ use umbra_math::{Vec4, atan2f, erff, expf, powf, sincosf};
 use crate::rng::Rng;
 
 // Explicit path, so the benchmark can include this file by `#[path]` too.
-#[cfg(all(
-    target_arch = "x86_64",
-    target_os = "linux",
-    target_env = "gnu",
-    not(miri)
-))]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 #[path = "transcendentals/libmvec.rs"]
 mod libmvec;
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_os = "linux",
-    target_env = "gnu",
-    not(miri)
-))]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 pub(crate) use libmvec::{Libmvec4, Libmvec8};
 
 /// The inputs per batch: a multiple of eight, the widest call.

@@ -119,12 +119,7 @@ fn umbra_within_bound() {
 }
 
 /// The `libmvec` implementations, where the bench has them.
-#[cfg(all(
-    target_arch = "x86_64",
-    target_os = "linux",
-    target_env = "gnu",
-    not(miri)
-))]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 mod libmvec {
     use super::assert_within_bound;
     use crate::transcendentals::{Libmvec4, Libmvec8};

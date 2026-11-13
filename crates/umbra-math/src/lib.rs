@@ -34,6 +34,15 @@ compile_error!(
     "umbra-math supports x86-64 (x86-64-v3), arm64 and nvptx64 only (ADR 0032, ADR 0028)"
 );
 
+// The one supported operating system: the CPUs run Linux, and both CPU
+// backends call glibc's `libm.so.6`. macOS, Windows and musl are not
+// supported (ADR 0034).
+#[cfg(all(
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(all(target_os = "linux", target_env = "gnu"))
+))]
+compile_error!("umbra-math supports Linux with glibc only");
+
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod double;
 mod float;
