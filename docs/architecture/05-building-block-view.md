@@ -155,7 +155,7 @@ pub fn work(options: &WorkerOptions) -> Result<(), Error>;
 
 ### `umbra` (binary)
 
-The binary has `clap` derive subcommands: `render`, `worker`, `trace` and `bench`.
+The binary has `clap` derive subcommands: `render`, `worker`, `trace` and `bench`. All of it is a library, `umbra::run`, which `main.rs` only calls, so the tests in `crates/umbra/tests/` reach its public items.
 
 - **Parsing.** The binary parses the Scene File, applies command-line overrides and builds the Reproduction Record. It then calls `umbra-cluster`, or `umbra-cpu` for `trace`.
 - **`bench`.** Its logic is modules of the binary: the confidence intervals and the comparison of Render Job Reports.

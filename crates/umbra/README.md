@@ -1,7 +1,9 @@
 # umbra
 
 The `umbra` binary: the `render`, `worker`, `trace` and `bench` subcommands,
-and how they put the other crates together. It parses the Scene File with
+and how they put the other crates together. All of it is in the library,
+`umbra::run`; `main.rs` only calls it, and the tests in `tests/` use the
+library's public items. It parses the Scene File with
 `umbra-parser`, applies the command-line overrides, builds the Reproduction
 Record, and calls `umbra-cluster`, or `umbra-cpu` for `trace`. The
 statistics of `bench` are modules of the binary.
@@ -18,15 +20,15 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 
 ## What is in it
 
-| Module           | Contents                                                                                                              |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `main`           | The exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
-| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
-| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout |
-| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
-| `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature         |
-| `footer`         | `Footer`: stderr with the status line kept at its bottom, log events printed above it                                 |
-| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
+| Module           | Contents                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `lib`            | `run`: the exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
+| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own               |
+| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
+| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
+| `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature                |
+| `footer`         | `Footer`, public: stderr with the status line kept at its bottom, log events printed above it                                |
+| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice          |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
 `UMBRA_TREE` where there is no `.git` (a container build).
@@ -170,7 +172,6 @@ The integration tests are the cross-crate tests of arc42 §5.4:
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.
-
-The `footer` unit tests check, over an in-memory terminal, that a status
-update replaces the last one and that a log event prints above the status
-line, which is redrawn below it.
+- `tests/footer.rs`, `Footer` over an in-memory terminal: a status update
+  replaces the last one, and a log event prints above the status line,
+  which is redrawn below it.

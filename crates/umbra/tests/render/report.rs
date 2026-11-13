@@ -76,7 +76,9 @@ fn the_report_names_the_local_workers_host_and_cpu() {
     let worker = &report["Local Worker"];
     let host = fs::read_to_string("/proc/sys/kernel/hostname").expect("Linux names its host");
     assert_eq!(field(worker, "host"), host.trim(), "{worker}");
-    assert!(!field(worker, "CPU").is_empty(), "{worker}");
+    // Its model name on x86-64, its implementer and part on arm64: CI runs
+    // this on both.
+    assert_ne!(field(worker, "CPU"), "unknown", "{worker}");
 }
 
 #[test]

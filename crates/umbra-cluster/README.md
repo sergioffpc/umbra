@@ -121,5 +121,5 @@ Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
 the image and report of a camera-only Scene File, and the same Film hash
 with one thread and with all of them, the report's fields, the logged
 status, and Ctrl-C. Scheduling is checked there, not through internal
-interfaces. The status line's number formats are unit tests in `status`,
-and the CPU model read from `/proc/cpuinfo` on x86-64 and arm64 in `host`.
+interfaces; the report's CPU model is checked on x86-64 and on arm64, which
+CI runs too. The status line's number formats are unit tests in `status`.
