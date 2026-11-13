@@ -28,6 +28,10 @@
     --bit-sign: #96379f;
     --bit-exp: #2f43c4;
     --bit-sig: #0b7b84;
+    /* the three series of the libm figure (§9) */
+    --s-base: #2a78d6;
+    --s-umbra: #eb6834;
+    --s-best: #1baf7a;
     --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
     --text: "Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
     --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -50,6 +54,9 @@
         --bit-sign: #d98ae2;
         --bit-exp: #8e9cff;
         --bit-sig: #4fc4cd;
+        --s-base: #3987e5;
+        --s-umbra: #d95926;
+        --s-best: #199e70;
     }
 }
 :root[data-theme="dark"] {
@@ -67,6 +74,9 @@
     --bit-sign: #d98ae2;
     --bit-exp: #8e9cff;
     --bit-sig: #4fc4cd;
+    --s-base: #3987e5;
+    --s-umbra: #d95926;
+    --s-best: #199e70;
 }
 
 * { box-sizing: border-box; }
@@ -253,6 +263,21 @@ table.data td { border-bottom: 1px solid var(--grid); padding: 0.35rem 0.6rem 0.
 .sources li { break-inside: avoid; margin-bottom: 0.5em; }
 footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule); font: 400 0.78rem/1.5 var(--mono); color: var(--muted); }
 
+/* libm figure (§9): a dot plot on a log axis, its hover card and its table */
+.libm-plot { position: relative; }
+.cv-libm { height: 32rem; }
+.libm-tip {
+    position: absolute; z-index: 2; pointer-events: none; max-width: min(22rem, 80%);
+    padding: 0.5rem 0.65rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14); font: 400 0.74rem/1.45 var(--mono); color: var(--ink);
+}
+.libm-tip b { font-weight: 600; }
+.legend.shapes span::before { display: none; }
+.legend.shapes svg { width: 0.9em; height: 0.9em; margin-right: 0.4em; vertical-align: -0.1em; overflow: visible; }
+table.data td.num, table.data th.num { text-align: right; }
+table.data td.what { color: var(--muted); }
+.libm-headline { font: 400 0.86rem/1.5 var(--mono); margin: 0; }
+
 @media (prefers-reduced-motion: no-preference) {
     .bits button { transition: background-color 120ms ease, color 120ms ease; }
 }
@@ -299,6 +324,12 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
                     <li><a href="#projection"><span class="n">8</span><span class="t">The perspective projection</span><span class="c">perspective()</span></a></li>
                 </ol>
                 <a class="after" href="#sources">Where to read more: primary sources</a>
+            </div>
+            <div class="toc-part">
+                <div class="kicker">Performance</div>
+                <ol>
+                    <li><a href="#libm"><span class="n">9</span><span class="t">What libm costs</span><span class="c">glibc · umbra-math · libmvec · the GPU</span></a></li>
+                </ol>
             </div>
         </div>
     </nav>
@@ -672,6 +703,51 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
     </figure>
 </section>
 
+<!-- ================================================================= -->
+<div class="part">
+    <div class="kicker">umbra-math</div>
+    <h2>Performance</h2>
+    <p>What the C library's functions cost on the machines Umbra runs on, and what umbra-math does about it.</p>
+</div>
+
+<section class="topic" id="libm">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-math</span> · <a href="../src/platform/libm.rs">platform/libm.rs</a> · <a href="../../../tools/libm-bench/README.md">tools/libm-bench</a> · <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a></div>
+        <h3>What libm costs</h3>
+    </div>
+    <div class="prose">
+        <p><code>umbra-math</code> exports nineteen <code>f32</code> functions of the C library, from <code>sinf</code> to <code>roundf</code>. For each it offers one of three things: a kernel of its own (<code>sin_cos</code>, <code>atan2</code>, <code>erf</code>, <code>Vec4::exp</code>, <code>Vec4::pow</code>), the hardware instruction (<code>sqrt</code>, <code>fma</code>, <code>floor</code>, <code>ceil</code>), or a safe wrapper that calls glibc. The figure times each function three ways on every benchmark machine:</p>
+        <ul>
+            <li><b>glibc</b>: the scalar function of glibc's <code>libm.so.6</code>, called once per element. On the GPU, CUDA's <code>libdevice</code> (<code>__nv_sinf</code>, …) takes its place.</li>
+            <li><b>umbra-math</b>: what the crate offers today. Where it is a wrapper, it costs what glibc costs.</li>
+            <li><b>best SIMD</b>: the fastest form there is, whatever Umbra's rules say. On the CPU that is glibc's <code>libmvec</code>, 8 lanes of AVX2 on x86-64 and 4 of AdvSIMD on arm64, for the transcendentals, and the vector instruction for the exact operations. On the GPU it is the approximate intrinsics (<code>__nv_fast_sinf</code>, <code>ex2.approx</code>, …). This column gives up the 1 ULP bound Umbra keeps (ADR 0022): <code>libmvec</code> promises 4 ULP, and the GPU's intrinsics bound only the absolute error, which near a zero of the result is thousands of ULP.</li>
+        </ul>
+        <p>Each function maps 1024 inputs from the range a renderer gives it, the same inputs on every machine, and every result passes through <code>black_box</code>, so no scalar call is vectorised behind the benchmark's back. A CPU time is the median of 201 runs on one pinned core, per element. The error is the largest over the 1024 inputs, in ULPs from the correctly rounded result, taken from glibc's <code>f64</code> routine.</p>
+        <p>A GPU time is throughput, not latency: a launch of 2³¹ evaluations spread over the whole device, divided by their number, in picoseconds. It says how many the GPU does per second, not how long one takes. The cheapest functions all sit on the same floor, which is the cost of the loop around them: one load and one XOR per evaluation.</p>
+    </div>
+    <figure class="bench" id="lb">
+        <p class="panel-foot" id="lb-empty" hidden>No results yet: run <code>scripts/bench-libm.sh</code> on a benchmark machine.</p>
+        <div id="lb-body">
+            <div class="controls">
+                <div class="ctl"><label for="lb-machine">machine</label><select id="lb-machine"></select></div>
+                <div class="legend shapes" id="lb-legend"></div>
+            </div>
+            <p class="libm-headline" id="lb-headline"></p>
+            <div class="libm-plot">
+                <p class="panel-title" id="lb-axis"></p>
+                <canvas id="lb-cv" class="cv-libm" aria-label="Time per element of each function, three implementations, log scale; the table below has the same numbers"></canvas>
+                <div class="libm-tip" id="lb-tip" hidden></div>
+            </div>
+            <p class="panel-foot" id="lb-foot"></p>
+            <div class="tablewrap"><table class="data" id="lb-table"></table></div>
+        </div>
+        <figcaption><b>Time per element on a log scale, one row per function.</b> Hover a mark for what ran, its speed-up over glibc and its largest error; the table has the same numbers. × is the speed-up over the glibc column, ULP the largest error.</figcaption>
+    </figure>
+    <div class="prose">
+        <p>To refresh a machine's results, run <code>scripts/bench-libm.sh p620</code> (or <code>r630</code>, <code>m2</code>) in the dev container and commit this file. The script replaces that machine's lines in the results block at the end of this page and leaves the others alone. On the M2 the dev container is <code>linux/arm64</code> (<a href="../../../docs/adr/0034-linux-only.md">ADR 0034</a>), so all three machines run the dev container's glibc.</p>
+    </div>
+</section>
+
 <section class="topic" id="sources">
     <div class="topic-head">
         <div class="eyebrow">primary sources</div>
@@ -689,6 +765,15 @@ footer { margin-top: 5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 <footer>Umbra Math Guide · crates/umbra-math/docs/math-guide.html · a single self-contained file. Open it in any browser; without network it falls back to system fonts.</footer>
 </div>
 
+<script>
+/* The libm benchmark's results (§9), one line per machine and device, written
+    by scripts/bench-libm.sh (tools/libm-bench). Each row has the function and,
+    per column, [ns per element, largest error in ULPs, what ran], or null. */
+const LIBM_RESULTS = [
+    // libm-bench results: begin
+    // libm-bench results: end
+];
+</script>
 <script>
 "use strict";
 (() => {
@@ -807,6 +892,7 @@ function readTheme() {
         paper: g("--paper"), surface: g("--surface"), ink: g("--ink"), muted: g("--muted"),
         rule: g("--rule"), grid: g("--grid"), accent: g("--accent"), err: g("--err"),
         exact: g("--exact"), sign: g("--bit-sign"), sig: g("--bit-sig"),
+        base: g("--s-base"), umbra: g("--s-umbra"), best: g("--s-best"),
         mono: g("--mono") || "monospace",
     };
 }
@@ -1598,6 +1684,130 @@ class Pcg32 {
     }
     syncs.forEach((s) => s()); update();
     updaters.push(() => { paint(en); paint(ez); });
+})();
+
+/* ================================================================
+    9 · What libm costs: a dot plot of LIBM_RESULTS, one row per function
+    ================================================================ */
+(() => {
+    const records = [...LIBM_RESULTS];
+    if (!records.length) { $("lb-empty").hidden = false; $("lb-body").hidden = true; return; }
+    const ORDER = ["p620-cpu", "r630-cpu", "m2-cpu", "p620-gpu"];
+    const rank = (id) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length);
+    records.sort((a, b) => rank(a.id) - rank(b.id));
+    const gpu = (r) => r.kind === "gpu";
+    const COLS = [
+        { key: "base", shape: "circle", name: (r) => (gpu(r) ? "libdevice" : "glibc") },
+        { key: "umbra", shape: "square", name: () => "umbra-math" },
+        { key: "best", shape: "diamond", name: (r) => (gpu(r) ? "fast intrinsic" : "best SIMD") },
+    ];
+    const unit = (r) => (gpu(r) ? { u: "ps", k: 1000 } : { u: "ns", k: 1 });
+    const sig = (v) => (v >= 100 ? v.toFixed(0) : v.toPrecision(3));
+    const ulp = (e) => (e === null ? "NaN" : String(e));
+    const speedup = (row, cell) => (row.base && cell ? row.base[0] / cell[0] : null);
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    const sel = $("lb-machine"), tip = $("lb-tip"), cv = $("lb-cv");
+    records.forEach((r, i) => sel.add(new Option(`${r.machine} · ${r.kind.toUpperCase()}`, String(i))));
+    let rec = records[0], marks = [];
+
+    function shapePath(ctx, shape, x, y, r) {
+        ctx.beginPath();
+        if (shape === "circle") ctx.arc(x, y, r, 0, 2 * Math.PI);
+        else if (shape === "square") ctx.rect(x - 0.9 * r, y - 0.9 * r, 1.8 * r, 1.8 * r);
+        else { ctx.moveTo(x, y - 1.25 * r); ctx.lineTo(x + 1.25 * r, y); ctx.lineTo(x, y + 1.25 * r); ctx.lineTo(x - 1.25 * r, y); ctx.closePath(); }
+    }
+    function mark(ctx, shape, x, y, color) {
+        shapePath(ctx, shape, x, y, 5);
+        ctx.lineWidth = 2; ctx.strokeStyle = C.paper; ctx.stroke();
+        ctx.fillStyle = color; ctx.fill();
+    }
+    function legend() {
+        const svg = (c) => {
+            const p = { circle: '<circle cx="5" cy="5" r="4.5"/>', square: '<rect x="0.5" y="0.5" width="9" height="9"/>', diamond: '<path d="M5 -0.6 L10.6 5 L5 10.6 L-0.6 5 Z"/>' }[c.shape];
+            return `<svg viewBox="0 0 10 10" aria-hidden="true" fill="var(--s-${c.key})">${p}</svg>`;
+        };
+        $("lb-legend").innerHTML = COLS.map((c) => `<span>${svg(c)}${c.name(rec)}</span>`).join("");
+    }
+    function draw(ctx, W, H) {
+        const { k } = unit(rec);
+        const rows = rec.rows;
+        const vals = rows.flatMap((row) => COLS.map((c) => row[c.key]).filter(Boolean).map((v) => v[0] * k));
+        // The 1-2-5 ticks, from the one at or below the fastest to the one at
+        // or above the slowest: decades always labelled, 2 and 5 when few.
+        const ticks = [];
+        for (let d = Math.floor(Math.log10(Math.min(...vals))); d <= Math.ceil(Math.log10(Math.max(...vals))); d++) {
+            [1, 2, 5].forEach((m) => ticks.push(m * 10 ** d));
+        }
+        const lo = ticks.filter((t) => t <= Math.min(...vals) * (1 + 1e-9)).at(-1);
+        const hi = ticks.find((t) => t >= Math.max(...vals) * (1 - 1e-9));
+        const shown = ticks.filter((t) => t >= lo && t <= hi);
+        const L = Math.log10(lo), R = Math.log10(hi);
+        const left = 74, right = 18, top = 8, bottom = 24;
+        const X = (v) => left + (Math.log10(v) - L) / (R - L) * (W - left - right);
+        const rowH = (H - top - bottom) / rows.length, Y = (i) => top + (i + 0.5) * rowH;
+        shown.forEach((t) => {
+            const decade = Math.abs(Math.log10(t) - Math.round(Math.log10(t))) < 1e-9;
+            line(ctx, [[X(t), top], [X(t), H - bottom]], decade ? C.rule : C.grid, 1);
+            if (decade || R - L <= 2.5) label(ctx, String(Number(t.toPrecision(1))), X(t), H - bottom + 12, C.muted, "center", 10);
+        });
+        marks = [];
+        rows.forEach((row, i) => {
+            const y = Y(i);
+            const xs = COLS.map((c) => row[c.key]).filter(Boolean).map((v) => X(v[0] * k));
+            label(ctx, row.f, left - 10, y, C.ink, "right", 11);
+            line(ctx, [[Math.min(...xs), y], [Math.max(...xs), y]], C.rule, 2);
+            COLS.forEach((c) => {
+                const cell = row[c.key];
+                if (!cell) return;
+                const x = X(cell[0] * k);
+                mark(ctx, c.shape, x, y, C[c.key]);
+                marks.push({ x, y, row, c, cell });
+            });
+        });
+    }
+    function table() {
+        const { u, k } = unit(rec);
+        const head = `<thead><tr><th>function</th>${COLS.map((c, i) => `<th class="num">${c.name(rec)}, ${u}</th>${i ? '<th class="num">×</th>' : ""}<th class="num">ULP</th>${i ? "<th>what runs</th>" : ""}`).join("")}</tr></thead>`;
+        const body = rec.rows.map((row) => `<tr><td><code>${row.f}</code></td>${COLS.map((c, i) => {
+            const cell = row[c.key];
+            if (!cell) return `<td class="num">—</td>${i ? '<td class="num"></td>' : ""}<td class="num"></td>${i ? '<td class="what">none on this target</td>' : ""}`;
+            const s = speedup(row, cell);
+            return `<td class="num">${sig(cell[0] * k)}</td>${i ? `<td class="num">${s === null ? "" : s.toFixed(1)}</td>` : ""}<td class="num">${ulp(cell[1])}</td>${i ? `<td class="what">${esc(cell[2])}</td>` : ""}`;
+        }).join("")}</tr>`).join("");
+        $("lb-table").innerHTML = head + `<tbody>${body}</tbody>`;
+    }
+    function texts() {
+        const { u } = unit(rec);
+        const faster = rec.rows.filter((row) => (speedup(row, row.umbra) ?? 0) > 1.1).length;
+        const best = rec.rows.map((row) => speedup(row, row.best)).filter((v) => v !== null).sort((a, b) => a - b);
+        const median = best.length ? best[Math.floor(best.length / 2)] : null;
+        setText("lb-headline", `On ${rec.machine} · ${rec.kind.toUpperCase()}, umbra-math beats ${COLS[0].name(rec)} by more than 10 % on ${faster} of ${rec.rows.length} functions` +
+            (median === null ? "." : `; the ${COLS[2].name(rec)} form, where there is one, is a median ${median.toFixed(1)}× faster than ${COLS[0].name(rec)}.`));
+        setText("lb-axis", `${gpu(rec) ? "throughput, " : ""}time per element in ${u}, log scale`);
+        setText("lb-foot", [rec.device, rec.arch, gpu(rec) ? null : rec.libc, `commit ${rec.commit}`, rec.date].filter(Boolean).join(" · "));
+    }
+    function showTip(ev) {
+        const r = cv.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+        let near = null, d2 = 14 * 14;
+        marks.forEach((m) => { const d = (m.x - mx) ** 2 + (m.y - my) ** 2; if (d < d2) { d2 = d; near = m; } });
+        if (!near) { tip.hidden = true; return; }
+        const { u, k } = unit(rec), s = speedup(near.row, near.cell);
+        tip.innerHTML = `<b>${near.row.f}</b> · ${near.c.name(rec)}<br>${esc(near.cell[2])}<br>${sig(near.cell[0] * k)} ${u} per element` +
+            (near.c.key === "base" || s === null ? "" : ` · ${s.toFixed(1)}× ${COLS[0].name(rec)}`) + `<br>largest error ${ulp(near.cell[1])} ULP`;
+        tip.hidden = false;
+        const box = cv.offsetParent === tip.offsetParent ? cv.offsetTop : 0;
+        const x = Math.min(near.x + 14, r.width - tip.offsetWidth - 4);
+        tip.style.left = `${Math.max(4, x)}px`;
+        const below = near.y + 12 + tip.offsetHeight <= r.height;
+        tip.style.top = `${box + (below ? near.y + 12 : near.y - 12 - tip.offsetHeight)}px`;
+    }
+    cv.addEventListener("pointermove", showTip);
+    cv.addEventListener("pointerleave", () => { tip.hidden = true; });
+    const en = canvasEntry("lb-cv", draw);
+    function update() { rec = records[Number(sel.value)]; tip.hidden = true; legend(); table(); texts(); paint(en); }
+    sel.addEventListener("change", update);
+    update();
+    updaters.push(() => paint(en));
 })();
 
 /* ---------- start ---------- */

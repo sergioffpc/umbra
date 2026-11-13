@@ -32,7 +32,7 @@ Interactive explainers live next to the crate they explain, in its `docs/` folde
 
 The crate guides:
 
-- [`umbra-math/docs/math-guide.html`](../crates/umbra-math/docs/math-guide.html): `f32` rounding, error bounds, intervals, compensated arithmetic, normals, frames, octahedral vectors and the perspective projection.
+- [`umbra-math/docs/math-guide.html`](../crates/umbra-math/docs/math-guide.html): `f32` rounding, error bounds, intervals, compensated arithmetic, normals, frames, octahedral vectors, the perspective projection, and what the C library's functions cost on each benchmark machine and the GPU.
 - [`umbra-camera/docs/camera-guide.html`](../crates/umbra-camera/docs/camera-guide.html): how a Pixel Sample becomes a ray and radiance becomes sensor RGB: coordinate spaces, the pinhole and thin-lens camera, importance-sampled pixel filters, the camera sample and the pixel sensor, with diagrams for readers new to the maths.
 - [`umbra-sampling/docs/sampling-guide.html`](../crates/umbra-sampling/docs/sampling-guide.html): Monte Carlo, hashing and PCG32, low-discrepancy and Halton sampling, the inversion method, piecewise-constant distributions and the warps to discs, spheres, triangles and lobes.
 - [`umbra-spectrum/docs/spectrum-guide.html`](../crates/umbra-spectrum/docs/spectrum-guide.html): light as a spectrum, sampled wavelengths, CIE XYZ, colour spaces and turning RGB into spectra.
