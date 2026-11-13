@@ -222,7 +222,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             to_worker
                 .send(ToWorker::Assign(unit))
                 .map_err(|_| Error::NoWorkers)?;
-            self.progress.assigned(unit, Instant::now());
+            self.progress.assigned(Instant::now());
             self.demand -= 1;
         }
         Ok(())

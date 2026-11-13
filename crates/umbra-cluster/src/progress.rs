@@ -5,10 +5,14 @@
 
 use std::time::{Duration, Instant};
 
-use umbra_render::{Decomposition, PassIndex, WorkUnit};
+use umbra_render::{Decomposition, PassIndex, TileIndex, WorkUnit};
 
 /// The time constant of the moving average of the Pixel Sample rate.
 const RATE_WINDOW: Duration = Duration::from_secs(10);
+
+/// The shortest step the average takes in once it has a value: a shorter
+/// one, such as the last before the end, would only add noise.
+const MIN_STEP: Duration = Duration::from_millis(100);
 
 /// An estimate of the time left.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,10 +38,15 @@ struct Rate {
 impl Rate {
     /// Takes the samples merged since the last tick into the average.
     fn tick(&mut self, now: Instant, samples: u64) {
-        let dt = now.duration_since(self.last_tick).as_secs_f64();
-        if dt <= 0.0 || samples == 0 {
+        let step = now.duration_since(self.last_tick);
+        let too_short = match self.per_second {
+            Some(_) => step < MIN_STEP,
+            None => step.is_zero(),
+        };
+        if too_short || samples == 0 {
             return;
         }
+        let dt = step.as_secs_f64();
         let instant = to_f64(samples - self.last_samples) / dt;
         let weight = dt / (RATE_WINDOW.as_secs_f64() + dt);
         self.per_second = Some(match self.per_second {
@@ -54,7 +63,8 @@ impl Rate {
 pub(crate) struct Progress<'d> {
     decomposition: &'d Decomposition,
     start: Instant,
-    pass: PassIndex,
+    /// The Work Units merged, per Pass.
+    merged_per_pass: Vec<u32>,
     merged_units: u64,
     merged_samples: u64,
     in_flight: u32,
@@ -74,7 +84,7 @@ impl<'d> Progress<'d> {
         Self {
             decomposition,
             start: now,
-            pass: PassIndex(0),
+            merged_per_pass: vec![0; decomposition.pass_count() as usize],
             merged_units: 0,
             merged_samples: 0,
             in_flight: 0,
@@ -92,13 +102,12 @@ impl<'d> Progress<'d> {
         }
     }
 
-    /// `unit` was assigned to the Local Worker at `now`.
-    pub(crate) fn assigned(&mut self, unit: WorkUnit, now: Instant) {
+    /// A Work Unit was assigned to the Local Worker at `now`.
+    pub(crate) fn assigned(&mut self, now: Instant) {
         if self.in_flight == 0 {
             self.busy_since = Some(now);
         }
         self.in_flight += 1;
-        self.pass = self.pass.max(unit.pass);
     }
 
     /// The Work Result of `unit`, rendered in `render_time`, was merged at
@@ -119,6 +128,7 @@ impl<'d> Progress<'d> {
         let samples = self.pixel_samples(unit);
         let tile = unit.tile.0 as usize;
         self.merged_units += 1;
+        self.merged_per_pass[unit.pass.0 as usize] += 1;
         self.merged_samples += samples;
         self.merge_time += merge_time;
         self.render_time += render_time;
@@ -131,9 +141,13 @@ impl<'d> Progress<'d> {
         self.rate.tick(now, self.merged_samples);
     }
 
-    /// The Pass of the last Work Unit assigned.
+    /// The current Pass: the first not wholly merged, or the last once
+    /// every one is.
     pub(crate) fn pass(&self) -> PassIndex {
-        self.pass
+        let tiles = self.decomposition.tile_count();
+        let pending = self.merged_per_pass.iter().position(|&n| n < tiles);
+        let last = self.merged_per_pass.len().saturating_sub(1);
+        PassIndex(u32::try_from(pending.unwrap_or(last)).expect("Passes are counted in a u32"))
     }
 
     /// The Passes of the Render Job.
@@ -158,8 +172,8 @@ impl<'d> Progress<'d> {
 
     /// The Pixel Samples of the Render Job.
     pub(crate) fn total_samples(&self) -> u64 {
-        (0..self.decomposition.tile_count())
-            .map(|tile| self.tile_total_samples(tile as usize))
+        (0..self.tile_samples.len())
+            .map(|tile| self.tile_total_samples(tile))
             .sum()
     }
 
@@ -218,7 +232,7 @@ impl<'d> Progress<'d> {
             return Eta::Unknown;
         }
         let left = to_f64(self.total_samples() - self.merged_samples);
-        match self.pass {
+        match self.pass() {
             PassIndex(0) => Eta::Provisional(Duration::from_secs_f64(left / rate)),
             PassIndex(_) => Eta::Measured(Duration::from_secs_f64(self.cost_left() / rate)),
         }
@@ -264,7 +278,7 @@ impl<'d> Progress<'d> {
 
     /// Every Pixel Sample of `tile`, over every Pass.
     fn tile_total_samples(&self, tile: usize) -> u64 {
-        let tile = umbra_render::TileIndex(u32::try_from(tile).unwrap_or(u32::MAX));
+        let tile = TileIndex(u32::try_from(tile).expect("Tiles are counted in a u32"));
         let pixels = self.decomposition.tile_bounds(tile).area() as u64;
         pixels * u64::from(self.decomposition.samples_per_pixel())
     }

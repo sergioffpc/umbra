@@ -3,8 +3,6 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::thread;
-use std::time::Duration;
 
 use crate::cli::{CAMERA_ONLY, Workspace, report};
 
@@ -27,14 +25,18 @@ fn ctrl_c_writes_a_cancelled_report_and_no_image_and_exits_130() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("umbra runs");
-    let mut stderr = BufReader::new(umbra.stderr.take().unwrap());
-    let mut version = String::new();
-    stderr.read_line(&mut version).unwrap();
-    // Into the render phase, then Ctrl-C.
-    thread::sleep(Duration::from_millis(500));
+    // The first status event comes once the render phase has started.
+    let stderr = BufReader::new(umbra.stderr.take().unwrap());
+    let mut lines = stderr.lines();
+    let rendering = lines
+        .by_ref()
+        .map_while(Result::ok)
+        .any(|l| l.contains("Work Units"));
+    assert!(rendering, "a status event before the end");
     let pid = umbra.id().to_string();
     let kill = Command::new("kill").args(["-INT", &pid]).status().unwrap();
     assert!(kill.success(), "SIGINT sent");
+    lines.for_each(drop);
     let status = umbra.wait().unwrap();
 
     assert_eq!(status.code(), Some(130), "{status:?}");

@@ -107,6 +107,8 @@ count, so a single-Pass Film hash does not either.
   `RenderJobOutcome::Cancelled` with the report of what was merged. The
   caller decides what makes it (Ctrl-C, in `umbra`).
 - **`StatusLine::Redrawn`** writes ANSI cursor moves: give it a terminal.
+  It moves up over its own two lines, so a log event written to the same
+  terminal during the render is drawn over.
   `StatusLine::Logged` sends `info` events about every 10 s and once at
   the end.
 - **The report's parse, Scene build and image write times** are the
