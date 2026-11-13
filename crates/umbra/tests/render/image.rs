@@ -76,7 +76,7 @@ fn the_report_names_its_schema_version_as_major_and_minor() {
     let report = report(&ws.path("black.exr"));
     assert_eq!(
         report["schema_version"],
-        serde_json::json!({ "major": 0, "minor": 1 })
+        serde_json::json!({ "major": 0, "minor": 2 })
     );
 }
 

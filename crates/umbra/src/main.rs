@@ -3,22 +3,25 @@
 mod build_identity;
 mod cli;
 mod error;
+mod logs;
 mod render;
 
 use std::io::{self, Write};
 use std::panic;
-use std::process::ExitCode;
+use std::process::{self, ExitCode};
+use std::sync::Arc;
 
 use clap::Parser;
 use clap::error::ErrorKind;
+use tracing::warn;
+use umbra_render::Cancellation;
 
 use crate::build_identity::{version_line, version_notice};
 use crate::cli::{Cli, Command};
 use crate::error::Error;
 
 /// How `umbra` exits (arc42 §8.13). Invalid usage exits 2 from `clap`
-/// itself; Ctrl-C's 130 arrives with
-/// [#86](https://github.com/sergioffpc/umbra/issues/86).
+/// itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Exit {
     /// Success.
@@ -27,6 +30,8 @@ enum Exit {
     Failure = 1,
     /// Refused where a retry cannot help: an invalid Scene File.
     Refused = 3,
+    /// Cancelled by Ctrl-C, as a shell reports SIGINT.
+    Cancelled = 130,
 }
 
 impl From<Exit> for ExitCode {
@@ -37,7 +42,8 @@ impl From<Exit> for ExitCode {
 
 fn main() -> ExitCode {
     exit_on_panic();
-    let mut stderr = io::stderr().lock();
+    // Not locked: `tracing` writes to stderr from other threads too.
+    let mut stderr = io::stderr();
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         // `clap` would write the version to stdout; Umbra writes it to
@@ -48,10 +54,12 @@ fn main() -> ExitCode {
         }
         Err(error) => error.exit(),
     };
+    logs::init(cli.log_format, &cli.log);
+    let cancel = cancel_on_ctrl_c();
     // Informative: a closed stderr does not stop the command.
     let _ = writeln!(stderr, "{}", version_line());
     let exit = match cli.command {
-        Command::Render(args) => match render::render(&args, &mut stderr) {
+        Command::Render(args) => match render::render(&args, &cancel, &mut stderr) {
             Ok(()) => Exit::Success,
             Err(error) => report(&error, &mut stderr),
         },
@@ -66,7 +74,25 @@ fn report(error: &Error, stderr: &mut dyn Write) -> Exit {
     match error {
         Error::Refused(_) => Exit::Refused,
         Error::Unreadable(_) | Error::Io(_) | Error::Cluster(_) => Exit::Failure,
+        Error::Cancelled => Exit::Cancelled,
     }
+}
+
+/// A cancellation that Ctrl-C makes; a second Ctrl-C exits at once, with
+/// no report.
+fn cancel_on_ctrl_c() -> Arc<Cancellation> {
+    let cancel = Arc::new(Cancellation::new());
+    let handler = Arc::clone(&cancel);
+    let installed = ctrlc::set_handler(move || {
+        if handler.is_cancelled() {
+            process::exit(Exit::Cancelled as i32);
+        }
+        handler.cancel();
+    });
+    if let Err(error) = installed {
+        warn!("Ctrl-C will not cancel cleanly: {error}");
+    }
+    cancel
 }
 
 /// Makes a panic on any thread exit 1 once reported, as a failure (arc42
@@ -75,6 +101,6 @@ fn exit_on_panic() {
     let report = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         report(info);
-        std::process::exit(Exit::Failure as i32);
+        process::exit(Exit::Failure as i32);
     }));
 }

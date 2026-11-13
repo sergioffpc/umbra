@@ -13,11 +13,19 @@ publish.workspace = true
 
 [dependencies]
 clap = { workspace = true }
+ctrlc = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-tracy = { workspace = true, optional = true }
 umbra-cluster = { workspace = true }
 umbra-parser = { workspace = true }
 umbra-render = { workspace = true }
 umbra-scene = { workspace = true }
+
+[features]
+# Sends the `tracing` spans to Tracy (arc42 §8.4); off by default.
+tracy = ["dep:tracing-tracy"]
 
 [dev-dependencies]
 dhat = { workspace = true }

@@ -5,12 +5,20 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::logs::{LogFormat, parse_filter};
+
 /// Umbra: a physically based renderer of pbrt-v4 Scene Files.
 #[derive(Debug, Parser)]
 #[command(name = "umbra", version, about)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Command,
+    /// The events logged to stderr, as a `RUST_LOG`-style filter.
+    #[arg(long, global = true, default_value = "info", value_parser = parse_filter)]
+    pub(crate) log: String,
+    /// The log format; `human` on a terminal and `json` otherwise by default.
+    #[arg(long, global = true, value_enum)]
+    pub(crate) log_format: Option<LogFormat>,
 }
 
 /// The subcommands.

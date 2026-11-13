@@ -3,11 +3,12 @@
 
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Serialize, Serializer};
 use umbra_scene::{ContentHash, RenderJobOptions};
 
 /// Whether a binary was built from a tree with uncommitted changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Tree {
     /// Built from the commit, unchanged.
@@ -18,7 +19,7 @@ pub enum Tree {
 
 /// What a binary was built from (arc42 §7.2, ADR 0012): its commit, and
 /// whether the tree was dirty.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct BuildIdentity {
     /// The git commit, in full.
     pub commit: String,
@@ -30,11 +31,12 @@ pub struct BuildIdentity {
 /// hash of everything it read, the seed, every Render Job Option but the
 /// output path, and the Build Identity. Its JSON is versioned, and the
 /// Render Job Report carries it as `reproduction_record`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct ReproductionRecord {
     version: u32,
     scene_file: PathBuf,
     #[serde(serialize_with = "hex")]
+    #[schemars(with = "String")]
     content_hash: ContentHash,
     seed: i32,
     tile_size: u32,

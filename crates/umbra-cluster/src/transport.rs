@@ -1,6 +1,8 @@
 //! The in-memory transport between the Coordinator and its Local Worker:
 //! the typed messages of the wire protocol, unencoded (arc42 §8.13).
 
+use std::time::Duration;
+
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use umbra_render::{WorkResult, WorkUnit};
 
@@ -11,6 +13,9 @@ pub(crate) enum ToWorker {
     Assign(WorkUnit),
     /// Every Work Unit is merged: stop.
     JobFinished,
+    /// The Render Job is cancelled: stop what is in flight, send nothing
+    /// more.
+    Cancel,
 }
 
 /// From a Worker to the Coordinator.
@@ -18,8 +23,12 @@ pub(crate) enum ToWorker {
 pub(crate) enum ToCoordinator {
     /// Add this many Work Units to the Worker's demand.
     RequestWork(u32),
-    /// A finished Work Unit.
-    WorkResult(WorkResult),
+    /// A finished Work Unit, and how long the Worker took to render it:
+    /// metadata outside the Work Result's content (arc42 §8.10).
+    WorkResult {
+        result: WorkResult,
+        render_time: Duration,
+    },
 }
 
 /// The Coordinator's end of a connection.

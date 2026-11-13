@@ -14,8 +14,8 @@ on `umbra-parser` (arc42 §5.1). Its contract is sketched in arc42 §5.3.
 ```rust
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use umbra_cluster::{CoordinatorOptions, Outcome, RenderJob, coordinate};
-use umbra_render::{BuildIdentity, ReproductionRecord, Tree};
+use umbra_cluster::{CoordinatorOptions, RenderJob, RenderJobOutcome, StatusLine, coordinate};
+use umbra_render::{BuildIdentity, Cancellation, ReproductionRecord, Tree};
 use umbra_scene::{ContentHash, RenderJobOptions, SceneBuilder};
 
 // pbrt-v4's default camera-only Scene, one Pixel Sample per pixel.
@@ -33,24 +33,36 @@ let record =
     ReproductionRecord::new(PathBuf::from("scene.pbrt"), ContentHash([0; 32]), &options, identity);
 let job = RenderJob { scene, options, record };
 
-let outcome = coordinate(job, &CoordinatorOptions::default(), &mut std::io::sink())?;
-assert_eq!(outcome.report.outcome(), Outcome::Finished);
-assert_eq!(outcome.image.resolution(), resolution);
+let cancel = Cancellation::new();
+let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, StatusLine::Logged)?;
+let RenderJobOutcome::Finished { image, report } = outcome else {
+    panic!("nothing cancelled it");
+};
+assert!(report.film_hash().is_some());
+assert_eq!(image.resolution(), resolution);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## What is in it
 
-| Module         | Contents                                                                                                                                          |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome`; the scheduling loop                           |
-| `error`        | `Error`: why a Render Job did not finish                                                                                                          |
-| `local_worker` | The CPU Local Worker: renders its Work Units with `umbra-render`'s `Renderer`, several at once on its own rayon pool                              |
-| `transport`    | The in-memory transport: `Assign` and `JobFinished` to the Worker, `RequestWork` and Work Results to the Coordinator, typed and unencoded (§8.13) |
-| `report`       | `RenderJobReport`, so far its schema version, `Outcome`, Film hash and Reproduction Record, and `write`, atomically                               |
+| Module         | Contents                                                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome` (finished or cancelled); the scheduling loop                   |
+| `error`        | `Error`: why a Render Job did not finish                                                                                                                          |
+| `local_worker` | The CPU Local Worker: renders its Work Units with `umbra-render`'s `Renderer`, several at once on its own rayon pool, and times each                              |
+| `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
+| `status`       | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                              |
+| `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |
+| `report`       | `RenderJobReport` (schema 0.2), `Outcome`, `Phase`, the JSON Schema, and `write`, atomically                                                                      |
 
-Not here yet: the status line, the full Render Job Report and Ctrl-C, with
-[#86](https://github.com/sergioffpc/umbra/issues/86); QUIC and the GPU
+The committed JSON Schema of the report is
+`render-job-report.schema.json`; a test fails when it is stale, and
+`UMBRA_BLESS=1 cargo test -p umbra-cluster --test umbra_cluster schema`
+regenerates it. Not in the report yet: the Scene and BVH statistics, with
+the BVH; the Anomalous Pixel Sample count, with
+[#85](https://github.com/sergioffpc/umbra/issues/85).
+
+Not here yet: QUIC and the GPU
 Local Worker, with [#128](https://github.com/sergioffpc/umbra/issues/128);
 remote Workers, discovery and `work`, with
 [#129](https://github.com/sergioffpc/umbra/issues/129).
@@ -90,12 +102,22 @@ count, so a single-Pass Film hash does not either.
   called from inside a `tokio` runtime.
 - **The image and the report are returned, not written**: the caller
   chooses where they go (arc42 §5.3).
-- **`status`** gets one line at the end so far; the status line of §8.10
-  arrives with #86.
+- **`cancel`** is polled every 250 ms: once made, the Coordinator stops
+  assigning, tells the Worker to stop at its next row, and returns
+  `RenderJobOutcome::Cancelled` with the report of what was merged. The
+  caller decides what makes it (Ctrl-C, in `umbra`).
+- **`StatusLine::Redrawn`** writes ANSI cursor moves: give it a terminal.
+  `StatusLine::Logged` sends `info` events about every 10 s and once at
+  the end.
+- **The report's parse, Scene build and image write times** are the
+  caller's to record, with `RenderJobReport::record_phase`.
 
 ## Tests
 
 Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
 the image and report of a camera-only Scene File, and the same Film hash
-with one thread and with all of them. Scheduling is checked there, not
-through internal interfaces.
+with one thread and with all of them, the report's fields, the logged
+status, and Ctrl-C. Scheduling is checked there, not through internal
+interfaces. In `tests/umbra_cluster/`, the committed JSON Schema is checked
+against the generated one; the status line's number formats are unit
+tests in `status`.

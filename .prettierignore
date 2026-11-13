@@ -2,3 +2,5 @@
 CHANGELOG.md
 # Written by the Dev Containers CLI.
 .devcontainer/devcontainer-lock.json
+# Generated from the Rust types and checked by its own test (umbra-cluster).
+crates/umbra-cluster/render-job-report.schema.json
