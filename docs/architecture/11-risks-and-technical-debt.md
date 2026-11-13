@@ -19,8 +19,9 @@ Risks follow from decisions already taken; each names what would show it is happ
 
 ## 11.2 Technical debt
 
-| Id   | Debt                                                                                | Why it exists       | Repayment                                       |
-| ---- | ----------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------- |
-| TD-2 | **The README says nothing renders yet** and gives a `cargo run` with no subcommand. | No code exists yet. | With the `umbra` binary issue of v0.1.0 (§4.2). |
+| Id   | Debt                                                                                   | Why it exists                                                                                                        | Repayment                                                                        |
+| ---- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| TD-2 | **The README says nothing renders yet** and gives a `cargo run` with no subcommand.    | No code exists yet.                                                                                                  | With the `umbra` binary issue of v0.1.0 (§4.2).                                  |
+| TD-3 | **`umbra bench` and `umbra trace` have no defined way to read the Render Job Report.** | The report became text on stdout, with no file and no schema ([#182](https://github.com/sergioffpc/umbra/pull/182)). | Decided with the issues that build `umbra bench` and `umbra trace` (§8.4, §8.9). |
 
 Nothing else is owed yet: no rendering code has been written. From the first milestone on, every exception to the rules of §8 (an `#[expect]` on a lint, an `unsafe` block, a deferred test) is recorded here with its repayment, or justified in place where the rule allows it.
