@@ -99,7 +99,7 @@ mod arch {
 
 #[cfg(target_arch = "aarch64")]
 mod arch {
-    /// AdvSIMD (NEON), in every arm64 CPU.
+    /// `AdvSIMD` (NEON), in every arm64 CPU.
     pub(super) type V = core::arch::aarch64::float32x4_t;
     pub(super) const LANES: usize = 4;
     pub(super) const PREFIX: &str = "_ZGVnN4";
