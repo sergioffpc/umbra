@@ -1,6 +1,5 @@
 //! The `f64` C math functions, one safe wrapper each over the platform's
-//! math library (ADR 0007, ADR 0022): glibc's `libm.so.6` on Linux, libSystem
-//! on macOS.
+//! math library (ADR 0007, ADR 0022): glibc's `libm.so.6`.
 //!
 //! The renderer works in `f32`, whose wrappers are at the crate root
 //! (`umbra_math::tanf`); these serve the `f64` test oracles and

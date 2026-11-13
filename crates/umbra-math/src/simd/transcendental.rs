@@ -2,7 +2,7 @@
 //! within 1 ULP of the correctly rounded result in every lane (ADR 0022),
 //! where glibc per lane costs several times more; the backend evaluates them
 //! in `f64`. On arm64 they are the C library's `expf` and `powf` per lane,
-//! within 1 ULP with glibc and Apple's libm (`tests/umbra_math/accuracy/`).
+//! within 1 ULP with glibc (`tests/umbra_math/accuracy/`).
 //! On `nvptx64` they are `libdevice`'s, within 2 and 4 ULP (ADR 0028). This
 //! facade gives `pow` C's values at zeros, infinities and NaNs on all three.
 
@@ -55,7 +55,7 @@ impl Vec4 {
     /// result on the CPUs and 4 ULP on `nvptx64`, with C `powf`'s values for
     /// zeros, infinities and NaNs. An exponent of 0 gives 1 and of 1 the
     /// lanes themselves, exactly; a signalling NaN exponent gives NaN, as
-    /// IEEE 754 asks (Apple's libm gives 1 for a lane of 1), and any other
+    /// IEEE 754 asks, and any other
     /// infinite or NaN exponent falls back to `powf`, as every exponent
     /// does on arm64.
     ///

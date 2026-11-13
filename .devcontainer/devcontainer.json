@@ -21,9 +21,8 @@
 
   "remoteUser": "vscode",
 
-  // The build output and the cargo download cache live in named volumes:
-  // on macOS and Windows a bind-mounted target/ is many times slower, and
-  // the volumes survive container rebuilds.
+  // The build output and the cargo download cache live in named volumes,
+  // which survive container rebuilds.
   "mounts": [
     {
       "type": "volume",
@@ -54,6 +53,8 @@
     // fail the GPU detection, which queries Docker-only `info` fields: set
     // the VS Code user setting "dev.containers.gpuAvailability" to "all",
     // which Podman maps to the NVIDIA CDI spec (`nvidia-ctk cdi generate`).
+    // On Podman hosts without an NVIDIA GPU, such as macOS, set it to "none"
+    // instead.
     "gpu": "optional"
   },
 

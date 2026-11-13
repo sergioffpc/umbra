@@ -1,5 +1,7 @@
 # arm64 back as a CPU target
 
+> **Amended by [ADR 0034](0034-linux-only.md).** Linux with glibc is the only operating system; native macOS is no longer supported. An Apple silicon Mac runs the `linux/arm64` image under Podman or Docker.
+
 Umbra builds and runs on arm64 again, as a second CPU beside x86-64 with `x86-64-v3`. The release image is published for `linux/amd64` and `linux/arm64`. Decided with the owner on 2026-11-13. This supersedes [ADR 0023](0023-x86-64-only.md) and amends [ADR 0005](0005-chiseled-release-container-image.md), [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) and [ADR 0025](0025-one-x86-64-v3-release-image.md).
 
 ADR 0023 dropped arm64 because it cost a second backend for every SIMD kernel, with NaN and rounding behaviour matched bit for bit across two instruction sets. [ADR 0022](0022-determinism-on-one-machine-statistical-equality-across-machines.md) has since dropped bit-identical results across machines, and [ADR 0028](0028-one-core-for-cpu-and-gpu.md) has added a lane-by-lane backend for `nvptx64` whose contract is the scalar code itself. arm64 reuses that backend, so the cost ADR 0023 weighed is mostly gone. In return the operator can render, and run the release image under Podman or Docker, on an Apple silicon Mac, which cannot run the `x86-64-v3` image: Apple's Virtualization framework emulates x86-64 without AVX2 or FMA.

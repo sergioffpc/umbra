@@ -1,0 +1,31 @@
+# The libm benchmark (tools/libm-bench/README.md): a workspace of its own,
+# outside the umbra workspace, so its GPU kernels may use the nightly's
+# `ptx-kernel` ABI (ADR 0027 keeps unstable features out of `crates/`).
+[package]
+name = "libm-bench"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[features]
+# The GPU columns, through the CUDA driver.
+gpu = ["dep:cudarc"]
+
+[dependencies]
+cudarc = { version = "0.19.10", optional = true, default-features = false, features = [
+  "std",
+  "driver",
+  "nvrtc",
+  "dynamic-loading",
+  "cuda-12080",
+] }
+umbra-math = { path = "../../crates/umbra-math" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
