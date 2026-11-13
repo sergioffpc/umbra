@@ -1,19 +1,31 @@
 //! `coordinate`: a Render Job from its Scene to its image, through the
 //! Local Worker (arc42 §5.3, §6.2).
 
-use std::io;
 use std::num::NonZeroUsize;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use tokio::runtime::Builder;
-use umbra_render::{Decomposition, Film, Image, Renderer, ReproductionRecord};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::time::{self, MissedTickBehavior};
+use tracing::{info, info_span};
+use umbra_render::{
+    Acceptance, Cancellation, Film, FilmHash, Image, Renderer, ReproductionRecord, WorkResult,
+    WorkUnit,
+};
 use umbra_scene::{RenderJobOptions, Scene};
 
 use crate::error::Error;
 use crate::local_worker;
-use crate::report::RenderJobReport;
+use crate::progress::Progress;
+use crate::report::{Outcome, RenderJobReport, Rendered, WorkerFigures};
+use crate::status::{Status, StatusLine};
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
+
+/// How often the Coordinator checks for a cancellation and shows its
+/// status.
+const TICK: Duration = Duration::from_millis(250);
 
 /// A Render Job: what is rendered, how it is cut into Work Units, and the
 /// record of how to compute it again.
@@ -46,21 +58,36 @@ pub struct CoordinatorOptions {
     pub threads: Threads,
 }
 
-/// What a finished Render Job produces: the image, and its report, which
-/// the caller writes.
+/// How a Render Job ended: finished, with its image and report, which the
+/// caller writes, or cancelled, with its report alone (ADR 0004).
 #[derive(Debug)]
-pub struct RenderJobOutcome {
-    /// The final image, every Pass merged.
-    pub image: Image,
-    /// The Render Job Report.
-    pub report: RenderJobReport,
+pub enum RenderJobOutcome {
+    /// Every Pass was merged.
+    Finished {
+        /// The final image.
+        image: Image,
+        /// The Render Job Report.
+        report: RenderJobReport,
+    },
+    /// `cancel` stopped it before the end.
+    Cancelled {
+        /// The Render Job Report, with what was merged.
+        report: RenderJobReport,
+    },
+}
+
+/// Why the scheduling loop ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Finished,
+    Cancelled,
 }
 
 /// Renders `job` to its image with the Local Worker, assigning Work Units
 /// as it asks for them, Pass by Pass in raster Tile order (ADR 0009), and
 /// merging each Work Result into the Film as it arrives (ADR 0022). It
-/// blocks until the last Pass is merged; the runtime it needs is its own.
-/// `status` receives the progress.
+/// blocks until the last Pass is merged or `cancel` is made; the runtime it
+/// needs is its own. `status` receives the progress.
 ///
 /// # Errors
 ///
@@ -69,7 +96,8 @@ pub struct RenderJobOutcome {
 pub fn coordinate(
     job: RenderJob,
     options: &CoordinatorOptions,
-    status: &mut dyn io::Write,
+    cancel: &Cancellation,
+    status: StatusLine<'_>,
 ) -> Result<RenderJobOutcome, Error> {
     let RenderJob {
         scene,
@@ -77,28 +105,28 @@ pub fn coordinate(
         record,
     } = job;
     let renderer = Renderer::new(&scene, &job_options)?;
-    let mut film = Film::new(&scene, &job_options)?;
     let pool = thread_pool(options.threads)?;
-    let runtime = Builder::new_current_thread()
-        .build()
-        .map_err(Error::Runtime)?;
-    let (coordinator, worker) = connect();
-    thread::scope(|s| {
-        s.spawn(|| local_worker::work(&renderer, &pool, worker));
-        runtime.block_on(schedule(renderer.decomposition(), &mut film, coordinator))
-    })?;
-    let film_hash = film.hash();
-    // The status line is informative: a closed stderr does not fail the
-    // Render Job.
-    let _ = writeln!(
-        status,
-        "rendered {} Work Units, Film hash {film_hash}",
-        renderer.decomposition().work_units().count()
-    );
-    Ok(RenderJobOutcome {
-        image: film.finish(),
-        report: RenderJobReport::finished(film_hash, record),
-    })
+    let threads = pool.current_num_threads();
+    let mut scheduler = Scheduler {
+        film: Film::new(&scene, &job_options)?,
+        progress: Progress::new(renderer.decomposition(), Instant::now()),
+        status: Status::new(status, threads),
+        queue: renderer.decomposition().work_units(),
+        demand: 0,
+    };
+    let ending = {
+        let _span = info_span!("render").entered();
+        let runtime = Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .map_err(Error::Runtime)?;
+        let (coordinator, worker) = connect();
+        thread::scope(|s| {
+            s.spawn(|| local_worker::work(&renderer, &pool, worker));
+            runtime.block_on(scheduler.run(coordinator, cancel))
+        })?
+    };
+    Ok(scheduler.finish(ending, record))
 }
 
 /// The Local Worker's thread pool.
@@ -113,36 +141,135 @@ fn thread_pool(threads: Threads) -> Result<ThreadPool, Error> {
         .map_err(Error::ThreadPool)
 }
 
-/// Assigns every Work Unit of `decomposition` as the Worker asks, and
-/// merges each Work Result into `film`, until every one is merged.
-async fn schedule(
-    decomposition: &Decomposition,
-    film: &mut Film,
-    connection: CoordinatorEnd,
-) -> Result<(), Error> {
-    let CoordinatorEnd {
-        to_worker,
-        mut from_worker,
-    } = connection;
-    let mut queue = decomposition.work_units();
-    let mut demand = 0_u32;
-    while !film.is_complete() {
-        match from_worker.recv().await.ok_or(Error::NoWorkers)? {
-            ToCoordinator::RequestWork(count) => demand = demand.saturating_add(count),
-            ToCoordinator::WorkResult(result) => {
-                film.accept(&result);
+/// The Coordinator's side of a running Render Job: the Film it merges
+/// into, the Work Units not assigned yet, and the progress it shows.
+struct Scheduler<'d, 'w, Q> {
+    film: Film,
+    progress: Progress<'d>,
+    status: Status<'w>,
+    queue: Q,
+    /// The Work Units the Local Worker asked for and was not given yet.
+    demand: u32,
+}
+
+impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
+    /// Assigns every Work Unit as the Worker asks, and merges each Work
+    /// Result, until every one is merged or `cancel` is made.
+    async fn run(
+        &mut self,
+        connection: CoordinatorEnd,
+        cancel: &Cancellation,
+    ) -> Result<Ending, Error> {
+        let CoordinatorEnd {
+            to_worker,
+            mut from_worker,
+        } = connection;
+        let mut ticker = time::interval(TICK);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        while !self.film.is_complete() {
+            tokio::select! {
+                message = from_worker.recv() => {
+                    self.receive(message.ok_or(Error::NoWorkers)?);
+                    self.assign(&to_worker)?;
+                }
+                _ = ticker.tick() => {
+                    if cancel.is_cancelled() {
+                        // The Worker may already be gone.
+                        let _ = to_worker.send(ToWorker::Cancel);
+                        return Ok(Ending::Cancelled);
+                    }
+                    let now = Instant::now();
+                    self.progress.tick(now);
+                    self.status.show(&self.progress, now);
+                }
             }
         }
-        while demand > 0
-            && let Some(unit) = queue.next()
+        // The Worker may already be gone: it has nothing left to do.
+        let _ = to_worker.send(ToWorker::JobFinished);
+        Ok(Ending::Finished)
+    }
+
+    /// Takes in a message from the Local Worker.
+    fn receive(&mut self, message: ToCoordinator) {
+        match message {
+            ToCoordinator::RequestWork(count) => self.demand = self.demand.saturating_add(count),
+            ToCoordinator::WorkResult {
+                result,
+                render_time,
+            } => self.merge(&result, render_time),
+        }
+    }
+
+    /// Merges `result`, rendered in `render_time`, into the Film, unless
+    /// its Work Unit is merged already.
+    fn merge(&mut self, result: &WorkResult, render_time: Duration) {
+        let start = Instant::now();
+        let acceptance = info_span!("merge").in_scope(|| self.film.accept(result));
+        let now = Instant::now();
+        if acceptance == Acceptance::Merged {
+            self.progress
+                .merged(result.unit(), render_time, now - start, now);
+        }
+    }
+
+    /// Assigns as many Work Units as the Local Worker asked for, while any
+    /// is left.
+    fn assign(&mut self, to_worker: &UnboundedSender<ToWorker>) -> Result<(), Error> {
+        while self.demand > 0
+            && let Some(unit) = self.queue.next()
         {
             to_worker
                 .send(ToWorker::Assign(unit))
                 .map_err(|_| Error::NoWorkers)?;
-            demand -= 1;
+            self.progress.assigned(Instant::now());
+            self.demand -= 1;
+        }
+        Ok(())
+    }
+
+    /// Shows the last status and makes the outcome of the Render Job.
+    fn finish(mut self, ending: Ending, record: ReproductionRecord) -> RenderJobOutcome {
+        let now = Instant::now();
+        self.progress.tick(now);
+        self.status.finish(&self.progress, now);
+        match ending {
+            Ending::Finished => {
+                let hash = self.film.hash();
+                info!("Render Job finished, Film hash {hash}");
+                let rendered = self.rendered(Outcome::Finished, Some(hash), now);
+                RenderJobOutcome::Finished {
+                    report: RenderJobReport::new(rendered, record),
+                    image: self.film.finish(),
+                }
+            }
+            Ending::Cancelled => {
+                let merged = self.progress.merged_samples();
+                info!("Render Job cancelled, {merged} Pixel Samples merged");
+                let rendered = self.rendered(Outcome::Cancelled, None, now);
+                RenderJobOutcome::Cancelled {
+                    report: RenderJobReport::new(rendered, record),
+                }
+            }
         }
     }
-    // The Worker may already be gone: it has nothing left to do.
-    let _ = to_worker.send(ToWorker::JobFinished);
-    Ok(())
+
+    /// What the render phase produced, up to `now`.
+    fn rendered(&self, outcome: Outcome, film_hash: Option<FilmHash>, now: Instant) -> Rendered {
+        let render_time = self.progress.elapsed(now);
+        let busy_time = self.progress.busy_time(now);
+        Rendered {
+            outcome,
+            film_hash,
+            render_time,
+            merge_time: self.progress.merge_time(),
+            local_worker: WorkerFigures {
+                threads: self.status.threads(),
+                work_units: self.progress.merged_units(),
+                pixel_samples: self.progress.merged_samples(),
+                busy_time,
+                idle_time: render_time.saturating_sub(busy_time),
+            },
+            tile_costs: self.progress.tile_costs(),
+        }
+    }
 }

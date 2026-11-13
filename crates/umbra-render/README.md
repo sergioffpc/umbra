@@ -41,8 +41,8 @@ assert!(film.is_complete());
 | `work_result`   | `WorkResult`: one `PixelSum` per pixel of a Tile, the `f64` sums of filter-weighted sensor RGB and of filter weights                                                                    |
 | `film`          | `Film`, which accepts each Work Result as `Acceptance::Merged` or `Acceptance::Duplicate`, its `FilmHash`, and `finish` into an `Image`                                                 |
 | `image`         | `Image`, written in the format its path's extension names                                                                                                                               |
-| `atomic_file`   | `write_atomically`: a file written whole or not at all, for the image and the Render Job Report                                                                                         |
-| `reproduction`  | `ReproductionRecord`, its versioned JSON, and the `BuildIdentity` it holds                                                                                                              |
+| `atomic_file`   | `write_atomically`: a file written whole or not at all, for the image                                                                                                                   |
+| `reproduction`  | `ReproductionRecord`, its versioned JSON and its text, and the `BuildIdentity` it holds                                                                                                 |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); the Anomalous Pixel
@@ -92,7 +92,7 @@ bytes are a pure function of the image (ADR 0020). A format that cannot
 hold RGB floats fails with an encoding error, and an unknown extension
 with `InvalidInput`. `image`
 writes no custom attributes, so the Reproduction Record is in the Render
-Job Report, not in the file.
+Job Report on stdout, not in the file.
 
 ### Finishing as pbrt-v4 does
 

@@ -10,9 +10,11 @@ mod tokenizer;
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 pub use diagnostic::{Diagnostic, Location, Severity};
 pub use error::Error;
+use tracing::info_span;
 use umbra_scene::{ContentHash, RenderJobOptions, Scene, Seed};
 
 use crate::diagnostic::Diagnostics;
@@ -49,6 +51,17 @@ pub struct Parsed {
     pub content_hash: ContentHash,
     /// The warnings: parameters given but unused.
     pub warnings: Vec<Diagnostic>,
+    /// How long each of its phases took.
+    pub times: ParseTimes,
+}
+
+/// How long the two phases of [`parse`] took (arc42 §8.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ParseTimes {
+    /// Reading and checking the Scene File and its includes.
+    pub parse: Duration,
+    /// Building the Scene from what was read.
+    pub scene_build: Duration,
 }
 
 /// Reads the Scene File at `scene_file` with its includes, validates it
@@ -61,6 +74,7 @@ pub struct Parsed {
 /// [`Error::Invalid`] with every `Diagnostic` if anything in it is
 /// unsupported or wrong; nothing is built then.
 pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, Error> {
+    let start = Instant::now();
     let mut files = SceneFiles::new(scene_file);
     let text = files.open(scene_file).map_err(|error| match error {
         Unread::Io(error) => Error::Io(error),
@@ -68,13 +82,21 @@ pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, Error> 
     })?;
     let mut target = SceneTarget::new();
     let mut diagnostics = Diagnostics::default();
-    Parser {
-        files: &mut files,
-        target: &mut target,
-        diagnostics: &mut diagnostics,
-    }
-    .parse(scene_file, &text);
-    let built = target.finish(overrides, |name| files.resolve(name), &mut diagnostics);
+    info_span!("parse").in_scope(|| {
+        Parser {
+            files: &mut files,
+            target: &mut target,
+            diagnostics: &mut diagnostics,
+        }
+        .parse(scene_file, &text);
+    });
+    let parsed = Instant::now();
+    let built = info_span!("scene_build")
+        .in_scope(|| target.finish(overrides, |name| files.resolve(name), &mut diagnostics));
+    let times = ParseTimes {
+        parse: parsed - start,
+        scene_build: parsed.elapsed(),
+    };
     match built {
         Some(built) => Ok(Parsed {
             scene: built.scene,
@@ -82,6 +104,7 @@ pub fn parse(scene_file: &Path, overrides: &Overrides) -> Result<Parsed, Error> 
             output: built.output,
             content_hash: files.content_hash(),
             warnings: diagnostics.into_vec(),
+            times,
         }),
         None => Err(Error::Invalid(diagnostics.into_vec())),
     }

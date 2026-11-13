@@ -1,8 +1,9 @@
 //! Running the `umbra` binary on Scene Files written to a temporary
 //! directory.
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
@@ -64,10 +65,20 @@ pub(crate) fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// The Render Job Report next to `image`, parsed.
-pub(crate) fn report(image: &Path) -> serde_json::Value {
-    let mut path = image.as_os_str().to_owned();
-    path.push(".report.json");
-    let json = fs::read(path).expect("a Render Job Report");
-    serde_json::from_slice(&json).expect("a report in JSON")
+/// The Render Job Report `umbra` wrote to stdout: each `Name: value` line.
+pub(crate) fn report(output: &Output) -> BTreeMap<String, String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| {
+            let (name, value) = line.split_once(": ").expect("a `Name: value` line");
+            (name.to_owned(), value.to_owned())
+        })
+        .collect()
+}
+
+/// The value of `name` in a `name value, name value, …` list.
+pub(crate) fn field<'a>(list: &'a str, name: &str) -> &'a str {
+    list.split(", ")
+        .find_map(|part| part.strip_prefix(name)?.strip_prefix(' '))
+        .unwrap_or_else(|| panic!("{name} in {list}"))
 }

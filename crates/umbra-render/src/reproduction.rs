@@ -1,6 +1,7 @@
 //! The Reproduction Record of a Render Job (arc42 §8.9): what is needed to
 //! compute any of its Pixel Samples again.
 
+use std::fmt::{self, Display};
 use std::path::PathBuf;
 
 use serde::{Serialize, Serializer};
@@ -66,6 +67,39 @@ impl ReproductionRecord {
             spp: options.spp.get(),
             build_identity,
         }
+    }
+}
+
+impl Display for Tree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Clean => "clean",
+            Self::Dirty => "dirty",
+        })
+    }
+}
+
+impl Display for ReproductionRecord {
+    /// `version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0,
+    /// spp 4, spp per pass 2, tile size 8, build 2141cd3… (clean)`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "version {}, scene file {}, content hash {}, seed {}, ",
+            self.version,
+            self.scene_file.display(),
+            self.content_hash,
+            self.seed,
+        )?;
+        write!(
+            f,
+            "spp {}, spp per pass {}, tile size {}, build {} ({})",
+            self.spp,
+            self.spp_per_pass,
+            self.tile_size,
+            self.build_identity.commit,
+            self.build_identity.tree,
+        )
     }
 }
 

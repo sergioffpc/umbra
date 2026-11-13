@@ -33,6 +33,9 @@ cudarc = { version = "0.19.10", default-features = false, features = [
   "cuda-12080",
 ] }
 clap = { version = "4.6.7", features = ["derive"] }
+# Ctrl-C cancels a Render Job (arc42 §8.10): the handler trips its
+# `Cancellation`, instead of killing the process.
+ctrlc = "3.5.2"
 # The counting allocator of the allocation test (ADR 0008): its testing mode
 # counts heap blocks, so the test needs no `unsafe` of its own.
 dhat = "0.3.3"
@@ -61,7 +64,18 @@ tempfile = "3.23.0"
 # declaration serves the core and the `std` crates.
 thiserror = { version = "2.0.21", default-features = false }
 # The runtime `coordinate` owns (arc42 §5.3).
-tokio = { version = "1.48.0", default-features = false, features = ["rt", "sync"] }
+tokio = { version = "1.48.0", default-features = false, features = [
+  "macros",
+  "rt",
+  "sync",
+  "time",
+] }
+# Logs and coarse spans (arc42 §8.4, §8.10): Render Job, phases, Work Unit
+# and merge, never in the core. `tracing-tracy` sends the spans to Tracy
+# behind the `umbra` crate's `tracy` feature.
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+tracing-tracy = "0.12.0"
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }
 umbra-geometry = { path = "crates/umbra-geometry" }
