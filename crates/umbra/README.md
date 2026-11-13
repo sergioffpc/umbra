@@ -22,7 +22,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `main`           | The exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
-| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the EXR and `<image>.report.json`              |
+| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
 
@@ -45,7 +45,7 @@ terminal, and logged as `info` events about every 10 s otherwise. Logs go
 to stderr through `tracing`: human-readable on a terminal and JSON lines
 otherwise, or as `--log-format human|json` says, filtered by `--log`, a
 `RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
-Job: its report is written with `outcome: "cancelled"`, no image is, and
+Job: its report says `Render Job: cancelled`, no image is written, and
 `umbra` exits 130; a second Ctrl-C exits at once. The `tracy` feature, off
 by default, sends the `tracing` spans to Tracy.
 
@@ -72,8 +72,15 @@ The Reproduction Record holds the Scene File's absolute, canonical path, so
 
 ### Writes are atomic
 
-The image and its report are each written to a temporary file in their
-directory, synced, and renamed over the target (arc42 §8.15).
+The image is written to a temporary file in its directory, synced, and
+renamed over the target (arc42 §8.15).
+
+### The report is text on stdout
+
+The Render Job Report is the command's output: one `Name: value` line per
+figure on stdout, and nothing else is written there. Logs, the status line
+and Diagnostics go to stderr. There is no report file and no JSON for now;
+`umbra render scene.pbrt > report.txt` keeps one.
 
 ## `--spp` and `--spp-per-pass`
 
@@ -115,7 +122,7 @@ Tiles has 60 × 34 = 2040 Tiles, so 4 × 2040 = 8160 Work Units. With
   will use one Pass for that reason
   ([#87](https://github.com/sergioffpc/umbra/issues/87)).
 
-The Reproduction Record in the Render Job Report stores them as `spp` and
+The Reproduction Record in the Render Job Report shows them as `spp` and
 `spp_per_pass`, the names of the `RenderJobOptions` fields they set.
 
 `--spp-per-pass` does not decide how a Worker fills its cores: it asks for
@@ -143,8 +150,8 @@ error: ...`; 130 cancelled by Ctrl-C.
 The integration tests are the cross-crate tests of arc42 §5.4:
 
 - `tests/render/`, `umbra render` through the binary (spec #72, Seam 1): a
-  camera-only Scene File renders a black RGB EXR and a report with
-  `outcome: "finished"`; the EXR's bytes are the same on every run; the
+  camera-only Scene File renders a black RGB EXR, and a report on stdout
+  that says `Render Job: finished` and writes no report file; the EXR's bytes are the same on every run; the
   report carries the Reproduction Record, with the overrides; the seed's
   precedence; the Film hash is the same with 1 thread and with all; output
   paths resolve as in pbrt-v4; includes resolve and are hashed; unsupported

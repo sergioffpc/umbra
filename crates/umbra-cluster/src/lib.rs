@@ -10,5 +10,5 @@ mod transport;
 
 pub use coordinator::{CoordinatorOptions, RenderJob, RenderJobOutcome, Threads, coordinate};
 pub use error::Error;
-pub use report::{Outcome, Phase, RenderJobReport, SchemaVersion};
+pub use report::{Outcome, Phase, RenderJobReport};
 pub use status::StatusLine;

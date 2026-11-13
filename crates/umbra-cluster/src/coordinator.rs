@@ -19,7 +19,7 @@ use umbra_scene::{RenderJobOptions, Scene};
 use crate::error::Error;
 use crate::local_worker;
 use crate::progress::Progress;
-use crate::report::{Outcome, RenderJobReport, Rendered, ReportOptions, WorkerFigures};
+use crate::report::{Outcome, RenderJobReport, Rendered, WorkerFigures};
 use crate::status::{Status, StatusLine};
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
 
@@ -126,8 +126,7 @@ pub fn coordinate(
             runtime.block_on(scheduler.run(coordinator, cancel))
         })?
     };
-    let report_options = ReportOptions::new(&job_options, threads);
-    Ok(scheduler.finish(ending, report_options, record))
+    Ok(scheduler.finish(ending, record))
 }
 
 /// The Local Worker's thread pool.
@@ -229,12 +228,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
     }
 
     /// Shows the last status and makes the outcome of the Render Job.
-    fn finish(
-        mut self,
-        ending: Ending,
-        options: ReportOptions,
-        record: ReproductionRecord,
-    ) -> RenderJobOutcome {
+    fn finish(mut self, ending: Ending, record: ReproductionRecord) -> RenderJobOutcome {
         let now = Instant::now();
         self.progress.tick(now);
         self.status.finish(&self.progress, now);
@@ -242,7 +236,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             Ending::Finished => {
                 let hash = self.film.hash();
                 info!("Render Job finished, Film hash {hash}");
-                let rendered = self.rendered(Outcome::Finished, Some(hash), options, now);
+                let rendered = self.rendered(Outcome::Finished, Some(hash), now);
                 RenderJobOutcome::Finished {
                     report: RenderJobReport::new(rendered, record),
                     image: self.film.finish(),
@@ -251,7 +245,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             Ending::Cancelled => {
                 let merged = self.progress.merged_samples();
                 info!("Render Job cancelled, {merged} Pixel Samples merged");
-                let rendered = self.rendered(Outcome::Cancelled, None, options, now);
+                let rendered = self.rendered(Outcome::Cancelled, None, now);
                 RenderJobOutcome::Cancelled {
                     report: RenderJobReport::new(rendered, record),
                 }
@@ -260,19 +254,12 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
     }
 
     /// What the render phase produced, up to `now`.
-    fn rendered(
-        &self,
-        outcome: Outcome,
-        film_hash: Option<FilmHash>,
-        options: ReportOptions,
-        now: Instant,
-    ) -> Rendered {
+    fn rendered(&self, outcome: Outcome, film_hash: Option<FilmHash>, now: Instant) -> Rendered {
         let render_time = self.progress.elapsed(now);
         let busy_time = self.progress.busy_time(now);
         Rendered {
             outcome,
             film_hash,
-            options,
             render_time,
             merge_time: self.progress.merge_time(),
             local_worker: WorkerFigures {

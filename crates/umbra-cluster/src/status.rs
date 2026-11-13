@@ -152,7 +152,7 @@ fn percent(part: u64, total: u64) -> f64 {
 }
 
 /// A rate with an SI prefix: `950`, `12.5 k`, `1.25 M`, `3.10 G`.
-struct Si(f64);
+pub(crate) struct Si(pub(crate) f64);
 
 impl Display for Si {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

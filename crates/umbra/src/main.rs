@@ -59,10 +59,12 @@ fn main() -> ExitCode {
     // Informative: a closed stderr does not stop the command.
     let _ = writeln!(stderr, "{}", version_line());
     let exit = match cli.command {
-        Command::Render(args) => match render::render(&args, &cancel, &mut stderr) {
-            Ok(()) => Exit::Success,
-            Err(error) => report(&error, &mut stderr),
-        },
+        Command::Render(args) => {
+            match render::render(&args, &cancel, &mut io::stdout(), &mut stderr) {
+                Ok(()) => Exit::Success,
+                Err(error) => report(&error, &mut stderr),
+            }
+        }
     };
     exit.into()
 }

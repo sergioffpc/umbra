@@ -23,7 +23,7 @@ pub(crate) enum Error {
     Cluster(#[from] umbra_cluster::Error),
     /// Ctrl-C cancelled the Render Job: its report is written, its image
     /// is not.
-    #[error("cancelled: the Render Job Report is written, no image is")]
+    #[error("cancelled: no image was written")]
     Cancelled,
 }
 

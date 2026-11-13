@@ -1,14 +1,14 @@
 //! The Reproduction Record of a Render Job (arc42 §8.9): what is needed to
 //! compute any of its Pixel Samples again.
 
+use std::fmt::{self, Display};
 use std::path::PathBuf;
 
-use schemars::JsonSchema;
 use serde::{Serialize, Serializer};
 use umbra_scene::{ContentHash, RenderJobOptions};
 
 /// Whether a binary was built from a tree with uncommitted changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tree {
     /// Built from the commit, unchanged.
@@ -19,7 +19,7 @@ pub enum Tree {
 
 /// What a binary was built from (arc42 §7.2, ADR 0012): its commit, and
 /// whether the tree was dirty.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BuildIdentity {
     /// The git commit, in full.
     pub commit: String,
@@ -31,12 +31,11 @@ pub struct BuildIdentity {
 /// hash of everything it read, the seed, every Render Job Option but the
 /// output path, and the Build Identity. Its JSON is versioned, and the
 /// Render Job Report carries it as `reproduction_record`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReproductionRecord {
     version: u32,
     scene_file: PathBuf,
     #[serde(serialize_with = "hex")]
-    #[schemars(with = "String")]
     content_hash: ContentHash,
     seed: i32,
     tile_size: u32,
@@ -68,6 +67,39 @@ impl ReproductionRecord {
             spp: options.spp.get(),
             build_identity,
         }
+    }
+}
+
+impl Display for Tree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Clean => "clean",
+            Self::Dirty => "dirty",
+        })
+    }
+}
+
+impl Display for ReproductionRecord {
+    /// `version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0,
+    /// spp 4, spp per pass 2, tile size 8, build 2141cd3… (clean)`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "version {}, scene file {}, content hash {}, seed {}, ",
+            self.version,
+            self.scene_file.display(),
+            self.content_hash,
+            self.seed,
+        )?;
+        write!(
+            f,
+            "spp {}, spp per pass {}, tile size {}, build {} ({})",
+            self.spp,
+            self.spp_per_pass,
+            self.tile_size,
+            self.build_identity.commit,
+            self.build_identity.tree,
+        )
     }
 }
 

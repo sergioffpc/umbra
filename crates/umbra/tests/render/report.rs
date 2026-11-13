@@ -1,13 +1,13 @@
-//! The Render Job Report of a finished Render Job (arc42 §8.10).
+//! The Render Job Report of a finished Render Job, on stdout (arc42 §8.10).
 
-use serde_json::Value;
+use std::collections::BTreeMap;
 
-use crate::cli::{CAMERA_ONLY, Workspace, code, report, stderr};
+use crate::cli::{CAMERA_ONLY, Workspace, code, field, report, stderr};
 
 /// Renders the camera-only Scene File, 40 × 24 pixels, at 4 Pixel Samples
-/// per pixel in Passes of 3 and Tiles of 16: 3 × 2 Tiles, 2 Passes. Returns
-/// its report.
-fn rendered_report(ws: &Workspace) -> Value {
+/// per pixel in Passes of 3 and Tiles of 16: 3 × 2 Tiles, 2 Passes, on 2
+/// threads. Returns its report.
+fn rendered_report(ws: &Workspace) -> BTreeMap<String, String> {
     ws.file("scene.pbrt", CAMERA_ONLY);
     let args = [
         "render",
@@ -19,72 +19,76 @@ fn rendered_report(ws: &Workspace) -> Value {
     ];
     let output = ws.umbra(&[&args[..], &["--nthreads", "2"]].concat());
     assert_eq!(code(&output), 0, "{}", stderr(&output));
-    report(&ws.path("black.exr"))
+    report(&output)
 }
 
-#[test]
-fn the_report_has_the_options_it_was_rendered_with() {
-    let ws = Workspace::new();
-    let report = rendered_report(&ws);
-    let options = &report["options"];
-    assert_eq!(options["tile_size"], 16, "{options}");
-    assert_eq!(options["spp_per_pass"], 3, "{options}");
-    assert_eq!(options["spp"], 4, "{options}");
-    assert_eq!(options["seed"], 0, "{options}");
-    assert_eq!(options["threads"], 2, "{options}");
+/// The seconds of `name` in `list`, as `name 0.123 s`.
+fn seconds(list: &str, name: &str) -> f64 {
+    let value = field(list, name);
+    let seconds = value
+        .strip_suffix(" s")
+        .unwrap_or_else(|| panic!("{value}"));
+    seconds.parse().expect("seconds")
 }
 
 #[test]
 fn the_report_times_every_phase_that_ran() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let times = &report["phase_times"];
-    for phase in ["parse", "scene_build", "render", "merge", "image_write"] {
-        assert!(times[phase].as_f64().unwrap() >= 0.0, "{phase}: {times}");
+    let times = &report["Phase times"];
+    for phase in ["parse", "Scene build", "render", "merge", "image write"] {
+        assert!(seconds(times, phase) >= 0.0, "{phase}: {times}");
     }
-    assert!(times["bvh_build"].is_null(), "no BVH yet: {times}");
+    assert!(!times.contains("BVH build"), "no BVH yet: {times}");
 }
 
 #[test]
 fn the_report_counts_the_pixel_samples_and_their_rate() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    assert_eq!(report["pixel_samples"], 40 * 24 * 4);
+    let samples = &report["Pixel Samples"];
+    let merged = 40 * 24 * 4;
     assert!(
-        report["pixel_samples_per_second"].as_f64().unwrap() > 0.0,
-        "{report}"
+        samples.starts_with(&format!("{merged} merged, ")),
+        "{samples}"
     );
+    assert!(samples.ends_with(" per second"), "{samples}");
 }
 
 #[test]
 fn the_report_has_the_local_workers_figures() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let worker = &report["local_worker"];
-    assert_eq!(worker["threads"], 2, "{worker}");
-    assert_eq!(worker["work_units"], 3 * 2 * 2, "{worker}");
-    assert_eq!(worker["pixel_samples"], 40 * 24 * 4, "{worker}");
-    for time in ["busy_time", "idle_time"] {
-        assert!(worker[time].as_f64().unwrap() >= 0.0, "{time}: {worker}");
+    let worker = &report["Local Worker"];
+    assert_eq!(field(worker, "2"), "threads", "{worker}");
+    assert_eq!(field(worker, "12"), "Work Units", "{worker}");
+    assert_eq!(field(worker, "3840"), "Pixel Samples", "{worker}");
+    for time in ["busy", "idle"] {
+        assert!(seconds(worker, time) >= 0.0, "{time}: {worker}");
     }
 }
 
 #[test]
-fn the_report_has_a_normalised_cost_per_tile_in_raster_order() {
+fn the_report_summarises_the_tile_costs() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let costs = report["tile_costs"].as_array().unwrap();
-    assert_eq!(costs.len(), 3 * 2, "one per Tile");
-    assert!(
-        costs.iter().all(|c| c.as_f64().unwrap() >= 0.0),
-        "{costs:?}"
-    );
+    let costs = &report["Tile costs"];
+    for part in ["min ", "mean ", "max "] {
+        assert!(costs.contains(part), "{part} in {costs}");
+    }
+    let costliest: u32 = costs
+        .rsplit_once("(Tile ")
+        .and_then(|(_, tile)| tile.strip_suffix(')'))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(costliest < 3 * 2, "one of the 6 Tiles: {costs}");
 }
 
 #[test]
 fn a_finished_report_has_its_outcome_and_film_hash() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    assert_eq!(report["outcome"], "finished");
-    assert_eq!(report["film_hash"].as_str().unwrap().len(), 16, "{report}");
+    assert_eq!(report["Render Job"], "finished");
+    assert_eq!(report["Film hash"].len(), 16, "{report:?}");
 }

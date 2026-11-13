@@ -53,12 +53,9 @@ assert_eq!(image.resolution(), resolution);
 | `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
 | `status`       | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                              |
 | `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |
-| `report`       | `RenderJobReport` (schema 0.2), `Outcome`, `Phase`, the JSON Schema, and `write`, atomically                                                                      |
+| `report`       | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                     |
 
-The committed JSON Schema of the report is
-`render-job-report.schema.json`; a test fails when it is stale, and
-`UMBRA_BLESS=1 cargo test -p umbra-cluster --test umbra_cluster schema`
-regenerates it. Not in the report yet: the Scene and BVH statistics, with
+Not in the report yet: the Scene and BVH statistics, with
 the BVH; the Anomalous Pixel Sample count, with
 [#85](https://github.com/sergioffpc/umbra/issues/85).
 
@@ -101,7 +98,7 @@ count, so a single-Pass Film hash does not either.
 - **`coordinate` blocks** until the last Pass is merged; it must not be
   called from inside a `tokio` runtime.
 - **The image and the report are returned, not written**: the caller
-  chooses where they go (arc42 §5.3).
+  chooses where they go (arc42 §5.3); `umbra` writes the report to stdout.
 - **`cancel`** is polled every 250 ms: once made, the Coordinator stops
   assigning, tells the Worker to stop at its next row, and returns
   `RenderJobOutcome::Cancelled` with the report of what was merged. The
@@ -120,6 +117,4 @@ Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
 the image and report of a camera-only Scene File, and the same Film hash
 with one thread and with all of them, the report's fields, the logged
 status, and Ctrl-C. Scheduling is checked there, not through internal
-interfaces. In `tests/umbra_cluster/`, the committed JSON Schema is checked
-against the generated one; the status line's number formats are unit
-tests in `status`.
+interfaces. The status line's number formats are unit tests in `status`.

@@ -14,7 +14,6 @@ publish.workspace = true
 [dependencies]
 image = { workspace = true }
 rayon = { workspace = true }
-schemars = { workspace = true }
 umbra-integrators = { workspace = true }
 umbra-math = { workspace = true }
 umbra-sampling = { workspace = true }

@@ -1,21 +1,17 @@
-//! The Render Job Report (arc42 §8.10): Umbra's own JSON, versioned
-//! `major.minor`, with a JSON Schema generated from these types and
-//! committed as `render-job-report.schema.json`. The Scene and BVH
+//! The Render Job Report (arc42 §8.10): plain text, one `Name: value` line
+//! per figure, which `umbra` writes to stdout. The Scene and BVH
 //! statistics arrive with the BVH, and the Anomalous Pixel Sample count
 //! with [#85](https://github.com/sergioffpc/umbra/issues/85).
 
-use std::io::{self, Write};
-use std::path::Path;
+use std::fmt::{self, Display};
 use std::time::Duration;
 
-use schemars::JsonSchema;
-use serde::{Serialize, Serializer};
-use umbra_render::{FilmHash, ReproductionRecord, write_atomically};
-use umbra_scene::RenderJobOptions;
+use umbra_render::{FilmHash, ReproductionRecord};
+
+use crate::status::Si;
 
 /// How a Render Job ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     /// Every Pass was rendered and merged; the image exists.
     Finished,
@@ -23,15 +19,13 @@ pub enum Outcome {
     Cancelled,
 }
 
-/// The version of the Render Job Report's schema, written as
-/// `{"major": 0, "minor": 2}`. Reports of one major version can be
-/// compared; see [`RenderJobReport::SCHEMA_VERSION`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-pub struct SchemaVersion {
-    /// Changes with the meaning of a comparable field.
-    pub major: u32,
-    /// Changes with any other field.
-    pub minor: u32,
+impl Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Finished => "finished",
+            Self::Cancelled => "cancelled",
+        })
+    }
 }
 
 /// A phase of a Render Job, timed on its own (arc42 §8.4).
@@ -52,70 +46,37 @@ pub enum Phase {
     ImageWrite,
 }
 
-/// How long each phase took, in seconds; `null` for a phase that did not
-/// run: one after a cancellation, or the BVH build of a Scene without one.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, JsonSchema)]
-struct PhaseTimes {
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    parse: Option<Duration>,
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    scene_build: Option<Duration>,
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    bvh_build: Option<Duration>,
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    render: Option<Duration>,
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    merge: Option<Duration>,
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "Option<f64>")]
-    image_write: Option<Duration>,
-}
+impl Phase {
+    /// Every phase, in the order they run.
+    const ALL: [Self; 6] = [
+        Self::Parse,
+        Self::SceneBuild,
+        Self::BvhBuild,
+        Self::Render,
+        Self::Merge,
+        Self::ImageWrite,
+    ];
 
-impl PhaseTimes {
-    /// The time of `phase`, as stored.
-    fn slot(&mut self, phase: Phase) -> &mut Option<Duration> {
-        match phase {
-            Phase::Parse => &mut self.parse,
-            Phase::SceneBuild => &mut self.scene_build,
-            Phase::BvhBuild => &mut self.bvh_build,
-            Phase::Render => &mut self.render,
-            Phase::Merge => &mut self.merge,
-            Phase::ImageWrite => &mut self.image_write,
+    /// The phase's name in the report.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Parse => "parse",
+            Self::SceneBuild => "Scene build",
+            Self::BvhBuild => "BVH build",
+            Self::Render => "render",
+            Self::Merge => "merge",
+            Self::ImageWrite => "image write",
         }
     }
-}
 
-/// The Render Job Options and the Coordinator options it ran with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-pub(crate) struct ReportOptions {
-    seed: i32,
-    spp: u32,
-    spp_per_pass: u32,
-    tile_size: u32,
-    /// The Local Worker's threads.
-    threads: usize,
-}
-
-impl ReportOptions {
-    /// `options`, with the Local Worker on `threads`.
-    pub(crate) fn new(options: &RenderJobOptions, threads: usize) -> Self {
-        Self {
-            seed: options.seed.0,
-            spp: options.spp.get(),
-            spp_per_pass: options.spp_per_pass.get(),
-            tile_size: options.tile_size.get(),
-            threads,
-        }
+    /// The phase's index in [`Phase::ALL`].
+    fn index(self) -> usize {
+        self as usize
     }
 }
 
 /// What the Local Worker did.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct WorkerFigures {
     /// Its threads.
     pub(crate) threads: usize,
@@ -123,13 +84,9 @@ pub(crate) struct WorkerFigures {
     pub(crate) work_units: u64,
     /// The Pixel Samples of those.
     pub(crate) pixel_samples: u64,
-    /// The time it had a Work Unit in flight, in seconds.
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "f64")]
+    /// The time it had a Work Unit in flight.
     pub(crate) busy_time: Duration,
-    /// The rest of the render phase, in seconds.
-    #[serde(serialize_with = "seconds")]
-    #[schemars(with = "f64")]
+    /// The rest of the render phase.
     pub(crate) idle_time: Duration,
 }
 
@@ -138,60 +95,51 @@ pub(crate) struct WorkerFigures {
 pub(crate) struct Rendered {
     pub(crate) outcome: Outcome,
     pub(crate) film_hash: Option<FilmHash>,
-    pub(crate) options: ReportOptions,
     pub(crate) render_time: Duration,
     pub(crate) merge_time: Duration,
     pub(crate) local_worker: WorkerFigures,
     pub(crate) tile_costs: Vec<f64>,
 }
 
-/// What a Render Job leaves behind besides its image, written next to it
-/// as `<image>.report.json`, finished or cancelled.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+/// What a Render Job leaves behind besides its image, finished or
+/// cancelled. Its [`Display`] is the text `umbra` writes to stdout:
+///
+/// ```text
+/// Render Job: finished
+/// Film hash: a5bab1a6c36d4cf5
+/// Pixel Samples: 3840 merged, 2.00 M per second
+/// Phase times: parse 0.000 s, Scene build 0.000 s, render 0.002 s, merge 0.000 s, image write 0.003 s
+/// Local Worker: 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s
+/// Tile costs: min 68.9, mean 247.4, max 1603.3 (Tile 1)
+/// Reproduction Record: version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0, …
+/// ```
+///
+/// A phase that did not run (one after a cancellation, or the BVH build
+/// of a Scene without one) is left out, and so is the Film hash of a
+/// cancelled Render Job.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderJobReport {
-    schema_version: SchemaVersion,
-    /// How the Render Job ended.
     outcome: Outcome,
-    /// The Film hash, when it finished.
-    #[serde(serialize_with = "hex")]
-    #[schemars(with = "Option<String>")]
     film_hash: Option<FilmHash>,
-    /// The options it ran with.
-    options: ReportOptions,
-    /// How long each phase took.
-    phase_times: PhaseTimes,
-    /// The Pixel Samples merged into the Film.
-    pixel_samples: u64,
-    /// The Pixel Samples merged per second of the render phase: comparable.
-    pixel_samples_per_second: f64,
-    /// What the Local Worker did.
+    phase_times: [Option<Duration>; Phase::ALL.len()],
+    render_time: Duration,
     local_worker: WorkerFigures,
     /// Each Tile's render time over the Worker's mean time per Pixel
     /// Sample, summed over its Passes, in raster order: its cost in Pixel
     /// Samples at the Worker's mean speed.
     tile_costs: Vec<f64>,
-    /// How to compute any of its Pixel Samples again (arc42 §8.9).
     reproduction_record: ReproductionRecord,
 }
 
 impl RenderJobReport {
-    /// The schema version: the major part changes with the meaning of a
-    /// comparable field, the minor part with any other change.
-    pub const SCHEMA_VERSION: SchemaVersion = SchemaVersion { major: 0, minor: 2 };
-
     /// The report of what `rendered` says, made as `reproduction_record`
     /// says.
     pub(crate) fn new(rendered: Rendered, reproduction_record: ReproductionRecord) -> Self {
-        let pixel_samples = rendered.local_worker.pixel_samples;
-        let render_time = rendered.render_time.as_secs_f64();
         let mut report = Self {
-            schema_version: Self::SCHEMA_VERSION,
             outcome: rendered.outcome,
             film_hash: rendered.film_hash,
-            options: rendered.options,
-            phase_times: PhaseTimes::default(),
-            pixel_samples,
-            pixel_samples_per_second: rate(pixel_samples, render_time),
+            phase_times: [None; Phase::ALL.len()],
+            render_time: rendered.render_time,
             local_worker: rendered.local_worker,
             tile_costs: rendered.tile_costs,
             reproduction_record,
@@ -199,12 +147,6 @@ impl RenderJobReport {
         report.record_phase(Phase::Render, rendered.render_time);
         report.record_phase(Phase::Merge, rendered.merge_time);
         report
-    }
-
-    /// The JSON Schema of the report.
-    #[must_use]
-    pub fn json_schema() -> schemars::Schema {
-        schemars::schema_for!(Self)
     }
 
     /// How the Render Job ended.
@@ -222,67 +164,103 @@ impl RenderJobReport {
     /// Records that `phase` took `time`: the phases run outside
     /// `coordinate` are recorded by its caller.
     pub fn record_phase(&mut self, phase: Phase, time: Duration) {
-        *self.phase_times.slot(phase) = Some(time);
+        self.phase_times[phase.index()] = Some(time);
     }
 
-    /// Writes the report to `path` as indented JSON, its fields in a fixed
-    /// order, replacing any file there.
-    ///
-    /// # Errors
-    ///
-    /// Any I/O error; `path` is then left as it was.
-    pub fn write(&self, path: &Path) -> io::Result<()> {
-        write_atomically(path, |file| {
-            serde_json::to_writer_pretty(&mut *file, self)?;
-            writeln!(file)
-        })
+    /// The Pixel Samples merged per second of the render phase.
+    fn pixel_samples_per_second(&self) -> f64 {
+        let seconds = self.render_time.as_secs_f64();
+        if seconds > 0.0 {
+            to_f64(self.local_worker.pixel_samples) / seconds
+        } else {
+            0.0
+        }
     }
 }
 
-/// `samples` over `seconds`, or 0 over no time.
-#[expect(clippy::cast_precision_loss, reason = "a rate, not an exact count")]
-fn rate(samples: u64, seconds: f64) -> f64 {
-    if seconds > 0.0 {
-        samples as f64 / seconds
-    } else {
-        0.0
+impl Display for RenderJobReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Render Job: {}", self.outcome)?;
+        if let Some(hash) = self.film_hash {
+            writeln!(f, "Film hash: {hash}")?;
+        }
+        let rate = Si(self.pixel_samples_per_second());
+        let samples = self.local_worker.pixel_samples;
+        writeln!(f, "Pixel Samples: {samples} merged, {rate} per second")?;
+        writeln!(f, "Phase times: {}", PhaseTimes(&self.phase_times))?;
+        writeln!(f, "Local Worker: {}", self.local_worker)?;
+        writeln!(f, "Tile costs: {}", TileCosts(&self.tile_costs))?;
+        writeln!(f, "Reproduction Record: {}", self.reproduction_record)
     }
 }
 
-/// Serialises a Film hash as its hexadecimal digits, or `null`.
+impl Display for WorkerFigures {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}",
+            self.threads,
+            self.work_units,
+            self.pixel_samples,
+            Seconds(self.busy_time),
+            Seconds(self.idle_time),
+        )
+    }
+}
+
+/// The phases that ran, each with its time.
+struct PhaseTimes<'a>(&'a [Option<Duration>; Phase::ALL.len()]);
+
+impl Display for PhaseTimes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ran = Phase::ALL
+            .into_iter()
+            .filter_map(|phase| self.0[phase.index()].map(|time| (phase, time)));
+        let separators = std::iter::once("").chain(std::iter::repeat(", "));
+        separators
+            .zip(ran)
+            .try_for_each(|(separator, (phase, time))| {
+                write!(f, "{separator}{} {}", phase.name(), Seconds(time))
+            })
+    }
+}
+
+/// The least, mean and greatest Tile cost, and the costliest Tile.
+struct TileCosts<'a>(&'a [f64]);
+
+impl Display for TileCosts<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let costliest = self
+            .0
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b));
+        let Some((tile, &max)) = costliest else {
+            return f.write_str("none merged");
+        };
+        let min = self.0.iter().copied().fold(f64::INFINITY, f64::min);
+        let mean = self.0.iter().sum::<f64>() / to_f64(self.0.len() as u64);
+        write!(
+            f,
+            "min {min:.1}, mean {mean:.1}, max {max:.1} (Tile {tile})"
+        )
+    }
+}
+
+/// A duration in seconds, to the millisecond.
+struct Seconds(Duration);
+
+impl Display for Seconds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.3} s", self.0.as_secs_f64())
+    }
+}
+
+/// `n` as an `f64`, for rates and means.
 #[expect(
-    clippy::ref_option,
-    reason = "`serialize_with` passes a reference to the field"
+    clippy::cast_precision_loss,
+    reason = "rates and means, not exact counts"
 )]
-fn hex<S: Serializer>(hash: &Option<FilmHash>, serializer: S) -> Result<S::Ok, S::Error> {
-    match hash {
-        Some(hash) => serializer.collect_str(hash),
-        None => serializer.serialize_none(),
-    }
-}
-
-/// Serialises a duration as its seconds, or `null`.
-fn seconds<S: Serializer, T: Seconds>(time: &T, serializer: S) -> Result<S::Ok, S::Error> {
-    match time.seconds() {
-        Some(seconds) => serializer.serialize_f64(seconds),
-        None => serializer.serialize_none(),
-    }
-}
-
-/// A duration, or a duration that may be missing, as seconds.
-trait Seconds {
-    /// The seconds, if any.
-    fn seconds(&self) -> Option<f64>;
-}
-
-impl Seconds for Duration {
-    fn seconds(&self) -> Option<f64> {
-        Some(self.as_secs_f64())
-    }
-}
-
-impl Seconds for Option<Duration> {
-    fn seconds(&self) -> Option<f64> {
-        self.map(|time| time.as_secs_f64())
-    }
+fn to_f64(n: u64) -> f64 {
+    n as f64
 }

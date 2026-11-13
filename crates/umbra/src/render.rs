@@ -1,10 +1,9 @@
 //! `umbra render`: parse, apply the overrides, render through
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
-use std::ffi::OsString;
 use std::fs;
 use std::io::{self, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use tracing::info_span;
@@ -21,11 +20,12 @@ use crate::cli::RenderArgs;
 use crate::error::Error;
 
 /// Renders the Scene File of `args`, writing its warnings and progress to
-/// `stderr`, then the image and its Render Job Report; or, once `cancel`
-/// is made, the report alone.
+/// `stderr`, then the image, and its Render Job Report to `stdout`; or,
+/// once `cancel` is made, the report alone.
 pub(crate) fn render(
     args: &RenderArgs,
     cancel: &Cancellation,
+    stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Error> {
     let _span = info_span!("render_job").entered();
@@ -57,13 +57,18 @@ pub(crate) fn render(
         StatusLine::Logged
     };
     let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status)?;
-    write(outcome, parsed.times, &parsed.output)
+    finish(outcome, parsed.times, &parsed.output, stdout)
 }
 
-/// Writes the image of `outcome` to `image` and its report next to it, the
-/// report with the times of parsing, `times`, and of writing the image; or
-/// the report alone, for a cancelled Render Job.
-fn write(outcome: RenderJobOutcome, times: ParseTimes, image: &Path) -> Result<(), Error> {
+/// Writes the image of `outcome` to `image`, then its report to `stdout`,
+/// with the times of parsing, `times`, and of writing the image; or the
+/// report alone, for a cancelled Render Job.
+fn finish(
+    outcome: RenderJobOutcome,
+    times: ParseTimes,
+    image: &Path,
+    stdout: &mut dyn Write,
+) -> Result<(), Error> {
     let with_parse_times = |mut report: RenderJobReport| {
         report.record_phase(Phase::Parse, times.parse);
         report.record_phase(Phase::SceneBuild, times.scene_build);
@@ -78,11 +83,11 @@ fn write(outcome: RenderJobOutcome, times: ParseTimes, image: &Path) -> Result<(
             let start = Instant::now();
             info_span!("image_write").in_scope(|| pixels.write(image))?;
             report.record_phase(Phase::ImageWrite, start.elapsed());
-            report.write(&report_path(image))?;
+            write!(stdout, "{report}")?;
             Ok(())
         }
         RenderJobOutcome::Cancelled { report } => {
-            with_parse_times(report).write(&report_path(image))?;
+            write!(stdout, "{}", with_parse_times(report))?;
             Err(Error::Cancelled)
         }
     }
@@ -99,12 +104,4 @@ fn parse(args: &RenderArgs) -> Result<Parsed, Error> {
         umbra_parser::Error::Invalid(diagnostics) => Error::Refused(diagnostics),
         umbra_parser::Error::Io(error) => Error::Unreadable(error),
     })
-}
-
-/// Where the Render Job Report of the image at `image` goes:
-/// `<image>.report.json` (arc42 §8.10).
-fn report_path(image: &Path) -> PathBuf {
-    let mut path = OsString::from(image);
-    path.push(".report.json");
-    PathBuf::from(path)
 }

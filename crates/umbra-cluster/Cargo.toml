@@ -13,9 +13,6 @@ publish.workspace = true
 
 [dependencies]
 rayon = { workspace = true }
-schemars = { workspace = true }
-serde = { workspace = true, features = ["derive", "std"] }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -22,6 +22,7 @@ fn ctrl_c_writes_a_cancelled_report_and_no_image_and_exits_130() {
     let mut umbra = Command::new(env!("CARGO_BIN_EXE_umbra"))
         .args(["render", "scene.pbrt", "--spp-per-pass", "65536"])
         .current_dir(ws.path(""))
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("umbra runs");
@@ -37,18 +38,20 @@ fn ctrl_c_writes_a_cancelled_report_and_no_image_and_exits_130() {
     let kill = Command::new("kill").args(["-INT", &pid]).status().unwrap();
     assert!(kill.success(), "SIGINT sent");
     lines.for_each(drop);
-    let status = umbra.wait().unwrap();
+    let output = umbra.wait_with_output().unwrap();
 
-    assert_eq!(status.code(), Some(130), "{status:?}");
+    assert_eq!(output.status.code(), Some(130), "{:?}", output.status);
     assert!(!ws.path("black.exr").exists(), "no image");
-    let report = report(&ws.path("black.exr"));
-    assert_eq!(report["outcome"], "cancelled");
-    assert!(report["film_hash"].is_null(), "{report}");
-    let times = &report["phase_times"];
-    for phase in ["parse", "scene_build", "render"] {
-        assert!(times[phase].as_f64().is_some(), "{phase}: {times}");
+    let report = report(&output);
+    assert_eq!(report["Render Job"], "cancelled");
+    assert!(!report.contains_key("Film hash"), "{report:?}");
+    let times = &report["Phase times"];
+    for phase in ["parse", "Scene build", "render"] {
+        assert!(times.contains(&format!("{phase} ")), "{phase}: {times}");
     }
-    assert!(times["image_write"].is_null(), "{times}");
-    let merged = report["pixel_samples"].as_u64().unwrap();
-    assert!(merged < 256 * 256 * 1_048_576, "{merged} merged");
+    assert!(!times.contains("image write"), "{times}");
+    let samples = &report["Pixel Samples"];
+    let (merged, _) = samples.split_once(" merged").expect("a count merged");
+    let merged: u64 = merged.parse().unwrap();
+    assert!(merged < 256 * 256 * 1_048_576, "{samples}");
 }
