@@ -419,6 +419,13 @@ do not justify it on their own (arc42 §8.4): the end-to-end proof is
 
 ### Transcendentals against glibc
 
+All 19 `f32` functions of the C library that the crate exports are timed
+on the three benchmark machines and the GPU by `tools/libm-bench`, through
+`scripts/bench-libm.sh`. Its results are in the
+[Umbra Math Guide](docs/math-guide.html#libm), "What libm costs": glibc,
+this crate and the fastest SIMD form side by side, with their largest
+errors. The bench below covers the transcendentals Umbra has kernels for.
+
 `benches/transcendentals.rs` times each transcendental Umbra uses, from
 every implementation available, for
 [#138 Benchmark glibc and libmvec transcendentals](https://github.com/sergioffpc/umbra/issues/138):
