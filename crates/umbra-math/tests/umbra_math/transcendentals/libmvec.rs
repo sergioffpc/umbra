@@ -16,7 +16,7 @@ use super::{Transcendentals, map, map_pair, map_vec4, map2};
 
 // The vector functions are declared without their signatures: SIMD types in
 // an `extern` block need the unstable `simd_ffi` (ADR 0027 keeps unstable
-// features in `umbra-kernels`). `libmvec!` gives each address its type, a
+// features in `umbra-gpu-programs`). `libmvec!` gives each address its type, a
 // function pointer, where `__m128` and `__m256` are allowed; with AVX2
 // enabled, the System V ABI passes them in `xmm`/`ymm` registers, as
 // `libmvec` takes them.

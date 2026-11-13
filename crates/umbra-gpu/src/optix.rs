@@ -20,7 +20,7 @@ pub(crate) use ffi::{DevicePointer, SBT_RECORD_HEADER_SIZE, TraversableHandle};
 /// The size of the log buffer handed to the calls that compile.
 const LOG_SIZE: usize = 4096;
 
-/// The pipeline's launch-parameter variable, `params` in `umbra-kernels`.
+/// The pipeline's launch-parameter variable, `params` in `umbra-gpu-programs`.
 const LAUNCH_PARAMS_VARIABLE: &CStr = c"params";
 
 /// The loaded OptiX library and its function table.

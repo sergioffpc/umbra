@@ -3,7 +3,7 @@
 use cudarc::driver::DriverError;
 use thiserror::Error;
 
-/// An error of the GPU path: CUDA, OptiX, or the kernels' build.
+/// An error of the GPU path: CUDA, OptiX, or the programs' build.
 #[derive(Debug, Error)]
 pub enum Error {
     /// A CUDA driver call failed, or no CUDA driver or device was found.
@@ -28,18 +28,21 @@ pub enum Error {
         /// The compile log, for the calls that compile.
         log: String,
     },
-    /// The kernels' PTX still calls `libdevice` functions it should have
+    /// The programs' PTX still calls `libdevice` functions it should have
     /// inlined: `umbra-gpu` was built without `libdevice.10.bc` (see its
     /// README).
     #[error(
-        "the kernels were built without libdevice.10.bc; set CUDA_PATH or UMBRA_LIBDEVICE and rebuild"
+        "the GPU programs were built without libdevice.10.bc; set CUDA_PATH or UMBRA_LIBDEVICE and rebuild"
     )]
     UnlinkedPtx,
     /// More of something than one call takes: rays per launch, or program
     /// groups per pipeline.
     #[error("too many {0} for one call")]
     TooMany(&'static str),
-    /// A hit record came back with a kind the kernels never write.
+    /// A hit record came back with a kind the programs never write.
     #[error("a hit record has the unknown kind {0}")]
     HitKind(u32),
+    /// The GPU cannot render a Render Job yet: it has no wavefront.
+    #[error("the GPU cannot render a Scene yet")]
+    NoRenderer,
 }

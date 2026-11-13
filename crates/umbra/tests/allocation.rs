@@ -9,8 +9,9 @@
 use std::num::NonZeroU32;
 
 use rayon::ThreadPoolBuilder;
+use umbra_cpu::Renderer;
 use umbra_math::Point2i;
-use umbra_render::{Cancellation, PassIndex, Rendered, Renderer, TileIndex, WorkUnit};
+use umbra_render::{Cancellation, PassIndex, Rendered, TileIndex, WorkUnit};
 use umbra_scene::{FilmParameters, RenderJobOptions, SceneBuilder, Seed};
 
 #[global_allocator]

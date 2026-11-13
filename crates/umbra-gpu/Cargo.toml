@@ -1,6 +1,6 @@
 [package]
 name = "umbra-gpu"
-description = "The GPU Worker's renderer: cudarc, the OptiX host side, and the PTX of umbra-kernels"
+description = "The GPU Worker's renderer, host side: cudarc, the OptiX host side, and the PTX of umbra-gpu-programs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,8 +10,8 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 publish.workspace = true
-# Compiles `umbra-kernels` for `nvptx64` and links `libdevice` into its PTX
-# (ADR 0028).
+# Compiles `umbra-gpu-programs` for `nvptx64` and links `libdevice` into its
+# PTX (ADR 0028, ADR 0033).
 build = "build.rs"
 
 [features]
@@ -19,14 +19,19 @@ build = "build.rs"
 # functions on the GPU, with the math program in the PTX and the pipeline:
 # for the GPU tests alone (#146), which turn it on by the dev-dependency on
 # this crate below. Off in production.
-math-program = []
+math-program = ["umbra-gpu-programs/math-program"]
 
 [dependencies]
 cudarc = { workspace = true }
 libloading = { workspace = true }
 thiserror = { workspace = true }
 umbra-geometry = { workspace = true }
+# The layout the host shares with the device (ADR 0033); its programs are
+# built for `nvptx64` by the build script, not by this dependency.
+umbra-gpu-programs = { workspace = true }
 umbra-math = { workspace = true }
+umbra-render = { workspace = true }
+umbra-scene = { workspace = true }
 
 [dev-dependencies]
 # This crate with the math program, for the GPU tests (`tests/gpu/libdevice.rs`).

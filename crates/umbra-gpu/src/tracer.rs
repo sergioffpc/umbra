@@ -1,6 +1,6 @@
 //! The tracer bullet of the GPU path (ADR 0026): one triangle and one
 //! sphere, each in a geometry acceleration structure of its own, traced
-//! through OptiX by the programs of `umbra-kernels`.
+//! through OptiX by the programs of `umbra-gpu-programs`.
 
 use std::ffi::c_void;
 use std::rc::Rc;
@@ -8,21 +8,21 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, DevicePtrMut, DeviceRepr};
 use umbra_geometry::{Ray, Sphere};
+use umbra_gpu_programs::{HitRecord, LaunchParams, RayRecord};
 use umbra_math::Point3f;
 
-use crate::launch::{HitRecord, LaunchParams, RayRecord};
 use crate::optix::{
     Api, DeviceContext, GasInput, Launch, Module, Pipeline, ProgramGroup, Programs,
     ShaderBindingTable, TraversableHandle, Validation,
 };
-use crate::records::SbtRecord;
+use crate::records::{DeviceCopy, SbtRecord};
 use crate::{Error, Geometry, Hit};
 
 #[cfg(feature = "math-program")]
 mod math;
 
-/// The PTX of `umbra-kernels`, which the build script compiles.
-const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/umbra_kernels.ptx"));
+/// The PTX of `umbra-gpu-programs`, which the build script compiles.
+const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/umbra_gpu_programs.ptx"));
 
 /// One triangle and one sphere on a GPU, ready to be traced.
 ///
@@ -136,16 +136,19 @@ impl Tracer {
             return Ok(Vec::new());
         }
         let count = u32::try_from(rays.len()).map_err(|_| Error::TooMany("rays"))?;
-        let records: Vec<RayRecord> = rays.iter().map(RayRecord::from).collect();
+        let records: Vec<_> = rays
+            .iter()
+            .map(|ray| DeviceCopy(RayRecord::from(ray)))
+            .collect();
         let ray_buffer = self.stream.clone_htod(&records)?;
         let mut hit_buffer = self
             .stream
-            .clone_htod(&vec![HitRecord::default(); rays.len()])?;
+            .clone_htod(&vec![DeviceCopy(HitRecord::default()); rays.len()])?;
         self.trace_launch(geometry, count, &ray_buffer, &mut hit_buffer)?;
         self.stream
             .clone_dtoh(&hit_buffer)?
             .into_iter()
-            .map(HitRecord::hit)
+            .map(DeviceCopy::hit)
             .collect()
     }
 
@@ -155,8 +158,8 @@ impl Tracer {
         &self,
         geometry: Geometry,
         count: u32,
-        rays: &CudaSlice<RayRecord>,
-        hits: &mut CudaSlice<HitRecord>,
+        rays: &CudaSlice<DeviceCopy<RayRecord>>,
+        hits: &mut CudaSlice<DeviceCopy<HitRecord>>,
     ) -> Result<(), Error> {
         let (handle, sbt) = self.target(geometry);
         let (rays, _rays_read) = rays.device_ptr(&self.stream);
@@ -167,7 +170,7 @@ impl Tracer {
             hits,
             count,
         };
-        self.launch(params, count, &sbt)
+        self.launch(DeviceCopy(params), count, &sbt)
     }
 
     /// Launches `width` threads with the launch parameters `params` and the
@@ -242,7 +245,7 @@ fn stream_handle(stream: &CudaStream) -> *mut c_void {
     stream.cu_stream().cast()
 }
 
-/// The module of `umbra-kernels` and its program groups: four, and the math
+/// The module of `umbra-gpu-programs` and its program groups: four, and the math
 /// program's with the `math-program` feature.
 fn program_groups(context: &Rc<DeviceContext>) -> Result<Groups, Error> {
     let module = Module::new(context, PTX)?;

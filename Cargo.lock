@@ -1179,6 +1179,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tracy",
  "umbra-cluster",
+ "umbra-cpu",
  "umbra-math",
  "umbra-parser",
  "umbra-render",
@@ -1204,7 +1205,21 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "umbra-cpu",
+ "umbra-gpu",
  "umbra-render",
+ "umbra-scene",
+]
+
+[[package]]
+name = "umbra-cpu"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "umbra-integrators",
+ "umbra-math",
+ "umbra-render",
+ "umbra-sampling",
  "umbra-scene",
 ]
 
@@ -1226,6 +1241,17 @@ dependencies = [
  "thiserror",
  "umbra-geometry",
  "umbra-gpu",
+ "umbra-gpu-programs",
+ "umbra-math",
+ "umbra-render",
+ "umbra-scene",
+]
+
+[[package]]
+name = "umbra-gpu-programs"
+version = "0.1.0"
+dependencies = [
+ "umbra-geometry",
  "umbra-math",
 ]
 
@@ -1240,14 +1266,6 @@ dependencies = [
  "umbra-sampling",
  "umbra-shading",
  "umbra-spectrum",
-]
-
-[[package]]
-name = "umbra-kernels"
-version = "0.1.0"
-dependencies = [
- "umbra-geometry",
- "umbra-math",
 ]
 
 [[package]]
@@ -1280,13 +1298,11 @@ name = "umbra-render"
 version = "0.1.0"
 dependencies = [
  "image",
- "rayon",
  "serde",
  "tempfile",
  "thiserror",
  "umbra-integrators",
  "umbra-math",
- "umbra-sampling",
  "umbra-scene",
 ]
 

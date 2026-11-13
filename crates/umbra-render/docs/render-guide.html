@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Umbra Render Guide</title>
-<meta name="description" content="How umbra-render cuts a Render Job into Tiles and Passes, renders each Work Unit into a Work Result, and merges Work Results into the Film in any order: weighted pixel sums, floating-point order, determinism, with interactive figures.">
+<meta name="description" content="How umbra-render cuts a Render Job into Tiles and Passes, defines the Work Result every Render Device sends back for a Work Unit, and merges Work Results into the Film in any order: weighted pixel sums, floating-point order, determinism, with interactive figures.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
@@ -328,7 +328,7 @@ svg .t-small { font-size: 11px; }
         <div class="kicker">crates/umbra-render/docs · Umbra, a pbrt-v4 renderer in Rust</div>
         <h1>Umbra Render Guide</h1>
     </div>
-    <p class="lede">A picture is not rendered in one go. Umbra cuts the job into small pieces of work, renders the pieces on many cores (and, later, many machines), and adds the answers into one Film as they come back, in whatever order they arrive. <code>umbra-render</code> does the cutting, the rendering of one piece, and the adding up. This guide explains each step in pictures first and formulas second. It assumes only school maths.</p>
+    <p class="lede">A picture is not rendered in one go. Umbra cuts the job into small pieces of work, renders the pieces on many cores (and, later, many machines), and adds the answers into one Film as they come back, in whatever order they arrive. <code>umbra-render</code> does the cutting and the adding up, and says what the rendering of one piece must give back. The rendering itself is done by a renderer per Render Device: <a href="../../umbra-cpu/docs/cpu-guide.html"><code>umbra-cpu</code></a> on a CPU, <a href="../../umbra-gpu/docs/gpu-guide.html"><code>umbra-gpu</code></a> on a GPU. This guide explains each step in pictures first and formulas second. It assumes only school maths.</p>
 
     <figure class="diagram" aria-labelledby="big-cap">
         <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The path of a Render Job through umbra-render, in six steps">
@@ -368,10 +368,10 @@ svg .t-small { font-size: 11px; }
             <!-- 4 renderer -->
             <text x="590" y="88" text-anchor="middle" class="t-bold">render</text>
             <rect x="525" y="100" width="130" height="100" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
-            <text x="590" y="124" text-anchor="middle">Renderer</text>
-            <text x="590" y="142" text-anchor="middle" class="t-acc">::render</text>
+            <text x="590" y="124" text-anchor="middle">a renderer</text>
+            <text x="590" y="142" text-anchor="middle" class="t-acc">umbra-cpu, -gpu</text>
             <path d="M545 160 H630 M545 172 H630 M545 184 H630" class="k-acc" stroke-width="1.4" marker-end="url(#ah-acc)"/>
-            <text x="590" y="218" text-anchor="middle" class="t-mut">rows on threads</text>
+            <text x="590" y="218" text-anchor="middle" class="t-mut">→ Rendered</text>
             <line x1="660" y1="150" x2="698" y2="150" class="k-ink" marker-end="url(#ah-ink)"/>
             <!-- 5 work result -->
             <text x="735" y="88" text-anchor="middle" class="t-bold">Work Result</text>
@@ -391,22 +391,22 @@ svg .t-small { font-size: 11px; }
             <text x="845" y="192" text-anchor="middle" class="t-mut">any order</text>
             <line x1="845" y1="202" x2="845" y2="244" class="k-mut" stroke-dasharray="5 4" marker-end="url(#ah-mut)"/>
             <text x="892" y="266" text-anchor="end">image = Σ w·c ⁄ Σ w</text>
-            <text x="892" y="284" text-anchor="end" class="t-mut">not here yet (#78)</text>
+            <text x="892" y="284" text-anchor="end" class="t-mut">Film::finish</text>
         </svg></div>
-        <figcaption id="big-cap">A Render Job's trip through the crate. <b>1</b> the Scene and its options fix everything. <b>2</b> <a href="#decomposition"><code>Decomposition</code></a> cuts the image into Tiles and the samples into Passes. <b>3</b> each Tile × Pass pair is a <a href="#decomposition">Work Unit</a>, handed out Pass by Pass (<a href="#scheduling">section 3</a>). <b>4</b> <a href="#render-unit"><code>Renderer::render</code></a> computes the Work Unit's Pixel Samples. <b>5</b> the answer is a <a href="#sums">Work Result</a>: two sums per pixel. <b>6</b> <a href="#merge"><code>Film::accept</code></a> adds it into the Film, whatever the order. Turning the sums into an image file is the next step and isn't in this crate yet.</figcaption>
+        <figcaption id="big-cap">A Render Job's trip through the crate. <b>1</b> the Scene and its options fix everything. <b>2</b> <a href="#decomposition"><code>Decomposition</code></a> cuts the image into Tiles and the samples into Passes. <b>3</b> each Tile × Pass pair is a <a href="#decomposition">Work Unit</a>, handed out Pass by Pass (<a href="#scheduling">section 3</a>). <b>4</b> a Render Device's renderer computes the Work Unit's Pixel Samples and ends as <a href="#render-unit"><code>Rendered</code></a>; the CPU's is told in the <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>. <b>5</b> the answer is a <a href="#sums">Work Result</a>: two sums per pixel. <b>6</b> <a href="#merge"><code>Film::accept</code></a> adds it into the Film, whatever the order. Once every Work Unit is merged, <code>Film::finish</code> divides the sums into the final image.</figcaption>
     </figure>
 
     <ol class="flow" aria-label="A Render Job through umbra-render, as types and functions">
         <li><span class="who ext">umbra-scene</span><span class="ty">RenderJobOptions</span><span class="what">Tile size, Pixel Samples per pixel and per Pass, seed</span></li>
         <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#decomposition">Decomposition::new</a></span><span class="what">options → Tiles × Passes</span></li>
         <li><span class="who">umbra-render</span><span class="ty"><a href="#decomposition">WorkUnit</a></span><span class="what">one TileIndex, one PassIndex</span></li>
-        <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#render-unit">Renderer::render</a></span><span class="what">Work Unit → Rendered::Done or Cancelled</span></li>
+        <li class="fn"><span class="who ext">umbra-cpu</span><span class="ty"><a href="../../umbra-cpu/docs/cpu-guide.html#render-unit">Renderer::render</a></span><span class="what">Work Unit → Rendered::Done or Cancelled</span></li>
         <li><span class="who">umbra-render</span><span class="ty"><a href="#sums">WorkResult</a></span><span class="what">one PixelSum per pixel of the Tile</span></li>
         <li class="fn"><span class="who">umbra-render</span><span class="ty"><a href="#merge">Film::accept</a></span><span class="what">Merged or Duplicate</span></li>
         <li><span class="who">umbra-render</span><span class="ty"><a href="#merge">Film</a></span><span class="what">f64 sums of every pixel, FilmHash</span></li>
     </ol>
 
-    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last, where it helps, comes an interactive figure: move the sliders, press the buttons and watch the result change. New to the words? Start with <a href="#vocab">section 0</a>. The figures repeat the Rust code's operations in JavaScript. JavaScript numbers are the same 64-bit floats as the Film's <code>f64</code>, and the figures round each product to 32 bits as the Rust code does, so the sums in the figures follow the same rounding rules. Where a Pixel Sample's light comes from, and how its colour and weight are made, is told in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (<a href="../../umbra-camera/docs/camera-guide.html#filter">filter</a>, <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a>) and the <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>. The Scene itself is in the <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>.</p>
+    <p class="howto">How to read this guide. Each section starts with a blue <b>In plain words</b> box and a diagram. Then comes the detail, with a <b>Maths used here</b> box listing every formula next to the Rust function that computes it. Last, where it helps, comes an interactive figure: move the sliders, press the buttons and watch the result change. New to the words? Start with <a href="#vocab">section 0</a>. The figures repeat the Rust code's operations in JavaScript. JavaScript numbers are the same 64-bit floats as the Film's <code>f64</code>, and the figures round each product to 32 bits as the Rust code does, so the sums in the figures follow the same rounding rules. Where a Pixel Sample's light comes from, and how its colour and weight are made, is told in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (<a href="../../umbra-camera/docs/camera-guide.html#filter">filter</a>, <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a>) and the <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>. The Scene itself is in the <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>, and how a CPU renders one Work Unit in the <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>.</p>
 
     <nav class="toc" aria-labelledby="toc-h">
         <h2 id="toc-h">Contents</h2>
@@ -421,16 +421,16 @@ svg .t-small { font-size: 11px; }
                     <li><a href="#float"><span class="n">4</span><span class="t">Why the order of additions matters</span><span class="c">rounding · not associative</span></a></li>
                     <li><a href="#determinism"><span class="n">5</span><span class="t">What stays exactly the same</span><span class="c">pure Pixel Samples · 1, 2, 3 Passes</span></a></li>
                     <li><a href="#merge"><span class="n">6</span><span class="t">Checking and merging a Work Result</span><span class="c">Film::accept · Acceptance · FilmHash</span></a></li>
-                    <li><a href="#render-unit"><span class="n">7</span><span class="t">Rendering one Work Unit</span><span class="c">Renderer::render · rows on threads · Cancellation</span></a></li>
+                    <li><a href="#render-unit"><span class="n">7</span><span class="t">How a render ends</span><span class="c">Rendered · Cancellation · one renderer per Render Device</span></a></li>
                 </ol>
             </div>
             <div class="toc-part">
                 <div class="kicker">Part II · Implementation</div>
                 <ol>
                     <li><a href="#map"><span class="n">8</span><span class="t">The crate at a glance</span><span class="c">modules, types, pbrt-v4 names</span></a></li>
-                    <li><a href="#design"><span class="n">9</span><span class="t">Design decisions</span><span class="c">dyn once per Work Unit · allocation · enums · hash</span></a></li>
-                    <li><a href="#tests"><span class="n">10</span><span class="t">How it is tested</span><span class="c">tests/umbra_render · allocation test</span></a></li>
-                    <li><a href="#not-yet"><span class="n">11</span><span class="t">Not here yet</span><span class="c">EXR, Pixel Traces, Anomalous Pixel Samples</span></a></li>
+                    <li><a href="#design"><span class="n">9</span><span class="t">Design decisions</span><span class="c">enums · merge on arrival · hash</span></a></li>
+                    <li><a href="#tests"><span class="n">10</span><span class="t">How it is tested</span><span class="c">tests/umbra_render</span></a></li>
+                    <li><a href="#not-yet"><span class="n">11</span><span class="t">Not here yet</span><span class="c">Anomalous Pixel Samples, splats</span></a></li>
                 </ol>
             </div>
         </div>
@@ -496,11 +496,11 @@ svg .t-small { font-size: 11px; }
             <text x="380" y="133" text-anchor="middle">Film</text>
             <rect x="20" y="60" width="150" height="80" rx="8" class="f-surf k-ink"/>
             <text x="95" y="84" text-anchor="middle" class="t-bold">Worker A</text>
-            <text x="95" y="106" text-anchor="middle" font-size="12">Renderer::render</text>
+            <text x="95" y="106" text-anchor="middle" font-size="12">a renderer</text>
             <text x="95" y="126" text-anchor="middle" class="t-mut" font-size="12">fast machine</text>
             <rect x="590" y="60" width="150" height="80" rx="8" class="f-surf k-ink"/>
             <text x="665" y="84" text-anchor="middle" class="t-bold">Worker B</text>
-            <text x="665" y="106" text-anchor="middle" font-size="12">Renderer::render</text>
+            <text x="665" y="106" text-anchor="middle" font-size="12">a renderer</text>
             <text x="665" y="126" text-anchor="middle" class="t-mut" font-size="12">slow machine</text>
             <line x1="298" y1="82" x2="174" y2="82" class="k-acc" stroke-width="1.6" marker-end="url(#ah-acc)"/>
             <text x="236" y="74" text-anchor="middle" class="t-acc" font-size="12">Work Unit</text>
@@ -510,16 +510,16 @@ svg .t-small { font-size: 11px; }
             <text x="524" y="74" text-anchor="middle" class="t-acc" font-size="12">Work Unit</text>
             <line x1="588" y1="122" x2="464" y2="122" class="k-warm" stroke-width="1.6" marker-end="url(#ah-warm)"/>
             <text x="524" y="140" text-anchor="middle" class="t-warm" font-size="12">Work Result</text>
-            <text x="380" y="190" text-anchor="middle" class="t-mut" font-size="12">umbra-render renders and merges · umbra-cluster will move the pieces (not built yet)</text>
+            <text x="380" y="190" text-anchor="middle" class="t-mut" font-size="12">umbra-render cuts and merges · umbra-cpu, umbra-gpu render · umbra-cluster moves the pieces</text>
         </svg></div>
-        <figcaption>Who does what. One <b>Coordinator</b> owns the Film and the list of Work Units. Each <b>Worker</b> renders the Work Units it is given and sends back Work Results. On one machine, the Coordinator runs a Local Worker in its own process. This crate holds the rendering (<code>Renderer</code>) and the adding up (<code>Film</code>); the messages between machines are the job of <code>umbra-cluster</code>.</figcaption>
+        <figcaption>Who does what. One <b>Coordinator</b> owns the Film and the list of Work Units. Each <b>Worker</b> renders the Work Units it is given and sends back Work Results. On one machine, the Coordinator runs a Local Worker in its own process. This crate holds what both sides agree on (<code>WorkUnit</code>, <code>WorkResult</code>, <code>Rendered</code>) and the adding up (<code>Film</code>). The rendering is a renderer's, one per Render Device: <code>umbra-cpu</code>'s or <code>umbra-gpu</code>'s. Choosing it, and the messages between machines, are the job of <code>umbra-cluster</code>.</figcaption>
     </figure>
 
     <div class="tablewrap" style="max-width: 60rem">
         <table class="data">
             <thead><tr><th>word</th><th>in plain words</th><th>in the code</th></tr></thead>
             <tbody>
-                <tr><td>Render Job</td><td>one request: render this Scene into one image</td><td>one <code>Renderer</code> and one <code>Film</code></td></tr>
+                <tr><td>Render Job</td><td>one request: render this Scene into one image</td><td>one <code>Decomposition</code> and one <code>Film</code>; a renderer per Worker</td></tr>
                 <tr><td>Render Job Options</td><td>settings given with the request: Tile size, samples, seed</td><td><code>RenderJobOptions</code> (umbra-scene)</td></tr>
                 <tr><td>Pixel Sample</td><td>one guess at one pixel, numbered by its sample index</td><td><code>PixelSampleId</code>, <code>FilmSample</code> (umbra-integrators)</td></tr>
                 <tr><td>Tile</td><td>a rectangle of pixels</td><td><code>TileIndex</code>, <code>TileBounds</code></td></tr>
@@ -527,7 +527,8 @@ svg .t-small { font-size: 11px; }
                 <tr><td>Work Unit</td><td>one Tile for one Pass</td><td><code>WorkUnit { tile, pass }</code></td></tr>
                 <tr><td>Work Result</td><td>a Work Unit's answer: sums per pixel, not yet divided</td><td><code>WorkResult</code>, <code>PixelSum</code></td></tr>
                 <tr><td>Film</td><td>the one place where all answers are added up</td><td><code>Film</code></td></tr>
-                <tr><td>Coordinator, Worker</td><td>the process that hands out work, and the ones that do it</td><td>umbra-cluster, not built yet</td></tr>
+                <tr><td>Coordinator, Worker</td><td>the process that hands out work, and the ones that do it</td><td>umbra-cluster</td></tr>
+                <tr><td>Render Device</td><td>the hardware a Worker renders on: a CPU or a GPU</td><td>a renderer in umbra-cpu or umbra-gpu</td></tr>
             </tbody>
         </table>
     </div>
@@ -773,8 +774,8 @@ svg .t-small { font-size: 11px; }
         <p>The scheduler belongs to <code>umbra-cluster</code> (<a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a>). Today it serves one in-process Local Worker, which pulls Work Units exactly as above; the network, failed Workers and the speculative tail arrive with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a> and <a href="https://github.com/sergioffpc/umbra/issues/129">#129</a>. <code>umbra-render</code> provides the four pieces it needs:</p>
         <ul>
             <li><b>The order.</b> <code>Decomposition::work_units()</code> lists the Work Units Pass-major: all Tiles of Pass 0 in raster order, then all of Pass 1, and so on. The whole image improves evenly, and a slow Pass of one Tile never holds back the later Passes of that Tile, as it would if each Tile's Passes went out together (“Tile-major”, rejected in ADR 0009).</li>
-            <li><b>Concurrent rendering.</b> <code>Renderer::render</code> takes <code>&amp;self</code> and the Renderer is <code>Sync</code>, so a Worker can render several Work Units at once from different threads. A CPU Worker keeps about two in flight per eight threads, to hide the network's delay.</li>
-            <li><b>Cancelling a copy.</b> A <code>Cancellation</code> is a shared flag. When the first copy's Work Result wins, the scheduler sets the flag of the other copy, which stops at its next row (<a href="#render-unit">section 7</a>).</li>
+            <li><b>Concurrent rendering.</b> <code>Cancellation</code> and <code>Rendered</code> let a Worker render several Work Units at once, each with its own stop request; the CPU's renderer is <code>Sync</code>, so it does that from different threads (<a href="../../umbra-cpu/docs/cpu-guide.html#render-unit">CPU guide</a>). A CPU Worker keeps about two in flight per eight threads, to hide the network's delay.</li>
+            <li><b>Cancelling a copy.</b> A <code>Cancellation</code> is a shared flag. When the first copy's Work Result wins, the scheduler sets the flag of the other copy, which stops at its next row on a CPU (<a href="#render-unit">section 7</a>).</li>
             <li><b>Dropping duplicates.</b> <code>Film::accept</code> remembers every Work Unit it merged and answers <code>Acceptance::Duplicate</code> for a second Work Result of the same one (<a href="#merge">section 6</a>). Every Pixel Sample counts exactly once.</li>
         </ul>
         <p>Copies and reassignments after a Worker fails are routine, so duplicates are routine too. Before <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>, two copies' Work Results were compared through a hash, to catch a faulty Worker. Now the Cluster is assumed healthy, and the second one is simply not read.</p>
@@ -811,7 +812,7 @@ svg .t-small { font-size: 11px; }
         <p>The Pass size (<code>--spp-per-pass</code>) looks like the knob that spreads work over a machine's cores, but it is not. A Worker fills its cores on two levels, and neither depends on the Pass size:</p>
         <ol>
             <li><b>Several Work Units at once.</b> A CPU Worker asks for ⌈threads ⁄ 4⌉ Work Units, about two per eight threads (<code>capacity</code> in <code>umbra-cluster</code>'s <code>local_worker.rs</code>): 16 on the P620's 64 threads.</li>
-            <li><b>The rows of each Work Unit at once.</b> Inside one Work Unit, the Tile's rows are shared out over the same rayon pool, and a free thread steals the next row (<a href="#render-unit">section 7</a>).</li>
+            <li><b>The rows of each Work Unit at once.</b> Inside one Work Unit, <code>umbra-cpu</code> shares the Tile's rows out over the same rayon pool, and a free thread steals the next row (<a href="../../umbra-cpu/docs/cpu-guide.html#render-unit">CPU guide</a>).</li>
         </ol>
         <p>Sixteen Work Units of 32 rows each make 512 rows to share among 64 threads, whatever the Pass size. What the Pass size sets is how big one Work Unit is along the samples, as the Tile size sets it across the image:</p>
     </div>
@@ -860,7 +861,7 @@ svg .t-small { font-size: 11px; }
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
         <div class="mb-row"><div class="mb-f">in flight = ⌈threads ⁄ 4⌉</div><div class="mb-d"><b>Work Units a CPU Worker asks for.</b> About two per eight threads, at least one. <code>capacity</code>, <code>umbra-cluster</code></div></div>
-        <div class="mb-row"><div class="mb-f">rows at once ≈ min(in flight, Work Units) × Tile rows</div><div class="mb-d"><b>Pieces the threads share.</b> Enough when it is well above the thread count. <code>par_chunks_mut</code>, section 7</div></div>
+        <div class="mb-row"><div class="mb-f">rows at once ≈ min(in flight, Work Units) × Tile rows</div><div class="mb-d"><b>Pieces the threads share.</b> Enough when it is well above the thread count. <code>par_chunks_mut</code>, umbra-cpu</div></div>
         <div class="mb-row"><div class="mb-f">Work Units = tile_count × ⌈spp ⁄ per_pass⌉</div><div class="mb-d"><b>How many pieces the Render Job has.</b> The only place the Pass size meets parallelism. <code>work_units</code></div></div>
         <div class="mb-row"><div class="mb-f">cost(Work Unit) ∝ Tile pixels × min(per_pass, spp)</div><div class="mb-d"><b>How big one piece is</b>: what a failure loses and what the end of the render waits on.</div></div>
     </div>
@@ -1022,7 +1023,7 @@ svg .t-small { font-size: 11px; }
             <text x="665" y="108" text-anchor="middle" font-size="12">of Work Units</text>
             <text x="380" y="160" text-anchor="middle" class="t-mut" font-size="12">on one machine, with one binary (ADR 0022)</text>
         </svg></div>
-        <figcaption>The rules that make a Work Result exact. The first comes from the sampler and the integrator (other crates). The second and third are in this crate's <a href="#render-unit"><code>Renderer</code></a>.</figcaption>
+        <figcaption>The rules that make a Work Result exact. The first comes from the sampler and the integrator (other crates). The second and third are in the CPU's renderer, <a href="../../umbra-cpu/docs/cpu-guide.html#render-unit"><code>umbra_cpu::Renderer</code></a>. A GPU Worker adds its Pixel Samples in wavefront order, so its Work Results are only statistically equal, even on one machine (arc42 §8.3).</figcaption>
     </figure>
 
     <div class="prose">
@@ -1043,7 +1044,7 @@ svg .t-small { font-size: 11px; }
         <div class="mb-row"><div class="mb-f">(0 + a) + b = a + b = b + a = (0 + b) + a</div><div class="mb-d"><b>Two addends.</b> Commutativity: the merge order of two Passes cannot change a bit.</div></div>
         <div class="mb-row"><div class="mb-f">(a + b) + c &nbsp;vs&nbsp; (a + c) + b</div><div class="mb-d"><b>Three or more.</b> Different groupings, possibly different last bits.</div></div>
         <div class="mb-row"><div class="mb-f">total &lt; 2<sup>29</sup> × smallest non-zero f32 term ⇒ no rounding</div><div class="mb-d"><b>When <code>f64</code> sums of <code>f32</code> numbers are exact.</b> Each term is a whole number of steps of size 2<sup>e−23</sup>, where 2<sup>e</sup> is the smallest term's power of two; an <code>f64</code> holds every such multiple up to 2<sup>53</sup> steps. Inside this window any order gives the same bits.</div></div>
-        <div class="mb-row"><div class="mb-f">S = ((s<sub>k</sub> + s<sub>k+1</sub>) + s<sub>k+2</sub>) + …</div><div class="mb-d"><b>Inside a Work Result the order is fixed:</b> a pixel adds its Pixel Samples <var>s</var> in ascending sample index, starting from zero. <code>render_pixel</code>, a <code>fold</code> over <code>sample_indices</code></div></div>
+        <div class="mb-row"><div class="mb-f">S = ((s<sub>k</sub> + s<sub>k+1</sub>) + s<sub>k+2</sub>) + …</div><div class="mb-d"><b>Inside a Work Result the order is fixed:</b> a pixel adds its Pixel Samples <var>s</var> in ascending sample index, starting from zero. <code>umbra-cpu</code>'s <code>render_pixel</code>, a <code>fold</code> over <code>sample_indices</code></div></div>
     </div>
     <p class="prose" style="color:var(--muted)">The figure at the end of <a href="#merge">section 6</a> lets you merge Work Results in different orders and compare the Films' hashes.</p>
 </section>
@@ -1127,7 +1128,7 @@ svg .t-small { font-size: 11px; }
     }
     Acceptance::Merged
 }</pre>
-        <p>The Film holds three things: the same <code>Decomposition</code> as the Renderer, one <code>PixelSum</code> per pixel of the image (all zero to start), and a <code>HashSet&lt;WorkUnit&gt;</code> of the Work Units merged so far. <code>merge_row</code> is a <code>zip</code> of the two rows with the <code>+=</code> of <a href="#sums">section 1</a>. <code>is_complete()</code> is true once the set holds as many Work Units as <code>work_units()</code> lists.</p>
+        <p>The Film holds three things: the same <code>Decomposition</code> as the renderers, one <code>PixelSum</code> per pixel of the image (all zero to start), and a <code>HashSet&lt;WorkUnit&gt;</code> of the Work Units merged so far. <code>merge_row</code> is a <code>zip</code> of the two rows with the <code>+=</code> of <a href="#sums">section 1</a>. <code>is_complete()</code> is true once the set holds as many Work Units as <code>work_units()</code> lists.</p>
         <p><b>The Film hash.</b> To compare two Films quickly, <code>Film::hash</code> boils every bit of every sum down to one 64-bit number, a <code>FilmHash</code>, printed as 16 hex digits. It uses FNV-1a: start from a fixed number, and for every byte, mix the byte in with XOR and multiply by a fixed prime. Equal Films give equal hashes; Films that differ in a single bit almost surely don't. It is meant for tests and for the Render Job Report, not for security.</p>
     </div>
 
@@ -1169,107 +1170,60 @@ svg .t-small { font-size: 11px; }
 <!-- ================================================================= -->
 <section class="topic" id="render-unit">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-render</span> · <a href="../src/renderer.rs">renderer.rs</a> · <code>Renderer::render</code>, <code>Rendered</code>, <code>Cancellation</code> · uses <span class="crate">umbra-integrators</span> <code>evaluate_pixel_sample</code> · arc42 §5.3</div>
-        <h3>Rendering one Work Unit</h3>
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-render</span> · <a href="../src/rendered.rs">rendered.rs</a> · <code>Rendered</code>, <code>Cancellation</code> · the renderers: <span class="crate">umbra-cpu</span>, <span class="crate">umbra-gpu</span> · <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a></div>
+        <h3>How a render ends</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Rendering a Work Unit means: for every pixel of the Tile, compute that Pass's Pixel Samples one after another, and add each into the pixel's sums. The Tile's rows are shared out among the CPU's threads. A thread always takes whole rows, so a pixel's sums are never split between threads, and the answer is the same with 1 thread or 64. Before starting each row, a thread checks whether someone asked to stop.</div>
+    <div class="plain"><span class="tag">In plain words</span>This crate does not render. Each Render Device, a CPU or a GPU, has a crate of its own with a renderer that turns a Work Unit into its Work Result. What they share lives here: the Work Unit they are given, the stop request they listen to, and the two ways a render can end. Either every Pixel Sample was computed and the Work Result comes back, or someone asked to stop and nothing comes back.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 760 260" class="dg-wide" role="img" aria-label="The rows of a Tile shared among three threads; inside one pixel the Pixel Samples of the Pass are added in ascending index">
-            <text x="180" y="22" text-anchor="middle">a Tile of 8 rows, shared by 3 threads</text>
-            <g>
-                <rect x="40" y="34" width="280" height="20" class="f-acc-soft k-acc"/>
-                <rect x="40" y="56" width="280" height="20" class="f-warm-soft k-warm"/>
-                <rect x="40" y="78" width="280" height="20" class="f-ok-soft k-ok"/>
-                <rect x="40" y="100" width="280" height="20" class="f-acc-soft k-acc"/>
-                <rect x="40" y="122" width="280" height="20" class="f-ok-soft k-ok"/>
-                <rect x="40" y="144" width="280" height="20" class="f-warm-soft k-warm"/>
-                <rect x="40" y="166" width="280" height="20" class="f-acc-soft k-acc"/>
-                <rect x="40" y="188" width="280" height="20" class="f-ok-soft k-ok"/>
-            </g>
-            <g font-size="12" class="t-mut">
-                <text x="330" y="49">A</text><text x="330" y="71">B</text><text x="330" y="93">C</text><text x="330" y="115">A</text>
-                <text x="330" y="137">C</text><text x="330" y="159">B</text><text x="330" y="181">A</text><text x="330" y="203">C</text>
-            </g>
-            <g class="k-warm" stroke-width="1.5" fill="none">
-                <circle cx="26" cy="44" r="6"/><circle cx="26" cy="66" r="6"/><circle cx="26" cy="88" r="6"/><circle cx="26" cy="110" r="6"/>
-                <circle cx="26" cy="132" r="6"/><circle cx="26" cy="154" r="6"/><circle cx="26" cy="176" r="6"/><circle cx="26" cy="198" r="6"/>
-            </g>
-            <text x="20" y="232" class="t-warm" font-size="12">○ cancelled? checked before each row</text>
-            <text x="20" y="250" class="t-mut" font-size="12">A, B, C: whichever thread was free took the row</text>
-            <!-- one pixel -->
-            <rect x="96" y="100" width="14" height="20" class="k-ink" fill="none" stroke-width="2"/>
-            <line x1="112" y1="110" x2="396" y2="110" class="k-ink" stroke-dasharray="3 3"/>
-            <text x="570" y="62" text-anchor="middle">inside one pixel, Pass 1 = samples [4, 8)</text>
-            <rect x="400" y="90" width="44" height="40" rx="4" class="f-surf k-ink"/><text x="422" y="115" text-anchor="middle">0</text>
-            <rect x="466" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="488" y="115" text-anchor="middle">+s₄</text>
-            <rect x="532" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="554" y="115" text-anchor="middle">+s₅</text>
-            <rect x="598" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="620" y="115" text-anchor="middle">+s₆</text>
-            <rect x="664" y="90" width="44" height="40" rx="4" class="f-warm-soft k-warm"/><text x="686" y="115" text-anchor="middle">+s₇</text>
-            <path d="M446 110 H462 M512 110 H528 M578 110 H594 M644 110 H660" class="k-ink" marker-end="url(#ah-ink)"/>
-            <line x1="686" y1="134" x2="686" y2="166" class="k-ink" marker-end="url(#ah-ink)"/>
-            <rect x="620" y="170" width="132" height="34" rx="4" class="f-ok-soft k-ok"/><text x="686" y="192" text-anchor="middle">PixelSum</text>
-            <text x="570" y="160" text-anchor="end" class="t-mut" font-size="12">s<tspan font-size="9" dy="3">i</tspan><tspan dy="-3"> = evaluate_pixel_sample(pixel, i)</tspan></text>
-            <text x="570" y="230" text-anchor="middle" class="t-mut" font-size="12">always in this order, always on one thread</text>
+        <div class="dg-wrap"><svg viewBox="0 0 760 230" class="dg-wide" role="img" aria-label="umbra-cpu and umbra-gpu each turn a Work Unit and a Cancellation into Rendered, the type umbra-render defines">
+            <rect x="20" y="30" width="150" height="40" rx="4" class="f-acc-soft k-acc"/><text x="95" y="55" text-anchor="middle">WorkUnit</text>
+            <rect x="20" y="110" width="150" height="40" rx="4" class="f-warm-soft k-warm"/><text x="95" y="135" text-anchor="middle">&amp;Cancellation</text>
+            <line x1="172" y1="50" x2="246" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="172" y1="130" x2="246" y2="100" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="250" y="20" width="250" height="140" rx="8" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="375" y="44" text-anchor="middle" class="t-bold">a Render Device's renderer</text>
+            <rect x="266" y="58" width="218" height="40" rx="4" class="f-surf k-mut"/>
+            <text x="375" y="76" text-anchor="middle" font-size="12">umbra_cpu::Renderer</text>
+            <text x="375" y="91" text-anchor="middle" class="t-mut" font-size="11">rows on rayon's threads</text>
+            <rect x="266" y="106" width="218" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/>
+            <text x="375" y="124" text-anchor="middle" font-size="12">umbra_gpu::Renderer</text>
+            <text x="375" y="139" text-anchor="middle" class="t-mut" font-size="11">not built yet (#127)</text>
+            <line x1="502" y1="70" x2="576" y2="56" class="k-ok" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+            <line x1="502" y1="110" x2="576" y2="124" class="k-bad" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+            <rect x="580" y="34" width="160" height="40" rx="4" class="f-ok-soft k-ok"/><text x="660" y="59" text-anchor="middle" font-size="12">Done(WorkResult)</text>
+            <rect x="580" y="104" width="160" height="40" rx="4" class="f-bad-soft k-bad"/><text x="660" y="129" text-anchor="middle" font-size="12">Cancelled</text>
+            <text x="660" y="168" text-anchor="middle" class="t-mut" font-size="12">enum Rendered</text>
+            <text x="380" y="210" text-anchor="middle" class="t-mut" font-size="12">umbra-cluster holds one of the two, chosen by the Worker's Render Device</text>
         </svg></div>
-        <figcaption>Two levels of work. Across the Tile, rayon hands rows to whichever thread is free, so which thread does which row changes from run to run. Inside a pixel nothing changes: the Pass's Pixel Samples are added from the lowest sample index to the highest, starting from zero. Each row's sums depend only on that row, so the Work Result is the same however the rows were shared out.</figcaption>
+        <figcaption>The contract every renderer keeps (<a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>). Both renderers depend on <code>umbra-render</code> alone of the three crates, so neither can lean on the other's insides. The CPU's renderer is told in the <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>, the GPU's in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>.</figcaption>
     </figure>
 
     <div class="prose">
-<pre class="code"><span class="c">// PixelLoop::render, slightly shortened</span>
-<span class="k">let</span> bounds = job.decomposition.tile_bounds(unit.tile);
-<span class="k">let</span> samples = job.decomposition.sample_indices(unit.pass);
-<span class="k">let mut</span> pixels = vec![PixelSum::default(); bounds.area()];   <span class="c">// the one allocation</span>
-<span class="k">let</span> rows = pixels.par_chunks_mut(bounds.width()).zip(bounds.min.y..bounds.max.y);
-<span class="k">let</span> outcome = rows.try_for_each(|(row, y)| {
-    <span class="k">self</span>.render_row(job, row, Point2i::new(bounds.min.x, y), &amp;samples)
-});
-<span class="k">match</span> outcome {
-    Ok(()) =&gt; Rendered::Done(WorkResult::new(unit, pixels)),
-    Err(Cancelled) =&gt; Rendered::Cancelled,
-}</pre>
-        <p><code>par_chunks_mut</code> is rayon's way of saying “cut this list into rows and let the threads take them”. Each row gets its own copy of the sampler, a small value, and computes each pixel with a <code>fold</code>:</p>
-<pre class="code">samples.clone().fold(PixelSum::default(), |<span class="k">mut</span> sum, sample_index| {
-    <span class="k">let</span> id = PixelSampleId { pixel, sample_index };
-    sum += evaluate_pixel_sample(&amp;<span class="k">self</span>.<span class="k">0</span>, &amp;job.view, id, state);
-    sum
-})</pre>
-        <p><code>evaluate_pixel_sample</code> lives in <code>umbra-integrators</code>. It resets the sampler for this pixel and sample index, picks the wavelengths, asks the camera for a ray, asks the integrator for the light along it, and converts that light to sensor RGB with its filter weight: a <code>FilmSample</code>. How, is told in the <a href="../../umbra-integrators/docs/integrators-guide.html">integrators guide</a> and the <a href="../../umbra-camera/docs/camera-guide.html#sensor">camera guide</a>. Because the sampler is reset at every Pixel Sample, the row's sampler copy carries nothing over from one sample to the next.</p>
-        <p><b>Stopping early.</b> <code>Cancellation</code> wraps an <code>AtomicBool</code>, a true/false flag that many threads can read and write safely. <code>cancel()</code> sets it, and <code>render_row</code> reads it before doing any work. A row already running finishes first, so a render stops within one row's time. Then the whole render returns <code>Rendered::Cancelled</code>, and whatever was computed is dropped: a Work Result is all of its Work Unit or nothing.</p>
-        <p><code>Renderer::new</code> prepares what every render shares: the <code>Decomposition</code>, the sampler's randomisation for the Render Job's seed (computed once), and the Scene's integrator. <code>render</code> then builds the Render Job's Halton sampler and hands the Work Unit to the integrator. Both are told in <a href="#design">section 9</a>.</p>
+<pre class="code"><span class="k">pub enum</span> Rendered {
+    Done(WorkResult),   <span class="c">// every Pixel Sample was computed</span>
+    Cancelled,          <span class="c">// stopped early; what was computed is dropped</span>
+}
+
+<span class="k">pub struct</span> Cancellation { cancelled: AtomicBool }
+<span class="c">// new, cancel, is_cancelled</span></pre>
+        <p><b>Two renderers, one shape.</b> <code>umbra_cpu::Renderer</code> and <code>umbra_gpu::Renderer</code> are both built from a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, and both have <code>render(unit, &amp;cancel) -&gt; Rendered</code>. <code>umbra-cluster</code> wraps them in an enum of its own and picks one by the Worker's Render Device; today its only Worker is the CPU Local Worker, and the GPU's renderer always fails to build until its wavefront arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>.</p>
+        <p><b>Stopping early.</b> <code>Cancellation</code> wraps an <code>AtomicBool</code>, a true/false flag that many threads can read and write safely. <code>cancel()</code> sets it; a renderer reads it with <code>is_cancelled()</code> as often as suits its Render Device. The CPU's checks it before each row of the Tile, so a running row finishes first. Either way, a cancelled render returns <code>Rendered::Cancelled</code> and drops whatever it computed: a Work Result is all of its Work Unit or nothing.</p>
+        <p><b>What every renderer must keep.</b> The Work Result it returns has one <code>PixelSum</code> per pixel of the Work Unit's <code>tile_bounds</code>, holding that Pass's <code>sample_indices</code> and no others (<a href="#decomposition">section 2</a>), or <code>Film::accept</code> panics (<a href="#merge">section 6</a>). The Coordinator, the Film and the CPU's renderer each build their own <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>, so all of them cut the job the same way.</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
-        <div class="mb-row"><div class="mb-f">S(p) = Σ<sub>i ∈ Pass</sub> FilmSample(p, i), &nbsp; i ascending</div><div class="mb-d"><b>One pixel's part of a Work Result</b>: the Pass's Pixel Samples of pixel <var>p</var>, added in order from zero. <code>PixelLoop::render_pixel</code></div></div>
-        <div class="mb-row"><div class="mb-f">chunk j ↔ row y = min<sub>y</sub> + j, &nbsp; j = 0 … height − 1</div><div class="mb-d"><b>Rows and threads.</b> The Work Result's buffer is cut into rows of the Tile's width, each paired with its <var>y</var>. <code>par_chunks_mut(bounds.width()).zip(bounds.min.y..bounds.max.y)</code></div></div>
-        <div class="mb-row"><div class="mb-f">Pixel Samples per Work Unit = area × |Pass|</div><div class="mb-d"><b>How much work.</b> A 32 × 32 Tile and a Pass of 16 Pixel Samples: 16 384 Pixel Samples. <code>TileBounds::area</code>, <code>sample_indices</code></div></div>
+        <div class="mb-row"><div class="mb-f">|pixels| = area(tile_bounds(unit.tile))</div><div class="mb-d"><b>One sum per pixel of the Tile</b>, whatever the Render Device. Checked by <code>Film::accept</code></div></div>
+        <div class="mb-row"><div class="mb-f">Done ⇒ every i ∈ sample_indices(unit.pass) counted once</div><div class="mb-d"><b>All of the Work Unit or nothing.</b> <code>Rendered::Done</code> carries a Work Result; <code>Cancelled</code> carries none.</div></div>
     </div>
-
-    <figure class="bench" id="rd">
-        <div class="controls">
-            <div class="ctl"><label for="rd-threads">threads in the pool</label><div class="row"><input id="rd-threads" type="range" min="1" max="8" step="1" value="3"><output id="rd-threads-o" for="rd-threads"></output></div></div>
-            <div class="ctl"><span class="lbl">Renderer::render(Tile 0 · Pass 1)</span><div class="btns"><button type="button" id="rd-go" class="primary">render</button><button type="button" id="rd-cancel">cancel</button></div></div>
-        </div>
-        <div class="split">
-            <div>
-                <p class="panel-title">Tile 0's 16 rows; colour = the thread that took the row, fill = progress</p>
-                <canvas id="rd-cv" class="cv-tile" aria-label="Rows of a Tile being rendered by threads"></canvas>
-            </div>
-            <div style="display:grid; gap:0.9rem; align-content:start">
-                <dl class="readout" id="rd-read"></dl>
-                <div><p class="panel-title">runs (each compared with the first, as assert_eq! would)</p><div class="tablewrap"><table class="data" id="rd-runs"></table></div></div>
-            </div>
-        </div>
-        <figcaption>The Work Unit (Tile 0, Pass 1) of the test image, with 4 Pixel Samples per Pass: 16 × 16 pixels × 4 samples. Free threads take the next row, and rows take varying time, so every run shares the rows out differently. <b>Try:</b> render with 1 thread, then with 8: the rows go to different threads, yet the Work Result is equal, sum for sum. Press “cancel” during a render: running rows finish, no new row starts, and the result is <code>Rendered::Cancelled</code>.</figcaption>
-    </figure>
 </section>
 
 <!-- ================================================================= -->
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-render</code> is a <code>std</code> crate, outside the <code>no_std</code> core: it may allocate, use threads and a hash set. It sits on top of <code>umbra-integrators</code> and <code>umbra-scene</code>, and <code>umbra-cluster</code> and the <code>umbra</code> binary depend on it (arc42 §5.1, ADR 0015).</p>
+    <p><code>umbra-render</code> is a <code>std</code> crate, outside the <code>no_std</code> core: it may allocate, write files and use a hash set. It sits on top of <code>umbra-integrators</code>, <code>umbra-scene</code> and <code>umbra-math</code>, and on neither <code>rayon</code> nor anything from NVIDIA. <code>umbra-cpu</code>, <code>umbra-gpu</code>, <code>umbra-cluster</code> and the <code>umbra</code> binary depend on it (arc42 §5.1, ADR 0015, <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>).</p>
 </div>
 
 <section class="topic" id="map">
@@ -1278,15 +1232,15 @@ svg .t-small { font-size: 11px; }
         <h3>The crate at a glance</h3>
     </div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 900 320" class="dg-wide" role="img" aria-label="The four modules of umbra-render, the crates they use and how their types connect">
+        <div class="dg-wrap"><svg viewBox="0 0 900 380" class="dg-wide" role="img" aria-label="The modules of umbra-render, the crates they use and how their types connect">
             <g font-size="12">
                 <rect x="20" y="14" width="150" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="95" y="33" text-anchor="middle" class="t-mut">umbra-scene</text>
                 <rect x="190" y="14" width="170" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="275" y="33" text-anchor="middle" class="t-mut">umbra-integrators</text>
-                <rect x="380" y="14" width="150" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="455" y="33" text-anchor="middle" class="t-mut">umbra-sampling</text>
-                <rect x="550" y="14" width="130" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="615" y="33" text-anchor="middle" class="t-mut">umbra-math</text>
-                <rect x="700" y="14" width="100" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="750" y="33" text-anchor="middle" class="t-mut">rayon</text>
+                <rect x="380" y="14" width="150" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="455" y="33" text-anchor="middle" class="t-mut">umbra-math</text>
+                <rect x="550" y="14" width="130" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="615" y="33" text-anchor="middle" class="t-mut">image</text>
+                <rect x="700" y="14" width="100" height="28" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/><text x="750" y="33" text-anchor="middle" class="t-mut">serde</text>
             </g>
-            <text x="450" y="64" text-anchor="middle" class="t-mut" font-size="12">Scene, RenderJobOptions · evaluate_pixel_sample, FilmSample · HaltonSampler · Point2i · par_chunks_mut</text>
+            <text x="450" y="64" text-anchor="middle" class="t-mut" font-size="12">Scene, RenderJobOptions · FilmSample · Point2i, SquareMatrix · EXR encoder · JSON</text>
             <rect x="20" y="80" width="210" height="190" rx="8" class="f-acc-soft k-acc"/>
             <text x="34" y="104" class="t-bold">decomposition.rs</text>
             <g font-size="12">
@@ -1297,15 +1251,14 @@ svg .t-small { font-size: 11px; }
                 <rect x="36" y="212" width="86" height="26" rx="4" class="f-surf k-ink"/><text x="79" y="230" text-anchor="middle">TileBounds</text>
             </g>
             <rect x="250" y="80" width="230" height="190" rx="8" class="f-warm-soft k-warm"/>
-            <text x="264" y="104" class="t-bold">renderer.rs</text>
+            <text x="264" y="104" class="t-bold">rendered.rs</text>
             <g font-size="12">
-                <rect x="266" y="116" width="198" height="26" rx="4" class="f-surf k-ink"/><text x="365" y="134" text-anchor="middle">Renderer&lt;'s&gt;</text>
-                <rect x="266" y="148" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="314" y="166" text-anchor="middle">Rendered</text>
-                <rect x="368" y="148" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="416" y="166" text-anchor="middle">Cancellation</text>
-                <rect x="266" y="190" width="198" height="62" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/>
-                <text x="365" y="207" text-anchor="middle" class="t-mut">private:</text>
-                <text x="365" y="224" text-anchor="middle" class="t-mut">dyn Integrator, PixelLoop&lt;I&gt;</text>
-                <text x="365" y="241" text-anchor="middle" class="t-mut">Job, Randomization</text>
+                <rect x="266" y="116" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="314" y="134" text-anchor="middle">Rendered</text>
+                <rect x="368" y="116" width="96" height="26" rx="4" class="f-surf k-ink"/><text x="416" y="134" text-anchor="middle">Cancellation</text>
+                <rect x="266" y="170" width="198" height="62" rx="4" class="k-mut" fill="none" stroke-dasharray="4 3"/>
+                <text x="365" y="187" text-anchor="middle" class="t-mut">returned by the renderers:</text>
+                <text x="365" y="204" text-anchor="middle" class="t-mut">umbra_cpu::Renderer</text>
+                <text x="365" y="221" text-anchor="middle" class="t-mut">umbra_gpu::Renderer</text>
             </g>
             <rect x="500" y="80" width="170" height="190" rx="8" class="f-mut-soft k-mut"/>
             <text x="514" y="104" class="t-bold">work_result.rs</text>
@@ -1321,13 +1274,20 @@ svg .t-small { font-size: 11px; }
                 <rect x="706" y="116" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="134" text-anchor="middle">Film</text>
                 <rect x="706" y="148" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="166" text-anchor="middle">Acceptance</text>
                 <rect x="706" y="180" width="158" height="26" rx="4" class="f-surf k-ink"/><text x="785" y="198" text-anchor="middle">FilmHash</text>
+                <text x="785" y="232" text-anchor="middle" class="t-mut">finish → Image</text>
             </g>
             <line x1="464" y1="129" x2="514" y2="129" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="656" y1="129" x2="704" y2="129" class="k-ink" marker-end="url(#ah-ink)"/>
-            <text x="365" y="292" text-anchor="middle" class="t-mut" font-size="12">Renderer::render → Rendered::Done(WorkResult) → Film::accept → Acceptance</text>
-            <text x="450" y="312" text-anchor="middle" class="t-mut" font-size="12">Renderer and Film each hold their own copy of the same Decomposition</text>
+            <g font-size="12">
+                <rect x="20" y="286" width="200" height="40" rx="6" class="f-surf k-mut"/><text x="120" y="304" text-anchor="middle" class="t-bold">error.rs</text><text x="120" y="319" text-anchor="middle" class="t-mut">Error</text>
+                <rect x="240" y="286" width="200" height="40" rx="6" class="f-surf k-mut"/><text x="340" y="304" text-anchor="middle" class="t-bold">image.rs</text><text x="340" y="319" text-anchor="middle" class="t-mut">Image::write</text>
+                <rect x="460" y="286" width="200" height="40" rx="6" class="f-surf k-mut"/><text x="560" y="304" text-anchor="middle" class="t-bold">atomic_file.rs</text><text x="560" y="319" text-anchor="middle" class="t-mut">write_atomically</text>
+                <rect x="680" y="286" width="200" height="40" rx="6" class="f-surf k-mut"/><text x="780" y="304" text-anchor="middle" class="t-bold">reproduction.rs</text><text x="780" y="319" text-anchor="middle" class="t-mut">ReproductionRecord</text>
+            </g>
+            <text x="450" y="352" text-anchor="middle" class="t-mut" font-size="12">a renderer's render → Rendered::Done(WorkResult) → Film::accept → Acceptance</text>
+            <text x="450" y="372" text-anchor="middle" class="t-mut" font-size="12">the Coordinator, the Film and the CPU's renderer each build the same Decomposition</text>
         </svg></div>
-        <figcaption>Four modules, all re-exported at the crate root. The dashed boxes at the top are the crates it uses. The Renderer produces Work Results, the Film consumes them, and both cut the job the same way because both build their <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>.</figcaption>
+        <figcaption>Eight modules, all re-exported at the crate root. The dashed boxes at the top are the crates it uses. A renderer, in <code>umbra-cpu</code> or <code>umbra-gpu</code>, produces Work Results, the Film consumes them, and both cut the job the same way because both build their <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>. The bottom row turns a finished Film into a file and records how to render it again.</figcaption>
     </figure>
     <div class="tablewrap">
         <table class="data">
@@ -1338,79 +1298,34 @@ svg .t-small { font-size: 11px; }
                 <tr><td><code>WorkUnit</code></td><td><code>{ tile, pass }</code>: one Tile for one Pass</td><td>–</td></tr>
                 <tr><td><code>TileBounds</code></td><td>a Tile's pixels, <code>min</code> included, <code>max</code> excluded; <code>width</code>, <code>height</code>, <code>area</code></td><td><code>Bounds2i</code></td></tr>
                 <tr><td><code>Error</code></td><td><code>TooManyTiles</code> or <code>TileTooLarge</code></td><td>–</td></tr>
-                <tr><td><code>Renderer&lt;'s&gt;</code></td><td>renders Work Units of one Scene: <code>new</code>, <code>decomposition</code>, <code>render</code></td><td>–</td></tr>
-                <tr><td><code>Rendered</code></td><td><code>Done(WorkResult)</code> or <code>Cancelled</code></td><td>–</td></tr>
+                <tr><td><code>Rendered</code></td><td>how a renderer's render ended: <code>Done(WorkResult)</code> or <code>Cancelled</code></td><td>–</td></tr>
                 <tr><td><code>Cancellation</code></td><td>a shared stop request: <code>new</code>, <code>cancel</code>, <code>is_cancelled</code></td><td>–</td></tr>
                 <tr><td><code>WorkResult</code></td><td>the sums of one Work Unit: <code>new</code>, <code>unit</code>, <code>pixels</code></td><td>–</td></tr>
                 <tr><td><code>PixelSum</code></td><td><code>rgb: [f64; 3]</code>, <code>weight: f64</code>, and two <code>+=</code></td><td><code>RGBFilm::RGBPixel</code>, <code>RGBFilm::AddSample</code></td></tr>
-                <tr><td><code>Film</code></td><td>the Render Job's sums: <code>new</code>, <code>accept</code>, <code>is_complete</code>, <code>pixels</code>, <code>hash</code></td><td>the pixel sums of <code>RGBFilm</code></td></tr>
+                <tr><td><code>Film</code></td><td>the Render Job's sums: <code>new</code>, <code>accept</code>, <code>is_complete</code>, <code>pixels</code>, <code>hash</code>, <code>finish</code></td><td>the pixel sums of <code>RGBFilm</code>, <code>RGBFilm::GetPixelRGB</code></td></tr>
                 <tr><td><code>Acceptance</code></td><td><code>Merged</code> or <code>Duplicate</code></td><td>–</td></tr>
                 <tr><td><code>FilmHash</code></td><td>a 64-bit FNV-1a hash of every sum, shown as 16 hex digits</td><td>–</td></tr>
+                <tr><td><code>Image</code></td><td>the final image, one output RGB per pixel: <code>new</code>, <code>resolution</code>, <code>pixels</code>, <code>write</code> in the format its path's extension names</td><td>–</td></tr>
+                <tr><td><code>write_atomically</code></td><td>a file written whole or not at all</td><td>–</td></tr>
+                <tr><td><code>ReproductionRecord</code>, <code>BuildIdentity</code>, <code>Tree</code></td><td>what is needed to render the Render Job again, as versioned JSON</td><td>–</td></tr>
             </tbody>
         </table>
     </div>
     <div class="prose" style="margin-top:1.2rem">
-        <p>pbrt-v4 renders in one process and has no Work Units: its <code>RGBFilm</code> both accumulates the sums and writes the image. Umbra splits that in two. The <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a> and the filter live in <code>umbra-camera</code>, inside the core. The sums and their merging live here, outside it. The part of <code>RGBFilm</code> that turns sums into an image file comes later (<a href="#not-yet">section 11</a>).</p>
+        <p>pbrt-v4 renders in one process and has no Work Units: its <code>RGBFilm</code> both accumulates the sums and writes the image. Umbra splits that in two. The <a href="../../umbra-camera/docs/camera-guide.html#sensor">sensor</a> and the filter live in <code>umbra-camera</code>, inside the core. The sums and their merging live here, outside it. The part of <code>RGBFilm</code> that turns sums into output RGB is <code>Film::finish</code>, and <code>Image::write</code> writes the file. Rendering is in neither: pbrt-v4's pixel loop, <code>ImageTileIntegrator::Render</code>, has its counterpart in <code>umbra-cpu</code>.</p>
     </div>
 </section>
 
 <section class="topic" id="design">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-render</span> · <a href="../src/renderer.rs">renderer.rs</a>, <a href="../src/film.rs">film.rs</a> · <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a></div>
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-render</span> · <a href="../src/rendered.rs">rendered.rs</a>, <a href="../src/film.rs">film.rs</a> · <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a>, <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a>, <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a></div>
         <h3>Design decisions</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Most of what's interesting here is what the code is careful <em>not</em> to do. It makes one flexible, slower call per Work Unit and millions of fast, fixed ones inside it. It reserves memory once per Work Unit and never per Pixel Sample. It names every outcome instead of returning true or false. And it reads the second answer for a Work Unit not at all.</div>
+    <div class="plain"><span class="tag">In plain words</span>Most of what's interesting here is what the code is careful <em>not</em> to do. It does not render: that is each Render Device's job, in a crate of its own. It names every outcome instead of returning true or false. And it reads the second answer for a Work Unit not at all. How the CPU's renderer keeps its calls cheap and its memory per Work Unit is told in the <a href="../../umbra-cpu/docs/cpu-guide.html#design">Umbra CPU Guide</a>.</div>
 
-    <h4>One <code>dyn</code> call per Work Unit, a static loop inside</h4>
-    <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 760 170" class="dg-wide" role="img" aria-label="Renderer calls a dyn Integrator once per Work Unit; inside, PixelLoop calls evaluate_pixel_sample statically for every Pixel Sample">
-            <rect x="20" y="50" width="140" height="56" rx="6" class="f-surf k-ink"/>
-            <text x="90" y="74" text-anchor="middle">Renderer</text><text x="90" y="94" text-anchor="middle" class="t-mut" font-size="12">::render</text>
-            <line x1="162" y1="78" x2="246" y2="78" class="k-warm" stroke-width="2" marker-end="url(#ah-warm)"/>
-            <text x="204" y="68" text-anchor="middle" class="t-warm" font-size="12">dyn, ×1</text>
-            <rect x="250" y="40" width="200" height="76" rx="8" class="f-warm-soft k-warm"/>
-            <text x="350" y="64" text-anchor="middle">Box&lt;dyn Integrator&gt;</text>
-            <text x="350" y="86" text-anchor="middle" font-size="12">= PixelLoop&lt;I&gt;</text>
-            <text x="350" y="104" text-anchor="middle" class="t-mut" font-size="12">I: RayIntegrator</text>
-            <line x1="452" y1="78" x2="536" y2="78" class="k-acc" stroke-width="2" marker-end="url(#ah-acc)"/>
-            <text x="494" y="68" text-anchor="middle" class="t-acc" font-size="12">static</text>
-            <rect x="540" y="40" width="200" height="76" rx="8" class="f-acc-soft k-acc"/>
-            <text x="640" y="64" text-anchor="middle" font-size="12">evaluate_pixel_sample</text>
-            <text x="640" y="84" text-anchor="middle" font-size="12">&lt;I, NoRecorder&gt;</text>
-            <text x="640" y="104" text-anchor="middle" class="t-mut" font-size="12">× area × |Pass|</text>
-            <text x="380" y="150" text-anchor="middle" class="t-mut" font-size="12">one indirect call per Work Unit; thousands of inlined calls per Work Unit</text>
-        </svg></div>
-    </figure>
+    <h4>A contract, not a renderer</h4>
     <div class="prose">
-<pre class="code"><span class="k">trait</span> Integrator: Sync + fmt::Debug {
-    <span class="k">fn</span> render(&amp;<span class="k">self</span>, job: &amp;Job&lt;'_&gt;, unit: WorkUnit) -&gt; Rendered;
-}
-<span class="k">struct</span> PixelLoop&lt;I&gt;(I);
-<span class="k">impl</span>&lt;I: RayIntegrator + Sync + fmt::Debug&gt; Integrator <span class="k">for</span> PixelLoop&lt;I&gt; { <span class="c">/* … */</span> }
-
-<span class="c">// in Renderer::new</span>
-integrator: Box::new(PixelLoop(scene.integrator())),</pre>
-        <p>The core avoids <code>dyn</code> on the per-ray path: there, every choice is a closed <code>enum</code> (<a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a>). A seam called at most once per Work Unit may be <code>dyn</code>, because one indirect call is nothing next to thousands of Pixel Samples. So the Renderer holds a private <code>Box&lt;dyn Integrator&gt;</code>, and behind it <code>PixelLoop&lt;I&gt;</code> is generic over the core's <code>RayIntegrator</code>: the compiler builds one specialised pixel loop per integrator type. This seam is also where a different driver, such as a GPU's wavefront batch, can plug in later.</p>
-    </div>
-
-    <h4>Memory: per Work Unit, never per Pixel Sample</h4>
-    <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 760 180" class="dg-wide" role="img" aria-label="What is allocated at each level: once per Render Job, once per Work Unit, nothing per row or per Pixel Sample">
-            <g font-size="12">
-                <rect x="20" y="16" width="200" height="34" rx="4" class="f-acc-soft k-acc"/><text x="120" y="38" text-anchor="middle">per Render Job</text>
-                <text x="240" y="38">digit permutations of the seed, in Renderer::new</text>
-                <rect x="20" y="58" width="200" height="34" rx="4" class="f-acc-soft k-acc"/><text x="120" y="80" text-anchor="middle">per Work Unit</text>
-                <text x="240" y="80">vec![PixelSum::default(); area], the Work Result's buffer</text>
-                <rect x="20" y="100" width="200" height="34" rx="4" class="f-mut-soft k-mut"/><text x="120" y="122" text-anchor="middle">per row</text>
-                <text x="240" y="122" class="t-mut">a copy of the sampler (a small value) and NoRecorder: no heap</text>
-                <rect x="20" y="142" width="200" height="34" rx="4" class="f-ok-soft k-ok"/><text x="120" y="164" text-anchor="middle">per Pixel Sample</text>
-                <text x="240" y="164" class="t-ok">nothing</text>
-            </g>
-        </svg></div>
-    </figure>
-    <div class="prose">
-        <p>Asking the operating system for memory is slow and, with many threads, contended. <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> allows it per Render Job and per Work Unit, never per Pixel Sample. The sampler's digit permutations, a table that depends only on the seed, are built once by <code>Renderer::new</code> into a private <code>Randomization</code> enum (<code>None</code>, <code>PermuteDigits</code>, <code>Owen</code>), and lent to each render's Halton sampler as a borrowed view. A test in <code>crates/umbra/tests/allocation.rs</code> counts heap blocks while rendering a Work Unit with 4 and with 8 Pixel Samples per pixel, and checks that the counts are equal.</p>
-        <p>The sampler is built for the Render Job's full Pixel Samples per pixel, not for the Pass. Pixel Sample 5 of a pixel is the same Pixel Sample whether it falls in Pass 1 or, with bigger Passes, in Pass 0: the Passes only group the samples, they never change them.</p>
+        <p>Until <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>, this crate also held the CPU's renderer and its <code>rayon</code>. Now it holds only what is the same on every Render Device, and <code>umbra-cpu</code> and <code>umbra-gpu</code> each depend on it alone of the three. A crate boundary, not a module boundary, is what makes both renderers use only the contract's public API. It also keeps the Film's build free of threads and of anything from NVIDIA, and a change to the Film rebuilds no GPU program.</p>
     </div>
 
     <h4>Outcomes are enums, identifiers are newtypes</h4>
@@ -1446,10 +1361,10 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
 
 <section class="topic" id="tests">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-render</span> · <a href="../tests/umbra_render/">tests/umbra_render</a> · <code>crates/umbra/tests/allocation.rs</code></div>
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-render</span> · <a href="../tests/umbra_render/">tests/umbra_render</a></div>
         <h3>How it is tested</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The tests treat the crate as a black box with two doors: Work Units go in through the Renderer and Work Results come out, and Work Results go into the Film. They use a camera-only Scene of 40 × 24 pixels, which renders black: no light reaches the camera, but every Pixel Sample still gets its filter weight.</div>
+    <div class="plain"><span class="tag">In plain words</span>The tests treat the crate as a black box with one door: Work Results go into the Film. They make the Work Results themselves, with sums chosen so the answer is known, for the Work Units of a camera-only Scene of 40 × 24 pixels. The renderers that make real Work Results are tested in their own crates.</div>
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 760 210" class="dg-wide" role="img" aria-label="The test image's six Tiles and which tests use Tiles 0, 4 and 5">
             <rect x="40" y="20" width="280" height="168" class="f-surf k-ink" stroke-width="1.5"/>
@@ -1478,17 +1393,11 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
                 <ul>
                     <li><code>single_pass_work_results_merge_to_the_same_film_in_any_order</code>: four orders (in order, reversed, interleaved, rotated), the same <code>FilmHash</code> and the same pixels.</li>
                     <li><code>a_duplicate_leaves_the_film_unchanged</code>, <code>a_work_result_lands_on_its_tile</code>, <code>the_passes_of_a_tile_add_up</code>: see the diagram.</li>
+                    <li><code>a_finished_film_is_each_pixels_weighted_mean_in_srgb</code>: <code>Film::finish</code> against the BT.709 matrix.</li>
                 </ul></li>
-            <li><a href="../tests/umbra_render/renderer.rs"><code>renderer.rs</code></a>, the Renderer's door:
-                <ul>
-                    <li><code>a_camera_only_scene_renders_black</code>: 3 × 2 Tiles, every sum black, every weight positive.</li>
-                    <li><code>a_tile_cut_short_by_the_image_has_only_its_pixels</code>: Tile 5 is 8 × 8.</li>
-                    <li><code>work_results_do_not_depend_on_the_thread_count</code>: Work Results on 1 and 4 threads are equal, and so are the single-Pass Film hashes.</li>
-                    <li><code>a_render_is_a_pure_function_of_its_work_unit</code>: rendering the Work Units again, in reverse order, gives equal Work Results.</li>
-                    <li><code>a_cancelled_render_returns_no_work_result</code>: cancel first, get <code>Rendered::Cancelled</code>.</li>
-                </ul></li>
-            <li><a href="../tests/umbra_render/scenes.rs"><code>scenes.rs</code></a> builds the Scene with <code>SceneBuilder</code>, the options (seed 0, 16-pixel Tiles), and <code>render_all</code>.</li>
-            <li><code>crates/umbra/tests/allocation.rs</code>: the counting-allocator test of <a href="#design">section 9</a>.</li>
+            <li><a href="../tests/umbra_render/image.rs"><code>image.rs</code></a>, the final image: <code>an_exr_extension_writes_an_exr_with_the_pixels</code>, and <code>an_unknown_extension_is_invalid_input_and_writes_nothing</code>.</li>
+            <li><a href="../tests/umbra_render/scenes.rs"><code>scenes.rs</code></a> builds the Scene with <code>SceneBuilder</code> and the options (seed 0, 16-pixel Tiles).</li>
+            <li>The renderers: <code>umbra-cpu</code>'s <code>tests/umbra_cpu/</code> (thread count, order, cancellation; see the <a href="../../umbra-cpu/docs/cpu-guide.html#tests">CPU guide</a>), and the counting-allocator test in <code>crates/umbra/tests/allocation.rs</code>, which renders through <code>umbra-cpu</code>.</li>
         </ul>
         <p>Note what the tests avoid: they never compare multi-Pass Films merged in different orders, for the reason in <a href="#determinism">section 5</a>. Run them with <code>cargo nextest run -p umbra-render</code>.</p>
     </div>
@@ -1501,10 +1410,9 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
     </div>
     <div class="prose">
         <ul>
-            <li><b>The final image.</b> Dividing each pixel's sums (Σ <var>w</var>·<var>c</var> ⁄ Σ <var>w</var>), and writing the EXR file atomically, on the Coordinator (<a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a>), with <a href="https://github.com/sergioffpc/umbra/issues/78">#78</a>. arc42 sketches it as <code>Film::finish</code>.</li>
-            <li><b>Pixel Traces.</b> <code>Renderer::trace</code> and its <code>TraceRecorder</code>, re-running chosen Pixel Samples through the same code path with recording on (<a href="../../../docs/adr/0011-pixel-traces-by-deterministic-re-execution.md">ADR 0011</a>), with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>. Today the pixel loop always uses <code>NoRecorder</code>.</li>
             <li><b>Anomalous Pixel Samples.</b> Leaving a Pixel Sample that is NaN, infinite or negative out of the sums, and reporting it in the Work Result, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>.</li>
             <li><b>The scheduler, the network and the Workers</b> of <a href="#scheduling">section 3</a>, in <code>umbra-cluster</code>.</li>
+            <li><b>The GPU's renderer.</b> <code>umbra_gpu::Renderer</code> has the contract's shape but refuses every Scene until its wavefront arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>. Pixel Traces, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>, belong to the CPU's renderer (<a href="../../umbra-cpu/docs/cpu-guide.html#not-yet">CPU guide</a>).</li>
             <li><b>Splat accumulators</b> for integrators whose Pixel Samples land on other pixels (BDPT, light tracing), merged on arrival like the rest (ADR 0022, risk RK-5).</li>
         </ul>
     </div>
@@ -1516,12 +1424,12 @@ integrator: Box::new(PixelLoop(scene.integrator())),</pre>
         <h3>Where to read more</h3>
     </div>
     <ul class="sources">
-        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> §5.4 (film and <code>RGBFilm</code>), §1.3.4 (the pixel loop, <code>EvaluatePixelSample</code>), §6.8.1 (floating-point arithmetic).</li>
-        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/film.h</code> and <code>film.cpp</code> (<code>RGBFilm::AddSample</code>, <code>RGBPixel</code>), <code>cpu/integrators.cpp</code> (<code>ImageTileIntegrator::Render</code>).</li>
+        <li>Pharr, Jakob, Humphreys. <a href="https://pbr-book.org/4ed/contents"><i>Physically Based Rendering</i>, 4th ed.</a> §5.4 (film and <code>RGBFilm</code>), §6.8.1 (floating-point arithmetic).</li>
+        <li><a href="https://github.com/mmp/pbrt-v4">pbrt-v4 source</a>: <code>src/pbrt/film.h</code> and <code>film.cpp</code> (<code>RGBFilm::AddSample</code>, <code>RGBPixel</code>, <code>GetPixelRGB</code>).</li>
         <li>Goldberg. What Every Computer Scientist Should Know About Floating-Point Arithmetic. <i>ACM Computing Surveys</i> 23(1), 1991. Rounding and why addition is not associative.</li>
         <li>Fowler, Noll, Vo. The FNV non-cryptographic hash, <a href="https://datatracker.ietf.org/doc/draft-eastlake-fnv/">IETF draft “The FNV Non-Cryptographic Hash Algorithm”</a>.</li>
-        <li>In this repository: <a href="../README.md">the crate README</a>; <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Tile, Pass, Pixel Sample, Work Unit, Work Result, Film, Coordinator, Worker); arc42 <a href="../../../docs/architecture/05-building-block-view.md">§5</a>, <a href="../../../docs/architecture/06-runtime-view.md">§6</a>, <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8</a>; <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (f64 sums, filter importance sampling), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../../../docs/adr/0006-closed-enum-dispatch-for-rendering-interfaces.md">ADR 0006</a> (dyn only at coarse seams), <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a> (allocation), <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> (scheduling), <a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a> (EXR), <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> (merge on arrival).</li>
-        <li>Sibling guides: <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>, <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</li>
+        <li>In this repository: <a href="../README.md">the crate README</a>; <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Tile, Pass, Pixel Sample, Work Unit, Work Result, Film, Coordinator, Worker); arc42 <a href="../../../docs/architecture/05-building-block-view.md">§5</a>, <a href="../../../docs/architecture/06-runtime-view.md">§6</a>, <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8</a>; <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a> (f64 sums, filter importance sampling), <a href="../../../docs/adr/0004-deterministic-film-for-a-fixed-render-job.md">ADR 0004</a> (deterministic Film), <a href="../../../docs/adr/0009-pull-based-pass-major-scheduling.md">ADR 0009</a> (scheduling), <a href="../../../docs/adr/0020-bit-identical-exr-final-image.md">ADR 0020</a> (EXR), <a href="../../../docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md">ADR 0022</a> (merge on arrival), <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a> (one crate per Render Device).</li>
+        <li>Sibling guides: <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>, <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>, <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a>, <a href="../../umbra-integrators/docs/integrators-guide.html">Umbra Integrators Guide</a>, <a href="../../umbra-scene/docs/scene-guide.html">Umbra Scene Guide</a>, <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a>.</li>
     </ul>
 </section>
 
@@ -1649,7 +1557,7 @@ function sceneSample(x, y, i, fireflies = false) {
     const k = (0.25 + 1.5 * hashU(x, y, i)) * (fireflies && hashU(x, y, i, 9) < 0.03 ? 2 ** 31 : 1);
     return base.map((c, ch) => Math.fround(c * k * (0.9 + 0.2 * hashU(x, y, i, ch + 1))));
 }
-/* PixelLoop::render: every pixel of the Tile, its Pass's Pixel Samples in ascending index. */
+/* A Work Unit's sums, as the CPU's renderer adds them: every pixel of the Tile, its Pass's Pixel Samples in ascending index. */
 function renderRow(dec, unit, y, out, j, fireflies = false) {
     const b = dec.tileBounds(unit.tile), [s0, s1] = dec.sampleIndices(unit.pass), w = FILTER_WEIGHT;
     for (let k = 0; k < b.width; k++) {
@@ -2209,107 +2117,6 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
     rebuild();
 })();
 
-/* ================================================================
-    §7 Renderer bench: rows of one Work Unit on N threads.
-    ================================================================ */
-(() => {
-    const dec = decomposition(40, 24, 16, 8, 4);
-    const unit = { tile: 0, pass: 1 };
-    const b = dec.tileBounds(unit.tile);
-    let anim = null, runs = [], runNo = 0, outcome = null, reference = null;
-    function plan(threads, seedN) {
-        const rng = mulberry32(seedN * 104729 + threads);
-        const free = new Array(threads).fill(0), rows = [];
-        for (let j = 0; j < b.height; j++) {
-            let th = 0;
-            for (let i = 1; i < threads; i++) if (free[i] < free[th]) th = i;
-            const start = free[th], cost = 1 + 0.8 * rng();
-            rows.push({ j, th, start, end: start + cost });
-            free[th] = start + cost;
-        }
-        return { threads, rows, end: Math.max(...free) };
-    }
-    function finish(cancelAt) {
-        const p = anim.plan;
-        const started = p.rows.filter((r) => r.start < cancelAt);
-        if (started.length < p.rows.length) {
-            outcome = { kind: "Cancelled", rowsDone: started.length };
-            runs.push({ threads: p.threads, kind: "Cancelled", share: "–", equal: "no Work Result" });
-        } else {
-            // Each row is computed on its own, in the order the threads finished them.
-            const data = new Float64Array(b.area * 4);
-            for (const r of p.rows.slice().sort((x, y) => x.end - y.end)) renderRow(dec, unit, b.min[1] + r.j, data, r.j);
-            if (!reference) reference = data;
-            const equal = data.every((v, i) => sameBits(v, reference[i]));
-            const share = Array.from({ length: p.threads }, (_, t) => p.rows.filter((r) => r.th === t).length).join(" / ");
-            outcome = { kind: "Done", equal };
-            runs.push({ threads: p.threads, kind: "Done", share, equal: equal ? "equal" : "DIFFERENT" });
-        }
-        anim = null;
-        draw();
-    }
-    function frame() {
-        if (!anim) return;
-        const t = (performance.now() - anim.t0) / 1400 * anim.plan.end;
-        anim.t = t;
-        const stopAt = anim.cancelAt ?? Infinity;
-        const lastEnd = Math.max(...anim.plan.rows.filter((r) => r.start < stopAt).map((r) => r.end));
-        if (t >= Math.min(anim.plan.end, lastEnd)) { finish(stopAt); return; }
-        draw();
-        requestAnimationFrame(frame);
-    }
-    bindRange("rd-threads", (v) => v, () => { if (!anim) draw(); });
-    $("rd-go").addEventListener("click", () => {
-        if (anim) return;
-        runNo++; outcome = null;
-        anim = { plan: plan(+$("rd-threads").value, runNo), t0: performance.now(), t: 0, cancelAt: null };
-        requestAnimationFrame(frame);
-        draw();
-    });
-    $("rd-cancel").addEventListener("click", () => {
-        if (!anim || anim.cancelAt !== null) return;
-        anim.cancelAt = anim.t;
-        draw();
-    });
-    function draw() {
-        const { ctx, w, h } = fit($("rd-cv"));
-        const left = 34, pad = 6, rowH = (h - 2 * pad) / b.height;
-        const mut = tok("--muted"), rule = tok("--rule"), warm = tok("--warm");
-        const hue = (i) => `hsl(${(i * 137.508 + 210) % 360}, 60%, 52%)`;
-        ctx.font = `10px ${tok("--mono")}`;
-        for (let j = 0; j < b.height; j++) {
-            const y = pad + j * rowH;
-            ctx.fillStyle = mut; ctx.fillText(`y${b.min[1] + j}`, 2, y + rowH / 2 + 3);
-            ctx.strokeStyle = rule; ctx.lineWidth = 1;
-            ctx.strokeRect(left, y + 1, w - left - pad, rowH - 2);
-            const r = anim ? anim.plan.rows[j] : null;
-            if (r) {
-                const stopAt = anim.cancelAt ?? Infinity;
-                let f = 0;
-                if (r.start < stopAt) f = clamp((anim.t - r.start) / (r.end - r.start), 0, 1);
-                ctx.fillStyle = hue(r.th); ctx.globalAlpha = 0.65;
-                ctx.fillRect(left, y + 1, (w - left - pad) * f, rowH - 2);
-                ctx.globalAlpha = 1;
-                if (f > 0) { ctx.fillStyle = "#fff"; ctx.fillText(`thread ${r.th}`, left + 4, y + rowH / 2 + 3); }
-                if (r.start >= stopAt) { ctx.fillStyle = warm; ctx.fillText("not started: cancelled", left + 4, y + rowH / 2 + 3); }
-            }
-        }
-        const state = anim ? (anim.cancelAt !== null ? "cancelling: running rows finish" : "rendering…")
-            : outcome ? `Rendered::${outcome.kind}` : "press “render”";
-        $("rd-read").innerHTML = `
-            <dt>Work Unit</dt><dd>Tile ${unit.tile} · Pass ${unit.pass}</dd>
-            <dt>tile_bounds</dt><dd>${b.width} × ${b.height} pixels</dd>
-            <dt>sample_indices</dt><dd>[${dec.sampleIndices(unit.pass).join(", ")})</dd>
-            <dt>threads</dt><dd>${anim ? anim.plan.threads : +$("rd-threads").value}</dd>
-            <dt>state</dt><dd class="${outcome && outcome.kind === "Cancelled" ? "bad" : "acc"}">${state}</dd>
-            <dt>Work Result</dt><dd>${outcome ? (outcome.kind === "Done" ? (outcome.equal ? '<span class="ok">equal to the first finished run, sum for sum</span>' : '<span class="bad">different</span>') : `none (${outcome.rowsDone} of ${b.height} rows ran, then dropped)`) : "–"}</dd>`;
-        $("rd-runs").innerHTML = runs.length
-            ? `<thead><tr><th>#</th><th>threads</th><th>rows per thread</th><th>outcome</th><th>vs first Done</th></tr></thead><tbody>${runs.map((r, i) => `<tr><td>${i + 1}</td><td>${r.threads}</td><td>${r.share}</td><td>${r.kind}</td><td class="${r.equal === "equal" ? "ok" : r.equal === "DIFFERENT" ? "bad" : "mut"}">${r.equal}</td></tr>`).join("")}</tbody>`
-            : `<tbody><tr><td class="mut">no runs yet</td></tr></tbody>`;
-    }
-    drawers.push(draw);
-    draw();
-})();
 })();
 </script>
 </body>

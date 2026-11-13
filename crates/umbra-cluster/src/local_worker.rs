@@ -6,8 +6,9 @@ use std::time::Instant;
 use rayon::ThreadPool;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::info_span;
-use umbra_render::{Cancellation, Rendered, Renderer, WorkUnit};
+use umbra_render::{Cancellation, Rendered, WorkUnit};
 
+use crate::renderer::Renderer;
 use crate::transport::{ToCoordinator, ToWorker, WorkerEnd};
 
 /// Runs the Local Worker until the Render Job finishes or is cancelled, or

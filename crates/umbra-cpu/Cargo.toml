@@ -1,0 +1,23 @@
+[package]
+name = "umbra-cpu"
+description = "The CPU Worker's renderer: rayon over a Work Unit's rows, one Pixel Sample at a time through the core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[dependencies]
+rayon = { workspace = true }
+umbra-integrators = { workspace = true }
+umbra-math = { workspace = true }
+umbra-render = { workspace = true }
+umbra-sampling = { workspace = true }
+umbra-scene = { workspace = true }
+
+[lints]
+workspace = true

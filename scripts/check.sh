@@ -17,7 +17,7 @@
 #         EditorConfig, JSON, YAML, Markdown and TOML
 #   deny  cargo deny: advisories, bans, licenses and sources
 #   readmes  crate READMEs only (part of lint; the pre-commit hook runs it)
-#   unstable  unstable features outside umbra-kernels (part of lint)
+#   unstable  unstable features outside umbra-gpu-programs (part of lint)
 #
 # The tools are installed by scripts/install-tools.sh. Stops at the first
 # failure.
@@ -53,13 +53,13 @@ rust() {
     step cargo clippy --all-targets --all-features --locked -- -D warnings
     # The GPU's code (ADR 0028), which no CI runner can run: umbra-math's
     # nvptx64 backend, umbra-geometry, umbra-sampling, umbra-spectrum and
-    # umbra-kernels must build and pass clippy for the GPU. Clippy needs no
-    # libdevice: its functions are only declared. The build of umbra-gpu
-    # above already compiled the kernels to PTX, which checks that no core
+    # umbra-gpu-programs must build and pass clippy for the GPU. Clippy needs
+    # no libdevice: its functions are only declared. The build of umbra-gpu
+    # above already compiled the programs to PTX, which checks that no core
     # crate pulls `std`. RUSTFLAGS drops the x86-64 CPU that CI sets, which
     # the GPU target does not have.
     step env RUSTFLAGS="-D warnings" cargo clippy -p umbra-math -p umbra-geometry \
-        -p umbra-sampling -p umbra-spectrum -p umbra-kernels \
+        -p umbra-sampling -p umbra-spectrum -p umbra-gpu-programs \
         --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
     step env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
     step cargo nextest run --all-features --locked --profile ci
@@ -150,13 +150,14 @@ readmes() {
     [ "$missing" -eq 0 ]
 }
 
-# The toolchain is a nightly, but only `umbra-kernels` enables unstable
-# features (ADR 0027): every other crate builds on stable features alone.
+# The toolchain is a nightly, but only `umbra-gpu-programs` enables unstable
+# features, on `nvptx64` (ADR 0027, ADR 0033): every other crate builds on
+# stable features alone.
 unstable() {
-    echo "check: unstable features outside umbra-kernels"
+    echo "check: unstable features outside umbra-gpu-programs"
     if git grep -nE '^[[:space:]]*#!\[(cfg_attr\(.*[(, ])?feature\(' \
-        -- 'crates/*.rs' ':!crates/umbra-kernels/' >&2; then
-        echo "check: only umbra-kernels may enable #![feature(...)] (ADR 0027)" >&2
+        -- 'crates/*.rs' ':!crates/umbra-gpu-programs/' >&2; then
+        echo "check: only umbra-gpu-programs may enable #![feature(...)] (ADR 0027)" >&2
         return 1
     fi
 }

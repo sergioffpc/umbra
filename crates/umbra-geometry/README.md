@@ -7,7 +7,7 @@ its traversal. An interaction names its Material, area Light and Medium by
 
 It is a core crate: `#![no_std]` without `alloc` (ADR 0014, ADR 0015). It
 depends on `umbra-math` and `umbra-sampling`, and `umbra-shading`,
-`umbra-camera` and, on the GPU, `umbra-kernels` depend on it (arc42 §5.1,
+`umbra-camera` and, on the GPU, `umbra-gpu-programs` depend on it (arc42 §5.1,
 §5.2). It covers PBR 4e chapters 6–7; so far, only what the GPU tracer bullet
 of [#126](https://github.com/sergioffpc/umbra/issues/126) and the camera of
 [#77](https://github.com/sergioffpc/umbra/issues/77) need.
@@ -50,7 +50,7 @@ Not here yet: `Ray`'s time and medium, ray differentials, partial spheres (`zmin
 
 `Sphere::intersect` is a `Copy`-value function of the core (ADR 0028): the
 CPU calls it directly, and on the GPU the custom intersection program of
-`umbra-kernels` calls the same function from OptiX (ADR 0026). It follows
+`umbra-gpu-programs` calls the same function from OptiX (ADR 0026). It follows
 pbrt-v4's `BasicIntersect` operation for operation, with `Interval`
 arithmetic, so no hit behind the ray's origin is reported.
 

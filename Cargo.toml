@@ -1,6 +1,6 @@
-# The workspace of arc42 §5.1 (ADR 0015, ADR 0028): seven `#![no_std]` core
-# crates without `alloc`, `umbra-kernels` (`#![no_std]`, built for `nvptx64`
-# only), and six `std` crates around them, all in `crates/<name>/`.
+# The workspace of arc42 §5.1 (ADR 0015, ADR 0028, ADR 0033): seven
+# `#![no_std]` core crates without `alloc`, `umbra-gpu-programs` (`#![no_std]`
+# on `nvptx64`), and seven `std` crates around them, all in `crates/<name>/`.
 # Every crate inherits the package metadata, lints and dependencies below
 # (arc42 §5.4).
 [workspace]
@@ -78,7 +78,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing-tracy = "0.12.0"
 umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }
+umbra-cpu = { path = "crates/umbra-cpu" }
 umbra-geometry = { path = "crates/umbra-geometry" }
+umbra-gpu = { path = "crates/umbra-gpu" }
+umbra-gpu-programs = { path = "crates/umbra-gpu-programs" }
 umbra-integrators = { path = "crates/umbra-integrators" }
 umbra-math = { path = "crates/umbra-math" }
 umbra-parser = { path = "crates/umbra-parser" }

@@ -1,24 +1,26 @@
 //! The launch parameters and buffer records of the trace programs: the
 //! layout shared by the host and the device.
 //!
-//! `umbra-kernels` and `umbra-gpu` both compile this file, the second by
-//! `#[path]`, so the two sides read one definition. It depends on `core`
-//! only. Every type is `#[repr(C)]` with layout assertions, which hold on
-//! `x86_64` and `nvptx64` alike (ADR 0028).
+//! It compiles on both targets: the programs read it on `nvptx64`, and
+//! `umbra-gpu` uses it through an ordinary dependency, so the two sides read
+//! one definition (ADR 0033). Every type is `#[repr(C)]` with layout
+//! assertions, which hold on `x86_64` and `nvptx64` alike (ADR 0028).
+
+use umbra_geometry::Ray;
 
 /// What the host passes to one launch, in the `.const` variable `params`
 /// that the pipeline names as its launch parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-pub(crate) struct LaunchParams {
+pub struct LaunchParams {
     /// The traversable handle of the acceleration structure to trace.
-    pub(crate) handle: u64,
+    pub handle: u64,
     /// Device address of `count` [`RayRecord`]s.
-    pub(crate) rays: u64,
+    pub rays: u64,
     /// Device address of `count` [`HitRecord`]s, written by the launch.
-    pub(crate) hits: u64,
+    pub hits: u64,
     /// The number of rays, at most the launch width.
-    pub(crate) count: u32,
+    pub count: u32,
 }
 
 const _: () = {
@@ -43,11 +45,11 @@ const _: () = {
 /// One ray to trace: origin and direction in render space.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
-pub(crate) struct RayRecord {
+pub struct RayRecord {
     /// The origin.
-    pub(crate) o: [f32; 3],
+    pub o: [f32; 3],
     /// The direction.
-    pub(crate) d: [f32; 3],
+    pub d: [f32; 3],
 }
 
 const _: () = {
@@ -66,11 +68,11 @@ const _: () = {
 /// memory may hold any bits).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
-pub(crate) struct HitRecord {
+pub struct HitRecord {
     /// The ray parameter of the closest hit; unspecified on a miss.
-    pub(crate) t: f32,
+    pub t: f32,
     /// The [`HitKind`] discriminant.
-    pub(crate) kind: u32,
+    pub kind: u32,
 }
 
 const _: () = {
@@ -87,11 +89,20 @@ const _: () = {
 /// What a ray hit, as [`HitRecord::kind`] stores it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-pub(crate) enum HitKind {
+pub enum HitKind {
     /// Nothing.
     Miss = 0,
     /// A triangle, by OptiX's built-in intersection.
     Triangle = 1,
     /// A sphere, by the custom intersection program.
     Sphere = 2,
+}
+
+impl From<&Ray> for RayRecord {
+    fn from(ray: &Ray) -> Self {
+        Self {
+            o: [ray.o.x, ray.o.y, ray.o.z],
+            d: [ray.d.x, ray.d.y, ray.d.z],
+        }
+    }
 }

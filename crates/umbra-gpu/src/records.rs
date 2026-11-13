@@ -1,13 +1,21 @@
-//! The host's side of the records it shares with the device: their
-//! conversions, and the `DeviceRepr` promise that lets `cudarc` copy them.
+//! The host's side of the records it shares with the device: the
+//! `DeviceRepr` promise that lets `cudarc` copy them, and what a hit record
+//! says.
 
 use cudarc::driver::DeviceRepr;
-use umbra_geometry::{Ray, Sphere};
+use umbra_geometry::Sphere;
+use umbra_gpu_programs::{HitKind, HitRecord, LaunchParams, RayRecord};
 
 use crate::Error;
-use crate::launch::{HitKind, HitRecord, LaunchParams, RayRecord};
 use crate::optix::SBT_RECORD_HEADER_SIZE;
 use crate::{Geometry, Hit};
+
+/// A value of the layout `umbra-gpu-programs` shares with the device, as
+/// `cudarc` copies it: the type is that crate's, so the `DeviceRepr`
+/// promise is made for this wrapper, which has its layout.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(transparent)]
+pub(crate) struct DeviceCopy<T>(pub(crate) T);
 
 /// A shader binding table record: the header OptiX packs for a program
 /// group, then the data its programs read with `optixGetSbtDataPointer`.
@@ -37,8 +45,9 @@ const _: () = {
 macro_rules! device_repr {
     ($($t:ty),+ $(,)?) => {$(
         // SAFETY: a `#[repr(C)]` type of `f32`s, integers and byte arrays,
-        // with no pointer to host memory, whose layout the device shares
-        // (`launch.rs`, `Sphere`'s assertions). Its padding bytes are copied
+        // or a transparent wrapper of one, with no pointer to host memory,
+        // whose layout the device shares (`umbra-gpu-programs`' `launch.rs`,
+        // `Sphere`'s assertions). Its padding bytes are copied
         // as they are and never read as values; of these types, the host
         // reads back only `HitRecord`, which has no padding and for which
         // any bits are a valid value.
@@ -48,46 +57,28 @@ macro_rules! device_repr {
 }
 
 device_repr!(
-    LaunchParams,
-    RayRecord,
-    HitRecord,
+    DeviceCopy<LaunchParams>,
+    DeviceCopy<RayRecord>,
+    DeviceCopy<HitRecord>,
     SbtRecord<()>,
     SbtRecord<Sphere>
 );
 #[cfg(feature = "math-program")]
-device_repr!(crate::math_launch::MathParams);
+device_repr!(DeviceCopy<umbra_gpu_programs::MathParams>);
 
-impl From<&Ray> for RayRecord {
-    fn from(ray: &Ray) -> Self {
-        Self {
-            o: [ray.o.x, ray.o.y, ray.o.z],
-            d: [ray.d.x, ray.d.y, ray.d.z],
-        }
-    }
-}
-
-impl TryFrom<u32> for HitKind {
-    type Error = Error;
-
-    fn try_from(kind: u32) -> Result<Self, Self::Error> {
-        [Self::Miss, Self::Triangle, Self::Sphere]
-            .into_iter()
-            .find(|&k| k as u32 == kind)
-            .ok_or(Error::HitKind(kind))
-    }
-}
-
-impl HitRecord {
+impl DeviceCopy<HitRecord> {
     /// The hit this record holds, or `None` for a miss.
     pub(crate) fn hit(self) -> Result<Option<Hit>, Error> {
-        let geometry = match HitKind::try_from(self.kind)? {
+        let Self(HitRecord { t, kind }) = self;
+        let kind = [HitKind::Miss, HitKind::Triangle, HitKind::Sphere]
+            .into_iter()
+            .find(|&k| k as u32 == kind)
+            .ok_or(Error::HitKind(kind))?;
+        let geometry = match kind {
             HitKind::Miss => return Ok(None),
             HitKind::Triangle => Geometry::Triangle,
             HitKind::Sphere => Geometry::Sphere,
         };
-        Ok(Some(Hit {
-            t: self.t,
-            geometry,
-        }))
+        Ok(Some(Hit { t, geometry }))
     }
 }

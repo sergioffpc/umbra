@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{info, info_span};
 use umbra_render::{
-    Acceptance, Cancellation, Film, FilmHash, Image, Renderer, ReproductionRecord, WorkResult,
+    Acceptance, Cancellation, Decomposition, Film, FilmHash, Image, ReproductionRecord, WorkResult,
     WorkUnit,
 };
 use umbra_scene::{RenderJobOptions, Scene};
@@ -19,6 +19,7 @@ use umbra_scene::{RenderJobOptions, Scene};
 use crate::error::Error;
 use crate::local_worker;
 use crate::progress::Progress;
+use crate::renderer::{RenderDevice, Renderer};
 use crate::report::{Outcome, RenderJobReport, Rendered, WorkerFigures};
 use crate::status::{Status, StatusLine};
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
@@ -104,14 +105,16 @@ pub fn coordinate(
         options: job_options,
         record,
     } = job;
-    let renderer = Renderer::new(&scene, &job_options)?;
+    let decomposition = Decomposition::new(scene.full_resolution(), &job_options)?;
+    // The Local Worker renders on the CPU.
+    let renderer = Renderer::new(RenderDevice::Cpu, &scene, &job_options)?;
     let pool = thread_pool(options.threads)?;
     let threads = pool.current_num_threads();
     let mut scheduler = Scheduler {
         film: Film::new(&scene, &job_options)?,
-        progress: Progress::new(renderer.decomposition(), Instant::now()),
+        progress: Progress::new(&decomposition, Instant::now()),
         status: Status::new(status, threads),
-        queue: renderer.decomposition().work_units(),
+        queue: decomposition.work_units(),
         demand: 0,
     };
     let ending = {

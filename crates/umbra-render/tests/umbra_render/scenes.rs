@@ -1,9 +1,8 @@
-//! The Scenes and Render Job Options the tests render.
+//! The Scene and Render Job Options the tests use.
 
 use std::num::NonZeroU32;
 
 use umbra_math::Point2i;
-use umbra_render::{Cancellation, Rendered, Renderer, WorkResult};
 use umbra_scene::{FilmParameters, RenderJobOptions, Scene, SceneBuilder, Seed};
 
 /// A camera-only Scene of 40 × 24 pixels: with 16-pixel Tiles, three
@@ -24,17 +23,4 @@ pub(crate) fn options(spp: u32, per_pass: u32) -> RenderJobOptions {
         spp_per_pass: NonZeroU32::new(per_pass).expect("a Pass has a Pixel Sample"),
         spp: NonZeroU32::new(spp).expect("a pixel has a Pixel Sample"),
     }
-}
-
-/// Every Work Result of the Render Job, in the order of its Work Units.
-pub(crate) fn render_all(renderer: &Renderer<'_>) -> Vec<WorkResult> {
-    let cancel = Cancellation::new();
-    renderer
-        .decomposition()
-        .work_units()
-        .map(|unit| match renderer.render(unit, &cancel) {
-            Rendered::Done(result) => result,
-            Rendered::Cancelled => panic!("{unit:?} cancelled with no cancellation"),
-        })
-        .collect()
 }

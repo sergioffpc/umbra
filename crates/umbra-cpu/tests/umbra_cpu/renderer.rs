@@ -1,9 +1,8 @@
 //! Seam 3: the Renderer turns each Work Unit into its Work Result.
 
 use rayon::ThreadPoolBuilder;
-use umbra_render::{
-    Cancellation, Film, FilmHash, PassIndex, Rendered, Renderer, TileIndex, WorkUnit,
-};
+use umbra_cpu::Renderer;
+use umbra_render::{Cancellation, Film, FilmHash, PassIndex, Rendered, TileIndex, WorkUnit};
 use umbra_scene::Scene;
 
 use crate::scenes::{camera_only, options, render_all};
