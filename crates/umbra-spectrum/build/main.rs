@@ -14,7 +14,7 @@ mod cie_5nm;
 // host, and builds with `--target` (the `asan` group of `scripts/check.sh`)
 // compile build scripts without RUSTFLAGS. The file depends on `core` only.
 // The script calls `cbrt` alone, and the wrappers are `pub` for the crate.
-#[path = "../../umbra-math/src/platform/x86_64.rs"]
+#[path = "../../umbra-math/src/platform/libm.rs"]
 #[expect(
     dead_code,
     unreachable_pub,
@@ -46,7 +46,7 @@ fn to_le_bytes(table: &Table) -> Vec<u8> {
 )]
 fn main() {
     println!("cargo::rerun-if-changed=build");
-    println!("cargo::rerun-if-changed=../umbra-math/src/platform/x86_64.rs");
+    println!("cargo::rerun-if-changed=../umbra-math/src/platform/libm.rs");
 
     let srgb = Gamut {
         illuminant: CIE_D65.map(|v| v / CIE_D65_NORMALIZATION),

@@ -15,8 +15,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # `umbra-math` requires the `x86-64-v3` baseline (ADR 0023), and the CI
-  # runners are generic x86-64.
+  # `umbra-math` requires the `x86-64-v3` baseline on x86-64 (ADR 0023), and
+  # the CI runners are generic x86-64. The arm64 job sets its own.
   RUSTFLAGS: -D warnings -C target-cpu=x86-64-v3
 
 # CI is split into workflows by kind of check, so the checks of a pull request
@@ -89,6 +89,28 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: scripts/install-tools.sh cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: scripts/check.sh rust
+
+  # The same checks on arm64 (ADR 0023), whose backends differ from
+  # x86-64's: the lane-by-lane `Vec4`, the NEON scalar primitives and the C
+  # library's `expf` and `powf`. RUSTFLAGS drops the x86-64 CPU; arm64 needs
+  # none. GitHub's arm64 runners stop at Ubuntu 24.04, an older glibc than
+  # the release image's.
+  check-arm64:
+    name: fmt, clippy, doc, test (arm64)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: ubuntu-24.04-arm
+    env:
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain

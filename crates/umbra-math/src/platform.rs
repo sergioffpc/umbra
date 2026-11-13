@@ -1,6 +1,6 @@
 //! The C math functions Umbra takes from the platform's math library, one
 //! safe wrapper per function (ADR 0007, ADR 0022): glibc's `libm.so.6` on
-//! x86-64.
+//! Linux, `libSystem` on macOS, on x86-64 and arm64 alike.
 //!
 //! Umbra's own kernels come first where they exist: [`sin_cos`](crate::sin_cos),
 //! [`atan2`](crate::atan2), [`erf`](crate::erf), [`Vec4::exp`](crate::Vec4::exp)
@@ -16,15 +16,15 @@
 //! [`double`](crate::double), where `sin` and `atan2` do not collide with
 //! Umbra's own `f32` kernels.
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[expect(
     clippy::disallowed_types,
-    reason = "glibc's f64 functions, on x86-64 only (ADR 0028)"
+    reason = "the C library's f64 functions, on the CPUs only (ADR 0028)"
 )]
-mod x86_64;
+mod libm;
 
-#[cfg(target_arch = "x86_64")]
-pub use x86_64::{
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub use libm::{
     acos, acosf, asinf, atan2, atan2f, atanhf, cbrt, ceilf, cos, cosf, coshf, erf, erff, exp,
     exp2f, expf, floorf, fma, fmaf, hypot, lgamma, log, logf, pow, powf, roundf, sin, sincosf,
     sinf, sqrt, sqrtf, tanf,

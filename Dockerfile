@@ -4,13 +4,14 @@
 # shell, no package manager, non-root) holding only the `umbra` binary and the
 # glibc and libgcc slices it links against. Built and published to
 # ghcr.io/sergioffpc/umbra by .github/workflows/release-image.yml on every
-# vX.Y.Z tag, as one x86-64-v3 image (X.Y.Z); see
+# vX.Y.Z tag, as one multi-platform image (X.Y.Z): linux/amd64 for the
+# x86-64-v3 baseline and linux/arm64 for the arm64 baseline; see
 # docs/adr/0005-chiseled-release-container-image.md and
 # docs/adr/0025-one-x86-64-v3-release-image.md.
 #
-# The published image is linux/amd64 only. Build it locally with:
-#   docker build -t umbra .
-# Only linux/amd64 builds (ADR 0023).
+# Build it locally, for the host's architecture, with:
+#   docker build -t umbra .        (or: podman build -t umbra .)
+# or for one platform with --platform linux/amd64 or linux/arm64.
 
 # ---------------------------------------------------------------------------
 # Toolchain: Ubuntu 26.04 LTS with the toolchain pinned in rust-toolchain.toml.
@@ -47,20 +48,24 @@ RUN rustup toolchain install && rustc --version
 # linked against the glibc the runtime slices ship.
 FROM toolchain AS builder
 
-# The binary targets the x86-64-v3 baseline (FMA, SSE4.1, AVX2), which
-# umbra-math requires and every Worker CPU has (ADR 0023, ADR 0025), so one
-# image runs on every Worker. RUSTFLAGS replaces the `target-cpu=native` set in
-# .cargo/config.toml, which .dockerignore also keeps out of the build context.
+# The binary targets each architecture's baseline, so one image runs on every
+# Worker of that architecture (ADR 0023, ADR 0025): x86-64-v3 (FMA, SSE4.1,
+# AVX2) on amd64, which umbra-math requires, and the plain arm64 target on
+# arm64, whose NEON and FMA every arm64 CPU has. RUSTFLAGS replaces the
+# `target-cpu=native` set in .cargo/config.toml, which .dockerignore also
+# keeps out of the build context. The target cache is per architecture, so
+# the two platforms of one build do not share it.
 ARG TARGETARCH
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    if [ "${TARGETARCH:-amd64}" != amd64 ]; then \
-        echo "error: Umbra builds for linux/amd64 only (ADR 0023)" >&2; exit 1; \
-    fi; \
-    export RUSTFLAGS="-C target-cpu=x86-64-v3" \
-    && echo "RUSTFLAGS=${RUSTFLAGS}" \
+    --mount=type=cache,target=/src/target,id=umbra-target-${TARGETARCH} \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) export RUSTFLAGS="-C target-cpu=x86-64-v3" ;; \
+        arm64) export RUSTFLAGS="" ;; \
+        *) echo "error: Umbra builds for linux/amd64 and linux/arm64 only (ADR 0023)" >&2; exit 1 ;; \
+    esac; \
+    echo "RUSTFLAGS=${RUSTFLAGS}" \
     && cargo build --release --locked \
     && install -D -m 0755 target/release/umbra /out/usr/bin/umbra
 
@@ -75,6 +80,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # together (Dependabot does not track these).
 ARG CHISEL_VERSION=v1.5.1
 ARG CHISEL_SHA384_AMD64=89612f46de83e850aae11fca26a32a22cc2964891f2cc538211b906787d2b83e4496fa203a5074e06a9932f1fbe84a73
+ARG CHISEL_SHA384_ARM64=5beb26c4ce29741493e7481139742b1af1b087eab043d102313d9a5caaf665169678db4c980a62098376841220f15577
 ARG TARGETARCH
 
 # hadolint ignore=DL3008
@@ -87,6 +93,7 @@ RUN apt-get update \
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
         amd64) sum="${CHISEL_SHA384_AMD64}"; arch=amd64 ;; \
+        arm64) sum="${CHISEL_SHA384_ARM64}"; arch=arm64 ;; \
         *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     tarball="chisel_${CHISEL_VERSION}_linux_${arch}.tar.gz"; \
@@ -101,7 +108,7 @@ RUN set -eu; \
 #   base-files_release-info  /etc/os-release, for scanners
 #   base-files_chisel        /var/lib/chisel manifest, for SBOM tools
 #   base-passwd_data         /etc/passwd and /etc/group
-#   libc6_libs               glibc (the binary targets x86_64-unknown-linux-gnu)
+#   libc6_libs               glibc (the binary targets *-unknown-linux-gnu)
 #   libgcc-s1_libs           libgcc_s, which Rust's std links on linux-gnu
 # Add slices here when umbra gains a dependency on a system library.
 RUN mkdir /rootfs \

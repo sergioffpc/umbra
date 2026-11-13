@@ -1,9 +1,10 @@
 //! [`Vec4::exp`] and [`Vec4::pow`]. On x86-64 they are Umbra's own kernels,
 //! within 1 ULP of the correctly rounded result in every lane (ADR 0022),
 //! where glibc per lane costs several times more; the backend evaluates them
-//! in `f64`. On `nvptx64` they are `libdevice`'s `expf` and `powf` per lane,
-//! within 2 and 4 ULP (ADR 0028). This facade gives `pow` C's values at
-//! zeros, infinities and NaNs on both.
+//! in `f64`. On arm64 they are the C library's `expf` and `powf` per lane,
+//! within 1 ULP with glibc and Apple's libm (`tests/umbra_math/accuracy/`).
+//! On `nvptx64` they are `libdevice`'s, within 2 and 4 ULP (ADR 0028). This
+//! facade gives `pow` C's values at zeros, infinities and NaNs on all three.
 
 use super::{Vec4, backend};
 use crate::float::floor;
@@ -39,8 +40,8 @@ impl Parity {
 }
 
 impl Vec4 {
-    /// `eˣ` per lane, within 1 ULP of the correctly rounded result on x86-64
-    /// and 2 ULP on `nvptx64`: overflow gives `+∞`, underflow the subnormals
+    /// `eˣ` per lane, within 1 ULP of the correctly rounded result on the
+    /// CPUs and 2 ULP on `nvptx64`: overflow gives `+∞`, underflow the subnormals
     /// (which `nvptx64` may flush to zero) and then `+0`, NaN stays NaN.
     ///
     /// pbrt-v4 `std::exp`, lane by lane.
@@ -51,10 +52,12 @@ impl Vec4 {
     }
 
     /// Each lane raised to `e`, within 1 ULP of the correctly rounded
-    /// result on x86-64 and 4 ULP on `nvptx64`, with C `powf`'s values for
+    /// result on the CPUs and 4 ULP on `nvptx64`, with C `powf`'s values for
     /// zeros, infinities and NaNs. An exponent of 0 gives 1 and of 1 the
-    /// lanes themselves, exactly; an infinite or NaN exponent falls back to
-    /// `powf`.
+    /// lanes themselves, exactly; a signalling NaN exponent gives NaN, as
+    /// IEEE 754 asks (Apple's libm gives 1 for a lane of 1), and any other
+    /// infinite or NaN exponent falls back to `powf`, as every exponent
+    /// does on arm64.
     ///
     /// pbrt-v4 `std::pow`, lane by lane.
     #[must_use]
@@ -66,7 +69,13 @@ impl Vec4 {
         if e == 1.0 {
             return self;
         }
-        if !e.is_finite() {
+        if is_signalling(e) {
+            return Self::splat(f32::NAN);
+        }
+        // On arm64 the backend's kernel is `powf` itself, which already
+        // gives C's value in every lane: the sign and special-value
+        // handling below would only repeat it, at 40 % of the cost.
+        if !e.is_finite() || cfg!(target_arch = "aarch64") {
             return Self(self.0.map(|x| powf(x, e)));
         }
         let r = self.abs().pow_magnitude(e);
@@ -99,4 +108,10 @@ impl Vec4 {
             infinite.select(Self::splat(at_infinity), positive),
         )
     }
+}
+
+/// Whether `v` is a signalling NaN: a NaN whose quiet bit is clear.
+fn is_signalling(v: f32) -> bool {
+    const QUIET: u32 = 0x0040_0000;
+    v.is_nan() && v.to_bits() & QUIET == 0
 }

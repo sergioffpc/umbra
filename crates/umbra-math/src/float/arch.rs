@@ -15,6 +15,9 @@
 //! AVX2) for the whole build and refuses to compile without it (`lib.rs`),
 //! so calling them is sound on every CPU the binary can run on.
 //!
+//! On arm64 they are NEON intrinsics, likewise in functions marked
+//! `target_feature(enable = "neon")`; NEON is part of every arm64 target.
+//!
 //! On `nvptx64` (ADR 0028) they are CUDA's `libdevice` functions
 //! (`crate::libdevice`), each one PTX instruction with the same IEEE
 //! semantics once linked and inlined: `fma.rn.f32`, `sqrt.rn.f32`,
@@ -72,15 +75,69 @@ mod x86_64 {
 #[cfg(target_arch = "x86_64")]
 use x86_64 as hardware;
 
+/// NEON, which every arm64 CPU has: each primitive is the instruction on
+/// lane 0 of a 64-bit register, which LLVM lowers to the scalar form
+/// (`fmadd`, `fsqrt`, `frintm`, `frintp`). The intrinsics are safe to call,
+/// since `neon` is a baseline feature of the target.
+#[cfg(target_arch = "aarch64")]
+mod aarch64 {
+    use core::arch::aarch64::{
+        vdup_n_f32, vdup_n_f64, vfma_f32, vfma_f64, vget_lane_f32, vget_lane_f64, vrndm_f32,
+        vrndp_f32, vsqrt_f32,
+    };
+
+    /// `fsqrt`.
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub(super) fn sqrt(x: f32) -> f32 {
+        vget_lane_f32::<0>(vsqrt_f32(vdup_n_f32(x)))
+    }
+
+    /// `fmadd`.
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub(super) fn fma(a: f32, b: f32, c: f32) -> f32 {
+        vget_lane_f32::<0>(vfma_f32(vdup_n_f32(c), vdup_n_f32(a), vdup_n_f32(b)))
+    }
+
+    /// `fmadd`, in `f64`.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the CPU `f64` FMA of the transcendentals (ADR 0028)"
+    )]
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub(super) fn fma_f64(a: f64, b: f64, c: f64) -> f64 {
+        vget_lane_f64::<0>(vfma_f64(vdup_n_f64(c), vdup_n_f64(a), vdup_n_f64(b)))
+    }
+
+    /// `frintm`: towards −∞.
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub(super) fn floor(x: f32) -> f32 {
+        vget_lane_f32::<0>(vrndm_f32(vdup_n_f32(x)))
+    }
+
+    /// `frintp`: towards +∞.
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub(super) fn ceil(x: f32) -> f32 {
+        vget_lane_f32::<0>(vrndp_f32(vdup_n_f32(x)))
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+use aarch64 as hardware;
+
 #[cfg(target_arch = "nvptx64")]
 pub(crate) use crate::libdevice::{ceil, floor, fma, sqrt};
 
 /// Defines the crate primitive `$name` as the instruction of
-/// `hardware::$name`, on x86-64.
+/// `hardware::$name`, on the CPUs.
 macro_rules! primitive {
     ($(#[$doc:meta])* $name:ident($($arg:ident),+)) => {
         $(#[$doc])*
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         #[inline]
         #[must_use]
         #[expect(
@@ -89,8 +146,9 @@ macro_rules! primitive {
         )]
         pub(crate) fn $name($($arg: f32),+) -> f32 {
             // SAFETY: the instruction's target feature is enabled for the
-            // whole build: `x86-64-v3` is required (`lib.rs`), so every CPU
-            // this binary runs on has it.
+            // whole build: `x86-64-v3` is required on x86-64 (`lib.rs`), and
+            // NEON is part of every arm64 target, so every CPU this binary
+            // runs on has it.
             unsafe { hardware::$name($($arg),+) }
         }
     };
@@ -102,7 +160,7 @@ primitive! {
 }
 
 /// `a · b + c` in `f64`, with one rounding.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[inline]
 #[must_use]
 #[expect(
@@ -111,12 +169,12 @@ primitive! {
 )]
 #[expect(
     clippy::disallowed_types,
-    reason = "the x86-64 `f64` FMA of the transcendentals (ADR 0028)"
+    reason = "the CPU `f64` FMA of the transcendentals (ADR 0028)"
 )]
 pub(crate) fn fma_f64(a: f64, b: f64, c: f64) -> f64 {
     // SAFETY: the instruction's target feature is enabled for the whole
-    // build: `x86-64-v3` is required (`lib.rs`), so every CPU this binary
-    // runs on has it.
+    // build: `x86-64-v3` is required on x86-64 (`lib.rs`), and NEON is
+    // part of every arm64 target, so every CPU this binary runs on has it.
     unsafe { hardware::fma_f64(a, b, c) }
 }
 

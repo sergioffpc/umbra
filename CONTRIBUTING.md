@@ -287,7 +287,7 @@ first.
   [ADR 0015](docs/adr/0015-layered-workspace-with-a-seven-crate-no-std-core.md)).
   Their dependencies use `default-features = false` and must build without
   `std`. Nothing checks this automatically
-  ([ADR 0023](docs/adr/0023-x86-64-only.md)): keep `std` and `alloc` out of
+  ([ADR 0023](docs/adr/0023-x86-64-only.md), [ADR 0028](docs/adr/0028-one-core-for-cpu-and-gpu.md)): keep `std` and `alloc` out of
   the core in review, including through dependency features.
 - Each core crate has a `serde` feature, off by default, that enables its
   dependencies' `serde` features. `umbra-scene` turns it on.
@@ -339,11 +339,13 @@ optimised
 ([ADR 0022](docs/adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
 [`.cargo/config.toml`](.cargo/config.toml) builds for the local CPU
-(`target-cpu=native`), on the x86-64 target only: `nvptx64` builds use that
-target's default. Override `RUSTFLAGS` for binaries that must run on
-other machines. An override must keep at least `-C target-cpu=x86-64-v3`:
-`umbra-math` requires FMA, SSE4.1 and AVX2 and stops the build without them
-([ADR 0023](docs/adr/0023-x86-64-only.md)).
+(`target-cpu=native`), on the x86-64 and arm64 targets only: `nvptx64`
+builds use that target's default. Override `RUSTFLAGS` for binaries that
+must run on other machines. On x86-64 an override must keep at least
+`-C target-cpu=x86-64-v3`: `umbra-math` requires FMA, SSE4.1 and AVX2 and
+stops the build without them ([ADR 0023](docs/adr/0023-x86-64-only.md)). On
+arm64, Linux or macOS, an empty `RUSTFLAGS` builds for any arm64 CPU
+([ADR 0032](docs/adr/0032-arm64-back-as-a-cpu-target.md)).
 
 ## Before opening a pull request
 
