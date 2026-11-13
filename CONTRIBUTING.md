@@ -129,13 +129,13 @@ comes from your system package manager.
 
 ## Git setup and hooks
 
-Run the setup script once per clone. It enables the hooks and the commit
-message template, and applies recommended local git settings (rebase on pull,
-prune on fetch, `rerere`, `zdiff3` conflicts, histogram diffs):
-
-```sh
-scripts/setup-git.sh
-```
+The [dev container](#dev-container) configures the clone when it is created:
+it enables the hooks and the commit message template, and applies recommended
+local git settings (rebase on pull, prune on fetch, `rerere`, `zdiff3`
+conflicts, histogram diffs). The settings go in the clone's `.git/config`, so
+they apply on the host too. Without the dev container, run the
+`git config --local` lines of
+[`.devcontainer/post-create.sh`](.devcontainer/post-create.sh) once per clone.
 
 - `pre-commit` checks staged whitespace and, when Rust code, a manifest or a
   TOML configuration is staged, `cargo fmt` and `cargo clippy`. It then runs
@@ -186,8 +186,8 @@ release the [release image](Dockerfile) builds and ships on, with the pinned
 toolchain, `rust-src`, `gh`, Claude Code and every tool listed under
 [Toolchain](#toolchain). With Docker running and the Dev Containers
 extension installed, run **Dev Containers: Reopen in Container**. On creation
-it runs `scripts/setup-git.sh` and `cargo fetch`, so the hooks work inside the
-container.
+it applies the [git settings](#git-setup-and-hooks) and runs `cargo fetch`, so
+the hooks work inside the container.
 
 - `target/` and the cargo download cache are Docker volumes, not bind mounts:
   builds stay fast and survive container rebuilds. The container's
