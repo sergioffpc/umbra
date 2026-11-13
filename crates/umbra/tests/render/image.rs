@@ -68,6 +68,19 @@ fn the_report_carries_the_reproduction_record() {
 }
 
 #[test]
+fn the_report_names_its_schema_version_as_major_and_minor() {
+    let ws = Workspace::new();
+    ws.file("scene.pbrt", CAMERA_ONLY);
+    assert_eq!(code(&ws.umbra(&["render", "scene.pbrt"])), 0);
+
+    let report = report(&ws.path("black.exr"));
+    assert_eq!(
+        report["schema_version"],
+        serde_json::json!({ "major": 0, "minor": 1 })
+    );
+}
+
+#[test]
 fn spp_per_pass_cuts_the_spp_into_passes() {
     let ws = Workspace::new();
     ws.file("scene.pbrt", CAMERA_ONLY);
