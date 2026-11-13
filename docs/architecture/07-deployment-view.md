@@ -32,14 +32,14 @@ Consequences for later decisions:
 
 ## 7.2 Builds
 
-Every machine runs the same release binary, built for `x86-64-v3` ([ADR 0025](../adr/0025-one-x86-64-v3-release-image.md)), and every machine in a Render Job runs the same commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)). Development builds use the host's own CPU, and different builds are not promised to give the same bits, only statistically equal images ([ADR 0022](../adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
+Every x86-64 machine runs the same release binary, built for `x86-64-v3` ([ADR 0025](../adr/0025-one-x86-64-v3-release-image.md)), every arm64 machine the image's arm64 build ([ADR 0032](../adr/0032-arm64-back-as-a-cpu-target.md)), and every machine in a Render Job runs the same commit ([ADR 0012](../adr/0012-per-cpu-binaries-locked-to-one-commit.md)). Development builds use the host's own CPU, and different builds are not promised to give the same bits, only statistically equal images ([ADR 0022](../adr/0022-determinism-on-one-machine-statistical-equality-across-machines.md)).
 
-| Build       | Target CPU  | Artifact                                     |
-| ----------- | ----------- | -------------------------------------------- |
-| Release     | `x86-64-v3` | `ghcr.io/sergioffpc/umbra:X.Y.Z` (container) |
-| Development | `native`    | `cargo build` on each host                   |
+| Build       | Target CPU                       | Artifact                                     |
+| ----------- | -------------------------------- | -------------------------------------------- |
+| Release     | `x86-64-v3`; arm64's own default | `ghcr.io/sergioffpc/umbra:X.Y.Z` (container) |
+| Development | `native`                         | `cargo build` on each host                   |
 
-- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) once and publish one image, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `X.Y` or `latest` tag.
+- **Releases**: a `vX.Y.Z` tag on `main` makes CI build the [`Dockerfile`](../../Dockerfile) for `linux/amd64` and `linux/arm64` and publish one image, with the rest of the pipeline as described in [ADR 0005](../adr/0005-chiseled-release-container-image.md). There is no `X.Y` or `latest` tag.
 - **Development**: every host builds the ref under test itself, with the nightly toolchain pinned in `rust-toolchain.toml` ([ADR 0027](../adr/0027-a-pinned-nightly-toolchain.md)) and `target-cpu=native` from `.cargo/config.toml`. The only cross-compilation is `umbra-gpu`'s build script compiling `umbra-kernels` for `nvptx64`; the PTX is embedded in the binary, and the driver compiles it for the GPU at load time.
 - **GPU in the image**: the image ships nothing from NVIDIA. `cudarc` loads `libcuda` at run time, so the same binary starts on a machine without a GPU, and the NVIDIA Container Toolkit mounts the host driver's libraries into a GPU Worker's container. A GPU Worker's container needs `NVIDIA_DRIVER_CAPABILITIES=compute,graphics`: `compute` mounts `libcuda`, and OptiX's `libnvoptix` and `libnvidia-rtcore` are among the Toolkit's `graphics` libraries, not its `compute` ones (`src/nvc_info.c` of `libnvidia-container`, checked in [#126](https://github.com/sergioffpc/umbra/issues/126)). The Toolkit's default, `compute,utility`, leaves OptiX out, and `umbra-gpu` then fails to load `libnvoptix.so.1`. `utility` adds only `nvidia-smi`.
 - **GPU builds and tests**: the driver must support OptiX 9.0 (ABI 105), which Umbra's bindings are written against. Building the kernels to run needs CUDA's `libdevice.10.bc` (`UMBRA_LIBDEVICE`, or under `CUDA_PATH`), and nothing else from CUDA; without it they still build, as in CI, but cannot run. `cargo nextest run --profile gpu` runs the GPU tests on the P620 ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).

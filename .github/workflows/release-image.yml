@@ -1,12 +1,15 @@
 name: Release image
 
 # Builds the chiseled container image from the Dockerfile at the repository
-# root for the x86-64-v3 baseline and publishes it to
-# ghcr.io/sergioffpc/umbra at the end of every release: the push of a vX.Y.Z
-# tag on main (git flow, see CONTRIBUTING.md). Why a tag push rather than a
-# published GitHub Release, and why amd64 only:
-# docs/adr/0005-chiseled-release-container-image.md. Why one x86-64-v3 image
-# and no `latest` tag: docs/adr/0025-one-x86-64-v3-release-image.md.
+# root, for linux/amd64 (the x86-64-v3 baseline) and linux/arm64, and
+# publishes it to ghcr.io/sergioffpc/umbra at the end of every release: the
+# push of a vX.Y.Z tag on main (git flow, see CONTRIBUTING.md). Why a tag push
+# rather than a published GitHub Release:
+# docs/adr/0005-chiseled-release-container-image.md. Why one image per
+# architecture's baseline and no `latest` tag:
+# docs/adr/0025-one-x86-64-v3-release-image.md. The x86-64 runner builds the
+# arm64 image under QEMU, which is slow but needs no second job to merge the
+# two into one manifest.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -58,6 +61,9 @@ jobs:
             exit 1
           fi
 
+      # Runs the arm64 build and smoke test on the x86-64 runner.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # The only tag is X.Y.Z: the release version names the commit. No X.Y or
@@ -74,32 +80,48 @@ jobs:
             type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.title=umbra
-            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64 x86-64-v3 and linux/arm64)
           annotations: |
             org.opencontainers.image.title=umbra
-            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64, x86-64-v3)
+            org.opencontainers.image.description=Umbra, a physically based ray tracer (chiseled Ubuntu, linux/amd64 x86-64-v3 and linux/arm64)
 
-      # Build into the local image store first and smoke-test it, so a broken
-      # image is never published. The push below reuses the cached layers.
-      - name: Build
+      # Build each platform into the local image store first and smoke-test
+      # it, so a broken image is never published. The local store holds one
+      # platform per tag, hence one build each; the push below reuses their
+      # cached layers.
+      - name: Build (amd64)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
           load: true
-          tags: umbra:smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: umbra:smoke-amd64
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
 
-      # GitHub's x86-64 runners have x86-64-v3, so the binary starts on them.
+      - name: Build (arm64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: umbra:smoke-arm64
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      # GitHub's x86-64 runners have x86-64-v3, so the amd64 binary starts on
+      # them; the arm64 one runs under QEMU.
       - name: Smoke test
         run: |
-          docker run --rm umbra:smoke --version
-          test "$(docker image inspect umbra:smoke --format '{{.Config.User}}')" = "10001:10001"
-          if docker run --rm --entrypoint /bin/sh umbra:smoke -c true 2>/dev/null; then
-            echo "::error::the image has a shell"
-            exit 1
-          fi
+          for arch in amd64 arm64; do
+            image="umbra:smoke-$arch"
+            docker run --rm --platform "linux/$arch" "$image" --version
+            test "$(docker image inspect "$image" --format '{{.Config.User}}')" = "10001:10001"
+            if docker run --rm --platform "linux/$arch" --entrypoint /bin/sh "$image" -c true 2>/dev/null; then
+              echo "::error::the $arch image has a shell"
+              exit 1
+            fi
+          done
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -113,14 +135,16 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha
+          cache-from: |
+            type=gha,scope=amd64
+            type=gha,scope=arm64
 
       # GitHub artifact attestation, verifiable with
       # `gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z -R sergioffpc/umbra`.

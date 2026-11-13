@@ -16,7 +16,7 @@
 
 mod arch;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub(crate) use arch::fma_f64;
 
 /// Half the distance between 1 and the next `f32`: the bound on the relative

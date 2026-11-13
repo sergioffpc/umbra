@@ -1,5 +1,7 @@
 # One `x86-64-v3` release image
 
+> **Amended by [ADR 0032](0032-arm64-back-as-a-cpu-target.md).** The image `X.Y.Z` is multi-platform: its `linux/amd64` half is the `x86-64-v3` build described here, and its `linux/arm64` half is built for the plain arm64 target. Still one tag and one job.
+
 Every release publishes one container image, `ghcr.io/sergioffpc/umbra:X.Y.Z`, built with `-C target-cpu=x86-64-v3`, and every Linux Worker pulls it. The per-CPU images `X.Y.Z-znver2` and `X.Y.Z-broadwell` are dropped. Decided with the owner on 2026-11-10. This amends [ADR 0005](0005-chiseled-release-container-image.md), [ADR 0012](0012-per-cpu-binaries-locked-to-one-commit.md), [ADR 0021](0021-plug-and-play-workers-in-a-named-cluster.md) and [ADR 0023](0023-x86-64-only.md).
 
 A per-CPU target buys almost nothing over `x86-64-v3`. The instructions `znver2` and `broadwell` add (ADX, RDSEED, SHA, SSE4a and the like) do no floating-point work, and neither CPU has AVX-512. What is left is LLVM's per-CPU scheduling model, worth a few percent at best and sometimes nothing. Neither benefit was measured, and it cost a CI matrix, one image per CPU and the risk of a Worker pulling the wrong one (a `znver2` binary may use SSE4a, which Intel CPUs lack).

@@ -7,14 +7,23 @@
 #   RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release
 # The RUSTFLAGS environment variable replaces this list. It must keep at
 # least `-C target-cpu=x86-64-v3`: umbra-math requires FMA, SSE4.1 and AVX2
-# and does not compile without them (ADR 0023), so CI sets
-# RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3".
+# and does not compile without them on x86-64 (ADR 0023), so CI sets
+# RUSTFLAGS="-D warnings -C target-cpu=x86-64-v3". On arm64 the target's
+# default suffices.
 #
 # The flags are the x86-64 target's, not `[build]`'s, so they stay off the
 # GPU target (ADR 0028), which has neither CPU: `nvptx64` builds use the
 # target's default. RUSTFLAGS replaces them for every target, so
 # `scripts/check.sh` sets its own for the `nvptx64` build.
 [target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]
+
+# arm64 needs no baseline beyond the target's own (NEON and FMA are in every
+# arm64 CPU); `native` adds the build machine's later extensions.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.aarch64-apple-darwin]
 rustflags = ["-C", "target-cpu=native"]
 
 [alias]

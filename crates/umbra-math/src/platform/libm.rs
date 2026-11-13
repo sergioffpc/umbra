@@ -1,6 +1,6 @@
-//! glibc's scalar math, `libm.so.6`, through FFI (ADR 0007): each function
-//! declared once, in `ffi`, and called only by its safe wrapper here, one
-//! call per `unsafe` block.
+//! The C library's scalar math through FFI (ADR 0007), glibc's `libm.so.6`
+//! on Linux and libSystem on macOS: each function declared once, in `ffi`,
+//! and called only by its safe wrapper here, one call per `unsafe` block.
 //!
 //! The file depends on nothing but `core`, so `umbra-spectrum`'s build script
 //! compiles it by `#[path]` too: the table it generates takes its cube root
@@ -13,7 +13,7 @@
 macro_rules! wrappers {
     (
         extern {
-            $(fn $out:ident($($out_arg:ident: $out_ty:ty),+) $(-> $out_ret:ty)?;)+
+            $($(#[$out_attr:meta])* fn $out:ident($($out_arg:ident: $out_ty:ty),+) $(-> $out_ret:ty)?;)+
         }
         $($(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),+) -> $ret:ty;)+
     ) => {
@@ -22,7 +22,7 @@ macro_rules! wrappers {
             #[link(name = "m")]
             #[expect(unsafe_code, reason = "glibc's scalar math (ADR 0007)")]
             unsafe extern "C" {
-                $(pub(super) fn $out($($out_arg: $out_ty),+) $(-> $out_ret)?;)+
+                $($(#[$out_attr])* pub(super) fn $out($($out_arg: $out_ty),+) $(-> $out_ret)?;)+
                 $(pub(super) fn $name($($arg: $ty),+) -> $ret;)+
             }
         }
@@ -45,6 +45,7 @@ macro_rules! wrappers {
 
 wrappers! {
     extern {
+        #[cfg(not(target_os = "macos"))]
         fn sincosf(x: f32, sin: *mut f32, cos: *mut f32);
         fn lgamma_r(x: f64, sign: *mut core::ffi::c_int) -> f64;
     }
@@ -110,7 +111,17 @@ wrappers! {
     fn fma(a: f64, b: f64, c: f64) -> f64;
 }
 
+/// `(sin x, cos x)`, `x` in radians: `sinf` and `cosf`, since macOS's
+/// `__sincosf` is an inline function of its header, not a symbol.
+#[cfg(target_os = "macos")]
+#[inline]
+#[must_use]
+pub fn sincosf(x: f32) -> (f32, f32) {
+    (sinf(x), cosf(x))
+}
+
 /// `(sin x, cos x)`, `x` in radians, in one call.
+#[cfg(not(target_os = "macos"))]
 #[inline]
 #[must_use]
 #[expect(unsafe_code, reason = "a call into glibc's scalar math (ADR 0007)")]

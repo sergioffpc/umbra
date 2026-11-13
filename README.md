@@ -9,7 +9,7 @@ Umbra is a physically based ray tracer written in Rust, inspired by
 [pbrt-v4](https://github.com/mmp/pbrt-v4) and the book
 [_Physically Based Rendering: From Theory to Implementation_](https://pbr-book.org/).
 
-It is designed to render on x86-64 CPUs, with a GPU backend planned after the
+It is designed to render on x86-64 and arm64 CPUs, with a GPU backend planned after the
 CPU milestones, use every core of a machine, and spread the work of one image
 over the machines of a LAN.
 
@@ -129,9 +129,11 @@ the Worker on every machine, or pull and restart the release image.
 
 Every release publishes a minimal [chiseled Ubuntu](https://ubuntu.com/containers/chiselled)
 image to the GitHub Container Registry: no shell, no package manager, running
-as the non-root user `umbra` (uid 10001) in `/work`. The image is
-`linux/amd64`, tagged `X.Y.Z`, and its binary is built for `x86-64-v3` (AVX2
-and FMA), so it runs on any x86-64 CPU from Intel Haswell or AMD Zen onwards.
+as the non-root user `umbra` (uid 10001) in `/work`. The image, tagged
+`X.Y.Z`, is built for `linux/amd64` and `linux/arm64`. The amd64 binary is
+built for `x86-64-v3` (AVX2 and FMA), so it runs on any x86-64 CPU from Intel
+Haswell or AMD Zen onwards; the arm64 one runs on any arm64 CPU, including an
+Apple silicon Mac under Docker Desktop or Podman.
 
 Pull the release you want:
 

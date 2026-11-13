@@ -59,7 +59,6 @@ Ruled out of this architecture, so no section of this document plans for them:
 
 - GPUs other than NVIDIA's, and GPU toolchains other than upstream `rustc` with CUDA and OptiX ([ADR 0028](../adr/0028-one-core-for-cpu-and-gpu.md)).
 - The `bdpt`, `sppm` and `mlt` integrators on the GPU ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
-- arm64 ([ADR 0023](../adr/0023-x86-64-only.md)).
 - Cloud deployment, autoscaling, Workers outside the LAN.
 - Out-of-core Scenes: every Worker holds the whole Scene.
 - Hostile nodes: the TLS certificate is not verified, and the Cluster Name and Build Identity guard only against mistakes of operation (§6.5).

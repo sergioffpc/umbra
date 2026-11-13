@@ -8,8 +8,8 @@
 #
 # Cargo tools and the linter binaries go to $CARGO_HOME/bin (~/.cargo/bin by
 # default), which rustup puts on PATH; prettier and markdownlint-cli2 are
-# global npm packages. x86-64 Linux only (ADR 0023). shellcheck comes from
-# the system.
+# global npm packages. Linux on x86-64 or arm64 only (ADR 0023). shellcheck
+# comes from the system.
 set -eu
 
 BINSTALL_VERSION=1.26.2
@@ -30,10 +30,16 @@ actionlint editorconfig-checker taplo prettier markdownlint-cli2"
 
 bin="${CARGO_HOME:-$HOME/.cargo}/bin"
 
-if [ "$(uname -s)-$(uname -m)" != Linux-x86_64 ]; then
-    echo "install-tools: x86-64 Linux only (ADR 0023)" >&2
-    exit 1
-fi
+# The machine as each project names it in its release assets: Rust's
+# target triple (`rust`) and Go's architecture (`go`).
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) rust=x86_64 go=amd64 ;;
+    Linux-aarch64) rust=aarch64 go=arm64 ;;
+    *)
+        echo "install-tools: Linux on x86-64 or arm64 only (ADR 0023)" >&2
+        exit 1
+        ;;
+esac
 
 # Downloads an https URL to stdout.
 fetch() {
@@ -44,7 +50,7 @@ fetch() {
 # cargo-binstall itself first if needed.
 binstall() {
     if ! command -v cargo-binstall >/dev/null 2>&1; then
-        fetch "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz" \
+        fetch "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-${rust}-unknown-linux-musl.tgz" \
             | tar -xz -C "$bin" cargo-binstall
     fi
     cargo binstall --no-confirm --locked --disable-telemetry --install-path "$bin" "$1"
@@ -59,15 +65,15 @@ install_tool() {
         typos) binstall "typos-cli@${TYPOS_VERSION}" ;;
         git-cliff) binstall "git-cliff@${GIT_CLIFF_VERSION}" ;;
         actionlint)
-            fetch "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            fetch "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${go}.tar.gz" \
                 | tar -xz -C "$bin" actionlint
             ;;
         editorconfig-checker)
-            fetch "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-amd64.tar.gz" \
+            fetch "https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v${EDITORCONFIG_CHECKER_VERSION}/editorconfig-checker-linux-${go}.tar.gz" \
                 | tar -xz -C "$bin" editorconfig-checker
             ;;
         taplo)
-            fetch "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz" \
+            fetch "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-${rust}.gz" \
                 | gunzip > "$bin/taplo"
             chmod +x "$bin/taplo"
             ;;

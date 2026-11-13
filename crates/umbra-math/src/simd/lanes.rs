@@ -1,20 +1,23 @@
-//! The `nvptx64` backend of [`Vec4`](crate::Vec4) (ADR 0028): four plain
-//! scalar lanes. The GPU vectorises across threads, not within one, so each
-//! operation is the scalar operation applied lane by lane, which is the
-//! facade's contract by construction.
+//! The lane-by-lane backend of [`Vec4`](crate::Vec4), for arm64 and
+//! `nvptx64` (ADR 0023, ADR 0028): four plain scalar lanes, each operation
+//! the scalar operation applied lane by lane, which is the facade's contract
+//! by construction. On arm64 LLVM vectorises the loops to NEON; the GPU
+//! vectorises across threads, not within one.
 //!
 //! - `min_std`/`max_std` are [`crate::min`]/[`crate::max`], C++
 //!   `std::min`/`std::max`.
-//! - `mul_add` and `sqrt` are the scalar primitives, `fma.rn.f32` and
-//!   `sqrt.rn.f32`.
-//! - `exp` and `pow_positive` are `libdevice`'s `expf` and `powf` per lane,
-//!   within 2 and 4 ULP (`crate::libdevice`), not the x86-64 backend's
-//!   1 ULP: the GPU promises statistical equality only (ADR 0026).
+//! - `mul_add` and `sqrt` are the scalar primitives: `fmadd` and `fsqrt` on
+//!   arm64, `fma.rn.f32` and `sqrt.rn.f32` on `nvptx64`.
+//! - `exp` and `pow_positive` are the target's `expf` and `powf` per lane:
+//!   the C library's on arm64, within 1 ULP, and `libdevice`'s on `nvptx64`,
+//!   within 2 and 4 ULP (`crate::libdevice`). Neither has the bits of the
+//!   x86-64 backend's kernels; across machines, images are equal
+//!   statistically only (ADR 0022).
 
 use super::{F4, M4};
 use crate::float::{fma, sqrt as scalar_sqrt};
-use crate::libdevice::{expf, powf};
 use crate::math::{max, min};
+use crate::{expf, powf};
 
 /// `op` applied to each pair of lanes.
 #[inline]
@@ -66,25 +69,25 @@ pub(crate) fn abs(x: F4) -> F4 {
     x.map(f32::abs)
 }
 
-/// `fma.rn.f32` per lane.
+/// The fused multiply-add per lane.
 #[inline]
 pub(crate) fn mul_add(x: F4, y: F4, z: F4) -> F4 {
     core::array::from_fn(|i| fma(x[i], y[i], z[i]))
 }
 
-/// `sqrt.rn.f32` per lane.
+/// The correctly rounded square root per lane.
 #[inline]
 pub(crate) fn sqrt(x: F4) -> F4 {
     x.map(scalar_sqrt)
 }
 
-/// `eˣ` per lane, within 2 ULP: `libdevice`'s `expf`.
+/// `eˣ` per lane: the target's `expf`.
 #[inline]
 pub(crate) fn exp(x: F4) -> F4 {
     x.map(expf)
 }
 
-/// `xᵉ` per lane, within 4 ULP: `libdevice`'s `powf`. The facade calls it for
+/// `xᵉ` per lane: the target's `powf`. The facade calls it for
 /// finite positive `x` and finite `e` and replaces the other lanes.
 #[inline]
 pub(crate) fn pow_positive(x: F4, e: f32) -> F4 {
