@@ -33,7 +33,7 @@ A Reference Scene with one declared, minimal edit to its Scene File, such as a d
 _Avoid_: Modified scene, custom scene, test scene
 
 **Render Job Report**:
-The structured record a Render Job leaves when it finishes: how long each phase took, how fast Pixel Samples were computed, what each Worker did and how the work was scheduled. Only some of its measurements are compared between runs; the rest explain them.
+The record a Render Job prints when it ends, finished or cancelled: how long each phase took, how fast Pixel Samples were computed, what each Worker did and how the work was scheduled. Only some of its measurements are compared between runs; the rest explain them.
 _Avoid_: Benchmark report, stats file, metrics dump
 
 ### Image decomposition

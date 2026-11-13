@@ -76,9 +76,9 @@ sequenceDiagram
     C->>W: JobFinished
     W->>C: close (FINISHED)
     Note over W: drop the Scene, idle again
-    Note over C: write the image (with Reproduction Record)<br/>and the Render Job Report,<br/>log Anomalous Pixel Samples as umbra trace commands
+    Note over C: write the image,<br/>print the Render Job Report to stdout,<br/>log Anomalous Pixel Samples as umbra trace commands
     Note over C: exit 0 once Workers have closed, or after 2 s
-    C->>O: exit 0, image and Render Job Report on the local disk
+    C->>O: exit 0, image on the local disk, Render Job Report on stdout
 ```
 
 1. The Coordinator reads the Scene File and its assets from the operator's local disk and parses them once ([ADR 0003](../adr/0003-pbrt-v4-scene-files-parsed-on-the-coordinator.md)). Only then does it open its UDP port and announce the Render Job ([ADR 0021](../adr/0021-plug-and-play-workers-in-a-named-cluster.md)). On an invalid Scene File the Coordinator exits before anything is announced, so no Worker ever joins and no close code is needed.
@@ -86,7 +86,7 @@ sequenceDiagram
 3. Scheduling follows §8.8. Work Units go out Pass by Pass in raster Tile order. A Worker keeps as many Work Units in flight as its Render Device declares (about two per eight threads on a CPU, about 16 on a GPU), and returns one credit per Work Result.
 4. The Film merges each Work Result as soon as it arrives, in any order (ADR 0022).
 5. The status line on the Coordinator's stderr (§8.10) shows the current Pass, the percentage of Pixel Samples merged or in flight, each Worker's state and the ETA throughout.
-6. After the last merge, the Coordinator withdraws its announcement, and `JobFinished` then releases every Worker, which drops the Scene and is idle again. The image and its Render Job Report are written next to each other on the operator's machine. The image only exists once every Pass has been rendered.
+6. After the last merge, the Coordinator withdraws its announcement, and `JobFinished` then releases every Worker, which drops the Scene and is idle again. The image is written on the operator's machine, and the Render Job Report goes to the Coordinator's stdout. The image only exists once every Pass has been rendered.
 7. A Worker that fails while the Render Job runs rejoins it as a new Worker (§6.3). The Coordinator refuses a Worker Slot whose Workers have failed three times in a row (§8.13). When no Worker is alive and there is no local Worker, the status line shows `waiting: no Workers` until a Worker joins or the operator presses Ctrl-C (§6.6).
 
 ## 6.3 Worker failure and reassignment
@@ -197,7 +197,7 @@ sequenceDiagram
     C-->>W: mDNS: withdraw the announcement
     C->>W: close (JOB_CANCELLED)
     Note over W: drop every Work Unit in flight<br/>and the Scene, idle again
-    Note over C: write the Render Job Report<br/>(outcome: cancelled), no image (ADR 0004)
+    Note over C: print the Render Job Report<br/>(Render Job: cancelled), no image (ADR 0004)
     Note over C: exit 130 once Workers have closed, or after 2 s
     C->>O: exit 130
 ```
@@ -206,5 +206,5 @@ sequenceDiagram
 2. Closing a connection with `JOB_CANCELLED` ends every stream on it, so Workers need no separate `Cancel` per Work Unit.
 3. Workers are not stopped. They return to idle and join the next Render Job announced in their Cluster.
 4. A second Ctrl-C makes the Coordinator exit at once. Its Workers then detect the lost Coordinator through the QUIC idle timeout and return to idle. The announcement is already withdrawn, so they do not rejoin.
-5. The cancelled Render Job still leaves its Render Job Report, with `outcome: "cancelled"`; `umbra bench` rejects it (§8.10). Exit codes are in §8.13.
+5. The cancelled Render Job still prints its Render Job Report, with `Render Job: cancelled`; `umbra bench` rejects it (§8.10). Exit codes are in §8.13.
 6. Ctrl-C or `SIGTERM` on a single Worker stops only that Worker. It closes with `WORKER_STOPPED` and exits 0, and the Coordinator reassigns its Work Units as in §6.3. A stopped Worker does not count as a failure of its Worker Slot.
