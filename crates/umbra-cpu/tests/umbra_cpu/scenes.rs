@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 
 use umbra_cpu::Renderer;
 use umbra_math::Point2i;
-use umbra_render::{Cancellation, Rendered, WorkResult};
+use umbra_render::{Cancellation, Meter, Rendered, WorkResult};
 use umbra_scene::{FilmParameters, RenderJobOptions, Scene, SceneBuilder, Seed};
 
 /// A camera-only Scene of 40 × 24 pixels: with 16-pixel Tiles, three
@@ -33,9 +33,11 @@ pub(crate) fn render_all(renderer: &Renderer<'_>) -> Vec<WorkResult> {
     renderer
         .decomposition()
         .work_units()
-        .map(|unit| match renderer.render(unit, &cancel).rendered {
-            Rendered::Done(result) => result,
-            Rendered::Cancelled => panic!("{unit:?} cancelled with no cancellation"),
-        })
+        .map(
+            |unit| match renderer.render(unit, &cancel, &Meter::new()).rendered {
+                Rendered::Done(result) => result,
+                Rendered::Cancelled => panic!("{unit:?} cancelled with no cancellation"),
+            },
+        )
         .collect()
 }

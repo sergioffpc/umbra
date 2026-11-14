@@ -1,6 +1,6 @@
 //! The status of a running Render Job (arc42 §8.10): its content only, one
-//! aggregate line and one line for the Local Worker. The caller shows it
-//! as it sees fit.
+//! aggregate line and one line per Worker. The caller shows it as it sees
+//! fit.
 
 use std::fmt::{self, Display};
 use std::time::{Duration, Instant};
@@ -14,12 +14,34 @@ pub struct Status {
     lines: Vec<String>,
 }
 
+/// Whether any Worker is in the Render Job, or about to join it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Staffing {
+    /// A Worker is present, or a Local Worker is starting.
+    Workers,
+    /// None: the Render Job waits for one to join.
+    NoWorkers,
+}
+
 impl Status {
-    /// The status of `progress` at `now`, the Local Worker having
-    /// `threads`.
-    pub(crate) fn of(progress: &Progress<'_>, threads: usize, now: Instant) -> Self {
+    /// The status of `progress` at `now`, `in_flight` Pixel Samples being
+    /// done of the Work Units in flight, with `workers`, one line each.
+    pub(crate) fn of(
+        progress: &Progress<'_>,
+        in_flight: u64,
+        staffing: Staffing,
+        workers: Vec<String>,
+        now: Instant,
+    ) -> Self {
+        let first = match staffing {
+            Staffing::Workers => aggregate(progress, in_flight, now),
+            Staffing::NoWorkers => format!(
+                "waiting: no Workers · {} elapsed",
+                Clock(progress.elapsed(now))
+            ),
+        };
         Self {
-            lines: vec![aggregate(progress, now), local_worker(progress, threads)],
+            lines: std::iter::once(first).chain(workers).collect(),
         }
     }
 
@@ -40,28 +62,22 @@ pub enum Moment {
 }
 
 /// `Pass 2/4 · 30/60 Work Units · 50.0 % · 1.25 M Pixel Samples/s · 0:00:12
-/// elapsed · ETA 0:00:12`, with `~` before an ETA from Pass 0.
-fn aggregate(progress: &Progress<'_>, now: Instant) -> String {
+/// elapsed · ETA 0:00:12`, with `~` before an ETA from Pass 0; the
+/// percentage counts the Pixel Samples merged and the `in_flight` ones
+/// done.
+fn aggregate(progress: &Progress<'_>, in_flight: u64, now: Instant) -> String {
     let total = progress.total_samples().max(1);
+    let done = (progress.merged_samples() + in_flight).min(total);
     format!(
         "Pass {}/{} · {}/{} Work Units · {:.1} % · {} Pixel Samples/s · {} elapsed · ETA {}",
         progress.pass().0 + 1,
         progress.passes(),
         progress.merged_units(),
         progress.total_units(),
-        percent(progress.merged_samples(), total),
+        percent(done, total),
         Si(progress.rate()),
         Clock(progress.elapsed(now)),
         EtaText(progress.eta()),
-    )
-}
-
-/// `Local Worker: 16 threads, 4 in flight, 1.25 M Pixel Samples/s, alive`.
-fn local_worker(progress: &Progress<'_>, threads: usize) -> String {
-    format!(
-        "Local Worker: {threads} threads, {} in flight, {} Pixel Samples/s, alive",
-        progress.in_flight(),
-        Si(progress.rate()),
     )
 }
 

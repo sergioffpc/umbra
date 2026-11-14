@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, Moment, Phase, RenderDevice, RenderJob, RenderJobOutcome, RenderJobReport,
-    Status, coordinate,
+    CoordinatorOptions, Interface, Liveness, Moment, Phase, RenderDevice, RenderJob,
+    RenderJobOutcome, RenderJobReport, Status, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -70,7 +70,8 @@ pub(crate) fn render(
 }
 
 /// Renders `job` on the Local Workers of the Render Devices `args` chooses,
-/// each in a child process that logs with the log filter `log_filter`.
+/// each in a child process that logs with the log filter `log_filter`, and
+/// on the remote Workers of the Cluster `args` names.
 fn coordinate_locally(
     job: RenderJob,
     args: &RenderArgs,
@@ -88,6 +89,14 @@ fn coordinate_locally(
     let options = CoordinatorOptions {
         local_workers: cpu.into_iter().chain(gpus).collect(),
         worker_command: &command,
+        cluster: args.cluster.clone(),
+        port: args.port,
+        interface: args
+            .interface
+            .clone()
+            .map_or(Interface::All, Interface::Named),
+        dirty_builds: args.dirty_builds,
+        liveness: Liveness::default(),
     };
     Ok(coordinate(job, &options, cancel, status)?)
 }

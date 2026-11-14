@@ -19,7 +19,10 @@ use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::process::Command;
-use umbra_cluster::{CoordinatorOptions, RenderDevice, RenderJob, RenderJobOutcome, coordinate};
+use umbra_cluster::{
+    ClusterName, CoordinatorOptions, DirtyBuilds, Interface, Liveness, RenderDevice, RenderJob,
+    RenderJobOutcome, coordinate,
+};
 use umbra_render::{BuildIdentity, Cancellation, ReproductionRecord, Tree};
 use umbra_scene::{ContentHash, RenderJobOptions, SceneBuilder};
 
@@ -48,9 +51,16 @@ let worker = |device: RenderDevice, coordinator: SocketAddr| {
         .args(["--coordinator", &coordinator.to_string()]);
     command
 };
+// The default Cluster, on every interface and a port the OS picks: the
+// remote Workers of that Cluster on the LAN join as well.
 let options = CoordinatorOptions {
     local_workers: vec![RenderDevice::Cpu],
     worker_command: &worker,
+    cluster: ClusterName::default(),
+    port: 0,
+    interface: Interface::All,
+    dirty_builds: DirtyBuilds::Refused,
+    liveness: Liveness::default(),
 };
 let cancel = Cancellation::new();
 // The status is the caller's to show; this one shows none.
@@ -65,35 +75,38 @@ assert_eq!(image.resolution(), resolution);
 
 ## What is in it
 
-| Module        | Contents                                                                                                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `coordinator` | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Workers' Render Devices and their command line), `RenderJobOutcome` (finished or cancelled); the scheduling loop and reassignment     |
-| `children`    | `WorkerCommand`: the Local Workers' child processes, started, known by their process, their logs logged again, watched and killed with the Coordinator's runtime                                 |
-| `device`      | `RenderDevice` (`cpu` or `gpu:N`), `GpuOrdinal`, `RenderDevices` (`--render-devices`): which Local Workers run, and the GPUs that are usable                                                     |
-| `error`       | `Error`: why a Render Job did not finish, or a Worker could not serve one, protocol violations among them                                                                                        |
-| `worker`      | `work`, `WorkerOptions`, `Threads`: a Worker in its own process for one Render Job over QUIC, on the CPU or a GPU                                                                                |
-| `cpu_worker`  | A CPU Worker's render loop: several Work Units at once on its own rayon pool, each timed on the clock and on its threads                                                                         |
-| `gpu_worker`  | A GPU Worker's render loop: `umbra_gpu::Renderer::CAPACITY` Work Units in flight, rendered as one batch                                                                                          |
-| `transport`   | The typed messages either way; the channels between a Worker's connection and its render loop; the Coordinator's `Event`s                                                                        |
-| `wire`        | The wire protocol (§8.13): the control messages, the Work Result header, their `postcard` frames, the raw pixel sums, the close codes                                                            |
-| `quic`        | The two QUIC endpoints: the Coordinator's self-signed certificate on loopback, the Workers' acceptance of any certificate, the 5 s idle timeout and 1 s keep-alive                               |
-| `listener`    | The Coordinator's side of QUIC: `Hello`, `Welcome`, the Scene stream, then each Worker's messages and Work Results as `Event`s, a Work Result checked against the Render Job before it is merged |
-| `runtime`     | The current-thread `tokio` runtime each side owns, and the 250 ms tick at which it checks a cancellation, a stop or the status                                                                   |
-| `host`        | `Host`: the Local Worker's host name and CPU model, read from `/proc`                                                                                                                            |
-| `progress`    | What is assigned and merged, the busy and thread time, each Tile's cost, the moving average of the rate and the ETA                                                                              |
-| `status`      | `Status`, the status line's content: the aggregate line and the Local Worker's; `Moment`, running or ended                                                                                       |
-| `report`      | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                                                    |
+| Module        | Contents                                                                                                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coordinator` | `coordinate`, `RenderJob`, `CoordinatorOptions`, `DirtyBuilds`, `RenderJobOutcome`: listening and announcing, admission, the scheduling loop, reassignment and the speculative tail                |
+| `roster`      | `Liveness`; each Worker the Coordinator admitted: its Work Units in flight, its heartbeats, rate and state (`loading`, `alive`, `stale`, `stalled`, `dead`), its status line and report row        |
+| `slot`        | The Worker Slot (host, NUMA node, Render Device) and each slot's failures and refusals; three failures in a row refuse it                                                                          |
+| `discovery`   | `Interface` (`--interface`); the Coordinator's DNS-SD announcement of `_umbra._udp` with `cluster=<name>`, and a Worker's browsing for those of its Cluster, with `mdns-sd`                        |
+| `cluster`     | `ClusterName`: a DNS label, `default` unless set                                                                                                                                                   |
+| `children`    | `WorkerCommand`: the Local Workers' child processes, started, known by their process, their logs logged again, watched and killed with the Coordinator's runtime                                   |
+| `device`      | `RenderDevice` (`cpu` or `gpu:N`), `GpuOrdinal`, `RenderDevices` (`--render-devices`): which Local Workers run, and the GPUs that are usable                                                       |
+| `error`       | `Error`: why a Render Job did not finish, or a Worker could not serve one, protocol violations among them                                                                                          |
+| `worker`      | `work`, `WorkerOptions`, `CoordinatorAddress`, `Threads`: a Worker that joins the Render Jobs of its Cluster one after another, with the backoff of its rejoins, or a Local Worker's one           |
+| `join`        | A Worker in one Render Job over one connection: `Hello`, `Welcome` or `Reject`, the Scene stream, the heartbeat stream, the render thread and its relay, and how the connection ended              |
+| `activity`    | What a Worker is doing, shared by its render loop and its heartbeat: loading, then each Work Unit in flight with its cancellation and its `Meter`                                                  |
+| `cpu_worker`  | A CPU Worker's render loop: several Work Units at once on its own rayon pool, each cancellable on its own, timed on the clock and on its threads                                                   |
+| `gpu_worker`  | A GPU Worker's render loop: `umbra_gpu::Renderer::CAPACITY` Work Units in flight, rendered as one batch; one cancelled before it is batched is dropped                                             |
+| `transport`   | The typed messages either way; the channels between a Worker's connection and its render loop; the Coordinator's `Event`s, the admission's `Verdict`, a Worker's `Departure`                       |
+| `wire`        | The wire protocol (§8.13): `Hello`, `Reject` and its `Refusal`, the control messages, the heartbeat, the Work Result header, their `postcard` frames, the raw pixel sums, the close codes          |
+| `quic`        | The two QUIC endpoints: the Coordinator's self-signed certificate and idle timeout, the Workers' acceptance of any certificate, the 1 s keep-alive; `Closer`, which remembers how each side closed |
+| `listener`    | The Coordinator's side of QUIC: `Hello` to the scheduler's verdict, `Welcome` and the Scene stream or `Reject`, the heartbeats and their death time, each Work Result checked, as `Event`s         |
+| `runtime`     | The current-thread `tokio` runtime each side owns, and the 250 ms tick at which it checks a cancellation, a stop or the status                                                                     |
+| `host`        | The host name and CPU model, read from `/proc`, and the NUMA node a process's CPU affinity is bound to, from `/sys`                                                                                |
+| `progress`    | What is merged, each Tile's cost, the moving average of the rate and the ETA                                                                                                                       |
+| `status`      | `Status`, the status line's content: the aggregate line, or `waiting: no Workers`, and one line per Worker; `Moment`, running or ended                                                             |
+| `report`      | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                                                      |
 
 Not in the report yet: the Scene and BVH statistics, with
 the BVH; the Anomalous Pixel Sample count, with
 [#85](https://github.com/sergioffpc/umbra/issues/85).
 
-Not here yet, with remote Workers in
-[#129](https://github.com/sergioffpc/umbra/issues/129): discovery, `Hello`'s
-Cluster Name and Build Identity and their admission, heartbeats, the
-speculative tail, Worker Slot failure counting, the Asset Cache, and `work`
-staying for one Render Job after another. The status line and the report
-still sum every Worker into the Local Worker's figures.
+Not here yet: the Asset Cache of ADR 0030, with the first Scene that has
+assets; until then the Scene stream is the Render Job Options and the
+Scene's builder, and a Worker reports no bytes read from a cache.
 
 ## Design decisions
 
@@ -120,14 +133,52 @@ A Worker over QUIC is sent the Render Job Options and the `SceneBuilder`
 the Scene was built from, and builds its own replica (arc42 §5.2, §8.13).
 `Scene` keeps that builder for this.
 
+### Remote Workers find the Render Job, the Coordinator admits them
+
+The Coordinator listens on every interface and a port the OS picks, unless
+`port` and `interface` say otherwise, then announces the Render Job by
+DNS-SD with its Cluster Name, and withdraws it before the end (ADR 0021,
+ADR 0029). Each `Hello` goes to the scheduling loop, which answers
+`Welcome`, or `Reject` for another Cluster, another commit, a dirty build
+without `DirtyBuilds::Allowed`, or a Worker Slot that failed three times in
+a row. A Local Worker, known by its process on this host, is the
+Coordinator's own executable and always admitted. A refused Worker never
+rejoins that Render Job.
+
 ### A Worker that goes away gives its Work Units back
 
-A Worker goes away when its connection closes, by itself or after 5 s of
-silence, or, for a Local Worker, when its child process exits, which is
-noticed at once: its `Hello` names its process. Its Work Units in flight go
-back to the front of the queue, and the Render Job finishes on the Workers
-that remain; with none left, joined or still starting, it fails with
-`Error::NoWorkers`.
+A Worker goes away when its connection closes, or, for a Local Worker,
+when its child process exits, which is noticed at once: its `Hello` names
+its process. A Worker silent for the death time, 5 s by default, is closed
+with `WORKER_TIMED_OUT`; QUIC's idle timeout is the same on both sides, so
+a Worker loses its Coordinator as fast. Its Work Units in flight that no
+other Worker holds go back to the front of the queue, and the Render Job
+finishes on the Workers that remain; with none left, it waits for one to
+join, and the status reads `waiting: no Workers`. A failure (`Fatal`,
+`WORKER_TIMED_OUT`, a lost connection) counts against the Worker's slot; a
+Worker stopped by its operator does not.
+
+### The speculative tail
+
+Once the queue is empty, a Worker that asks for more is given a copy of
+the oldest Work Unit in flight that another Worker holds and that has no
+copy yet (ADR 0009). The first Work Result merged wins; every other holder
+is sent `Cancel`, and drops the Work Unit if it is still rendering, a CPU
+Worker between rows, a GPU Worker only before it batches it. A Worker sends
+exactly one credit per Work Unit, rendered or cancelled. A Work Result for
+a Work Unit its Worker was told to drop has its stream stopped after its
+header (`stop_sending`), and one for a Work Unit merged already is
+discarded unread. On `JobFinished`, a Worker drops its Work Units in
+flight instead of finishing them.
+
+### Heartbeats carry progress
+
+A Worker sends a heartbeat every second on a stream of its own, from
+`Welcome` on, and at once when it becomes ready: while loading, the bytes
+of the Scene received or that it is building; afterwards, how it loaded
+(bytes, replication and build time), each Work Unit in flight with the
+Pixel Samples its `Meter` counted, row by row on the CPU, and its busy
+threads. The Coordinator derives every rate from those counts.
 
 ### TLS because QUIC requires it
 
@@ -188,17 +239,18 @@ count, so a single-Pass Film hash does not either.
 
 ## Tests
 
-Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
-the image and report of a camera-only Scene File, and the same Film hash
-with one thread and with all of them, the report's fields, the logged
-status, Ctrl-C, and `--render-devices` without a GPU. Scheduling is checked
-there, not through internal interfaces: the report's CPU model is checked
-on x86-64 and on arm64, which CI runs too, and the status line's number
-formats on its logged lines.
+The value types, `ClusterName` among them, in `tests/umbra_cluster/`.
+Everything else through the binary, in `crates/umbra/tests/render/`
+(spec #72, Seam 1): the image and report of a camera-only Scene File, and the
+same Film hash with one thread and with all of them, the report's fields,
+the logged status, Ctrl-C, and `--render-devices` without a GPU.
 
 QUIC is checked through `coordinate` in `local_workers.rs` there, with
 Local Workers that are `umbra worker --render-device cpu` child processes:
 two of them on every thread merge the Film of one on one thread, bit for
-bit, and one killed mid-render gives its Work Units back. The GPU tests,
-`crates/umbra/tests/gpu/`, render with the GPU's Local Worker and kill it
-mid-render.
+bit, one killed mid-render gives its Work Units back, and with every
+Worker gone the Render Job waits. `scheduling.rs` checks admission by
+commit, the speculative tail and the Workers' states through `coordinate`,
+and `cluster.rs` remote Workers over real multicast DNS, each test on a
+Cluster of its own. The GPU tests, `crates/umbra/tests/gpu/`, render with
+the GPU's Local Worker and kill it mid-render.

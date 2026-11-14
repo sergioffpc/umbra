@@ -60,7 +60,7 @@ fn the_report_counts_the_pixel_samples_and_their_rate() {
 fn the_report_has_the_local_workers_figures() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let worker = &report["Local Worker"];
+    let worker = &report["Worker 0"];
     assert_eq!(field(worker, "2"), "threads", "{worker}");
     assert_eq!(field(worker, "12"), "Work Units", "{worker}");
     assert_eq!(field(worker, "3840"), "Pixel Samples", "{worker}");
@@ -73,7 +73,7 @@ fn the_report_has_the_local_workers_figures() {
 fn the_report_has_the_local_workers_mean_thread_occupancy() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let worker = &report["Local Worker"];
+    let worker = &report["Worker 0"];
     let value = field(worker, "occupancy");
     let percent: f64 = value
         .strip_suffix(" %")
@@ -88,7 +88,7 @@ fn the_report_has_the_local_workers_mean_thread_occupancy() {
 fn the_report_names_the_local_workers_host_and_cpu() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
-    let worker = &report["Local Worker"];
+    let worker = &report["Worker 0"];
     let host = fs::read_to_string("/proc/sys/kernel/hostname").expect("Linux names its host");
     assert_eq!(field(worker, "host"), host.trim(), "{worker}");
     // Its model name on x86-64, its implementer and part on arm64: CI runs

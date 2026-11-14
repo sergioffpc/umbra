@@ -10,6 +10,7 @@ use tracing::info_span;
 use umbra_gpu::Renderer;
 use umbra_render::{Cancellation, Rendered, WorkUnit};
 
+use crate::activity::Activity;
 use crate::transport::{ToCoordinator, ToWorker, WorkerEnd};
 
 /// How a GPU Worker's loop ended.
@@ -25,7 +26,7 @@ pub(crate) enum End {
 /// Renders with `renderer` until the Render Job finishes or is cancelled,
 /// the Coordinator goes away, or the GPU fails: it asks for
 /// [`Renderer::CAPACITY`] Work Units, then for one more per Work Result.
-pub(crate) fn work(renderer: &Renderer, connection: WorkerEnd) -> End {
+pub(crate) fn work(renderer: &Renderer, connection: WorkerEnd, activity: &Activity) -> End {
     let WorkerEnd {
         to_coordinator,
         mut from_coordinator,
@@ -35,9 +36,12 @@ pub(crate) fn work(renderer: &Renderer, connection: WorkerEnd) -> End {
     // receive ends the loop too.
     let _ = to_coordinator.send(ToCoordinator::RequestWork(Renderer::CAPACITY));
     loop {
-        let Some(batch) = next_batch(&mut from_coordinator, &cancel) else {
+        let Some(batch) = next_batch(&mut from_coordinator, &to_coordinator, &cancel) else {
             return End::Done;
         };
+        for &unit in &batch {
+            activity.start(unit);
+        }
         let start = Instant::now();
         let results = match info_span!("batch", work_units = batch.len())
             .in_scope(|| renderer.render(&batch, &cancel))
@@ -46,6 +50,9 @@ pub(crate) fn work(renderer: &Renderer, connection: WorkerEnd) -> End {
             Err(error) => return End::Failed(error),
         };
         let times = render_times(renderer, &batch, start.elapsed());
+        for &unit in &batch {
+            activity.finish(unit);
+        }
         results
             .into_iter()
             .zip(times)
@@ -71,31 +78,51 @@ fn send(
     }
 }
 
-/// Every Work Unit assigned so far, waiting for the first; `None` once the
-/// Render Job is finished or cancelled, `cancel` being made then.
+/// Every Work Unit assigned so far and not cancelled, waiting for the
+/// first; `None` once the Render Job is finished or cancelled, `cancel`
+/// being made then. A Work Unit cancelled before it is batched is dropped,
+/// and its credit sent back on `to_coordinator`; one cancelled after, in a
+/// batch already rendered, is ignored: its Work Result went, or goes,
+/// anyway.
 fn next_batch(
     from_coordinator: &mut UnboundedReceiver<ToWorker>,
+    to_coordinator: &UnboundedSender<ToCoordinator>,
     cancel: &Cancellation,
 ) -> Option<Vec<WorkUnit>> {
-    let mut batch = vec![assigned_unit(from_coordinator.blocking_recv()?, cancel)?];
+    let mut batch = Vec::new();
     loop {
-        match from_coordinator.try_recv() {
-            Ok(message) => batch.push(assigned_unit(message, cancel)?),
-            Err(TryRecvError::Empty) => return Some(batch),
-            Err(TryRecvError::Disconnected) => return None,
+        let message = if batch.is_empty() {
+            from_coordinator.blocking_recv()?
+        } else {
+            match from_coordinator.try_recv() {
+                Ok(message) => message,
+                Err(TryRecvError::Empty) => return Some(batch),
+                Err(TryRecvError::Disconnected) => return None,
+            }
+        };
+        match message {
+            ToWorker::Assign(unit) => batch.push(unit),
+            ToWorker::Cancel(unit) => drop_cancelled(&mut batch, unit, to_coordinator),
+            ToWorker::JobFinished => return None,
+            ToWorker::Stop => {
+                cancel.cancel();
+                return None;
+            }
         }
     }
 }
 
-/// The Work Unit `message` assigns; `None` when it ends the Render Job.
-fn assigned_unit(message: ToWorker, cancel: &Cancellation) -> Option<WorkUnit> {
-    match message {
-        ToWorker::Assign(unit) => Some(unit),
-        ToWorker::JobFinished => None,
-        ToWorker::Cancel => {
-            cancel.cancel();
-            None
-        }
+/// Drops `unit` from `batch`, if it is there, and sends its credit back on
+/// `to_coordinator`.
+fn drop_cancelled(
+    batch: &mut Vec<WorkUnit>,
+    unit: WorkUnit,
+    to_coordinator: &UnboundedSender<ToCoordinator>,
+) {
+    let before = batch.len();
+    batch.retain(|&held| held != unit);
+    if batch.len() < before {
+        let _ = to_coordinator.send(ToCoordinator::RequestWork(1));
     }
 }
 

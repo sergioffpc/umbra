@@ -11,7 +11,7 @@ use std::num::NonZeroU32;
 use rayon::ThreadPoolBuilder;
 use umbra_cpu::Renderer;
 use umbra_math::Point2i;
-use umbra_render::{Cancellation, PassIndex, Rendered, TileIndex, WorkUnit};
+use umbra_render::{Cancellation, Meter, PassIndex, Rendered, TileIndex, WorkUnit};
 use umbra_scene::{FilmParameters, RenderJobOptions, SceneBuilder, Seed};
 
 #[global_allocator]
@@ -44,9 +44,9 @@ fn blocks_per_work_unit(spp: u32) -> u64 {
     };
     let cancel = Cancellation::new();
     pool.install(|| {
-        let warm_up = renderer.render(unit, &cancel).rendered;
+        let warm_up = renderer.render(unit, &cancel, &Meter::new()).rendered;
         let before = dhat::HeapStats::get().total_blocks;
-        let measured = renderer.render(unit, &cancel).rendered;
+        let measured = renderer.render(unit, &cancel, &Meter::new()).rendered;
         let blocks = dhat::HeapStats::get().total_blocks - before;
         assert!(matches!(measured, Rendered::Done(_)), "rendered");
         assert_eq!(measured, warm_up, "the same Work Result twice");

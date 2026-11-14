@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use rayon::ThreadPoolBuilder;
 use umbra_cpu::Renderer;
-use umbra_render::{Cancellation, Film, FilmHash, PassIndex, Rendered, TileIndex, WorkUnit};
+use umbra_render::{Cancellation, Film, FilmHash, Meter, PassIndex, Rendered, TileIndex, WorkUnit};
 use umbra_scene::Scene;
 
 use crate::scenes::{camera_only, options, render_all};
@@ -93,7 +93,7 @@ fn a_render_is_a_pure_function_of_its_work_unit() {
     units.reverse();
     let cancel = Cancellation::new();
     for unit in units {
-        let Rendered::Done(result) = renderer.render(unit, &cancel).rendered else {
+        let Rendered::Done(result) = renderer.render(unit, &cancel, &Meter::new()).rendered else {
             panic!("{unit:?} cancelled");
         };
         let same = first.iter().find(|r| r.unit() == unit).unwrap();
@@ -112,7 +112,10 @@ fn a_cancelled_render_returns_no_work_result() {
         tile: TileIndex(0),
         pass: PassIndex(0),
     };
-    assert_eq!(renderer.render(unit, &cancel).rendered, Rendered::Cancelled);
+    assert_eq!(
+        renderer.render(unit, &cancel, &Meter::new()).rendered,
+        Rendered::Cancelled
+    );
 }
 
 #[test]
@@ -127,7 +130,7 @@ fn a_render_on_one_thread_takes_its_time_on_that_thread() {
     };
     let cancel = Cancellation::new();
     let start = Instant::now();
-    let render = pool.install(|| renderer.render(unit, &cancel));
+    let render = pool.install(|| renderer.render(unit, &cancel, &Meter::new()));
     let wall = start.elapsed();
     assert!(matches!(render.rendered, Rendered::Done(_)), "rendered");
     assert!(render.thread_time > Duration::ZERO, "{render:?}");

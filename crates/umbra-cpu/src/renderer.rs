@@ -10,7 +10,9 @@ use umbra_integrators::{
     NoRecorder, PixelSampleId, PixelSampleState, RayIntegrator, SceneView, evaluate_pixel_sample,
 };
 use umbra_math::Point2i;
-use umbra_render::{Cancellation, Decomposition, Error, PixelSum, Rendered, WorkResult, WorkUnit};
+use umbra_render::{
+    Cancellation, Decomposition, Error, Meter, PixelSum, Rendered, WorkResult, WorkUnit,
+};
 use umbra_sampling::{
     DigitPermutations, HaltonRandomizer, HaltonSampler, RandomizeStrategy, SamplerKind,
 };
@@ -38,6 +40,7 @@ struct Job<'a> {
     sampler: SamplerKind<'a>,
     decomposition: &'a Decomposition,
     cancel: &'a Cancellation,
+    meter: &'a Meter,
 }
 
 /// The coarse seam between the Renderer and an integrator, called once per
@@ -65,7 +68,13 @@ impl<I: RayIntegrator + Sync + fmt::Debug> Integrator for PixelLoop<I> {
         let (thread_time, outcome) = rows
             .map(|(row, y)| {
                 let start = Instant::now();
+                job.meter.row_started();
                 let outcome = self.render_row(job, row, Point2i::new(bounds.min.x, y), &samples);
+                let done = match outcome {
+                    Ok(()) => (row.len() * samples.len()) as u64,
+                    Err(Cancelled) => 0,
+                };
+                job.meter.row_finished(done);
                 (start.elapsed(), outcome)
             })
             .reduce(
@@ -196,12 +205,13 @@ impl<'s> Renderer<'s> {
     }
 
     /// Renders `unit` into its Work Result, unless `cancel` stops it first,
-    /// and measures the threads' time on it.
+    /// counting its progress on `meter` as it goes, and measures the
+    /// threads' time on it.
     ///
     /// # Panics
     ///
     /// If `unit` is not one of this Render Job's.
-    pub fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Render {
+    pub fn render(&self, unit: WorkUnit, cancel: &Cancellation, meter: &Meter) -> Render {
         assert!(
             self.decomposition.contains(unit),
             "{unit:?} is not in this Render Job"
@@ -211,6 +221,7 @@ impl<'s> Renderer<'s> {
             sampler: self.sampler(),
             decomposition: &self.decomposition,
             cancel,
+            meter,
         };
         self.integrator.render(&job, unit)
     }

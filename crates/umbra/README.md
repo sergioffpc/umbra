@@ -23,9 +23,9 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | Module           | Contents                                                                                                                     |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `lib`            | `run`: the exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
-| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own               |
+| `cli`            | The `clap` command line, options in alphabetical order: a one-line `-h` summary each, behaviour and examples in `--help`     |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
-| `worker`         | `umbra worker`: one Render Job for the Coordinator at `--coordinator`; how `render` runs each Local Worker                   |
+| `worker`         | `umbra worker`: the Render Jobs of its Cluster one after another, or, with `--coordinator`, a Local Worker's one             |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
 | `logs`           | `tracing` to stderr: pretty, compact or JSON lines, filtered by `--log-filter`, and to Tracy with the `tracy` feature        |
 | `status`         | `StatusLine`: shows the status `umbra-cluster` sends, redrawn in the footer or logged every ~10 s and at the end             |
@@ -67,14 +67,23 @@ ADDRESS`, with the same `--log-filter` and JSON logs. `umbra worker`
 writes nothing to the terminal on its own: its version line and its
 errors are log events, and `umbra render` logs each event of its Local
 Workers again, prefixed with their Render Device, above the status line.
-`worker` is hidden from `--help` until remote Workers arrive.
+`--coordinator` is hidden from `--help`: it is for `umbra render` alone.
+
+`umbra render` also announces its Render Job to the remote Workers of its
+Cluster (`--cluster` or `UMBRA_CLUSTER`, `default` otherwise) by DNS-SD,
+on every interface and an ephemeral UDP port unless `--interface` or
+`--port` (or `UMBRA_INTERFACE`, `UMBRA_PORT`) say otherwise (ADR 0021,
+ADR 0029). It admits a remote Worker built from its own commit, from a
+clean tree unless `--allow-dirty` (ADR 0012); its Local Workers are
+always admitted. `umbra worker` without `--coordinator` runs until Ctrl-C
+or SIGTERM, joining each Render Job of its Cluster as it is announced and
+rejoining one it failed in after 2 s, 10 s, then every 30 s; it exits 0
+once stopped.
 
 Not here yet: `trace`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); `bench`, with
 [#93](https://github.com/sergioffpc/umbra/issues/93); `validate`, with
-[#92](https://github.com/sergioffpc/umbra/issues/92); `worker` finding
-its Coordinator by its Cluster Name and serving one Render Job after
-another, with [#129](https://github.com/sergioffpc/umbra/issues/129).
+[#92](https://github.com/sergioffpc/umbra/issues/92).
 
 ## Design decisions
 
@@ -181,7 +190,7 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   version line starts every command on stderr, and `--version` adds the
   copyright and the licences, with nothing on stdout; the report has the
   options with the output path, phase times, Pixel Samples and their
-  rate, the Local Worker's host, CPU and figures, and a cost per Tile;
+  rate, each Worker's host, CPU and figures, and a cost per Tile;
   logs are JSON lines without a terminal, one line of text per event
   with `--log-format compact` and several with `pretty`, and filtered by
   `--log-filter`, with the final status among them, its rate with an SI
@@ -192,7 +201,22 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   Render Device is invalid usage. These tests hide every GPU with
   `CUDA_VISIBLE_DEVICES=` so they run alike with or without one.
   `local_workers.rs` runs `coordinate` with `umbra worker` child processes
-  on the CPU, over QUIC (see `umbra-cluster`'s README).
+  on the CPU, over QUIC (see `umbra-cluster`'s README). `cluster.rs` runs
+  `umbra render` with remote `umbra worker` processes, each test on a
+  Cluster of its own, over real multicast DNS: a Worker of the Cluster
+  joins and renders, one of another Cluster does not; one killed is a
+  failure of its Worker Slot and its Work Units go back to the queue,
+  three failures in a row refuse the slot, and one stopped with SIGTERM
+  exits 0 and is no failure; a Worker joins the next Render Job, and one
+  silenced by SIGSTOP is declared dead and rejoins once woken; an unknown
+  `--interface`, listed with the interfaces, and a `--port` taken are
+  errors. `scheduling.rs` runs `coordinate`: a Worker on another commit is
+  refused and never rejoins, a stopped Worker's Work Unit is copied by the
+  speculative tail and the copy wins while the stopped one shows `stale`,
+  and a Worker between rows shows `stalled` while its rows already count
+  in the aggregate. The binary's tests run four test threads' worth at a
+  time (`.config/nextest.toml`), so that their Workers' threads stay under
+  a container's process limit.
 - `tests/gpu/`, the GPU tests (`cargo nextest run --profile gpu`): the GPU
   alone, and the CPU and the GPU, render the image; killing the GPU's
   Local Worker mid-render still finishes it.
