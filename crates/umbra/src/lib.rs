@@ -7,6 +7,7 @@ mod footer;
 mod logs;
 mod render;
 mod status;
+mod worker;
 
 use std::io::{self, Write};
 use std::panic;
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use clap::Parser;
 use clap::error::ErrorKind;
 use indicatif::ProgressDrawTarget;
-use tracing::warn;
+use tracing::{error, info, warn};
 use umbra_render::Cancellation;
 
 use crate::build_identity::{version_line, version_notice};
@@ -63,13 +64,27 @@ pub fn run() -> ExitCode {
     let stderr = Arc::new(Footer::new(ProgressDrawTarget::stderr()));
     logs::init(cli.log_format, &cli.log, Arc::clone(&stderr));
     let cancel = cancel_on_ctrl_c();
-    // Informative: a closed stderr does not stop the command.
-    let _ = writeln!(&*stderr, "{}", version_line());
     let exit = match cli.command {
-        Command::Render(args) => match render::render(&args, &cancel, &mut io::stdout(), &stderr) {
-            Ok(()) => Exit::Success,
-            Err(error) => report(&error, &stderr),
-        },
+        Command::Render(args) => {
+            // Informative: a closed stderr does not stop the command.
+            let _ = writeln!(&*stderr, "{}", version_line());
+            match render::render(&args, &cli.log, &cancel, &mut io::stdout(), &stderr) {
+                Ok(()) => Exit::Success,
+                Err(error) => report(&error, &stderr),
+            }
+        }
+        // A Worker writes nothing on its own to stderr: it logs, and its
+        // Coordinator, if it is a Local Worker, logs what it logs.
+        Command::Worker(args) => {
+            info!("{}", version_line());
+            match worker::work(&args, &cancel) {
+                Ok(()) => Exit::Success,
+                Err(error) => {
+                    error!("{error}");
+                    Exit::of(&error)
+                }
+            }
+        }
     };
     exit.into()
 }
@@ -78,10 +93,17 @@ pub fn run() -> ExitCode {
 fn report(error: &Error, mut stderr: &Footer) -> Exit {
     // Nothing is left to tell the operator with if stderr is closed.
     let _ = writeln!(stderr, "{error}");
-    match error {
-        Error::Refused(_) => Exit::Refused,
-        Error::Unreadable(_) | Error::Io(_) | Error::Cluster(_) => Exit::Failure,
-        Error::Cancelled => Exit::Cancelled,
+    Exit::of(error)
+}
+
+impl Exit {
+    /// How `umbra` exits for `error`.
+    fn of(error: &Error) -> Self {
+        match error {
+            Error::Refused(_) => Self::Refused,
+            Error::Unreadable(_) | Error::Io(_) | Error::Cluster(_) => Self::Failure,
+            Error::Cancelled => Self::Cancelled,
+        }
     }
 }
 

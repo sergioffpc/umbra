@@ -10,8 +10,6 @@ mod volpath;
 
 // Dependency edges of arc42 §5.1, used once the crate has code that needs
 // them.
-#[cfg(feature = "serde")]
-use serde as _;
 use umbra_shading as _;
 
 pub use pixel_sample::{

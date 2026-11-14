@@ -1,6 +1,8 @@
 # QUIC transport between Coordinator and Workers
 
 > **Amended by [ADR 0026](0026-gpu-workers-from-the-first-milestone.md).** The Local Worker of each GPU runs in a child process of the Coordinator and reaches it over QUIC on loopback; only the CPU Local Worker uses the in-memory transport. QUIC arrives in `v0.1.0`. The rest of this ADR still applies.
+>
+> **Amended by [ADR 0035](0035-every-local-worker-in-a-child-process.md).** The CPU Local Worker also runs in a child process and reaches the Coordinator over QUIC on loopback: every Worker uses QUIC, and there is no in-memory transport. The rest of this ADR still applies.
 
 The Coordinator and remote Workers communicate over QUIC with the `quinn` crate, not over TCP. The networking research ([Networking and serialisation options for coordinator/worker](https://github.com/sergioffpc/umbra/issues/17)) recommended tokio with length-delimited TCP framing and kept quinn as an upgrade path. The decision in [Work decomposition and scheduling](https://github.com/sergioffpc/umbra/issues/23) takes that path from the start: independent streams avoid head-of-line blocking between concurrent Work Results, heartbeats and Scene transfer, and switching transport later would touch every message.
 

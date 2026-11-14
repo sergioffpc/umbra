@@ -81,7 +81,7 @@ The hardware one Worker renders on: either all the cores of one NUMA node, or on
 _Avoid_: Backend, accelerator, compute unit
 
 **Local Worker**:
-A Worker that the Coordinator starts on its own machine, so that one machine can render a Render Job alone: the one for the CPU runs inside the Coordinator's process, and the one for each GPU in a child process of it.
+A Worker that the Coordinator starts on its own machine, so that one machine can render a Render Job alone: one per Render Device, each a child process of the Coordinator that connects back to it over QUIC on loopback, like a remote Worker.
 _Avoid_: Embedded worker, in-process node
 
 **Worker Slot**:

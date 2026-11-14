@@ -14,9 +14,9 @@ It is a `std` crate. It depends on `umbra-render` for the contract every
 Render Device shares, on `umbra-scene`, `umbra-integrators`,
 `umbra-sampling`, `umbra-spectrum`, `umbra-geometry` and `umbra-math`, on
 `umbra-gpu-programs` for the layout it shares with the device, on `cudarc`
-for the CUDA driver API and on `libloading` for OptiX (arc42 §5.1). The GPU
-Local Worker will use it from `umbra-cluster`
-([#128](https://github.com/sergioffpc/umbra/issues/128)).
+for the CUDA driver API and on `libloading` for OptiX (arc42 §5.1).
+`umbra-cluster` depends on it: a GPU Worker renders with its `Renderer`,
+and `device_count` tells the Coordinator which GPUs are usable.
 
 ```rust,no_run
 use umbra_gpu::Renderer;
@@ -83,9 +83,7 @@ counterpart of `umbra-math`'s bench of the same name, whose README says how
 to run both.
 
 Not here yet: the stages that trace rays and shade their hits, which
-arrive with each feature on both Render Devices, and the GPU Local Worker
-that pulls Work Units for the `Renderer`
-([#128](https://github.com/sergioffpc/umbra/issues/128)).
+arrive with each feature on both Render Devices.
 
 ## Design decisions
 

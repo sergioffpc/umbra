@@ -104,12 +104,28 @@ impl<'d> Progress<'d> {
         }
     }
 
-    /// A Work Unit was assigned to the Local Worker at `now`.
+    /// A Work Unit was assigned to a Worker at `now`.
     pub(crate) fn assigned(&mut self, now: Instant) {
         if self.in_flight == 0 {
             self.busy_since = Some(now);
         }
         self.in_flight += 1;
+    }
+
+    /// A Work Unit in flight went back to the queue at `now`: its Worker
+    /// went away before its Work Result arrived.
+    pub(crate) fn returned(&mut self, now: Instant) {
+        self.in_flight = self.in_flight.saturating_sub(1);
+        self.end_busy_if_idle(now);
+    }
+
+    /// Ends the busy interval at `now` once nothing is in flight.
+    fn end_busy_if_idle(&mut self, now: Instant) {
+        if self.in_flight == 0
+            && let Some(since) = self.busy_since.take()
+        {
+            self.busy += now.duration_since(since);
+        }
     }
 
     /// The Local Worker's threads spent `thread_time` on a Work Unit,
@@ -128,11 +144,7 @@ impl<'d> Progress<'d> {
         now: Instant,
     ) {
         self.in_flight = self.in_flight.saturating_sub(1);
-        if self.in_flight == 0
-            && let Some(since) = self.busy_since.take()
-        {
-            self.busy += now.duration_since(since);
-        }
+        self.end_busy_if_idle(now);
         let samples = self.pixel_samples(unit);
         let tile = unit.tile.0 as usize;
         self.merged_units += 1;
@@ -205,8 +217,8 @@ impl<'d> Progress<'d> {
         self.merge_time
     }
 
-    /// The time the Local Worker had at least one Work Unit in flight, up
-    /// to `now`.
+    /// The time the Workers had at least one Work Unit in flight, up to
+    /// `now`.
     pub(crate) fn busy_time(&self, now: Instant) -> Duration {
         self.busy
             + self

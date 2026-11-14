@@ -57,6 +57,35 @@ impl Device {
     }
 }
 
+/// How many GPUs a [`Renderer`](crate::Renderer) can run on, at least
+/// one: the CUDA devices this process sees, with the driver's OptiX
+/// loadable.
+///
+/// # Errors
+///
+/// [`Error::CudaLibrary`] without the driver's `libcuda.so`,
+/// [`Error::Cuda`] or [`Error::NoDevice`] when CUDA finds no device
+/// (`CUDA_VISIBLE_DEVICES` may hide them all), and [`Error::OptixLibrary`] or [`Error::OptixFunction`]
+/// without a driver new enough for OptiX 9.0.
+#[expect(
+    unsafe_code,
+    reason = "loading CUDA from the driver at run time (ADR 0007, ADR 0028)"
+)]
+pub fn device_count() -> Result<usize, Error> {
+    // SAFETY: loading the NVIDIA driver's `libcuda.so` runs only its
+    // initialisers, which have no precondition on the process. Checked
+    // first, because `cudarc` panics on a missing library.
+    if !unsafe { cudarc::driver::sys::is_culib_present() } {
+        return Err(Error::CudaLibrary);
+    }
+    let count = match usize::try_from(CudaContext::device_count()?) {
+        Ok(0) | Err(_) => return Err(Error::NoDevice),
+        Ok(count) => count,
+    };
+    Api::load()?;
+    Ok(count)
+}
+
 /// The shader binding table record of `group` with `data`, on the device.
 pub(crate) fn record<T>(
     stream: &Arc<CudaStream>,

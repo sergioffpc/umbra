@@ -7,10 +7,6 @@ mod camera;
 mod filter;
 mod sensor;
 
-// Dependency edge of arc42 §5.1, used once the crate has types to serialise.
-#[cfg(feature = "serde")]
-use serde as _;
-
 pub use camera::{
     Camera, CameraBaseParameters, CameraKind, CameraRay, CameraSample, CameraTransform,
     PerspectiveCamera, ThinLens, get_camera_sample,

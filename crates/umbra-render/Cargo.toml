@@ -12,6 +12,7 @@ categories.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytemuck = { workspace = true }
 image = { workspace = true }
 umbra-integrators = { workspace = true }
 umbra-math = { workspace = true }

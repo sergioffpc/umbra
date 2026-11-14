@@ -6,7 +6,14 @@ use thiserror::Error;
 /// An error of the GPU path: CUDA, OptiX, or the programs' build.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// A CUDA driver call failed, or no CUDA driver or device was found.
+    /// The NVIDIA driver's CUDA library, `libcuda.so`, could not be loaded:
+    /// no NVIDIA driver, or a container run without `--gpus`.
+    #[error("cannot load CUDA: no NVIDIA driver")]
+    CudaLibrary,
+    /// CUDA sees no device.
+    #[error("CUDA sees no device")]
+    NoDevice,
+    /// A CUDA driver call failed.
     #[error("CUDA: {0}")]
     Cuda(#[from] DriverError),
     /// The driver's OptiX library, `libnvoptix.so.1`, could not be loaded:

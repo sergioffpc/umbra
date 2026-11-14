@@ -19,6 +19,7 @@ use crate::view::SceneView;
 ///
 /// PBR 4e §14.2, pbrt-v4 `VolPathIntegrator`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct VolPathIntegrator {
     max_depth: u32,

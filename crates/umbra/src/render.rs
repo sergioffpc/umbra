@@ -1,14 +1,18 @@
 //! `umbra render`: parse, apply the overrides, render through
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
+use std::env;
 use std::fs;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::Path;
+use std::process::Command;
 use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, Threads, coordinate,
+    CoordinatorOptions, Moment, Phase, RenderDevice, RenderJob, RenderJobOutcome, RenderJobReport,
+    Status, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -23,9 +27,11 @@ use crate::status::StatusLine;
 /// Renders the Scene File of `args`, writing its warnings to `stderr` and
 /// its progress to the footer of `stderr` on a terminal, then the image,
 /// and its Render Job Report to `stdout`; or, once `cancel` is made, the
-/// report alone.
+/// report alone. Each Local Worker is this executable, run as `umbra
+/// worker`, logging with the filter `log`.
 pub(crate) fn render(
     args: &RenderArgs,
+    log: &str,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
     mut stderr: &Footer,
@@ -53,18 +59,58 @@ pub(crate) fn render(
         output: parsed.output.clone(),
         record,
     };
-    let threads = args.nthreads.map_or(Threads::All, Threads::Count);
     let mut status_line = StatusLine::on(stderr);
-    let outcome = coordinate(
-        job,
-        &CoordinatorOptions { threads },
-        cancel,
-        |status, moment| status_line.show(status, moment),
-    )?;
+    let outcome = coordinate_locally(job, args, log, cancel, |status, moment| {
+        status_line.show(status, moment);
+    })?;
     // The last status stays on the terminal, above the errors and logs
     // that follow it.
     drop(status_line);
     finish(outcome, parsed.times, &parsed.output, stdout)
+}
+
+/// Renders `job` on the Local Workers of the Render Devices `args` chooses,
+/// each in a child process that logs with the filter `log`.
+fn coordinate_locally(
+    job: RenderJob,
+    args: &RenderArgs,
+    log: &str,
+    cancel: &Cancellation,
+    status: impl FnMut(&Status, Moment),
+) -> Result<RenderJobOutcome, Error> {
+    let devices = args.render_devices();
+    let cpu = devices.includes_cpu().then_some(RenderDevice::Cpu);
+    let gpus = devices.gpus()?.into_iter().map(RenderDevice::Gpu);
+    let executable = env::current_exe()?;
+    let command = |device: RenderDevice, coordinator: SocketAddr| {
+        local_worker(&executable, log, device, args, coordinator)
+    };
+    let options = CoordinatorOptions {
+        local_workers: cpu.into_iter().chain(gpus).collect(),
+        worker_command: &command,
+    };
+    Ok(coordinate(job, &options, cancel, status)?)
+}
+
+/// The command line of the Local Worker of `device`: `executable`, run as
+/// `umbra worker`, logging JSON lines with the filter `log`, with the
+/// threads of `args` on the CPU, connecting to `coordinator`.
+fn local_worker(
+    executable: &Path,
+    log: &str,
+    device: RenderDevice,
+    args: &RenderArgs,
+    coordinator: SocketAddr,
+) -> Command {
+    let mut command = Command::new(executable);
+    command
+        .args(["--log", log, "--log-format", "json", "worker"])
+        .args(["--render-device", &device.to_string()])
+        .args(["--coordinator", &coordinator.to_string()]);
+    if let (RenderDevice::Cpu, Some(threads)) = (device, args.nthreads) {
+        command.args(["--nthreads", &threads.to_string()]);
+    }
+    command
 }
 
 /// Writes the image of `outcome` to `image`, then its report to `stdout`,

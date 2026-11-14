@@ -45,13 +45,22 @@ impl Workspace {
         self.dir.path().join(name)
     }
 
-    /// Runs `umbra` with `args`, in the workspace.
+    /// Runs `umbra` with `args`, in the workspace, on a machine without a
+    /// GPU.
     pub(crate) fn umbra(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_umbra"))
+        self.command(args).output().expect("umbra runs")
+    }
+
+    /// The command that runs `umbra` with `args`, in the workspace, with
+    /// every GPU hidden: the tests run alike on CI, which has none, and on
+    /// a machine with one (the GPU tests are in `tests/gpu/`).
+    pub(crate) fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_umbra"));
+        command
             .args(args)
             .current_dir(self.dir.path())
-            .output()
-            .expect("umbra runs")
+            .env("CUDA_VISIBLE_DEVICES", "");
+        command
     }
 }
 

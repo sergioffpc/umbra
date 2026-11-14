@@ -3,10 +3,12 @@
 
 use std::num::NonZeroU32;
 
+use serde::{Deserialize, Serialize};
+
 /// The seed of every sampler of a Render Job: with the Scene, the pixel and
 /// the sample index, it fixes every Pixel Sample (ADR 0022). pbrt-v4's
 /// `--seed`, an `int`; 0 by default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Seed(pub i32);
 
 impl From<Seed> for u32 {
@@ -23,7 +25,7 @@ impl From<Seed> for u32 {
 ///
 /// A Pass is `spp_per_pass` consecutive sample indices; the last
 /// one is shorter if `spp` is not a multiple of it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RenderJobOptions {
     /// The seed of the samplers.
     pub seed: Seed,

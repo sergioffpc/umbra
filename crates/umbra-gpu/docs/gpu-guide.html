@@ -411,7 +411,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
                     <li><a href="#unsafe"><span class="n">13</span><span class="t">The unsafe and FFI boundaries</span><span class="c">every unsafe site · ADR 0007</span></a></li>
                     <li><a href="#errors"><span class="n">14</span><span class="t">What can go wrong</span><span class="c">Error</span></a></li>
                     <li><a href="#tests"><span class="n">15</span><span class="t">The GPU tests</span><span class="c">tests/gpu · nextest profile gpu</span></a></li>
-                    <li><a href="#not-yet"><span class="n">16</span><span class="t">Not here yet</span><span class="c">trace and shade stages, #128</span></a></li>
+                    <li><a href="#not-yet"><span class="n">16</span><span class="t">Not here yet</span><span class="c">trace and shade stages</span></a></li>
                 </ol>
             </div>
         </div>
@@ -1434,7 +1434,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <p>See <a href="#ptx">section 7</a>. The rejected alternatives are in ADR 0028: Rust-CUDA (an external code generator long unmaintained), hand-written CUDA C++ (a second implementation, sharing no code with the core), and putting the device code in a module of this crate (mixing <code>std</code> and <code>no_std</code>). ADR 0033 adds that this crate's build script would then compile its own crate for <code>nvptx64</code>, a build that recurses into itself.</p>
 
         <h4>One Renderer per Render Device, a batch per call</h4>
-        <p><code>Renderer</code> is built from what <code>umbra-cpu</code>'s is, a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, plus the GPU's ordinal, and keeps <code>umbra-render</code>'s device-neutral contract: <code>WorkUnit</code>s in, <code>Rendered</code> out, <code>Cancellation</code> to stop (ADR 0033). Its <code>render</code> takes a batch, though: <code>&amp;[WorkUnit]</code> in, <code>Vec&lt;Rendered&gt;</code> out. A GPU fills only with many Pixel Samples in flight, so a GPU Worker keeps <code>Renderer::CAPACITY</code> Work Units, 16 to start with, and renders them together, while Tile size and Pixel Samples per Pass stay those of every Worker (ADR 0026). <code>render</code> may be given more than <code>CAPACITY</code>; the batch's memory grows with it. <code>umbra-cluster</code> holds only the CPU's renderer until the GPU Local Worker joins it (<a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>).</p>
+        <p><code>Renderer</code> is built from what <code>umbra-cpu</code>'s is, a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, plus the GPU's ordinal, and keeps <code>umbra-render</code>'s device-neutral contract: <code>WorkUnit</code>s in, <code>Rendered</code> out, <code>Cancellation</code> to stop (ADR 0033). Its <code>render</code> takes a batch, though: <code>&amp;[WorkUnit]</code> in, <code>Vec&lt;Rendered&gt;</code> out. A GPU fills only with many Pixel Samples in flight, so a GPU Worker keeps <code>Renderer::CAPACITY</code> Work Units, 16 to start with, and renders them together, while Tile size and Pixel Samples per Pass stay those of every Worker (ADR 0026). <code>render</code> may be given more than <code>CAPACITY</code>; the batch's memory grows with it. Each GPU's Local Worker, in <code>umbra-cluster</code>, asks for <code>CAPACITY</code> Work Units and renders whatever it has been assigned as one batch.</p>
 
         <h4>The Scene uploaded once, its tables by map_storage</h4>
         <p>The core's filter, sensor and digit permutations are generic over the storage of their tables. On the CPU the storage is a <code>Vec</code> or a borrowed slice; for the GPU, <code>Renderer::new</code> moves each table into one upload buffer with <code>map_storage</code> and gives the record a <code>DeviceSlice</code> of it instead. The records are then copied to the device byte for byte, which the <code>#[repr(C)]</code> layout of the core types and the records' size assertions allow (ADR 0028, arc42 §8.12). On the device, <code>DeviceSlice</code> is <code>AsRef&lt;[T]&gt;</code>, so the same core code samples the tables there.</p>
@@ -1652,7 +1652,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <div class="eyebrow"><span class="no">16</span><span class="crate">umbra-gpu</span> · roadmap · arc42 §4</div>
         <h3>Not here yet</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The GPU renders a Scene now, but only as far as the core goes: a path is its camera ray, so the image of today's Scenes is black, as on the CPU. The stages that trace rays and shade what they hit come feature by feature, in later issues, and so does the Worker that feeds the <code>Renderer</code> its Work Units.</div>
+    <div class="plain"><span class="tag">In plain words</span>The GPU renders a Scene now, but only as far as the core goes: a path is its camera ray, so the image of today's Scenes is black, as on the CPU. The stages that trace rays and shade what they hit come feature by feature, in later issues. The Worker that feeds the <code>Renderer</code> its Work Units is here: each GPU's Local Worker, a child process of the Coordinator.</div>
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 150" class="dg-wide" role="img" aria-label="From the tracer bullet and the wavefront Renderer to the GPU Worker">
             <rect x="20" y="40" width="230" height="64" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
@@ -1663,16 +1663,14 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
             <text x="440" y="66" text-anchor="middle" font-size="12" font-weight="600">wavefront Renderer (#127)</text>
             <text x="440" y="88" text-anchor="middle" font-size="11">camera and film stages, in batches</text>
             <line x1="572" y1="72" x2="626" y2="72" class="k-ink" marker-end="url(#ah-ink)"/>
-            <rect x="630" y="40" width="210" height="64" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
+            <rect x="630" y="40" width="210" height="64" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
             <text x="735" y="66" text-anchor="middle" font-size="12" font-weight="600">GPU Local Worker (#128)</text>
             <text x="735" y="88" text-anchor="middle" font-size="11">renders Work Units</text>
-            <text x="430" y="136" text-anchor="middle" font-size="12" class="t-mut">dashed = planned, not in the code on this branch</text>
         </svg></div>
     </figure>
     <div class="prose">
         <ul>
             <li><b>The stages that trace and shade:</b> intersection and shading stages that split the integrator's <code>li</code>, with more queues between them, arrive with the Shapes and lights that need them, on both Render Devices. Until then the camera stage calls <code>li</code> in one step, and no stage traces a ray.</li>
-            <li><b>The GPU Local Worker:</b> a Worker in a child process of the Coordinator that asks for <code>Renderer::CAPACITY</code> Work Units and renders them as one batch, with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>. Until then <code>umbra-cluster</code> does not depend on this crate.</li>
             <li><b>A tuned capacity:</b> <code>CAPACITY</code> is 16 to start with, to be set by benchmark (ADR 0026).</li>
             <li><b>More shapes:</b> each new Shape becomes an OptiX custom intersection program that calls the core, as the sphere does; triangles stay in hardware (arc42 §8.12).</li>
         </ul>

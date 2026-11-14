@@ -31,7 +31,7 @@ flowchart LR
 flowchart LR
     subgraph opm["Operator machine"]
         fs[("Scene File,<br/>image, report")]
-        coord["umbra render:<br/>Coordinator (+ Local Workers:<br/>CPU in-process, GPU child)"]
+        coord["umbra render:<br/>Coordinator (+ Local Workers:<br/>CPU and GPU children)"]
     end
     subgraph hosts["Other hosts on the LAN"]
         w["Workers"]
