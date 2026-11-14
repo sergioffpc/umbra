@@ -27,7 +27,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
 | `worker`         | `umbra worker`: the Render Jobs of its Cluster one after another, or, with `--coordinator`, a Local Worker's one             |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
-| `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature                |
+| `logs`           | `tracing` to stderr: pretty, compact or JSON lines, filtered by `--log-filter`, and to Tracy with the `tracy` feature        |
 | `status`         | `StatusLine`: shows the status `umbra-cluster` sends, redrawn in the footer or logged every ~10 s and at the end             |
 | `footer`         | `Footer`, public: stderr with the status line kept at its bottom by `indicatif`, log events printed above it                 |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice          |
@@ -50,12 +50,12 @@ While a Render Job runs, the status line is redrawn at the bottom of
 stderr when it is a terminal that can move its cursor (not `TERM=dumb`),
 each line cut to the terminal's width, with log events printed above it;
 otherwise it is logged as `info` events about every 10 s. Logs go
-to stderr through `tracing`: human-readable on a terminal and JSON lines
-otherwise, or as `--log-format human|json` says, filtered by `--log`, a
-`RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
-Job: its report says `Render Job: cancelled`, no image is written, and
-`umbra` exits 130; a second Ctrl-C exits at once. The `tracy` feature, off
-by default, sends the `tracing` spans to Tracy.
+to stderr through `tracing`: pretty text on a terminal and JSON lines
+otherwise, or as `--log-format pretty|compact|json` says, filtered by
+`--log-filter`, a `RUST_LOG`-style filter (`info` by default). Ctrl-C
+cancels the Render Job: its report says `Render Job: cancelled`, no
+image is written, and `umbra` exits 130; a second Ctrl-C exits at once.
+The `tracy` feature, off by default, sends the `tracing` spans to Tracy.
 
 `umbra render` renders on every Render Device of its machine, each with a
 Local Worker in a child process (ADR 0026, ADR 0035). `--render-devices
@@ -63,7 +63,7 @@ cpu`, `gpu` or `cpu,gpu` chooses them. With none chosen and no usable GPU,
 it renders on the CPU alone and warns once; a GPU chosen and none usable
 is an error. A Local Worker is this executable run as `umbra worker
 --render-device cpu` (with `--nthreads`) or `gpu:N`, `--coordinator
-ADDRESS`, with the same `--log` filter and JSON logs. `umbra worker`
+ADDRESS`, with the same `--log-filter` and JSON logs. `umbra worker`
 writes nothing to the terminal on its own: its version line and its
 errors are log events, and `umbra render` logs each event of its Local
 Workers again, prefixed with their Render Device, above the status line.
@@ -191,14 +191,15 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   copyright and the licences, with nothing on stdout; the report has the
   options with the output path, phase times, Pixel Samples and their
   rate, each Worker's host, CPU and figures, and a cost per Tile;
-  logs are JSON lines without a terminal, text with `--log-format human`,
-  and filtered by `--log`, with the final status among them, its rate
-  with an SI prefix and its times as a clock; Ctrl-C writes a cancelled
-  report, no image, and exits 130, the ETA unknown before any merge and
-  provisional (`~`) during Pass 0; without a usable GPU the default
-  renders on the CPU with one warning, `--render-devices gpu` exits 1, and
-  an unknown Render Device is invalid usage. These tests hide every GPU
-  with `CUDA_VISIBLE_DEVICES=` so they run alike with or without one.
+  logs are JSON lines without a terminal, one line of text per event
+  with `--log-format compact` and several with `pretty`, and filtered by
+  `--log-filter`, with the final status among them, its rate with an SI
+  prefix and its times as a clock; Ctrl-C writes a cancelled report, no
+  image, and exits 130, the ETA unknown before any merge and provisional
+  (`~`) during Pass 0; without a usable GPU the default renders on the
+  CPU with one warning, `--render-devices gpu` exits 1, and an unknown
+  Render Device is invalid usage. These tests hide every GPU with
+  `CUDA_VISIBLE_DEVICES=` so they run alike with or without one.
   `local_workers.rs` runs `coordinate` with `umbra worker` child processes
   on the CPU, over QUIC (see `umbra-cluster`'s README). `cluster.rs` runs
   `umbra render` with remote `umbra worker` processes, each test on a

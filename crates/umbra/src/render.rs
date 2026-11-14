@@ -28,10 +28,10 @@ use crate::status::StatusLine;
 /// its progress to the footer of `stderr` on a terminal, then the image,
 /// and its Render Job Report to `stdout`; or, once `cancel` is made, the
 /// report alone. Each Local Worker is this executable, run as `umbra
-/// worker`, logging with the filter `log`.
+/// worker`, logging with the log filter `log_filter`.
 pub(crate) fn render(
     args: &RenderArgs,
-    log: &str,
+    log_filter: &str,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
     mut stderr: &Footer,
@@ -60,7 +60,7 @@ pub(crate) fn render(
         record,
     };
     let mut status_line = StatusLine::on(stderr);
-    let outcome = coordinate_locally(job, args, log, cancel, |status, moment| {
+    let outcome = coordinate_locally(job, args, log_filter, cancel, |status, moment| {
         status_line.show(status, moment);
     })?;
     // The last status stays on the terminal, above the errors and logs
@@ -70,12 +70,12 @@ pub(crate) fn render(
 }
 
 /// Renders `job` on the Local Workers of the Render Devices `args` chooses,
-/// each in a child process that logs with the filter `log`, and on the
-/// remote Workers of the Cluster `args` names.
+/// each in a child process that logs with the log filter `log_filter`, and
+/// on the remote Workers of the Cluster `args` names.
 fn coordinate_locally(
     job: RenderJob,
     args: &RenderArgs,
-    log: &str,
+    log_filter: &str,
     cancel: &Cancellation,
     status: impl FnMut(&Status, Moment),
 ) -> Result<RenderJobOutcome, Error> {
@@ -84,7 +84,7 @@ fn coordinate_locally(
     let gpus = devices.gpus()?.into_iter().map(RenderDevice::Gpu);
     let executable = env::current_exe()?;
     let command = |device: RenderDevice, coordinator: SocketAddr| {
-        local_worker(&executable, log, device, args, coordinator)
+        local_worker(&executable, log_filter, device, args, coordinator)
     };
     let options = CoordinatorOptions {
         local_workers: cpu.into_iter().chain(gpus).collect(),
@@ -102,18 +102,18 @@ fn coordinate_locally(
 }
 
 /// The command line of the Local Worker of `device`: `executable`, run as
-/// `umbra worker`, logging JSON lines with the filter `log`, with the
+/// `umbra worker`, logging JSON lines with the log filter `log_filter`, with the
 /// threads of `args` on the CPU, connecting to `coordinator`.
 fn local_worker(
     executable: &Path,
-    log: &str,
+    log_filter: &str,
     device: RenderDevice,
     args: &RenderArgs,
     coordinator: SocketAddr,
 ) -> Command {
     let mut command = Command::new(executable);
     command
-        .args(["--log", log, "--log-format", "json", "worker"])
+        .args(["--log-filter", log_filter, "--log-format", "json", "worker"])
         .args(["--render-device", &device.to_string()])
         .args(["--coordinator", &coordinator.to_string()]);
     if let (RenderDevice::Cpu, Some(threads)) = (device, args.nthreads) {

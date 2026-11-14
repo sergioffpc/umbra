@@ -72,11 +72,11 @@ pub(crate) struct Cli {
     /// the same filter, and their events are logged again by `umbra render`,
     /// prefixed with their Render Device.
     #[arg(long, global = true, default_value = "info", value_parser = parse_filter)]
-    pub(crate) log: String,
-    /// The format of the logs: `human` or `json`.
+    pub(crate) log_filter: String,
+    /// The format of the logs: `pretty`, `compact` or `json`.
     ///
-    /// Human-readable text on a terminal, one JSON object per line
-    /// otherwise, unless this option chooses.
+    /// `pretty` on a terminal, one JSON object per line otherwise, unless
+    /// this option chooses. `compact` is one line of text per event.
     #[arg(long, global = true, value_enum)]
     pub(crate) log_format: Option<LogFormat>,
 }
