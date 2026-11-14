@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod device;
 mod error;
 mod optix;
 mod records;

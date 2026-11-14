@@ -8,8 +8,8 @@ tail, the Local Worker, Build Identity admission, the status line and the
 Render Job Report.
 
 It is a `std` crate, outside the core. It depends on `umbra-render` and on
-both renderers, `umbra-cpu` and `umbra-gpu`, and the `umbra` binary depends
-on it; it receives a parsed Scene and does not depend
+the CPU's renderer, `umbra-cpu`; the GPU's, `umbra-gpu`, joins with the GPU
+Local Worker (#128). The `umbra` binary depends on it; it receives a parsed Scene and does not depend
 on `umbra-parser` (arc42 §5.1). Its contract is sketched in arc42 §5.3.
 
 ```rust
@@ -51,7 +51,7 @@ assert_eq!(image.resolution(), resolution);
 | `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome` (finished or cancelled); the scheduling loop                   |
 | `error`        | `Error`: why a Render Job did not finish                                                                                                                          |
 | `local_worker` | The CPU Local Worker: renders its Work Units with its `Renderer`, several at once on its own rayon pool, and times each                                           |
-| `renderer`     | `Renderer`, the CPU's or the GPU's, chosen by the Worker's `RenderDevice` (ADR 0033)                                                                              |
+| `renderer`     | `Renderer`, chosen by the Worker's `RenderDevice` (ADR 0033): the CPU's so far                                                                                    |
 | `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
 | `status`       | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                              |
 | `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |

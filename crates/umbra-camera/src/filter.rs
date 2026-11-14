@@ -58,12 +58,29 @@ pub trait Filter {
 /// and the piecewise-constant distribution of the table.
 ///
 /// PBR 4e §8.8.3, pbrt-v4 `FilterSampler`.
+// `repr(C)` for every `S`, as every type of the filter: the GPU Worker
+// copies it to the device byte for byte, with its storage in device memory
+// (ADR 0028, arc42 §8.12).
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct FilterSampler<S> {
     /// The tabulated values, rows of `nu` one after the other.
     f: S,
     nu: usize,
     distrib: PiecewiseConstant2D<S>,
+}
+
+impl<S> FilterSampler<S> {
+    /// The same sampler, its storage moved by `f`: to device memory, for the
+    /// GPU Worker (ADR 0028).
+    #[must_use]
+    pub fn map_storage<T>(self, mut f: impl FnMut(S) -> T) -> FilterSampler<T> {
+        FilterSampler {
+            f: f(self.f),
+            nu: self.nu,
+            distrib: self.distrib.map_storage(f),
+        }
+    }
 }
 
 impl<S: AsRef<[f32]> + AsMut<[f32]>> FilterSampler<S> {
@@ -156,6 +173,7 @@ impl<S: AsRef<[f32]>> FilterSampler<S> {
 /// The parameters of a [`GaussianFilter`]'s function, which its sampler is
 /// tabulated from.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 struct Gaussian {
     radius: Vector2f,
     sigma: f32,
@@ -176,9 +194,22 @@ impl Gaussian {
 ///
 /// PBR 4e §8.8.4, pbrt-v4 `GaussianFilter`.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct GaussianFilter<S> {
-    gaussian: Gaussian,
     sampler: FilterSampler<S>,
+    gaussian: Gaussian,
+}
+
+impl<S> GaussianFilter<S> {
+    /// The same filter, its storage moved by `f`: to device memory, for the
+    /// GPU Worker (ADR 0028).
+    #[must_use]
+    pub fn map_storage<T>(self, f: impl FnMut(S) -> T) -> GaussianFilter<T> {
+        GaussianFilter {
+            sampler: self.sampler.map_storage(f),
+            gaussian: self.gaussian,
+        }
+    }
 }
 
 impl<S: AsRef<[f32]> + AsMut<[f32]>> GaussianFilter<S> {
@@ -195,7 +226,7 @@ impl<S: AsRef<[f32]> + AsMut<[f32]>> GaussianFilter<S> {
             exp_y: gaussian(radius.y, 0.0, sigma),
         };
         let sampler = FilterSampler::new_in(radius, |p| gaussian.evaluate(p), alloc);
-        Self { gaussian, sampler }
+        Self { sampler, gaussian }
     }
 }
 
@@ -235,11 +266,61 @@ impl<S: AsRef<[f32]>> Filter for GaussianFilter<S> {
     }
 }
 
+// The GPU Worker copies the filter to the device byte for byte, its tables
+// in device memory (ADR 0028, arc42 §8.12): its layout is the same on
+// `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    // The storage as the GPU Worker's: a device address and a length, 16
+    // bytes aligned to 8 (`umbra-gpu-programs`' `DeviceSlice`).
+    type DeviceStorage = [u64; 2];
+
+    assert!(size_of::<Gaussian>() == 20, "`Gaussian` is 20 bytes");
+    assert!(
+        offset_of!(Gaussian, sigma) == 8,
+        "`Gaussian::sigma` is at byte 8"
+    );
+    assert!(
+        offset_of!(Gaussian, exp_x) == 12,
+        "`Gaussian::exp_x` is at byte 12"
+    );
+    assert!(
+        offset_of!(Gaussian, exp_y) == 16,
+        "`Gaussian::exp_y` is at byte 16"
+    );
+    assert!(
+        size_of::<FilterSampler<DeviceStorage>>() == 80,
+        "`FilterSampler` is its table, `nu` and its distribution"
+    );
+    assert!(
+        offset_of!(FilterSampler<DeviceStorage>, nu) == 16,
+        "`FilterSampler::nu` is at byte 16"
+    );
+    assert!(
+        offset_of!(FilterSampler<DeviceStorage>, distrib) == 24,
+        "`FilterSampler::distrib` is at byte 24"
+    );
+    assert!(
+        size_of::<GaussianFilter<DeviceStorage>>() == 104,
+        "`GaussianFilter` is 104 bytes, the last 4 padding"
+    );
+    assert!(
+        offset_of!(GaussianFilter<DeviceStorage>, gaussian) == 80,
+        "`GaussianFilter::gaussian` is at byte 80"
+    );
+    assert!(
+        size_of::<FilterKind<DeviceStorage>>() == 112,
+        "`FilterKind` is its `u32` tag, padded to 8, then the filter"
+    );
+};
+
 /// The filters, one per Render Job, held by value and matched on every call
 /// (ADR 0006). Only pbrt-v4's `gaussian` so far.
 ///
 /// pbrt-v4 `Filter`'s tagged pointer.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C, u32)]
 pub enum FilterKind<S> {
     /// pbrt-v4 `"gaussian"`.
     Gaussian(GaussianFilter<S>),
@@ -248,6 +329,17 @@ pub enum FilterKind<S> {
 impl<S> From<GaussianFilter<S>> for FilterKind<S> {
     fn from(filter: GaussianFilter<S>) -> Self {
         Self::Gaussian(filter)
+    }
+}
+
+impl<S> FilterKind<S> {
+    /// The same filter, its storage moved by `f`: to device memory, for the
+    /// GPU Worker (ADR 0028).
+    #[must_use]
+    pub fn map_storage<T>(self, f: impl FnMut(S) -> T) -> FilterKind<T> {
+        match self {
+            Self::Gaussian(filter) => FilterKind::Gaussian(filter.map_storage(f)),
+        }
     }
 }
 

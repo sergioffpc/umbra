@@ -266,7 +266,10 @@ pub struct PiecewiseConstant2DSample {
 /// values in all.
 ///
 /// PBR 4e §A.5.7, pbrt-v4 `PiecewiseConstant2D`.
+// `repr(C)` for every `S`: the GPU Worker copies it to the device byte for
+// byte, with its storage in device memory (ADR 0028, arc42 §8.12).
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct PiecewiseConstant2D<S> {
     storage: S,
     nu: usize,
@@ -275,6 +278,37 @@ pub struct PiecewiseConstant2D<S> {
     v_domain: [f32; 2],
     integral: f32,
 }
+
+// The GPU Worker copies the distribution to the device byte for byte, its
+// storage in device memory (ADR 0028, arc42 §8.12): its layout is the same
+// on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    // The storage as the GPU Worker's: a device address and a length, 16
+    // bytes aligned to 8 (`umbra-gpu-programs`' `DeviceSlice`).
+    type DeviceStorage = [u64; 2];
+
+    type Distribution = PiecewiseConstant2D<DeviceStorage>;
+    assert!(
+        size_of::<Distribution>() == 56,
+        "`PiecewiseConstant2D` is 56 bytes, the last 4 padding"
+    );
+    assert!(offset_of!(Distribution, nu) == 16, "`nu` is at byte 16");
+    assert!(offset_of!(Distribution, nv) == 24, "`nv` is at byte 24");
+    assert!(
+        offset_of!(Distribution, u_domain) == 32,
+        "`u_domain` is at byte 32"
+    );
+    assert!(
+        offset_of!(Distribution, v_domain) == 40,
+        "`v_domain` is at byte 40"
+    );
+    assert!(
+        offset_of!(Distribution, integral) == 48,
+        "`integral` is at byte 48"
+    );
+};
 
 impl<S: AsRef<[f32]> + AsMut<[f32]>> PiecewiseConstant2D<S> {
     /// The distribution of `func`, rows of `nu` values one after the other,
@@ -326,6 +360,22 @@ impl<S: AsRef<[f32]> + AsMut<[f32]>> PiecewiseConstant2D<S> {
             u_domain: [u.start, u.end],
             v_domain: [v.start, v.end],
             integral,
+        }
+    }
+}
+
+impl<S> PiecewiseConstant2D<S> {
+    /// The same distribution, its storage moved by `f`: to device memory,
+    /// for the GPU Worker (ADR 0028).
+    #[must_use]
+    pub fn map_storage<T>(self, f: impl FnOnce(S) -> T) -> PiecewiseConstant2D<T> {
+        PiecewiseConstant2D {
+            storage: f(self.storage),
+            nu: self.nu,
+            nv: self.nv,
+            u_domain: self.u_domain,
+            v_domain: self.v_domain,
+            integral: self.integral,
         }
     }
 }

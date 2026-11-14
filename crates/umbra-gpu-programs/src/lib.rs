@@ -26,7 +26,14 @@ mod math_launch;
 mod optix;
 #[cfg(all(target_arch = "nvptx64", not(umbra_libm_bench)))]
 mod programs;
+#[cfg(all(target_arch = "nvptx64", not(umbra_libm_bench)))]
+mod stages;
+mod wavefront;
 
 pub use launch::{HitKind, HitRecord, LaunchParams, RayRecord};
 #[cfg(feature = "math-program")]
 pub use math_launch::{MathFunction, MathParams, UnknownMathFunction};
+pub use wavefront::{
+    DeviceSlice, FilmSampleRecord, Lanes, PixelSampleQueue, RandomizerRecord, SamplerRecord,
+    SceneRecord, WavefrontParams, WorkUnitRecord,
+};

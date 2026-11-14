@@ -80,7 +80,6 @@ umbra-camera = { path = "crates/umbra-camera" }
 umbra-cluster = { path = "crates/umbra-cluster" }
 umbra-cpu = { path = "crates/umbra-cpu" }
 umbra-geometry = { path = "crates/umbra-geometry" }
-umbra-gpu = { path = "crates/umbra-gpu" }
 umbra-gpu-programs = { path = "crates/umbra-gpu-programs" }
 umbra-integrators = { path = "crates/umbra-integrators" }
 umbra-math = { path = "crates/umbra-math" }

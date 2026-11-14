@@ -35,14 +35,14 @@ pub enum Error {
         "the GPU programs were built without libdevice.10.bc; set CUDA_PATH or UMBRA_LIBDEVICE and rebuild"
     )]
     UnlinkedPtx,
-    /// More of something than one call takes: rays per launch, or program
-    /// groups per pipeline.
+    /// More of something than one call takes: rays or Pixel Samples per
+    /// launch, or program groups per pipeline.
     #[error("too many {0} for one call")]
     TooMany(&'static str),
     /// A hit record came back with a kind the programs never write.
     #[error("a hit record has the unknown kind {0}")]
     HitKind(u32),
-    /// The GPU cannot render a Render Job yet: it has no wavefront.
-    #[error("the GPU cannot render a Scene yet")]
-    NoRenderer,
+    /// The Render Job cannot be cut into Work Units.
+    #[error("cannot cut the Render Job into Work Units: {0}")]
+    Render(#[from] umbra_render::Error),
 }
