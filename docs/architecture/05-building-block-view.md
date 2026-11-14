@@ -50,7 +50,7 @@ Arrows point from a dependency to the crate that uses it; the dotted arrow is a 
 | `umbra-render`       | The contract every Render Device shares: `Decomposition` and Work Units, Work Results, `Cancellation` and `Rendered`; Film and its merge order; the Reproduction Record; writing the final image                                                                                 | `image`                      |
 | `umbra-cpu`          | The CPU Worker's renderer: `rayon` over a Work Unit's rows, `evaluate_pixel_sample` per Pixel Sample; Pixel Traces                                                                                                                                                               | `rayon`                      |
 | `umbra-gpu`          | The GPU Worker's renderer, host side: `cudarc`, the OptiX host side (acceleration structures, pipeline, shader binding table), the `SceneView` upload, the wavefront queues; embeds the PTX of `umbra-gpu-programs`                                                              | `cudarc`, `libloading`       |
-| `umbra-cluster`      | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, Local Workers (CPU in-process, GPU in a child process), the renderer of each Render Device, Build Identity admission, status line, Render Job Report                                    | `tokio`, `quinn`, `postcard` |
+| `umbra-cluster`      | Coordinator and Worker: wire protocol, QUIC, heartbeats, scheduling, reassignment, tail, Local Workers (CPU in-process, GPU in a child process), the renderer of each Render Device, Build Identity admission, the status line's content, Render Job Report                      | `tokio`, `quinn`, `postcard` |
 | `umbra`              | The binary: `clap` subcommands `render` (`--render-devices`), `worker` (`--render-device`), `trace`, `bench`; `tracing` setup; the statistics of `bench`                                                                                                                         | `clap`, `tracing`            |
 
 The final image is an EXR written by `umbra-render` with the `image` crate; the Reproduction Record is in the Render Job Report (§8.9, §8.15, [ADR 0020](../adr/0020-bit-identical-exr-final-image.md)).
@@ -139,9 +139,10 @@ impl<'s> umbra_cpu::Renderer<'s> {
 ### `umbra-cluster`
 
 ```rust
-pub struct RenderJob { pub scene: Scene, pub options: RenderJobOptions, pub record: ReproductionRecord }
+pub struct RenderJob { pub scene: Scene, pub options: RenderJobOptions, pub output: PathBuf, pub record: ReproductionRecord }
 
-pub fn coordinate(job: RenderJob, options: &CoordinatorOptions, status: &mut dyn io::Write)
+pub fn coordinate(job: RenderJob, options: &CoordinatorOptions, cancel: &Cancellation,
+                  status: impl FnMut(&Status, Moment))
     -> Result<RenderJobOutcome, Error>;   // { image: Image, report: RenderJobReport }
 pub fn work(options: &WorkerOptions) -> Result<(), Error>;
 ```
@@ -151,7 +152,7 @@ pub fn work(options: &WorkerOptions) -> Result<(), Error>;
 - `umbra-cluster` receives a parsed Scene and does not depend on `umbra-parser`.
 - `CoordinatorOptions` carries the listen address, the heartbeat and death timeouts, the Render Devices to start Local Workers on (CPU and every usable GPU by default), `Discovery::{Announce(ClusterName), Off}` and the Build Identity to admit. A Coordinator with `Discovery::Off` announces nothing and renders with its Local Workers alone.
 - A distributed `render` and a single-Worker `bench` both go through `coordinate`, with different options.
-- The status line goes to the `io::Write` it is given (§8.10). The Render Job Report is returned, not written, and the caller decides where it goes.
+- `coordinate` gives the status line's content to `status` at every tick and once at the end, and neither draws nor logs it: the caller shows it as it sees fit (§8.10). The Render Job Report is returned, not written, and the caller decides where it goes.
 
 ### `umbra` (binary)
 

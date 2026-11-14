@@ -6,6 +6,7 @@ mod error;
 mod footer;
 mod logs;
 mod render;
+mod status;
 
 use std::io::{self, Write};
 use std::panic;

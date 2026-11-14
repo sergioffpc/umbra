@@ -8,8 +8,7 @@ use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, StatusLine, Threads,
-    coordinate,
+    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, Threads, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -19,6 +18,7 @@ use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
 use crate::error::Error;
 use crate::footer::Footer;
+use crate::status::StatusLine;
 
 /// Renders the Scene File of `args`, writing its warnings to `stderr` and
 /// its progress to the footer of `stderr` on a terminal, then the image,
@@ -54,16 +54,16 @@ pub(crate) fn render(
         record,
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);
-    let mut status = stderr.redrawn();
-    let status_line = if stderr.is_hidden() {
-        StatusLine::Logged
-    } else {
-        StatusLine::Redrawn(&mut status)
-    };
-    let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status_line)?;
+    let mut status_line = StatusLine::on(stderr);
+    let outcome = coordinate(
+        job,
+        &CoordinatorOptions { threads },
+        cancel,
+        |status, moment| status_line.show(status, moment),
+    )?;
     // The last status stays on the terminal, above the errors and logs
     // that follow it.
-    drop(status);
+    drop(status_line);
     finish(outcome, parsed.times, &parsed.output, stdout)
 }
 

@@ -4,8 +4,8 @@ The Coordinator and the Worker: `coordinate` runs a Render Job and `work`
 runs a Worker, both synchronous, each owning its `tokio` runtime. Behind them
 are the QUIC wire protocol (ADR 0010), discovery by Cluster Name, heartbeats,
 pull-based Pass-major scheduling (ADR 0009), reassignment and the speculative
-tail, the Local Worker, Build Identity admission, the status line and the
-Render Job Report.
+tail, the Local Worker, Build Identity admission, the status line's content
+and the Render Job Report.
 
 It is a `std` crate, outside the core. It depends on `umbra-render` and on
 both renderers, `umbra-cpu` and `umbra-gpu`, and the `umbra` binary depends
@@ -15,7 +15,7 @@ on `umbra-parser` (arc42 §5.1). Its contract is sketched in arc42 §5.3.
 ```rust
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use umbra_cluster::{CoordinatorOptions, RenderJob, RenderJobOutcome, StatusLine, coordinate};
+use umbra_cluster::{CoordinatorOptions, RenderJob, RenderJobOutcome, coordinate};
 use umbra_render::{BuildIdentity, Cancellation, ReproductionRecord, Tree};
 use umbra_scene::{ContentHash, RenderJobOptions, SceneBuilder};
 
@@ -36,7 +36,8 @@ let output = PathBuf::from("pbrt.exr");
 let job = RenderJob { scene, options, output, record };
 
 let cancel = Cancellation::new();
-let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, StatusLine::Logged)?;
+// The status is the caller's to show; this one shows none.
+let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, |_, _| {})?;
 let RenderJobOutcome::Finished { image, report } = outcome else {
     panic!("nothing cancelled it");
 };
@@ -55,7 +56,7 @@ assert_eq!(image.resolution(), resolution);
 | `renderer`     | `Renderer`, the CPU's or the GPU's, chosen by the Worker's `RenderDevice` (ADR 0033)                                                                              |
 | `host`         | `Host`: the Local Worker's host name and CPU model, read from `/proc`                                                                                             |
 | `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
-| `status`       | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                              |
+| `status`       | `Status`, the status line's content: the aggregate line and the Local Worker's; `Moment`, running or ended                                                        |
 | `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |
 | `report`       | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                     |
 
@@ -107,11 +108,11 @@ count, so a single-Pass Film hash does not either.
   assigning, tells the Worker to stop at its next row, and returns
   `RenderJobOutcome::Cancelled` with the report of what was merged. The
   caller decides what makes it (Ctrl-C, in `umbra`).
-- **`StatusLine::Redrawn`** writes its two lines and flushes at each
-  update, and writes no cursor moves: the writer shows them in place of
-  the previous ones (`umbra`'s `Footer` does, below its log events).
-  `StatusLine::Logged` sends `info` events about every 10 s and once at
-  the end.
+- **The status is content only.** `coordinate` calls its `status`
+  argument with a `Status` at every tick, about every 250 ms, as
+  `Moment::Running`, and once at the end as `Moment::Ended`. It neither
+  draws nor logs it: `umbra` redraws it at the bottom of a terminal, or
+  logs it about every 10 s and at the end.
 - **The report's parse, Scene build and image write times** are the
   caller's to record, with `RenderJobReport::record_phase`.
 
