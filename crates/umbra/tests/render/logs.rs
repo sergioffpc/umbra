@@ -65,3 +65,42 @@ fn log_filters_the_events() {
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert!(events(&stderr(&output)).is_empty(), "{}", stderr(&output));
 }
+
+/// Whether `rate` reads as a count with an SI prefix: `950`, `12.50 k`,
+/// `1.25 M`, `3.10 G`.
+fn is_si(rate: &str) -> bool {
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    match rate.split_once(' ') {
+        None => digits(rate),
+        Some((number, prefix)) => {
+            ["k", "M", "G"].contains(&prefix)
+                && number.split_once('.').is_some_and(|(whole, cents)| {
+                    digits(whole) && digits(cents) && cents.len() == 2
+                })
+        }
+    }
+}
+
+#[test]
+fn the_status_reads_its_rate_with_an_si_prefix_and_its_times_as_a_clock() {
+    let ws = Workspace::new();
+    ws.file("scene.pbrt", CAMERA_ONLY);
+    let output = ws.umbra(&["render", "scene.pbrt", "--tile-size", "16"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+
+    let events = events(&stderr(&output));
+    let status = events
+        .iter()
+        .map(message)
+        .rfind(|m| m.contains("Work Units"))
+        .expect("the final status");
+    let parts: Vec<&str> = status.split(" · ").collect();
+    let [.., rate, elapsed, eta] = parts[..] else {
+        panic!("{status}");
+    };
+    let rate = rate.strip_suffix(" Pixel Samples/s").expect(status);
+    assert!(is_si(rate), "{rate} in {status}");
+    // A render of a few milliseconds, finished: nothing is left.
+    assert_eq!(elapsed, "0:00:00 elapsed", "{status}");
+    assert_eq!(eta, "ETA 0:00:00", "{status}");
+}

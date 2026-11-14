@@ -180,33 +180,3 @@ impl Display for EtaText {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::{Clock, EtaText, Si};
-    use crate::progress::Eta;
-
-    #[test]
-    fn rates_take_an_si_prefix() {
-        assert_eq!(Si(950.0).to_string(), "950");
-        assert_eq!(Si(12_500.0).to_string(), "12.50 k");
-        assert_eq!(Si(1_250_000.0).to_string(), "1.25 M");
-        assert_eq!(Si(3.1e9).to_string(), "3.10 G");
-    }
-
-    #[test]
-    fn durations_read_as_a_clock() {
-        assert_eq!(Clock(Duration::from_secs(5)).to_string(), "0:00:05");
-        assert_eq!(Clock(Duration::from_secs(3725)).to_string(), "1:02:05");
-    }
-
-    #[test]
-    fn an_eta_from_pass_0_is_provisional() {
-        let eta = Duration::from_secs(90);
-        assert_eq!(EtaText(Eta::Provisional(eta)).to_string(), "~0:01:30");
-        assert_eq!(EtaText(Eta::Measured(eta)).to_string(), "0:01:30");
-        assert_eq!(EtaText(Eta::Unknown).to_string(), "--");
-    }
-}

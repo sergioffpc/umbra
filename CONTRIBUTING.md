@@ -173,8 +173,8 @@ repository ships its workspace configuration in [`.vscode/`](.vscode):
   everything CI runs but Miri and AddressSanitizer.
 - `launch.json`: CodeLLDB configurations for the binary (dev, `profiling` and
   `checked` profiles), `umbra render` and `umbra worker` alone or together in
-  a `debug` Cluster, attaching to a running `umbra`, the binary's unit tests,
-  and the unit tests of a library crate chosen at launch.
+  a `debug` Cluster, attaching to a running `umbra`, and the tests of one
+  target in a crate's `tests/`, chosen at launch.
 
 Personal settings belong in your user settings, not in `.vscode/`; other
 files in `.vscode/` are ignored by git.
