@@ -9,6 +9,15 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 # that inherits from this one leaves them out. The `gpu` profile runs them.
 default-filter = "not binary(=gpu)"
 
+# Each test of `umbra render` runs a Coordinator and Workers as processes,
+# each CPU Worker with a thread per logical CPU, and the cluster tests run
+# several Workers at once. Run as many of them at once as a quarter of the
+# test threads, so that their threads stay under a container's process
+# limit (2048 in the dev container).
+[[profile.default.overrides]]
+filter = "binary(=render)"
+threads-required = 4
+
 # The GPU tests alone (ADR 0026), each milestone's check
 # issue among others: `cargo nextest run --profile gpu`. They need an NVIDIA
 # driver for OptiX 9.0, and the kernels need CUDA's `libdevice.10.bc` to run

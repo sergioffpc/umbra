@@ -14,6 +14,6 @@ pub use decomposition::{Decomposition, PassIndex, TileBounds, TileIndex, WorkUni
 pub use error::Error;
 pub use film::{Acceptance, Film, FilmHash};
 pub use image::Image;
-pub use rendered::{Cancellation, Rendered};
+pub use rendered::{Cancellation, Meter, Rendered};
 pub use reproduction::{BuildIdentity, ReproductionRecord, Tree};
 pub use work_result::{PixelSum, WorkResult};

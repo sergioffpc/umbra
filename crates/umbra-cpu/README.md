@@ -13,7 +13,7 @@ sketched in arc42 §5.3. `umbra-gpu`'s `Renderer` has the same shape.
 ```rust
 use umbra_cpu::Renderer;
 use umbra_math::Point2i;
-use umbra_render::{Acceptance, Cancellation, Film, Rendered};
+use umbra_render::{Acceptance, Cancellation, Film, Meter, Rendered};
 use umbra_scene::{FilmParameters, RenderJobOptions, SceneBuilder};
 
 let mut builder = SceneBuilder::new();
@@ -25,7 +25,7 @@ let renderer = Renderer::new(&scene, &options)?;
 let mut film = Film::new(&scene, &options)?;
 let cancel = Cancellation::new();
 for unit in renderer.decomposition().work_units() {
-    if let Rendered::Done(result) = renderer.render(unit, &cancel).rendered {
+    if let Rendered::Done(result) = renderer.render(unit, &cancel, &Meter::new()).rendered {
         assert_eq!(film.accept(&result), Acceptance::Merged);
     }
 }

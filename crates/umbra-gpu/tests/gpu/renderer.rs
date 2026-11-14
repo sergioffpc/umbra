@@ -7,7 +7,7 @@ use std::path::Path;
 
 use umbra_gpu::Renderer;
 use umbra_parser::{Overrides, parse};
-use umbra_render::{Cancellation, Rendered, WorkResult, WorkUnit};
+use umbra_render::{Cancellation, Meter, Rendered, WorkResult, WorkUnit};
 use umbra_scene::{RenderJobOptions, Scene};
 
 /// The camera-only Scene File, 40 × 24 pixels at 16 Pixel Samples, cut into
@@ -63,10 +63,12 @@ fn render_on_cpu(scene: &Scene, options: &RenderJobOptions) -> Vec<WorkResult> {
     renderer
         .decomposition()
         .work_units()
-        .map(|unit| match renderer.render(unit, &cancel).rendered {
-            Rendered::Done(result) => result,
-            Rendered::Cancelled => panic!("cancelled with no cancellation"),
-        })
+        .map(
+            |unit| match renderer.render(unit, &cancel, &Meter::new()).rendered {
+                Rendered::Done(result) => result,
+                Rendered::Cancelled => panic!("cancelled with no cancellation"),
+            },
+        )
         .collect()
 }
 

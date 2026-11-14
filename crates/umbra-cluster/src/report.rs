@@ -12,8 +12,9 @@ use std::time::Duration;
 use umbra_render::{FilmHash, ReproductionRecord};
 use umbra_scene::RenderJobOptions;
 
-use crate::host::Host;
+use crate::coordinator::DirtyBuilds;
 use crate::status::Si;
+use crate::transport::WorkerId;
 
 /// How a Render Job ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,25 +81,6 @@ impl Phase {
     }
 }
 
-/// What the Local Worker did, and on what machine.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct WorkerFigures {
-    /// The machine it ran on.
-    pub(crate) host: Host,
-    /// Its threads.
-    pub(crate) threads: usize,
-    /// The Work Units whose Work Results were merged.
-    pub(crate) work_units: u64,
-    /// The Pixel Samples of those.
-    pub(crate) pixel_samples: u64,
-    /// The time it had a Work Unit in flight.
-    pub(crate) busy_time: Duration,
-    /// The rest of the render phase.
-    pub(crate) idle_time: Duration,
-    /// How much of the render phase its threads spent rendering.
-    pub(crate) occupancy: Occupancy,
-}
-
 /// The mean thread occupancy of a Worker: the share of the render phase
 /// each of its threads spent rendering rows, averaged over them, so the
 /// time they spent rendering over its threads times the render phase. The
@@ -133,8 +115,49 @@ pub(crate) struct Rendered {
     pub(crate) film_hash: Option<FilmHash>,
     pub(crate) render_time: Duration,
     pub(crate) merge_time: Duration,
-    pub(crate) local_worker: WorkerFigures,
+    pub(crate) merged_samples: u64,
+    pub(crate) cluster: Cluster,
     pub(crate) tile_costs: Vec<f64>,
+}
+
+/// What the Workers of a Render Job did, for its report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Cluster {
+    /// The Coordinator's Cluster Name.
+    pub(crate) name: String,
+    pub(crate) dirty_builds: DirtyBuilds,
+    /// Each Worker admitted, by its number: its row.
+    pub(crate) workers: Vec<(WorkerId, String)>,
+    /// The Workers refused.
+    pub(crate) refused: u32,
+    /// Each Worker Slot's failures and refusals.
+    pub(crate) slots: String,
+    pub(crate) scheduling: Scheduling,
+}
+
+/// What scheduling did besides assigning each Work Unit once (arc42 §8.8).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Scheduling {
+    /// Work Units given back to the queue by Workers that went away.
+    pub(crate) reassigned: u64,
+    /// Speculative copies whose Work Result was merged first.
+    pub(crate) copies_won: u64,
+    /// Speculative copies whose original's Work Result was merged first.
+    pub(crate) copies_lost: u64,
+    /// Work Units a Worker was told to drop, another's being merged.
+    pub(crate) cancelled: u64,
+    /// Work Results whose Work Unit was merged already, discarded.
+    pub(crate) duplicates: u64,
+}
+
+impl Display for Scheduling {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} reassigned, speculative copies {} won, {} lost, {} cancelled, {} duplicates discarded",
+            self.reassigned, self.copies_won, self.copies_lost, self.cancelled, self.duplicates,
+        )
+    }
 }
 
 /// What a Render Job was submitted with, for its report.
@@ -155,7 +178,11 @@ pub(crate) struct Submission {
 /// Film hash: a5bab1a6c36d4cf5
 /// Pixel Samples: 3840 merged, 2.00 M per second
 /// Phase times: parse 0.000 s, Scene build 0.000 s, render 0.002 s, merge 0.000 s, image write 0.003 s
-/// Local Worker: host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s, occupancy 83.4 %
+/// Coordinator: cluster default, dirty builds refused
+/// Workers: 1 joined, 0 refused
+/// Worker 0: Local Worker on cpu, host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, node 0, build 9bd75ce (clean), 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s, occupancy 83.4 %, Scene replication 0.001 s, Scene build 0.000 s, Scene bytes 412
+/// Worker Slots: p620 node 0 cpu: 0 failures, 0 refusals
+/// Scheduling: 0 reassigned, speculative copies 0 won, 0 lost, 0 cancelled, 0 duplicates discarded
 /// Tile costs: min 68.9, mean 247.4, max 1603.3 (Tile 1)
 /// Reproduction Record: version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0, …
 /// ```
@@ -171,7 +198,8 @@ pub struct RenderJobReport {
     film_hash: Option<FilmHash>,
     phase_times: [Option<Duration>; Phase::ALL.len()],
     render_time: Duration,
-    local_worker: WorkerFigures,
+    merged_samples: u64,
+    cluster: Cluster,
     /// Each Tile's render time over the Worker's mean time per Pixel
     /// Sample, summed over its Passes, in raster order: its cost in Pixel
     /// Samples at the Worker's mean speed.
@@ -190,7 +218,8 @@ impl RenderJobReport {
             film_hash: rendered.film_hash,
             phase_times: [None; Phase::ALL.len()],
             render_time: rendered.render_time,
-            local_worker: rendered.local_worker,
+            merged_samples: rendered.merged_samples,
+            cluster: rendered.cluster,
             tile_costs: rendered.tile_costs,
             reproduction_record: submission.reproduction_record,
         };
@@ -221,7 +250,7 @@ impl RenderJobReport {
     fn pixel_samples_per_second(&self) -> f64 {
         let seconds = self.render_time.as_secs_f64();
         if seconds > 0.0 {
-            to_f64(self.local_worker.pixel_samples) / seconds
+            to_f64(self.merged_samples) / seconds
         } else {
             0.0
         }
@@ -247,28 +276,28 @@ impl Display for RenderJobReport {
             writeln!(f, "Film hash: {hash}")?;
         }
         let rate = Si(self.pixel_samples_per_second());
-        let samples = self.local_worker.pixel_samples;
+        let samples = self.merged_samples;
         writeln!(f, "Pixel Samples: {samples} merged, {rate} per second")?;
         writeln!(f, "Phase times: {}", PhaseTimes(&self.phase_times))?;
-        writeln!(f, "Local Worker: {}", self.local_worker)?;
+        let cluster = &self.cluster;
+        writeln!(
+            f,
+            "Coordinator: cluster {}, dirty builds {}",
+            cluster.name, cluster.dirty_builds
+        )?;
+        writeln!(
+            f,
+            "Workers: {} joined, {} refused",
+            cluster.workers.len(),
+            cluster.refused
+        )?;
+        for (worker, row) in &cluster.workers {
+            writeln!(f, "Worker {worker}: {row}")?;
+        }
+        writeln!(f, "Worker Slots: {}", cluster.slots)?;
+        writeln!(f, "Scheduling: {}", cluster.scheduling)?;
         writeln!(f, "Tile costs: {}", TileCosts(&self.tile_costs))?;
         writeln!(f, "Reproduction Record: {}", self.reproduction_record)
-    }
-}
-
-impl Display for WorkerFigures {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}, occupancy {}",
-            self.host,
-            self.threads,
-            self.work_units,
-            self.pixel_samples,
-            Seconds(self.busy_time),
-            Seconds(self.idle_time),
-            self.occupancy,
-        )
     }
 }
 
@@ -312,7 +341,7 @@ impl Display for TileCosts<'_> {
 }
 
 /// A duration in seconds, to the millisecond.
-struct Seconds(Duration);
+pub(crate) struct Seconds(pub(crate) Duration);
 
 impl Display for Seconds {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

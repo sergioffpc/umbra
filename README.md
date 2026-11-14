@@ -33,9 +33,6 @@ cargo run --release
 
 ## Rendering on several machines
 
-> **Status:** remote Workers and GPU Workers arrive in v0.1.0. Until then,
-> nothing renders.
-
 Umbra spreads one image over every machine on the LAN that runs a Worker. You
 start a Worker on each machine once and leave it running. A Worker sits idle
 until some machine runs `umbra render`. It then joins that Render Job, renders
@@ -82,6 +79,27 @@ numactl --cpunodebind=1 --membind=1 target/release/umbra worker &
 
 With containers, use `--cpuset-cpus "$(cat /sys/devices/system/node/node0/cpulist)"`
 and `--cpuset-mems 0`, then the same with node 1.
+
+Run one more Worker per GPU, with `--render-device gpu:N`. In a container, it
+needs the NVIDIA Container Toolkit, which mounts the host driver's CUDA and
+OptiX libraries; the image ships nothing from NVIDIA:
+
+```sh
+docker run -d --name umbra-worker-gpu0 --restart unless-stopped --network host \
+  --gpus device=0 -e NVIDIA_DRIVER_CAPABILITIES=compute,graphics \
+  ghcr.io/sergioffpc/umbra:X.Y.Z worker --render-device gpu:0
+```
+
+A GPU Worker's host process needs a core of its own: on a machine with a GPU,
+bind the CPU Worker to every core but one, for example the last one on a
+32-core machine with 64 logical CPUs:
+
+```sh
+docker run -d --name umbra-worker --restart unless-stopped --network host \
+  --cpuset-cpus 0-30,32-62 ghcr.io/sergioffpc/umbra:X.Y.Z worker
+```
+
+`umbra worker --help` describes every option, with examples.
 
 A Worker logs when it joins a Render Job, loads the Scene and goes back to idle.
 Stop it with Ctrl-C, `SIGTERM` or `docker stop`.

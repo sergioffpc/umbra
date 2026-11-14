@@ -3,10 +3,12 @@
 
 mod cancel;
 mod cli;
+mod cluster;
 mod devices;
 mod diagnostics;
 mod image;
 mod local_workers;
 mod logs;
 mod report;
+mod scheduling;
 mod version;

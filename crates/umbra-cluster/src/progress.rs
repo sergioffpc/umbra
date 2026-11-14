@@ -1,11 +1,13 @@
 //! What the Coordinator knows of a running Render Job's progress: what is
-//! assigned and merged, how long each Work Unit took, and the rates and
+//! merged, how long each Work Unit took, and the rates and
 //! ETA derived from them (arc42 §8.10). The status line and the Render Job
 //! Report both read it.
 
 use std::time::{Duration, Instant};
 
 use umbra_render::{Decomposition, PassIndex, TileIndex, WorkUnit};
+
+use crate::roster;
 
 /// The time constant of the moving average of the Pixel Sample rate.
 const RATE_WINDOW: Duration = Duration::from_secs(10);
@@ -29,15 +31,30 @@ pub(crate) enum Eta {
 /// [`RATE_WINDOW`], updated at each tick; it starts at the first rate
 /// measured over a tick.
 #[derive(Debug, Clone, Copy)]
-struct Rate {
+pub(crate) struct Rate {
     per_second: Option<f64>,
     last_tick: Instant,
     last_samples: u64,
 }
 
 impl Rate {
-    /// Takes the samples merged since the last tick into the average.
-    fn tick(&mut self, now: Instant, samples: u64) {
+    /// No rate yet, counting from `now`.
+    pub(crate) fn new(now: Instant) -> Self {
+        Self {
+            per_second: None,
+            last_tick: now,
+            last_samples: 0,
+        }
+    }
+
+    /// The average, 0 until the first is measured.
+    pub(crate) fn per_second(&self) -> f64 {
+        self.per_second.unwrap_or(0.0)
+    }
+
+    /// Takes the samples counted since the last tick, `samples` being the
+    /// count now, into the average.
+    pub(crate) fn tick(&mut self, now: Instant, samples: u64) {
         let step = now.duration_since(self.last_tick);
         let too_short = match self.per_second {
             Some(_) => step < MIN_STEP,
@@ -47,7 +64,7 @@ impl Rate {
             return;
         }
         let dt = step.as_secs_f64();
-        let instant = to_f64(samples - self.last_samples) / dt;
+        let instant = to_f64(samples.saturating_sub(self.last_samples)) / dt;
         let weight = dt / (RATE_WINDOW.as_secs_f64() + dt);
         self.per_second = Some(match self.per_second {
             Some(rate) => rate + weight * (instant - rate),
@@ -67,10 +84,6 @@ pub(crate) struct Progress<'d> {
     merged_per_pass: Vec<u32>,
     merged_units: u64,
     merged_samples: u64,
-    in_flight: u32,
-    busy_since: Option<Instant>,
-    busy: Duration,
-    thread_time: Duration,
     merge_time: Duration,
     render_time: Duration,
     tile_render_times: Vec<Duration>,
@@ -88,63 +101,17 @@ impl<'d> Progress<'d> {
             merged_per_pass: vec![0; decomposition.pass_count() as usize],
             merged_units: 0,
             merged_samples: 0,
-            in_flight: 0,
-            busy_since: None,
-            busy: Duration::ZERO,
-            thread_time: Duration::ZERO,
             merge_time: Duration::ZERO,
             render_time: Duration::ZERO,
             tile_render_times: vec![Duration::ZERO; tiles],
             tile_samples: vec![0; tiles],
-            rate: Rate {
-                per_second: None,
-                last_tick: now,
-                last_samples: 0,
-            },
+            rate: Rate::new(now),
         }
     }
 
-    /// A Work Unit was assigned to a Worker at `now`.
-    pub(crate) fn assigned(&mut self, now: Instant) {
-        if self.in_flight == 0 {
-            self.busy_since = Some(now);
-        }
-        self.in_flight += 1;
-    }
-
-    /// A Work Unit in flight went back to the queue at `now`: its Worker
-    /// went away before its Work Result arrived.
-    pub(crate) fn returned(&mut self, now: Instant) {
-        self.in_flight = self.in_flight.saturating_sub(1);
-        self.end_busy_if_idle(now);
-    }
-
-    /// Ends the busy interval at `now` once nothing is in flight.
-    fn end_busy_if_idle(&mut self, now: Instant) {
-        if self.in_flight == 0
-            && let Some(since) = self.busy_since.take()
-        {
-            self.busy += now.duration_since(since);
-        }
-    }
-
-    /// The Local Worker's threads spent `thread_time` on a Work Unit,
-    /// summed over them.
-    pub(crate) fn rendered(&mut self, thread_time: Duration) {
-        self.thread_time += thread_time;
-    }
-
-    /// The Work Result of `unit`, rendered in `render_time`, was merged at
-    /// `now`, the merge taking `merge_time`.
-    pub(crate) fn merged(
-        &mut self,
-        unit: WorkUnit,
-        render_time: Duration,
-        merge_time: Duration,
-        now: Instant,
-    ) {
-        self.in_flight = self.in_flight.saturating_sub(1);
-        self.end_busy_if_idle(now);
+    /// The Work Result of `unit`, rendered in `render_time`, was merged,
+    /// the merge taking `merge_time`.
+    pub(crate) fn merged(&mut self, unit: WorkUnit, render_time: Duration, merge_time: Duration) {
         let samples = self.pixel_samples(unit);
         let tile = unit.tile.0 as usize;
         self.merged_units += 1;
@@ -197,14 +164,9 @@ impl<'d> Progress<'d> {
             .sum()
     }
 
-    /// The Work Units assigned and not merged yet.
-    pub(crate) fn in_flight(&self) -> u32 {
-        self.in_flight
-    }
-
     /// The moving average of the Pixel Samples merged per second.
     pub(crate) fn rate(&self) -> f64 {
-        self.rate.per_second.unwrap_or(0.0)
+        self.rate.per_second()
     }
 
     /// The time since the render phase started.
@@ -215,21 +177,6 @@ impl<'d> Progress<'d> {
     /// The time spent merging Work Results into the Film.
     pub(crate) fn merge_time(&self) -> Duration {
         self.merge_time
-    }
-
-    /// The time the Workers had at least one Work Unit in flight, up to
-    /// `now`.
-    pub(crate) fn busy_time(&self, now: Instant) -> Duration {
-        self.busy
-            + self
-                .busy_since
-                .map_or(Duration::ZERO, |s| now.duration_since(s))
-    }
-
-    /// The time the Local Worker's threads spent rendering the Work Units
-    /// it sent back, summed over them.
-    pub(crate) fn thread_time(&self) -> Duration {
-        self.thread_time
     }
 
     /// Each Tile's normalised cost, in raster order: its render time over
@@ -298,8 +245,7 @@ impl<'d> Progress<'d> {
     /// The Pixel Samples of `unit`: its Tile's pixels times its Pass's
     /// sample indices.
     fn pixel_samples(&self, unit: WorkUnit) -> u64 {
-        let pixels = self.decomposition.tile_bounds(unit.tile).area() as u64;
-        pixels * self.decomposition.sample_indices(unit.pass).len() as u64
+        roster::pixel_samples(self.decomposition, unit)
     }
 
     /// Every Pixel Sample of `tile`, over every Pass.

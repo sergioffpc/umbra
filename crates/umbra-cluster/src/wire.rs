@@ -8,21 +8,29 @@
 //! stream. There is no protocol version: both sides are on the same commit
 //! (ADR 0012).
 
+use std::fmt::{self, Display};
 use std::time::Duration;
 
 use quinn::{RecvStream, SendStream, VarInt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use umbra_render::{PixelSum, WorkResult, WorkUnit};
+use umbra_render::{BuildIdentity, PixelSum, WorkResult, WorkUnit};
 
 use crate::children::ProcessId;
+use crate::cluster::ClusterName;
 use crate::device::RenderDevice;
 use crate::error::Error;
+use crate::host::{Host, NumaNode};
+use crate::slot::WorkerSlot;
 use crate::transport::WorkerId;
 
 /// The largest frame either side reads: far above the largest Scene
 /// structure so far, and a bound on what a corrupt length prefix allocates.
 const MAX_FRAME: usize = 64 << 20;
+
+/// The largest Scene stream a Worker reads: its two frames at their
+/// largest.
+pub(crate) const MAX_SCENE: usize = 2 * (MAX_FRAME + 4);
 
 /// The largest Work Result body a Worker sends: the pixel sums of a Tile
 /// of 4096 × 4096 pixels.
@@ -31,13 +39,8 @@ const MAX_BODY: usize = 4096 * 4096 * size_of::<PixelSum>();
 /// What a Worker sends on the control stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) enum FromWorker {
-    /// The first message: the Render Device the Worker renders on, its
-    /// CPU threads (none on a GPU), and its process.
-    Hello {
-        render_device: RenderDevice,
-        threads: u32,
-        process_id: ProcessId,
-    },
+    /// The first message: who the Worker is.
+    Hello(Box<Hello>),
     /// Add `count` Work Units to the Worker's demand; the first is the
     /// Worker's readiness.
     RequestWork { count: u32 },
@@ -49,33 +52,137 @@ impl FromWorker {
     /// The message's name, for a protocol error.
     pub(crate) fn name(&self) -> &'static str {
         match self {
-            Self::Hello { .. } => "Hello",
+            Self::Hello(_) => "Hello",
             Self::RequestWork { .. } => "RequestWork",
             Self::Fatal { .. } => "Fatal",
         }
     }
 }
 
+/// Who a Worker is, as it says in `Hello` (arc42 §8.13): its Cluster and
+/// Build Identity, which admit it, its Worker Slot, its threads, and its
+/// process, which tells a Local Worker apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Hello {
+    pub(crate) cluster: ClusterName,
+    pub(crate) build_identity: BuildIdentity,
+    pub(crate) host: Host,
+    pub(crate) render_device: RenderDevice,
+    pub(crate) numa_node: NumaNode,
+    /// Its CPU threads; none on a GPU.
+    pub(crate) threads: u32,
+    pub(crate) process_id: ProcessId,
+}
+
+impl Hello {
+    /// The Worker Slot it names.
+    pub(crate) fn slot(&self) -> WorkerSlot {
+        WorkerSlot {
+            host: self.host.name().to_owned(),
+            numa_node: self.numa_node,
+            render_device: self.render_device,
+        }
+    }
+}
+
 /// What the Coordinator sends on the control stream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum FromCoordinator {
     /// The Worker is admitted, under this identifier.
     Welcome { worker_id: WorkerId },
+    /// The Worker is refused, for this reason: it never rejoins this
+    /// Render Job.
+    Reject { reason: Refusal },
     /// Render this Work Unit.
     Assign { work_unit: WorkUnit },
+    /// Drop this Work Unit if it is still rendering: another Worker's
+    /// Work Result for it was merged.
+    Cancel { work_unit: WorkUnit },
     /// Every Work Unit is merged: the Worker closes with `FINISHED`.
     JobFinished,
 }
 
 impl FromCoordinator {
     /// The message's name, for a protocol error.
-    pub(crate) fn name(self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Welcome { .. } => "Welcome",
+            Self::Reject { .. } => "Reject",
             Self::Assign { .. } => "Assign",
+            Self::Cancel { .. } => "Cancel",
             Self::JobFinished => "JobFinished",
         }
     }
+}
+
+/// Why the Coordinator refuses a Worker (arc42 §8.13).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Refusal {
+    /// The Worker belongs to another Cluster.
+    ClusterMismatch,
+    /// The Worker was built from another commit than the Coordinator's.
+    CommitMismatch {
+        /// The commit of the Coordinator.
+        coordinator_commit: String,
+    },
+    /// The Worker was built from a dirty tree, and the Render Job was not
+    /// started with `--allow-dirty`.
+    DirtyBuild,
+    /// The Worker's Worker Slot failed three times in a row.
+    TooManyFailures,
+}
+
+impl Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ClusterMismatch => f.write_str("it belongs to another Cluster"),
+            Self::CommitMismatch { coordinator_commit } => {
+                write!(f, "it was not built from the Coordinator's commit, {coordinator_commit}")
+            }
+            Self::DirtyBuild => {
+                f.write_str("it was built from a dirty tree, and the Render Job does not allow it (`--allow-dirty`)")
+            }
+            Self::TooManyFailures => f.write_str("its Worker Slot failed three times in a row"),
+        }
+    }
+}
+
+/// What a Worker sends on its heartbeat stream every second, from
+/// `Welcome` on (arc42 §8.10): cumulative counts, so a heartbeat lost does
+/// not matter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Heartbeat {
+    /// It is loading the Scene.
+    Loading(Loading),
+    /// It has loaded the Scene, as `loaded` says, and renders.
+    Rendering {
+        loaded: Loaded,
+        /// Each Work Unit in flight, with its Pixel Samples completed.
+        work_units: Vec<(WorkUnit, u64)>,
+        /// Its threads rendering a row now; none on a GPU.
+        busy_threads: u32,
+    },
+}
+
+/// Where a Worker is in loading the Scene.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Loading {
+    /// Receiving the Scene stream: these bytes so far.
+    Receiving { bytes: u64 },
+    /// Building the Scene from the `bytes` received.
+    Building { bytes: u64 },
+}
+
+/// How a Worker loaded the Scene.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Loaded {
+    /// The bytes of the Scene stream.
+    pub(crate) bytes: u64,
+    /// From `Welcome` to the end of the Scene stream.
+    pub(crate) replication_time: Duration,
+    /// Building the Scene, and its BVH, from it.
+    pub(crate) build_time: Duration,
 }
 
 /// What precedes a Work Result's pixel sums on its stream: the metadata
@@ -96,8 +203,13 @@ pub(crate) enum CloseCode {
     Finished = 0,
     /// The Coordinator's operator cancelled the Render Job.
     JobCancelled = 1,
+    /// The Worker was refused, and said why with `Reject`.
+    Rejected = 2,
     /// The Worker could not continue, and said why with `Fatal`.
     WorkerFatal = 3,
+    /// The Coordinator heard no heartbeat from the Worker for its death
+    /// time.
+    WorkerTimedOut = 4,
     /// The Worker's operator stopped it.
     WorkerStopped = 5,
     /// A malformed or out-of-order message: always a bug.
@@ -118,7 +230,9 @@ impl TryFrom<VarInt> for CloseCode {
         [
             Self::Finished,
             Self::JobCancelled,
+            Self::Rejected,
             Self::WorkerFatal,
+            Self::WorkerTimedOut,
             Self::WorkerStopped,
             Self::ProtocolError,
         ]
@@ -161,6 +275,37 @@ pub(crate) async fn read_frame<T: DeserializeOwned>(
     let mut body = vec![0; len];
     recv.read_exact(&mut body).await?;
     Ok(Some(postcard::from_bytes(&body)?))
+}
+
+/// The frames of a stream read whole.
+#[derive(Debug)]
+pub(crate) struct Frames<'b>(&'b [u8]);
+
+impl<'b> Frames<'b> {
+    /// The frames of `bytes`.
+    pub(crate) fn new(bytes: &'b [u8]) -> Self {
+        Self(bytes)
+    }
+
+    /// Decodes the next frame as a `T`; `None` at the end.
+    pub(crate) fn next<T: DeserializeOwned>(&mut self) -> Result<Option<T>, Error> {
+        if self.0.is_empty() {
+            return Ok(None);
+        }
+        let (len, rest) = self
+            .0
+            .split_first_chunk::<4>()
+            .ok_or(Error::StreamEnded("a frame"))?;
+        let len = usize::try_from(u32::from_le_bytes(*len)).expect("a u32 fits in a usize");
+        if len > MAX_FRAME {
+            return Err(Error::Oversized(len));
+        }
+        let (body, rest) = rest
+            .split_at_checked(len)
+            .ok_or(Error::StreamEnded("a frame"))?;
+        self.0 = rest;
+        Ok(Some(postcard::from_bytes(body)?))
+    }
 }
 
 /// Writes `header`, then the pixel sums of `result`, whose Work Unit it

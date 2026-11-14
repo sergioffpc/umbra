@@ -4,11 +4,11 @@
 use std::fmt::{self, Display};
 use std::path::PathBuf;
 
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use umbra_scene::{ContentHash, RenderJobOptions};
 
 /// Whether a binary was built from a tree with uncommitted changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tree {
     /// Built from the commit, unchanged.
@@ -19,7 +19,7 @@ pub enum Tree {
 
 /// What a binary was built from (arc42 §7.2, ADR 0012): its commit, and
 /// whether the tree was dirty.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildIdentity {
     /// The git commit, in full.
     pub commit: String,
@@ -67,6 +67,12 @@ impl ReproductionRecord {
             spp: options.spp.get(),
             build_identity,
         }
+    }
+
+    /// The Build Identity of the Umbra that renders it.
+    #[must_use]
+    pub fn build_identity(&self) -> &BuildIdentity {
+        &self.build_identity
     }
 }
 
