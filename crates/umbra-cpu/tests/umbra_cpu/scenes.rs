@@ -33,7 +33,7 @@ pub(crate) fn render_all(renderer: &Renderer<'_>) -> Vec<WorkResult> {
     renderer
         .decomposition()
         .work_units()
-        .map(|unit| match renderer.render(unit, &cancel) {
+        .map(|unit| match renderer.render(unit, &cancel).rendered {
             Rendered::Done(result) => result,
             Rendered::Cancelled => panic!("{unit:?} cancelled with no cancellation"),
         })

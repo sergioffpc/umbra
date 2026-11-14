@@ -70,6 +70,7 @@ pub(crate) struct Progress<'d> {
     in_flight: u32,
     busy_since: Option<Instant>,
     busy: Duration,
+    thread_time: Duration,
     merge_time: Duration,
     render_time: Duration,
     tile_render_times: Vec<Duration>,
@@ -90,6 +91,7 @@ impl<'d> Progress<'d> {
             in_flight: 0,
             busy_since: None,
             busy: Duration::ZERO,
+            thread_time: Duration::ZERO,
             merge_time: Duration::ZERO,
             render_time: Duration::ZERO,
             tile_render_times: vec![Duration::ZERO; tiles],
@@ -108,6 +110,12 @@ impl<'d> Progress<'d> {
             self.busy_since = Some(now);
         }
         self.in_flight += 1;
+    }
+
+    /// The Local Worker's threads spent `thread_time` on a Work Unit,
+    /// summed over them.
+    pub(crate) fn rendered(&mut self, thread_time: Duration) {
+        self.thread_time += thread_time;
     }
 
     /// The Work Result of `unit`, rendered in `render_time`, was merged at
@@ -204,6 +212,12 @@ impl<'d> Progress<'d> {
             + self
                 .busy_since
                 .map_or(Duration::ZERO, |s| now.duration_since(s))
+    }
+
+    /// The time the Local Worker's threads spent rendering the Work Units
+    /// it sent back, summed over them.
+    pub(crate) fn thread_time(&self) -> Duration {
+        self.thread_time
     }
 
     /// Each Tile's normalised cost, in raster order: its render time over
