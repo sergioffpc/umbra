@@ -6,3 +6,4 @@ mod chi2;
 mod generators;
 mod pbrt_v4;
 mod sampling;
+mod storage;

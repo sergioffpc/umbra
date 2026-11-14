@@ -1173,10 +1173,10 @@ svg .t-small { font-size: 11px; }
         <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-render</span> · <a href="../src/rendered.rs">rendered.rs</a> · <code>Rendered</code>, <code>Cancellation</code> · the renderers: <span class="crate">umbra-cpu</span>, <span class="crate">umbra-gpu</span> · <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a></div>
         <h3>How a render ends</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>This crate does not render. Each Render Device, a CPU or a GPU, has a crate of its own with a renderer that turns a Work Unit into its Work Result. What they share lives here: the Work Unit they are given, the stop request they listen to, and the two ways a render can end. Either every Pixel Sample was computed and the Work Result comes back, or someone asked to stop and nothing comes back.</div>
+    <div class="plain"><span class="tag">In plain words</span>This crate does not render. Each Render Device, a CPU or a GPU, has a crate of its own with a renderer that turns Work Units into their Work Results: the CPU's one at a time, the GPU's a batch at a time. What they share lives here: the Work Unit they are given, the stop request they listen to, and the two ways a render can end. Either every Pixel Sample was computed and the Work Result comes back, or someone asked to stop and nothing comes back.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 760 230" class="dg-wide" role="img" aria-label="umbra-cpu and umbra-gpu each turn a Work Unit and a Cancellation into Rendered, the type umbra-render defines">
+        <div class="dg-wrap"><svg viewBox="0 0 760 230" class="dg-wide" role="img" aria-label="umbra-cpu turns a Work Unit, and umbra-gpu a batch of them, with a Cancellation into Rendered, the type umbra-render defines">
             <rect x="20" y="30" width="150" height="40" rx="4" class="f-acc-soft k-acc"/><text x="95" y="55" text-anchor="middle">WorkUnit</text>
             <rect x="20" y="110" width="150" height="40" rx="4" class="f-warm-soft k-warm"/><text x="95" y="135" text-anchor="middle">&amp;Cancellation</text>
             <line x1="172" y1="50" x2="246" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
@@ -1186,15 +1186,15 @@ svg .t-small { font-size: 11px; }
             <rect x="266" y="58" width="218" height="40" rx="4" class="f-surf k-mut"/>
             <text x="375" y="76" text-anchor="middle" font-size="12">umbra_cpu::Renderer</text>
             <text x="375" y="91" text-anchor="middle" class="t-mut" font-size="11">rows on rayon's threads</text>
-            <rect x="266" y="106" width="218" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="4 3"/>
+            <rect x="266" y="106" width="218" height="40" rx="4" class="f-surf k-mut"/>
             <text x="375" y="124" text-anchor="middle" font-size="12">umbra_gpu::Renderer</text>
-            <text x="375" y="139" text-anchor="middle" class="t-mut" font-size="11">not built yet (#127)</text>
+            <text x="375" y="139" text-anchor="middle" class="t-mut" font-size="11">a batch, one launch per stage</text>
             <line x1="502" y1="70" x2="576" y2="56" class="k-ok" stroke-width="1.5" marker-end="url(#ah-ink)"/>
             <line x1="502" y1="110" x2="576" y2="124" class="k-bad" stroke-width="1.5" marker-end="url(#ah-ink)"/>
             <rect x="580" y="34" width="160" height="40" rx="4" class="f-ok-soft k-ok"/><text x="660" y="59" text-anchor="middle" font-size="12">Done(WorkResult)</text>
             <rect x="580" y="104" width="160" height="40" rx="4" class="f-bad-soft k-bad"/><text x="660" y="129" text-anchor="middle" font-size="12">Cancelled</text>
             <text x="660" y="168" text-anchor="middle" class="t-mut" font-size="12">enum Rendered</text>
-            <text x="380" y="210" text-anchor="middle" class="t-mut" font-size="12">umbra-cluster holds one of the two, chosen by the Worker's Render Device</text>
+            <text x="380" y="210" text-anchor="middle" class="t-mut" font-size="12">umbra-cluster holds the Worker's, by its Render Device: only the CPU's so far</text>
         </svg></div>
         <figcaption>The contract every renderer keeps (<a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>). Both renderers depend on <code>umbra-render</code> alone of the three crates, so neither can lean on the other's insides. The CPU's renderer is told in the <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>, the GPU's in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>.</figcaption>
     </figure>
@@ -1207,9 +1207,9 @@ svg .t-small { font-size: 11px; }
 
 <span class="k">pub struct</span> Cancellation { cancelled: AtomicBool }
 <span class="c">// new, cancel, is_cancelled</span></pre>
-        <p><b>Two renderers, one shape.</b> <code>umbra_cpu::Renderer</code> and <code>umbra_gpu::Renderer</code> are both built from a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, and both have <code>render(unit, &amp;cancel) -&gt; Rendered</code>. <code>umbra-cluster</code> wraps them in an enum of its own and picks one by the Worker's Render Device; today its only Worker is the CPU Local Worker, and the GPU's renderer always fails to build until its wavefront arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>.</p>
-        <p><b>Stopping early.</b> <code>Cancellation</code> wraps an <code>AtomicBool</code>, a true/false flag that many threads can read and write safely. <code>cancel()</code> sets it; a renderer reads it with <code>is_cancelled()</code> as often as suits its Render Device. The CPU's checks it before each row of the Tile, so a running row finishes first. Either way, a cancelled render returns <code>Rendered::Cancelled</code> and drops whatever it computed: a Work Result is all of its Work Unit or nothing.</p>
-        <p><b>What every renderer must keep.</b> The Work Result it returns has one <code>PixelSum</code> per pixel of the Work Unit's <code>tile_bounds</code>, holding that Pass's <code>sample_indices</code> and no others (<a href="#decomposition">section 2</a>), or <code>Film::accept</code> panics (<a href="#merge">section 6</a>). The Coordinator, the Film and the CPU's renderer each build their own <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>, so all of them cut the job the same way.</p>
+        <p><b>Two renderers, one contract.</b> <code>umbra_cpu::Renderer</code> is built from a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, and renders one Work Unit at a time: <code>render(unit, &amp;cancel) -&gt; Rendered</code>. <code>umbra_gpu::Renderer</code> is built from the same two on one GPU, <code>new(ordinal, &amp;scene, &amp;options)</code>, and renders a batch: <code>render(&amp;units, &amp;cancel)</code> returns one <code>Rendered</code> per Work Unit, in order, or <code>Cancelled</code> for every one, and an <code>Error</code> when the GPU fails. A GPU Worker keeps <code>Renderer::CAPACITY</code> Work Units in flight, 16 for now, and the wavefront runs each stage once over all their Pixel Samples (ADR 0026). Both use this crate's <code>WorkUnit</code>, <code>Cancellation</code> and <code>Rendered</code>. <code>umbra-cluster</code> wraps the renderers in an enum of its own and picks one by the Worker's Render Device; today the enum has only the CPU's, and the GPU's joins it with the GPU Local Worker (<a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>).</p>
+        <p><b>Stopping early.</b> <code>Cancellation</code> wraps an <code>AtomicBool</code>, a true/false flag that many threads can read and write safely. <code>cancel()</code> sets it; a renderer reads it with <code>is_cancelled()</code> as often as suits its Render Device. The CPU's checks it before each row of the Tile, so a running row finishes first; the GPU's checks it before a batch and between its stages. Either way, a cancelled render returns <code>Rendered::Cancelled</code> and drops whatever it computed: a Work Result is all of its Work Unit or nothing.</p>
+        <p><b>What every renderer must keep.</b> The Work Result it returns has one <code>PixelSum</code> per pixel of the Work Unit's <code>tile_bounds</code>, holding that Pass's <code>sample_indices</code> and no others (<a href="#decomposition">section 2</a>), or <code>Film::accept</code> panics (<a href="#merge">section 6</a>). The Coordinator, the Film and each renderer build their own <code>Decomposition</code> from the same Scene resolution and <code>RenderJobOptions</code>, so all of them cut the job the same way.</p>
     </div>
 
     <div class="mathbox">
@@ -1412,7 +1412,7 @@ svg .t-small { font-size: 11px; }
         <ul>
             <li><b>Anomalous Pixel Samples.</b> Leaving a Pixel Sample that is NaN, infinite or negative out of the sums, and reporting it in the Work Result, with <a href="https://github.com/sergioffpc/umbra/issues/85">#85</a>.</li>
             <li><b>The scheduler, the network and the Workers</b> of <a href="#scheduling">section 3</a>, in <code>umbra-cluster</code>.</li>
-            <li><b>The GPU's renderer.</b> <code>umbra_gpu::Renderer</code> has the contract's shape but refuses every Scene until its wavefront arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>. Pixel Traces, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>, belong to the CPU's renderer (<a href="../../umbra-cpu/docs/cpu-guide.html#not-yet">CPU guide</a>).</li>
+            <li><b>The GPU Local Worker.</b> <code>umbra_gpu::Renderer</code> renders batches of Work Units, but no Worker uses it until the GPU Local Worker arrives with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>. Its stages stop at the camera ray: the stages that trace rays and shade their hits arrive with each feature on both Render Devices. Pixel Traces, with <a href="https://github.com/sergioffpc/umbra/issues/88">#88</a>, belong to the CPU's renderer (<a href="../../umbra-cpu/docs/cpu-guide.html#not-yet">CPU guide</a>).</li>
             <li><b>Splat accumulators</b> for integrators whose Pixel Samples land on other pixels (BDPT, light tracing), merged on arrival like the rest (ADR 0022, risk RK-5).</li>
         </ul>
     </div>

@@ -282,10 +282,26 @@ impl DigitPermutation<'_> {
 /// other.
 ///
 /// PBR 4e §8.6.2, pbrt-v4 `ComputeRadicalInversePermutations`.
+// `repr(C)` for every `S`: the GPU Worker copies it to the device byte for
+// byte, with its storage in device memory (ADR 0028, arc42 §8.12).
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct DigitPermutations<S> {
     storage: S,
 }
+
+// The GPU Worker copies the permutations' handle to the device byte for
+// byte, their storage in device memory (ADR 0028, arc42 §8.12).
+const _: () = {
+    // The storage as the GPU Worker's: a device address and a length, 16
+    // bytes aligned to 8 (`umbra-gpu-programs`' `DeviceSlice`).
+    type DeviceStorage = [u64; 2];
+
+    assert!(
+        size_of::<DigitPermutations<DeviceStorage>>() == 16,
+        "`DigitPermutations` is its storage"
+    );
+};
 
 impl<S: AsRef<[u16]>> fmt::Debug for DigitPermutations<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -298,6 +314,15 @@ impl<S: AsRef<[u16]>> fmt::Debug for DigitPermutations<S> {
 impl<S> DigitPermutations<S> {
     /// The number of `u16`s the permutations take.
     pub const LEN: usize = DIGIT_OFFSETS[PRIME_TABLE_SIZE];
+
+    /// The same permutations, their storage moved by `f`: to device memory,
+    /// for the GPU Worker (ADR 0028).
+    #[must_use]
+    pub fn map_storage<T>(self, f: impl FnOnce(S) -> T) -> DigitPermutations<T> {
+        DigitPermutations {
+            storage: f(self.storage),
+        }
+    }
 }
 
 impl<S: AsRef<[u16]> + AsMut<[u16]>> DigitPermutations<S> {

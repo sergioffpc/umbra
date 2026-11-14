@@ -1031,7 +1031,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
         <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-integrators</span> · <a href="../src/view.rs">view.rs</a> · <code>SceneView</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
         <h3>The scene view</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>A Pixel Sample needs to read parts of the Scene: the camera, the filter, the sensor, and later the shapes and lights. Instead of handing it the whole Scene, Umbra hands it a <em>view</em>: a small bundle of borrowed references to exactly those parts. Borrowing means nothing is copied, and many threads can read the same view at once. The GPU will build the same kind of view over its own copies of the data.</div>
+    <div class="plain"><span class="tag">In plain words</span>A Pixel Sample needs to read parts of the Scene: the camera, the filter, the sensor, and later the shapes and lights. Instead of handing it the whole Scene, Umbra hands it a <em>view</em>: a small bundle of borrowed references to exactly those parts. Borrowing means nothing is copied, and many threads can read the same view at once. The GPU builds the same kind of view over its own copies of the data.</div>
 
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 280" class="dg-wide" role="img" aria-label="The Scene owns its data; Scene::view lends a SceneView that every thread shares">
@@ -1049,7 +1049,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="370" y="102" font-size="11" class="t-mut">borrows; a few pointers</text>
             <text x="370" y="128" font-size="12">camera: &amp;'a CameraKind</text>
             <text x="370" y="150" font-size="12">filter: FilterKind&lt;&amp;'a [f32]&gt;</text>
-            <text x="370" y="172" font-size="12">sensor: &amp;'a PixelSensor&lt;'a&gt;</text>
+            <text x="370" y="172" font-size="12">sensor: PixelSensor&lt;&amp;'a [f32]&gt;</text>
             <text x="370" y="200" font-size="11" class="t-mut">read through camera(), filter(), sensor()</text>
             <line x1="606" y1="110" x2="680" y2="70" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="606" y1="140" x2="680" y2="140" class="k-ink" marker-end="url(#ah-ink)"/>
@@ -1059,7 +1059,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <rect x="684" y="190" width="150" height="40" rx="4" class="f-surf k-ink"/><text x="759" y="215" text-anchor="middle" font-size="12">thread N</text>
             <text x="759" y="260" text-anchor="middle" font-size="11" class="t-mut">each with its own PixelSampleState</text>
         </svg></div>
-        <figcaption>Ownership on the left, borrowing on the right. The filter changes type on the way: the Scene owns its tables in <code>Vec&lt;f32&gt;</code>, the view sees them as <code>&amp;[f32]</code> slices, through <code>FilterKind::view</code> (see the <a href="../../umbra-camera/docs/camera-guide.html#storage">Camera Guide §9</a>). The lifetime <code>'a</code> says the view cannot outlive the Scene it borrows from.</figcaption>
+        <figcaption>Ownership on the left, borrowing on the right. The filter and the sensor change type on the way: the Scene owns the filter's tables in <code>Vec&lt;f32&gt;</code> and the sensor's curves as <code>&amp;'static [f32]</code>, and the view sees both as <code>&amp;'a [f32]</code> slices, through <code>FilterKind::view</code> and <code>PixelSensor::view</code> (see the <a href="../../umbra-camera/docs/camera-guide.html#storage">Camera Guide §9</a>). The lifetime <code>'a</code> says the view cannot outlive the Scene it borrows from.</figcaption>
     </figure>
 
     <div class="prose">
@@ -1067,16 +1067,16 @@ ol.log b { color: var(--accent); font-weight: 600; }
 <pre class="code"><span class="k">pub struct</span> SceneView&lt;'a&gt; {
     camera: &amp;'a CameraKind,
     filter: FilterKind&lt;&amp;'a [f32]&gt;,
-    sensor: &amp;'a PixelSensor&lt;'a&gt;,
+    sensor: PixelSensor&lt;&amp;'a [f32]&gt;,
 }
 
 <span class="k">impl</span>&lt;'a&gt; SceneView&lt;'a&gt; {   <span class="c">// signatures only; each body is one line</span>
-    <span class="k">pub fn</span> new(camera: &amp;'a CameraKind, filter: FilterKind&lt;&amp;'a [f32]&gt;, sensor: &amp;'a PixelSensor&lt;'a&gt;) -&gt; Self
+    <span class="k">pub fn</span> new(camera: &amp;'a CameraKind, filter: FilterKind&lt;&amp;'a [f32]&gt;, sensor: PixelSensor&lt;&amp;'a [f32]&gt;) -&gt; Self
     <span class="k">pub fn</span> camera(&amp;<span class="k">self</span>) -&gt; &amp;'a CameraKind
     <span class="k">pub fn</span> filter(&amp;<span class="k">self</span>) -&gt; &amp;FilterKind&lt;&amp;'a [f32]&gt;
-    <span class="k">pub fn</span> sensor(&amp;<span class="k">self</span>) -&gt; &amp;'a PixelSensor&lt;'a&gt;
+    <span class="k">pub fn</span> sensor(&amp;<span class="k">self</span>) -&gt; &amp;PixelSensor&lt;&amp;'a [f32]&gt;
 }</pre>
-        <p><code>umbra-scene</code>'s <code>Scene::view</code> builds it with <code>SceneView::new(&amp;self.camera, self.filter.view(), &amp;self.sensor)</code>. Why not just pass <code>&amp;Scene</code>? Three reasons from the architecture. <b>Layering:</b> <code>umbra-scene</code> depends on this crate, not the other way round, so this crate cannot even name <code>Scene</code> (ADR 0015). <b>No heap in the core:</b> the view holds only borrows and slices, never a <code>Vec</code>, so it fits a <code>no_std</code> crate without <code>alloc</code> (ADR 0014). <b>One core for CPU and GPU:</b> the GPU will build a <code>SceneView</code> over device copies of the same arrays, and the same per-sample code runs on it (ADR 0028). Shapes, lights and the BVH will join the view as more borrowed arena slices, with the features that use them.</p>
+        <p><code>umbra-scene</code>'s <code>Scene::view</code> builds it with <code>SceneView::new(&amp;self.camera, self.filter.view(), self.sensor.view())</code>. Why not just pass <code>&amp;Scene</code>? Three reasons from the architecture. <b>Layering:</b> <code>umbra-scene</code> depends on this crate, not the other way round, so this crate cannot even name <code>Scene</code> (ADR 0015). <b>No heap in the core:</b> the view holds only borrows and slices, never a <code>Vec</code>, so it fits a <code>no_std</code> crate without <code>alloc</code> (ADR 0014). <b>One core for CPU and GPU:</b> <code>umbra-gpu-programs</code> builds a <code>SceneView</code> over device copies of the same arrays, and the same per-sample code runs on it (ADR 0028). Shapes, lights and the BVH will join the view as more borrowed arena slices, with the features that use them.</p>
         <p>The fields are private and read through methods, so they can change shape later without touching callers. Building a view is cheap: <code>umbra-cpu</code>'s renderer builds one per Work Unit and shares it between the threads that render it.</p>
     </div>
 
@@ -1184,7 +1184,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-integrators</code> is the top of Umbra's rendering core: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects on the per-ray path, so the same code can later run on a GPU (ADR 0014, ADR 0015, ADR 0028). It depends on <code>umbra-camera</code>, <code>umbra-shading</code>, <code>umbra-spectrum</code>, <code>umbra-sampling</code>, <code>umbra-geometry</code> and <code>umbra-math</code>; <code>umbra-scene</code>, <code>umbra-parser</code>, <code>umbra-render</code> and <code>umbra-cpu</code> depend on it. It covers PBR 4e chapters 13 to 15, and today implements the frame those chapters hang on.</p>
+    <p><code>umbra-integrators</code> is the top of Umbra's rendering core: <code>#![no_std]</code> without <code>alloc</code>, no <code>f64</code>, no trait objects on the per-ray path, so the same code also runs on a GPU (ADR 0014, ADR 0015, ADR 0028). It depends on <code>umbra-camera</code>, <code>umbra-shading</code>, <code>umbra-spectrum</code>, <code>umbra-sampling</code>, <code>umbra-geometry</code> and <code>umbra-math</code>; <code>umbra-scene</code>, <code>umbra-parser</code>, <code>umbra-render</code>, <code>umbra-cpu</code>, <code>umbra-gpu</code> and <code>umbra-gpu-programs</code> depend on it. It covers PBR 4e chapters 13 to 15, and today implements the frame those chapters hang on.</p>
 </div>
 
 <section class="topic" id="map">
@@ -1291,7 +1291,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
         <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-integrators</span> · <a href="../src/pixel_sample.rs">pixel_sample.rs</a> · <code>PixelSampleState</code>, <code>FilmSample</code> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a>, <a href="../../../docs/adr/0008-index-handle-arenas-and-allocation-free-rendering.md">ADR 0008</a>, <a href="../../../docs/adr/0001-numeric-model.md">ADR 0001</a></div>
         <h3>Values in, values out</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Every step takes values and returns values. The only things that change during a Pixel Sample, the sampler and the recorder, are bundled into one <code>PixelSampleState</code> that a thread owns and lends to each Pixel Sample in turn. The result comes back as a small <code>FilmSample</code>. Nothing here knows about Tiles, threads or the Film. That keeps it allocation-free, and lets the GPU call the very same steps later.</div>
+    <div class="plain"><span class="tag">In plain words</span>Every step takes values and returns values. The only things that change during a Pixel Sample, the sampler and the recorder, are bundled into one <code>PixelSampleState</code> that a thread owns and lends to each Pixel Sample in turn. The result comes back as a small <code>FilmSample</code>. Nothing here knows about Tiles, threads or the Film. That keeps it allocation-free, and lets the GPU call the very same steps.</div>
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 240" class="dg-wide" role="img" aria-label="A thread owns one PixelSampleState and reuses it; each Pixel Sample returns a FilmSample that is summed in f64">
             <rect x="20" y="30" width="230" height="180" rx="8" class="f-mut-soft k-mut"/>
@@ -1317,7 +1317,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
             <text x="792" y="106" text-anchor="middle" font-size="11">+= in f64</text>
             <text x="792" y="124" text-anchor="middle" font-size="11" class="t-mut">umbra-render</text>
             <text x="422" y="186" text-anchor="middle" font-size="12" class="t-mut">the core stops at the FilmSample: the caller decides where it goes</text>
-            <text x="422" y="204" text-anchor="middle" font-size="12" class="t-mut">(a pixel's sum on the CPU, a queue slot on the GPU later)</text>
+            <text x="422" y="204" text-anchor="middle" font-size="12" class="t-mut">(a pixel's sum on the CPU, a record per Pixel Sample on the GPU)</text>
         </svg></div>
         <figcaption>The CPU driver, <code>umbra-cpu</code>'s pixel loop, owns the state and the sums; the sums' type, <code>PixelSum</code>, is <code>umbra-render</code>'s. This crate only computes. <code>PixelSampleState</code> holds its sampler by value; cloning it per row copies a small value, not a table.</figcaption>
     </figure>
@@ -1337,7 +1337,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
     sum += evaluate_pixel_sample(&amp;<span class="k">self</span>.<span class="k">0</span>, &amp;job.view, id, state);
     sum
 })</pre>
-        <p>Three rules meet here. <b>No allocation per Pixel Sample</b> (ADR 0008): the state is created once and passed by <code>&amp;mut</code>; the counting-allocator test checks it. <b>No <code>f64</code> in the core</b> (ADR 0028, enforced by the <code>clippy::disallowed_types</code> lint in <code>lib.rs</code>): the FilmSample is <code>f32</code>, and the caller widens it before adding, because sums over many samples need the extra precision (ADR 0001). <b>Steps as functions on values</b> (ADR 0028): a GPU wavefront can run the same steps from its own queues.</p>
+        <p>Three rules meet here. <b>No allocation per Pixel Sample</b> (ADR 0008): the state is created once and passed by <code>&amp;mut</code>; the counting-allocator test checks it. <b>No <code>f64</code> in the core</b> (ADR 0028, enforced by the <code>clippy::disallowed_types</code> lint in <code>lib.rs</code>): the FilmSample is <code>f32</code>, and the caller widens it before adding, because sums over many samples need the extra precision (ADR 0001). <b>Steps as functions on values</b> (ADR 0028): the GPU's wavefront in <code>umbra-gpu-programs</code> runs the same steps from its own queues, without <code>evaluate_pixel_sample</code>, which composes them for the CPU.</p>
     </div>
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
@@ -1424,7 +1424,7 @@ ol.log b { color: var(--accent); font-weight: 600; }
         SampledSpectrum::splat(<span class="k">0.0</span>)
     }
 }</pre>
-        <p>Every argument is unused, which the leading underscores say. “No sample drawn” matters for later: once <code>li</code> reads numbers from the sampler, they will follow the camera sample's, in pbrt-v4's order. The type also has no media support by design for v0.1.0, which refuses Scenes that have them; the name keeps pbrt-v4's so a Scene File's <code>Integrator "volpath"</code> maps onto it. <code>umbra-scene</code> holds a <code>VolPathIntegrator</code> in its Scene and hands it to the renderer.</p>
+        <p>Every argument is unused, which the leading underscores say. “No sample drawn” matters for later: once <code>li</code> reads numbers from the sampler, they will follow the camera sample's, in pbrt-v4's order. The type also has no media support by design for v0.1.0, which refuses Scenes that have them; the name keeps pbrt-v4's so a Scene File's <code>Integrator "volpath"</code> maps onto it. <code>umbra-scene</code> holds a <code>VolPathIntegrator</code> in its Scene and hands it to the renderer. The type is <code>#[repr(C)]</code>, asserted to be its 4-byte <code>u32</code>, because the GPU Worker copies it to the device byte for byte (ADR 0028, arc42 §8.12).</p>
         <p>What stays true when it grows: the signature. Intersections will read Shapes and the BVH through the <code>SceneView</code>, random choices will come from <code>state.sampler</code>, and every vertex, light sample and BSDF sample will be reported to <code>state.recorder</code>.</p>
     </div>
     <div class="mathbox">

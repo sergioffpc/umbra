@@ -671,7 +671,7 @@ builder
         <div class="eyebrow"><span class="no">4</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>Scene::view</code> · uses <span class="crate">umbra-integrators</span> <code>SceneView</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
         <h3>Lending the Scene to every Pixel Sample</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The rendering code that runs per Pixel Sample lives in special crates, the <em>core</em>, that are not allowed to reserve memory. That way the same code can run on a graphics card later. So the core can't own a Scene, because a Scene owns memory. Instead the Scene <em>lends</em> it a small bundle of read-only references, the <code>SceneView</code>. Borrowing costs nothing and allocates nothing.</div>
+    <div class="plain"><span class="tag">In plain words</span>The rendering code that runs per Pixel Sample lives in special crates, the <em>core</em>, that are not allowed to reserve memory. That way the same code can run on a graphics card too. So the core can't own a Scene, because a Scene owns memory. Instead the Scene <em>lends</em> it a small bundle of read-only references, the <code>SceneView</code>. Borrowing costs nothing and allocates nothing.</div>
 
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 840 240" class="dg-wide" role="img" aria-label="The Scene on the std side owns its parts; view() makes a SceneView on the core side that borrows them; every Pixel Sample reads the view">
@@ -687,7 +687,7 @@ builder
             <text x="450" y="64" text-anchor="middle" class="t-bold">SceneView&lt;'_&gt; (borrows)</text>
             <rect x="345" y="80" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="100" text-anchor="middle" font-size="12">&amp;CameraKind</text>
             <rect x="345" y="118" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="138" text-anchor="middle" font-size="12">FilterKind&lt;&amp;[f32]&gt;</text>
-            <rect x="345" y="156" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="176" text-anchor="middle" font-size="12">&amp;PixelSensor</text>
+            <rect x="345" y="156" width="210" height="30" rx="4" class="f-surf k-ink"/><text x="450" y="176" text-anchor="middle" font-size="12">PixelSensor&lt;&amp;[f32]&gt;</text>
             <path d="M343 95 H257 M343 133 H257 M343 171 H257" class="k-warm" stroke-dasharray="4 3" marker-end="url(#ah-warm)"/>
             <text x="300" y="226" text-anchor="middle" font-size="11" class="t-warm">scene.view(): points back, copies no table</text>
             <rect x="620" y="56" width="200" height="34" rx="4" class="f-surf k-mut"/><text x="720" y="78" text-anchor="middle" font-size="12">Pixel Sample (0,0) #0</text>
@@ -695,15 +695,15 @@ builder
             <rect x="620" y="156" width="200" height="34" rx="4" class="f-surf k-mut"/><text x="720" y="178" text-anchor="middle" font-size="12">… billions more</text>
             <path d="M572 110 L616 74 M572 125 L616 123 M572 140 L616 172" class="k-ink" marker-end="url(#ah-ink)"/>
         </svg></div>
-        <figcaption>The dashed line is a crate boundary. <code>umbra-scene</code> is a <code>std</code> crate and may allocate. <code>SceneView</code> is defined in <code>umbra-integrators</code>, a core crate built without <code>alloc</code>. The view holds only references and a borrowed filter, so making one is as cheap as copying a few addresses and numbers. The filter's tables are explained in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (“A filter table without an allocator”).</figcaption>
+        <figcaption>The dashed line is a crate boundary. <code>umbra-scene</code> is a <code>std</code> crate and may allocate. <code>SceneView</code> is defined in <code>umbra-integrators</code>, a core crate built without <code>alloc</code>. The view holds only a reference, a borrowed filter and a borrowed sensor, so making one is as cheap as copying a few addresses and numbers. The filter's tables are explained in the <a href="../../umbra-camera/docs/camera-guide.html">Umbra Camera Guide</a> (“A filter table without an allocator”).</figcaption>
     </figure>
 
     <div class="prose">
         <p>Rust's word for a temporary loan is a <b>borrow</b>, written <code>&amp;</code>. The <code>'_</code> in <code>SceneView&lt;'_&gt;</code> is a <em>lifetime</em>: the compiler's note that the view may not outlive the Scene it borrows from. If someone tried to drop the Scene while a view still existed, the program would not compile.</p>
 <pre class="code"><span class="k">pub fn</span> view(&amp;<span class="k">self</span>) -&gt; SceneView&lt;<span class="k">'_</span>&gt; {
-    SceneView::new(&amp;<span class="k">self</span>.camera, <span class="k">self</span>.filter.view(), &amp;<span class="k">self</span>.sensor)
+    SceneView::new(&amp;<span class="k">self</span>.camera, <span class="k">self</span>.filter.view(), <span class="k">self</span>.sensor.view())
 }</pre>
-        <p>ADR 0008 first said that per-sample code reads <code>&amp;Scene</code>. ADR 0014 changed that to a <code>SceneView</code>, because a <code>Scene</code> contains <code>Vec</code>s and a crate without <code>alloc</code> can't even name a <code>Vec</code>. On a graphics card, the same view will point into device memory instead (ADR 0028).</p>
+        <p>ADR 0008 first said that per-sample code reads <code>&amp;Scene</code>. ADR 0014 changed that to a <code>SceneView</code>, because a <code>Scene</code> contains <code>Vec</code>s and a crate without <code>alloc</code> can't even name a <code>Vec</code>. On a graphics card, <code>umbra-gpu-programs</code> builds the same view over device copies of the camera and the tables (ADR 0028).</p>
         <p>Not reserving memory per Pixel Sample is a tested promise, not a hope. A test in the <code>umbra</code> binary crate, <code>rendering_allocates_per_work_unit_not_per_pixel_sample</code>, builds a Scene with <code>SceneBuilder</code>, renders a Work Unit with N and then 2N Pixel Samples, and checks that both runs reserve memory the same number of times.</p>
     </div>
 
@@ -1035,7 +1035,7 @@ builder
             <rect x="20" y="242" width="270" height="34" rx="4" class="f-warm-soft k-warm"/><text x="155" y="264" text-anchor="middle" font-size="12">VolPathIntegrator</text>
             <rect x="610" y="22" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="44" text-anchor="middle" font-size="12">resolution: Point2i</text>
             <rect x="610" y="66" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="88" text-anchor="middle" font-size="12">camera: CameraKind</text>
-            <rect x="610" y="110" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="132" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;'static&gt;</text>
+            <rect x="610" y="110" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="132" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;&amp;'static [f32]&gt;</text>
             <rect x="610" y="154" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="176" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
             <rect x="610" y="198" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="220" text-anchor="middle" font-size="12">randomize: RandomizeStrategy</text>
             <rect x="610" y="242" width="270" height="34" rx="4" class="f-acc-soft k-acc"/><text x="745" y="264" text-anchor="middle" font-size="12">integrator: VolPathIntegrator</text>
@@ -1165,15 +1165,15 @@ builder
         <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-scene</span> · <a href="../src/scene.rs">scene.rs</a> · <code>Scene</code>, <code>Scene::view</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
         <h3>Inside Scene and its view</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The Scene is a plain struct of six private fields. Most are small values. One, the filter, owns its tables on the heap. Another, the sensor, refers to colour curves that are built into the program. The view is a second, lighter struct that points at three of those fields.</div>
+    <div class="plain"><span class="tag">In plain words</span>The Scene is a plain struct of six private fields. Most are small values. One, the filter, owns its tables on the heap. Another, the sensor, refers to colour curves that are built into the program. The view is a second, lighter struct: it points at the camera and borrows the filter's tables and the sensor's curves.</div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 840 250" class="dg-wide" role="img" aria-label="The Scene's six fields, the filter's heap tables, the sensor's static curves and the SceneView pointing at three fields">
+        <div class="dg-wrap"><svg viewBox="0 0 840 250" class="dg-wide" role="img" aria-label="The Scene's six fields, the filter's heap tables, the sensor's static curves and the SceneView pointing at the camera and borrowing the tables">
             <text x="150" y="20" text-anchor="middle" class="t-bold">struct Scene</text>
             <rect x="20" y="30" width="260" height="210" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
             <rect x="34" y="42" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="60" text-anchor="middle" font-size="12">resolution: Point2i</text>
             <rect x="34" y="74" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="92" text-anchor="middle" font-size="12">camera: CameraKind</text>
             <rect x="34" y="106" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="124" text-anchor="middle" font-size="12">filter: FilterKind&lt;Vec&lt;f32&gt;&gt;</text>
-            <rect x="34" y="138" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="156" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;'static&gt;</text>
+            <rect x="34" y="138" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="156" text-anchor="middle" font-size="11">sensor: PixelSensor&lt;&amp;'static [f32]&gt;</text>
             <rect x="34" y="170" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="188" text-anchor="middle" font-size="12">randomize: RandomizeStrategy</text>
             <rect x="34" y="202" width="232" height="26" rx="3" class="f-surf k-ink"/><text x="150" y="220" text-anchor="middle" font-size="12">integrator: VolPathIntegrator</text>
             <rect x="340" y="60" width="180" height="40" rx="4" class="f-warm-soft k-warm"/><text x="430" y="78" text-anchor="middle" font-size="11">heap: filter table and</text><text x="430" y="92" text-anchor="middle" font-size="11">its distribution (f32s)</text>
@@ -1184,26 +1184,26 @@ builder
             <rect x="580" y="30" width="240" height="120" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <rect x="594" y="44" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="62" text-anchor="middle" font-size="12">camera: &amp;CameraKind</text>
             <rect x="594" y="76" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="94" text-anchor="middle" font-size="12">filter: FilterKind&lt;&amp;[f32]&gt;</text>
-            <rect x="594" y="108" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="126" text-anchor="middle" font-size="12">sensor: &amp;PixelSensor</text>
+            <rect x="594" y="108" width="212" height="26" rx="3" class="f-surf k-ink"/><text x="700" y="126" text-anchor="middle" font-size="12">sensor: PixelSensor&lt;&amp;[f32]&gt;</text>
             <path d="M592 57 C 450 40, 320 70, 268 86" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
             <path d="M592 89 C 560 89, 540 82, 524 82" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
-            <path d="M592 121 C 450 200, 320 160, 268 152" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
+            <path d="M592 121 C 560 121, 550 160, 524 160" class="k-acc" fill="none" stroke-dasharray="4 3" marker-end="url(#ah-acc)"/>
             <text x="700" y="176" text-anchor="middle" font-size="11" class="t-acc">built by scene.view()</text>
-            <text x="700" y="194" text-anchor="middle" font-size="11" class="t-mut">filter.view() borrows the tables</text>
+            <text x="700" y="194" text-anchor="middle" font-size="11" class="t-mut">their view() borrows the tables</text>
         </svg></div>
-        <figcaption>The owned Scene and the borrowed view. The view's camera and sensor point at the Scene's fields. Its filter is a small value whose tables are borrowed slices of the Scene's heap memory, made by <code>FilterKind::view</code> in <code>umbra-camera</code>. The other three fields are read outside per-sample code: the renderer reads the resolution, the randomisation and the integrator once per Render Job.</figcaption>
+        <figcaption>The owned Scene and the borrowed view. The view's camera points at the Scene's field. Its filter and sensor are small values whose tables are borrowed slices, the filter's of the Scene's heap memory and the sensor's of the static curves, made by <code>FilterKind::view</code> and <code>PixelSensor::view</code> in <code>umbra-camera</code>. The other three fields are read outside per-sample code: the renderer reads the resolution, the randomisation and the integrator once per Render Job.</figcaption>
     </figure>
     <div class="prose">
 <pre class="code"><span class="k">pub struct</span> Scene {
     resolution: Point2i,
     camera: CameraKind,
     filter: FilterKind&lt;Vec&lt;f32&gt;&gt;,
-    sensor: PixelSensor&lt;<span class="k">'static</span>&gt;,
+    sensor: PixelSensor&lt;&amp;<span class="k">'static</span> [f32]&gt;,
     randomize: RandomizeStrategy,
     integrator: VolPathIntegrator,
 }</pre>
         <p>The fields are private. Outside the crate, a Scene can only be made by <code>SceneBuilder::build</code> and read through four methods: <code>view</code>, <code>full_resolution</code> (“both sides are positive”, which <code>build</code> guarantees), <code>randomize_strategy</code> and <code>integrator</code>. <code>Scene</code> derives <code>Clone</code>: a copy per NUMA node inside one Worker remains possible later (ADR 0008, arc42 §8.14).</p>
-        <p><code>FilterKind&lt;S&gt;</code> is generic over its storage <code>S</code>. The Scene picks <code>Vec&lt;f32&gt;</code>, owned memory; the view gets <code>&amp;[f32]</code>, borrowed slices. Same filter code, two kinds of storage. The sensor's lifetime is <code>'static</code> because the CIE 1931 colour-matching curves are constant tables compiled into the program.</p>
+        <p><code>FilterKind&lt;S&gt;</code> is generic over its storage <code>S</code>. The Scene picks <code>Vec&lt;f32&gt;</code>, owned memory; the view gets <code>&amp;[f32]</code>, borrowed slices. Same filter code, two kinds of storage. <code>PixelSensor&lt;S&gt;</code> is generic in the same way. The Scene's sensor is a <code>PixelSensor&lt;&amp;'static [f32]&gt;</code> because the CIE 1931 colour-matching curves are constant tables compiled into the program, and the view gets the same curves through <code>PixelSensor::view</code>. On the GPU both storages become device memory, through the same types' <code>map_storage</code>.</p>
         <p>One part of the Scene's job is not in this struct: the sampler's seed and its number of Pixel Samples. Those are <a href="#options-impl">Render Job Options</a>. The digit permutations that a seed chooses are computed by <code>umbra-cpu</code>'s <code>Renderer</code>, once per Render Job.</p>
     </div>
     <div class="mathbox">

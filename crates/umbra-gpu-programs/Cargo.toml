@@ -22,12 +22,15 @@ math-program = []
 # `umbra-gpu`'s build script asks for a `cdylib` with `cargo rustc
 # --crate-type cdylib`, which the `nvptx64` target links into one PTX module
 # through the toolchain's `llvm-bitcode-linker` (ADR 0028, ADR 0033).
+# The core the programs run, whose types the layout shared with the host
+# holds (ADR 0028).
 [dependencies]
+umbra-camera = { workspace = true }
 umbra-geometry = { workspace = true }
-
-# On the GPU only: the programs' math.
-[target.'cfg(target_arch = "nvptx64")'.dependencies]
+umbra-integrators = { workspace = true }
 umbra-math = { workspace = true }
+umbra-sampling = { workspace = true }
+umbra-spectrum = { workspace = true }
 
 [lints]
 workspace = true

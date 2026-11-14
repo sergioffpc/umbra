@@ -52,7 +52,7 @@ assert!(ray.ray.d.z > 0.0);
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `camera` (`base/camera.h`, `cameras.h`, `cameras.cpp`, `GetCameraSample` of `samplers.h`) | `CameraSample`, `CameraRay`, `CameraTransform` (camera-world rendering space), `CameraBaseParameters`, `ThinLens`, `PerspectiveCamera`, the `Camera` trait and its `CameraKind`; `get_camera_sample` |
 | `filter` (`base/filter.h`, `filters.h`, `filters.cpp`)                                    | `FilterSample`, the `Filter` trait and its `FilterKind`, `GaussianFilter`, and `FilterSampler`, the tabulated distribution filters are importance-sampled with, over storage the caller provides     |
-| `sensor` (`PixelSensor` of `film.h`, `film.cpp`)                                          | `PixelSensor`: the default `cie1931` sensor, whose RGB is XYZ, and `to_sensor_rgb`                                                                                                                   |
+| `sensor` (`PixelSensor` of `film.h`, `film.cpp`)                                          | `PixelSensor`: the default `cie1931` sensor, whose RGB is XYZ, its response curves in storage `S`, and `to_sensor_rgb`                                                                               |
 
 Everything is re-exported at the crate root.
 
@@ -77,6 +77,16 @@ storage `S` that `new_in`'s `alloc` returns, twice: the table, then the
 distribution. The core has no allocator (ADR 0014): a Scene owns a
 `FilterKind<Vec<f32>>`, and per-sample code samples its `view()`, a
 `FilterKind<&[f32]>`.
+
+### Tables in any storage, so the GPU can hold them
+
+The filter's tables and the sensor's response curves are in storage `S`,
+which per-sample code reads through `AsRef<[f32]>`. `PixelSensor<S>` holds
+`&'static [f32]` for the CIE 1931 matching functions, which are `static`.
+`map_storage` moves either to other storage: the GPU Worker moves them into
+device memory and copies the rest byte for byte, so every type of the
+camera, the filter and the sensor is `#[repr(C)]` (ADR 0028, arc42 §8.12).
+The camera holds no table and is copied as it is; its layout is asserted.
 
 ### Only what generating a ray needs
 

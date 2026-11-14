@@ -12,9 +12,6 @@ pub enum Error {
     /// The Render Job cannot be cut into Work Units.
     #[error("cannot render the Render Job: {0}")]
     Render(#[from] umbra_render::Error),
-    /// The GPU cannot render the Render Job.
-    #[error("cannot render on the GPU: {0}")]
-    Gpu(#[from] umbra_gpu::Error),
     /// The runtime could not start.
     #[error("cannot start the Coordinator's runtime: {0}")]
     Runtime(#[source] io::Error),

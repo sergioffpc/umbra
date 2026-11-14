@@ -1,5 +1,6 @@
-//! The renderer of a Worker's Render Device: the CPU's or the GPU's, which
-//! have the same shape (ADR 0033).
+//! The renderer of a Worker's Render Device (ADR 0033). Only the CPU's so
+//! far: the GPU's, which renders Work Units in batches, joins with the GPU
+//! Local Worker (#128).
 
 use umbra_render::{Cancellation, Rendered, WorkUnit};
 use umbra_scene::{RenderJobOptions, Scene};
@@ -11,12 +12,6 @@ use crate::error::Error;
 pub(crate) enum RenderDevice {
     /// The cores of one NUMA node.
     Cpu,
-    /// One GPU.
-    #[expect(
-        dead_code,
-        reason = "only the CPU Local Worker exists; the GPU's arrives with #128"
-    )]
-    Gpu,
 }
 
 /// A Worker's renderer, for its Render Device.
@@ -24,8 +19,6 @@ pub(crate) enum RenderDevice {
 pub(crate) enum Renderer<'s> {
     /// The CPU's.
     Cpu(umbra_cpu::Renderer<'s>),
-    /// The GPU's.
-    Gpu(umbra_gpu::Renderer<'s>),
 }
 
 impl<'s> Renderer<'s> {
@@ -37,7 +30,6 @@ impl<'s> Renderer<'s> {
     ) -> Result<Self, Error> {
         Ok(match device {
             RenderDevice::Cpu => Self::Cpu(umbra_cpu::Renderer::new(scene, options)?),
-            RenderDevice::Gpu => Self::Gpu(umbra_gpu::Renderer::new(scene, options)?),
         })
     }
 
@@ -45,7 +37,6 @@ impl<'s> Renderer<'s> {
     pub(crate) fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Rendered {
         match self {
             Self::Cpu(renderer) => renderer.render(unit, cancel),
-            Self::Gpu(renderer) => renderer.render(unit, cancel),
         }
     }
 }

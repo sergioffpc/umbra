@@ -3,17 +3,38 @@
 The GPU's renderer, host side: the CUDA driver through `cudarc`, OptiX
 through its function table, and the PTX of `umbra-gpu-programs`, which its
 build script compiles and it embeds (ADR 0026, ADR 0028, ADR 0033). Its
-`Renderer` has the shape of `umbra-cpu`'s, a Work Unit in and its Work
-Result out, but renders nothing yet: `Renderer::new` refuses every Scene
-until the wavefront arrives. What runs today is the tracer bullet of
-[#126](https://github.com/sergioffpc/umbra/issues/126): one triangle and one
-sphere, traced through OptiX and read back on the host.
+`Renderer` renders a batch of Work Units at a time, up to the GPU Worker's
+capacity, through the wavefront of `umbra-gpu-programs`: one launch per
+stage over every Pixel Sample of the batch, with structure-of-arrays queues
+between the stages, and one Work Result per Work Unit back. Its `Tracer` is
+the tracer bullet of [#126](https://github.com/sergioffpc/umbra/issues/126):
+one triangle and one sphere, traced through OptiX and read back on the host.
 
 It is a `std` crate. It depends on `umbra-render` for the contract every
-Render Device shares, on `umbra-scene`, `umbra-geometry` and `umbra-math`,
-on `umbra-gpu-programs` for the layout it shares with the device, on
-`cudarc` for the CUDA driver API and on `libloading` for OptiX;
-`umbra-cluster` depends on it (arc42 §5.1).
+Render Device shares, on `umbra-scene`, `umbra-integrators`,
+`umbra-sampling`, `umbra-spectrum`, `umbra-geometry` and `umbra-math`, on
+`umbra-gpu-programs` for the layout it shares with the device, on `cudarc`
+for the CUDA driver API and on `libloading` for OptiX (arc42 §5.1). The GPU
+Local Worker will use it from `umbra-cluster`
+([#128](https://github.com/sergioffpc/umbra/issues/128)).
+
+```rust,no_run
+use umbra_gpu::Renderer;
+use umbra_render::{Cancellation, Rendered, WorkUnit};
+use umbra_scene::{RenderJobOptions, SceneBuilder};
+
+// pbrt-v4's default camera-only Scene, on the first GPU.
+let scene = SceneBuilder::new().build()?;
+let renderer = Renderer::new(0, &scene, &RenderJobOptions::default())?;
+
+// One batch of up to `Renderer::CAPACITY` Work Units, one Rendered each.
+let units: Vec<WorkUnit> = renderer.decomposition().work_units().take(16).collect();
+for rendered in renderer.render(&units, &Cancellation::new())? {
+    let Rendered::Done(result) = rendered else { unreachable!("not cancelled") };
+    assert!(result.pixels().iter().all(|pixel| pixel.rgb == [0.0; 3]));
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ```rust,no_run
 use umbra_geometry::{Ray, Sphere};
@@ -38,8 +59,9 @@ assert_eq!(hits[0].map(|hit| hit.t), Some(8.0));
 
 | Module      | Contents                                                                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `renderer`  | `Renderer`: `new(&Scene, &RenderJobOptions)` and `render(WorkUnit, &Cancellation) -> Rendered`, as `umbra-cpu`'s; `new` refuses every Scene yet     |
+| `renderer`  | `Renderer`: `new(ordinal, &Scene, &RenderJobOptions)`, `CAPACITY`, and `render(&[WorkUnit], &Cancellation) -> Result<Vec<Rendered>, Error>`         |
 | `tracer`    | `Tracer`: the pipeline, one GAS per geometry, their shader binding tables, `trace`; and in `tracer/math`, `evaluate` for the GPU's math             |
+| `device`    | What the two share: a GPU's stream, OptiX context and module of the programs, shader binding table records, and a launch that waits for its end     |
 | `optix`     | OptiX loaded from the driver, and an owning wrapper per object: context, module, program groups, pipeline; GAS builds and launches                  |
 | `optix/ffi` | OptiX 9.0's host ABI (105): the function table and the structs and constants Umbra's calls take, with their layout asserted                         |
 | `records`   | Shader binding table records, `DeviceCopy`, which carries `cudarc`'s `DeviceRepr` for `umbra-gpu-programs`' layout, and the hits a hit record holds |
@@ -54,10 +76,10 @@ PTX and the pipeline, `Tracer::evaluate`, and `MathFunction` and
 `UnknownMathFunction` at the crate root: for the GPU tests alone, which turn
 it on by a dev-dependency of the crate on itself (#146).
 
-Not here yet: the `SceneView` upload, the wavefront queues and a GPU
-`Renderer` that renders, which arrive with the features on both Render Devices
-([#127](https://github.com/sergioffpc/umbra/issues/127)) and the GPU Local
-Worker ([#128](https://github.com/sergioffpc/umbra/issues/128)).
+Not here yet: the stages that trace rays and shade their hits, which
+arrive with each feature on both Render Devices, and the GPU Local Worker
+that pulls Work Units for the `Renderer`
+([#128](https://github.com/sergioffpc/umbra/issues/128)).
 
 ## Design decisions
 
@@ -80,6 +102,34 @@ alone (ADR 0033). Their types are that crate's, so `cudarc`'s `DeviceRepr`
 cannot be implemented on them here: `records::DeviceCopy` wraps each,
 `#[repr(transparent)]`, and carries the promise instead.
 
+### A batch of Work Units, one launch per stage
+
+A GPU Worker keeps `Renderer::CAPACITY` Work Units in flight, 16 to start
+with and to be tuned by benchmark, and `render` takes them as one batch
+(ADR 0026): Tile size and Pixel Samples per Pass stay those of every
+Worker. Each stage is a ray-generation program launched once with one
+thread per Pixel Sample of the batch, Work Unit after Work Unit, pixel by
+pixel, sample index by sample index; `WorkUnitRecord` tells a thread which
+Pixel Sample it is. The stages pass each Pixel Sample on through a queue of
+one array per field (`PixelSampleQueue`), and the film stage writes what
+it adds to its pixel. The host sums those in `f64`, pixel by pixel, as
+`PixelSum` sums them on the CPU, so a Work Result differs from the CPU's
+only where the GPU rounds differently (ADR 0026). Cancellation is checked
+before the batch and between stages; a cancelled batch returns
+`Rendered::Cancelled` for every Work Unit.
+
+### The Scene's view uploaded once, its tables by `map_storage`
+
+`Renderer::new` uploads what the stages read for the whole Render Job: a
+`SceneRecord`, the `SceneView`'s camera, filter and sensor with the
+integrator, and a `SamplerRecord`, the sampler with its digit permutations.
+The filter's and the sensor's tables, and the permutations, are generic over
+their storage in the core; the host gathers them into one buffer each with
+`map_storage`, uploads it, and maps each table's place in it to a
+`DeviceSlice`, which the record holds instead of a host reference (arc42
+§8.12). On the device, `DeviceSlice` is `AsRef<[T]>`, so the core samples
+the tables there as it samples a `Vec` on the CPU.
+
 ### The programs built by a nested `cargo`
 
 `build.rs` runs `cargo rustc --lib --crate-type cdylib` on
@@ -93,28 +143,35 @@ toolchain's `llvm-bitcode-linker` inlines, so the PTX keeps no `.extern`
 when a source of the programs' build changes, as their dep-info lists them.
 Every host build thereby also checks that the core builds without `std`.
 
-### One shader binding table per geometry
+### One shader binding table per geometry, one per stage
 
 The triangle's hit group record carries no data and the sphere's carries its
 `Sphere`, so the two have different strides. Each launch traces one GAS
 directly, with a table that holds that geometry's one hit group record and
-the shared ray-generation and miss records.
+the shared ray-generation and miss records. The `Renderer` has one table per
+stage, its ray-generation record that stage's; no stage traces a ray yet,
+but every table holds a miss and a hit group record.
 
 ### OptiX objects own what they were created from
 
 A module holds an `Rc` of its context, a program group of its module, a
 pipeline of its context and groups, so each is destroyed after everything
-created from it, whatever order `Tracer`'s fields drop in. They stay on the
-thread that created them.
+created from it, whatever order `Tracer`'s or `Renderer`'s fields drop in.
+They stay on the thread that created them, so neither is `Send`.
 
 ## Things to know when using it
 
-- `Tracer::new` needs an NVIDIA driver new enough for OptiX 9.0; in a
-  container, `NVIDIA_DRIVER_CAPABILITIES=compute,graphics` (arc42 §7).
+- `Renderer::new` and `Tracer::new` need an NVIDIA driver new enough for
+  OptiX 9.0; in a container, `NVIDIA_DRIVER_CAPABILITIES=compute,graphics`
+  (arc42 §7).
+- `render` panics if a Work Unit is not one of the Render Job's, as
+  `umbra-cpu`'s does. It may be given more than `CAPACITY` Work Units: the
+  capacity is what a GPU Worker asks the Coordinator for, and the batch's
+  memory grows with it.
 - The PTX runs only if the crate was built with `libdevice.10.bc`, found at
   `UMBRA_LIBDEVICE`, else under `CUDA_PATH`, `CUDA_HOME` or `/usr/local/cuda`
   (`nvvm/libdevice/libdevice.10.bc`). Without it the build warns, and
-  `Tracer::new` returns `Error::UnlinkedPtx`.
+  `Renderer::new` and `Tracer::new` return `Error::UnlinkedPtx`.
 - In builds with debug assertions, OptiX's validation mode is on: slower, but
   it reports misuse.
 
@@ -129,7 +186,12 @@ backend calls on millions of arguments across the `f32` range, subnormals
 included, and checks each against glibc on the CPU within the bound
 `umbra-math`'s `src/libdevice.rs` documents; that the IEEE primitives keep
 subnormals shows that `__nvvm_reflect("__CUDA_FTZ")` resolved to 0 (#146).
-`--no-capture` prints the measured errors. They need a GPU, so they are the test binary
+`--no-capture` prints the measured errors. `tests/gpu/renderer.rs` parses
+the camera-only Scene File of `tests/gpu/scenes/`, renders it in batches of
+`Renderer::CAPACITY` on the GPU and Work Unit by Work Unit on the CPU, and
+checks one black Work Result per Work Unit whose pixels' filter weights are
+the CPU's to `f32` rounding: the GPU draws the same Pixel Samples, and with
+no radiance the noise is no larger than the rounding. They need a GPU, so they are the test binary
 `gpu`, which is their label: nextest's `default` and `ci` profiles leave out
 every binary of that name, and `cargo nextest run --profile gpu` runs them
 alone, on the P620 (`.config/nextest.toml`).

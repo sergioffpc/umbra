@@ -68,6 +68,7 @@ pub struct CameraRay {
 ///
 /// PBR 4e §5.1.1, pbrt-v4 `CameraTransform`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct CameraTransform {
     render_from_camera: Transform,
     world_from_render: Transform,
@@ -106,6 +107,7 @@ impl CameraTransform {
 ///
 /// pbrt-v4 `CameraBaseParameters`; its film and medium are not held here.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct CameraBaseParameters {
     /// Where the camera is.
     pub camera_transform: CameraTransform,
@@ -119,6 +121,7 @@ pub struct CameraBaseParameters {
 ///
 /// pbrt-v4's `lensradius` and `focaldistance`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct ThinLens {
     /// The lens radius; 0 for a pinhole.
     pub radius: f32,
@@ -132,6 +135,7 @@ pub struct ThinLens {
 /// needs; the importance functions (`We`, `PDF_We`, `SampleWi`) and ray
 /// differentials arrive with the features that use them.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct PerspectiveCamera {
     base: CameraBaseParameters,
     camera_from_raster: Transform,
@@ -220,10 +224,59 @@ impl Camera for PerspectiveCamera {
 ///
 /// pbrt-v4 `Camera`'s tagged pointer.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C, u32)]
 pub enum CameraKind {
     /// pbrt-v4 `"perspective"`.
     Perspective(PerspectiveCamera),
 }
+
+// The GPU Worker copies the camera to the device byte for byte (ADR 0028,
+// arc42 §8.12): its layout is the same on `x86_64` and `nvptx64`.
+const _: () = {
+    use core::mem::offset_of;
+
+    assert!(
+        size_of::<CameraTransform>() == 512,
+        "`CameraTransform` is two `Transform`s, with no padding"
+    );
+    assert!(
+        offset_of!(CameraTransform, world_from_render) == 256,
+        "`CameraTransform::world_from_render` is at byte 256"
+    );
+    assert!(
+        size_of::<CameraBaseParameters>() == 528,
+        "`CameraBaseParameters` is 528 bytes: 512 of `CameraTransform`, 8 of shutter, 8 of tail padding"
+    );
+    assert!(
+        offset_of!(CameraBaseParameters, shutter_open) == 512,
+        "`CameraBaseParameters::shutter_open` is at byte 512"
+    );
+    assert!(
+        offset_of!(CameraBaseParameters, shutter_close) == 516,
+        "`CameraBaseParameters::shutter_close` is at byte 516"
+    );
+    assert!(size_of::<ThinLens>() == 8, "`ThinLens` is 8 bytes");
+    assert!(
+        offset_of!(ThinLens, focal_distance) == 4,
+        "`ThinLens::focal_distance` is at byte 4"
+    );
+    assert!(
+        size_of::<PerspectiveCamera>() == 800,
+        "`PerspectiveCamera` is 800 bytes: 528 of base, 256 of `Transform`, 8 of lens, 8 of tail padding"
+    );
+    assert!(
+        offset_of!(PerspectiveCamera, camera_from_raster) == 528,
+        "`PerspectiveCamera::camera_from_raster` is at byte 528"
+    );
+    assert!(
+        offset_of!(PerspectiveCamera, lens) == 784,
+        "`PerspectiveCamera::lens` is at byte 784"
+    );
+    assert!(
+        size_of::<CameraKind>() == 816,
+        "`CameraKind` is its `u32` tag, padded to 16, then the camera"
+    );
+};
 
 impl From<PerspectiveCamera> for CameraKind {
     fn from(camera: PerspectiveCamera) -> Self {

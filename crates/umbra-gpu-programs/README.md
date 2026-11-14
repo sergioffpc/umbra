@@ -6,28 +6,33 @@ that traps (ADR 0026, ADR 0028), with the layout they share with the host
 (ADR 0033).
 
 It compiles for the host and for `nvptx64-nvidia-cuda`. On both it holds the
-shared layout: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind`, and
-with the `math-program` feature `MathParams` and `MathFunction`. On
-`nvptx64` only it is `#![no_std]` and holds the programs, `optix`, `math`
-and the panic handler, so a host build of the workspace compiles the layout
-alone, without the GPU's toolchain. It uses the core crates,
-`umbra-geometry` and, on `nvptx64`, `umbra-math`. `umbra-gpu` depends on it
+shared layout: `LaunchParams`, `RayRecord`, `HitRecord` and `HitKind` of the
+tracer bullet, the wavefront's records (`DeviceSlice`, `SceneRecord`,
+`SamplerRecord`, `WorkUnitRecord`, `PixelSampleQueue`, `FilmSampleRecord`,
+`WavefrontParams`), and with the `math-program` feature `MathParams` and
+`MathFunction`. On `nvptx64` only it is `#![no_std]` and holds the programs,
+`optix`, `stages`, `math` and the panic handler, so a host build of the
+workspace compiles the layout alone, without the GPU's toolchain. It uses
+the core crates `umbra-integrators`, `umbra-camera`, `umbra-sampling`,
+`umbra-spectrum`, `umbra-geometry` and `umbra-math`. `umbra-gpu` depends on it
 for the layout, and its build script compiles it to PTX and embeds that
 (arc42 §5.1). It is the only crate that enables unstable features, on
 `nvptx64` only (ADR 0027): `abi_ptx` for the `ptx-kernel` entry points and
 `asm_experimental_arch` for inline PTX.
 
 There is no example: none of its programs runs on the host. `umbra-gpu`'s
-`Tracer` is the way to run them.
+`Renderer` and `Tracer` are the way to run them.
 
 ## What is in it
 
 | Module        | Contents                                                                                                                                                 |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `programs`    | On `nvptx64`: the four programs of the tracer bullet and the math program, the `.const` launch parameters `params`, and the panic handler                |
+| `stages`      | On `nvptx64`: the wavefront's stages, one program each, calling the core's steps on values                                                               |
 | `math`        | On `nvptx64`, with `math-program`: what the math program runs, its function of `umbra-math`, and its launch parameters, arguments and results            |
 | `optix`       | On `nvptx64`: the OptiX 9.0 device API, one safe wrapper per `_optix_*` built-in (launch index, payload, ray, hit kind, SBT data, report, trace, `trap`) |
 | `launch`      | On both targets: the layout the host shares, `LaunchParams`, `RayRecord` (from the core's `Ray`), `HitRecord` and `HitKind`                              |
+| `wavefront`   | On both targets: the wavefront's layout, `DeviceSlice` and the records of the Scene, the sampler, the batch, the queue and the film samples              |
 | `math_launch` | On both targets, with `math-program`: the math program's layout the host shares, `MathParams`, `MathFunction` and its ids, `UnknownMathFunction`         |
 
 The layout's types are public at the crate root.
@@ -43,9 +48,16 @@ The programs, for one triangle and one sphere traced from the host
 | `__intersection__sphere` | Intersects the ray with the `Sphere` of its hit group record through the core's `Sphere::intersect` |
 | `__raygen__math`         | Evaluates the launch's `MathFunction` on argument record `i` and writes result `i` (#146)           |
 
-Not here yet: the wavefront stages of the integrators, which arrive with
-each feature on both Render Devices
-([#127](https://github.com/sergioffpc/umbra/issues/127)).
+The wavefront's stages, one thread per Pixel Sample of a batch
+([#127](https://github.com/sergioffpc/umbra/issues/127)):
+
+| Entry point        | What it does                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `__raygen__camera` | Wavelengths, camera sample, camera ray and the radiance along it, the integrator's `li`, into the queue      |
+| `__raygen__film`   | The queue's radiance in the sensor's RGB, with the filter weight, into the Pixel Sample's `FilmSampleRecord` |
+
+Not here yet: the stages that split `li`, tracing rays and shading their
+hits, which arrive with the Shapes and lights that need them.
 
 ## Design decisions
 
@@ -79,8 +91,21 @@ under NVIDIA's proprietary license (ADR 0026, NOTICE). Each wrapper is
 
 OptiX passes a launch's parameters in a `.const` variable the pipeline names.
 `rustc` cannot place a static in the constant state space, so `params` is
-declared with `global_asm!` and read field by field with `ld.const`, at the
-offsets `launch.rs` asserts.
+declared with `global_asm!`, as large as the larger of `LaunchParams` and
+`WavefrontParams`. The tracer bullet reads it field by field with
+`ld.const`, at the offsets `launch.rs` asserts; the stages read their
+`WavefrontParams` whole, through the generic address `cvta.const` gives.
+
+### A wavefront over the core's steps
+
+Each stage is a ray-generation program over every Pixel Sample of a batch,
+and calls the core's steps on values, as `evaluate_pixel_sample` calls them
+on the CPU (ADR 0028): only their composition is the GPU's. The stages pass
+each Pixel Sample on through `PixelSampleQueue`, one array per field. What
+they read of the Scene is a `SceneRecord`, from which each thread builds
+the core's own `SceneView`: its tables are `DeviceSlice`s, which on
+`nvptx64` are `AsRef<[T]>`, the storage the core's filter and sensor are
+generic over. The sampler is rebuilt per thread from a `SamplerRecord`.
 
 ### The GPU's math, run as a launch
 
@@ -104,8 +129,13 @@ launch, and the host sees a CUDA error.
 
 - The programs read device memory by the addresses the host passes: the
   host must size the ray and hit buffers to `LaunchParams::count`, the
-  argument and result buffers to `MathParams::count`, and give the sphere's
-  hit group record a `Sphere` (`umbra-gpu` does all three).
+  argument and result buffers to `MathParams::count`, give the sphere's
+  hit group record a `Sphere`, and size each array of the wavefront to the
+  batch's Pixel Samples (`umbra-gpu` does all four). A `DeviceSlice` is made
+  with `unsafe` `from_raw_parts`, whose caller promises the memory behind
+  it.
+- The wavefront's stages trap on an index past a `DeviceSlice`, and on a
+  batch whose first Work Unit does not start at Pixel Sample 0.
 - The pipeline must name `params` as its launch-parameter variable and use
   two payload values, which `umbra-gpu`'s compile options do.
 

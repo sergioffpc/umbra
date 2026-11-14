@@ -463,6 +463,24 @@ impl SampledWavelengths {
         }
     }
 
+    /// The wavelengths `lambda`, in nm, with the PDFs `pdf`: what
+    /// [`Self::to_parts`] took apart. The GPU's wavefront keeps the two in
+    /// separate arrays of the queue between its stages (ADR 0028).
+    #[must_use]
+    pub fn from_parts(lambda: [f32; N_SPECTRUM_SAMPLES], pdf: SampledSpectrum) -> Self {
+        Self {
+            lambda: Vec4::from(lambda),
+            pdf,
+        }
+    }
+
+    /// The wavelengths, in nm, and their PDFs, as [`Self::from_parts`]
+    /// takes them.
+    #[must_use]
+    pub fn to_parts(self) -> ([f32; N_SPECTRUM_SAMPLES], SampledSpectrum) {
+        (self.lambda.to_array(), self.pdf)
+    }
+
     /// `f` of each wavelength, as the spectrum of those values.
     #[inline]
     pub(crate) fn map(&self, f: impl FnMut(f32) -> f32) -> SampledSpectrum {
