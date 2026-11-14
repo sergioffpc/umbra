@@ -2,14 +2,13 @@
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
 use std::fs;
-use std::io::{self, IsTerminal, Write};
+use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, StatusLine, Threads,
-    coordinate,
+    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, Threads, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -18,15 +17,18 @@ use umbra_scene::{RenderJobOptions, Seed};
 use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
 use crate::error::Error;
+use crate::footer::Footer;
+use crate::status::StatusLine;
 
-/// Renders the Scene File of `args`, writing its warnings and progress to
-/// `stderr`, then the image, and its Render Job Report to `stdout`; or,
-/// once `cancel` is made, the report alone.
+/// Renders the Scene File of `args`, writing its warnings to `stderr` and
+/// its progress to the footer of `stderr` on a terminal, then the image,
+/// and its Render Job Report to `stdout`; or, once `cancel` is made, the
+/// report alone.
 pub(crate) fn render(
     args: &RenderArgs,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
+    mut stderr: &Footer,
 ) -> Result<(), Error> {
     let _span = info_span!("render_job").entered();
     let parsed = parse(args)?;
@@ -48,15 +50,20 @@ pub(crate) fn render(
     let job = RenderJob {
         scene: parsed.scene,
         options,
+        output: parsed.output.clone(),
         record,
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);
-    let status = if io::stderr().is_terminal() {
-        StatusLine::Redrawn(stderr)
-    } else {
-        StatusLine::Logged
-    };
-    let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status)?;
+    let mut status_line = StatusLine::on(stderr);
+    let outcome = coordinate(
+        job,
+        &CoordinatorOptions { threads },
+        cancel,
+        |status, moment| status_line.show(status, moment),
+    )?;
+    // The last status stays on the terminal, above the errors and logs
+    // that follow it.
+    drop(status_line);
     finish(outcome, parsed.times, &parsed.output, stdout)
 }
 

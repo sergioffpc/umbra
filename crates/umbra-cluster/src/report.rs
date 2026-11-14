@@ -4,10 +4,13 @@
 //! with [#85](https://github.com/sergioffpc/umbra/issues/85).
 
 use std::fmt::{self, Display};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use umbra_render::{FilmHash, ReproductionRecord};
+use umbra_scene::RenderJobOptions;
 
+use crate::host::Host;
 use crate::status::Si;
 
 /// How a Render Job ended.
@@ -75,9 +78,11 @@ impl Phase {
     }
 }
 
-/// What the Local Worker did.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// What the Local Worker did, and on what machine.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkerFigures {
+    /// The machine it ran on.
+    pub(crate) host: Host,
     /// Its threads.
     pub(crate) threads: usize,
     /// The Work Units whose Work Results were merged.
@@ -101,15 +106,25 @@ pub(crate) struct Rendered {
     pub(crate) tile_costs: Vec<f64>,
 }
 
+/// What a Render Job was submitted with, for its report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Submission {
+    pub(crate) options: RenderJobOptions,
+    /// Where its final image goes.
+    pub(crate) output: PathBuf,
+    pub(crate) reproduction_record: ReproductionRecord,
+}
+
 /// What a Render Job leaves behind besides its image, finished or
 /// cancelled. Its [`Display`] is the text `umbra` writes to stdout:
 ///
 /// ```text
 /// Render Job: finished
+/// Options: seed 0, spp 4, spp per pass 2, tile size 8, output black.exr
 /// Film hash: a5bab1a6c36d4cf5
 /// Pixel Samples: 3840 merged, 2.00 M per second
 /// Phase times: parse 0.000 s, Scene build 0.000 s, render 0.002 s, merge 0.000 s, image write 0.003 s
-/// Local Worker: 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s
+/// Local Worker: host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s
 /// Tile costs: min 68.9, mean 247.4, max 1603.3 (Tile 1)
 /// Reproduction Record: version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0, …
 /// ```
@@ -120,6 +135,8 @@ pub(crate) struct Rendered {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderJobReport {
     outcome: Outcome,
+    options: RenderJobOptions,
+    output: PathBuf,
     film_hash: Option<FilmHash>,
     phase_times: [Option<Duration>; Phase::ALL.len()],
     render_time: Duration,
@@ -132,17 +149,19 @@ pub struct RenderJobReport {
 }
 
 impl RenderJobReport {
-    /// The report of what `rendered` says, made as `reproduction_record`
-    /// says.
-    pub(crate) fn new(rendered: Rendered, reproduction_record: ReproductionRecord) -> Self {
+    /// The report of what `rendered` says, of a Render Job submitted as
+    /// `submission` says.
+    pub(crate) fn new(rendered: Rendered, submission: Submission) -> Self {
         let mut report = Self {
             outcome: rendered.outcome,
+            options: submission.options,
+            output: submission.output,
             film_hash: rendered.film_hash,
             phase_times: [None; Phase::ALL.len()],
             render_time: rendered.render_time,
             local_worker: rendered.local_worker,
             tile_costs: rendered.tile_costs,
-            reproduction_record,
+            reproduction_record: submission.reproduction_record,
         };
         report.record_phase(Phase::Render, rendered.render_time);
         report.record_phase(Phase::Merge, rendered.merge_time);
@@ -181,6 +200,18 @@ impl RenderJobReport {
 impl Display for RenderJobReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Render Job: {}", self.outcome)?;
+        let RenderJobOptions {
+            seed,
+            tile_size,
+            spp_per_pass,
+            spp,
+        } = self.options;
+        writeln!(
+            f,
+            "Options: seed {}, spp {spp}, spp per pass {spp_per_pass}, tile size {tile_size}, output {}",
+            seed.0,
+            self.output.display(),
+        )?;
         if let Some(hash) = self.film_hash {
             writeln!(f, "Film hash: {hash}")?;
         }
@@ -198,7 +229,8 @@ impl Display for WorkerFigures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}",
+            "{}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}",
+            self.host,
             self.threads,
             self.work_units,
             self.pixel_samples,

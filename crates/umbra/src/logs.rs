@@ -3,11 +3,14 @@
 //! spans go to Tracy too (arc42 §8.4).
 
 use std::io::{self, IsTerminal};
+use std::sync::Arc;
 
 use clap::ValueEnum;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
+
+use crate::footer::Footer;
 
 /// How the logs are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -36,19 +39,19 @@ pub(crate) fn parse_filter(filter: &str) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Sends every `tracing` event that passes `filter` to stderr, in `format`
-/// or the one that suits stderr.
-pub(crate) fn init(format: Option<LogFormat>, filter: &str) {
+/// Sends every `tracing` event that passes `filter` to `stderr`, above its
+/// status line, in `format` or the one that suits stderr.
+pub(crate) fn init(format: Option<LogFormat>, filter: &str, stderr: Arc<Footer>) {
     let (human, json) = match format.unwrap_or_else(LogFormat::for_stderr) {
         LogFormat::Human => (
             Some(
                 fmt::layer()
-                    .with_writer(io::stderr)
+                    .with_writer(stderr)
                     .with_ansi(io::stderr().is_terminal()),
             ),
             None,
         ),
-        LogFormat::Json => (None, Some(fmt::layer().json().with_writer(io::stderr))),
+        LogFormat::Json => (None, Some(fmt::layer().json().with_writer(stderr))),
     };
     let registry = tracing_subscriber::registry()
         .with(EnvFilter::new(filter))

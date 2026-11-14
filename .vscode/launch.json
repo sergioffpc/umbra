@@ -15,18 +15,6 @@
       "pid": "${command:pickMyProcess}"
     },
     {
-      "name": "umbra (bin tests)",
-      "type": "lldb",
-      "request": "launch",
-      "cargo": {
-        "args": ["test", "--no-run", "--bin=umbra", "--package=umbra"],
-        "filter": { "name": "umbra", "kind": "bin" }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "env": { "RUST_BACKTRACE": "1" }
-    },
-    {
       // Release speed with debug assertions and overflow checks on: for a
       // panic that only a long render reaches.
       "name": "umbra (checked)",
@@ -53,14 +41,15 @@
       "env": { "RUST_BACKTRACE": "1" }
     },
     {
-      // Unit tests of one library crate, chosen when the session starts. Put
-      // a test name filter in "args" to run fewer of them.
-      "name": "umbra (lib tests)",
+      // The tests of one target in a crate's `tests/`, chosen when the
+      // session starts; every test lives there. Put a test name filter in
+      // "args" to run fewer of them.
+      "name": "umbra (tests)",
       "type": "lldb",
       "request": "launch",
       "cargo": {
-        "args": ["test", "--no-run", "--lib", "--package=${input:crate}"],
-        "filter": { "kind": "lib" }
+        "args": ["test", "--no-run", "--test=${input:tests}"],
+        "filter": { "name": "${input:tests}", "kind": "test" }
       },
       "args": [],
       "cwd": "${workspaceFolder}",
@@ -121,22 +110,22 @@
   ],
   "inputs": [
     {
-      "id": "crate",
+      "id": "tests",
       "type": "pickString",
-      "description": "Library crate whose unit tests to debug",
+      "description": "Test target to debug: a crate's tests/ directory or file",
       "options": [
-        "umbra-camera",
-        "umbra-cluster",
-        "umbra-cpu",
-        "umbra-geometry",
-        "umbra-integrators",
-        "umbra-math",
-        "umbra-parser",
-        "umbra-render",
-        "umbra-sampling",
-        "umbra-scene",
-        "umbra-shading",
-        "umbra-spectrum"
+        "allocation",
+        "footer",
+        "gpu",
+        "render",
+        "umbra_camera",
+        "umbra_cpu",
+        "umbra_geometry",
+        "umbra_math",
+        "umbra_render",
+        "umbra_sampling",
+        "umbra_scene",
+        "umbra_spectrum"
       ]
     },
     {

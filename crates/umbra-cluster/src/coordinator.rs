@@ -2,6 +2,7 @@
 //! Local Worker (arc42 §5.3, §6.2).
 
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,26 +18,30 @@ use umbra_render::{
 use umbra_scene::{RenderJobOptions, Scene};
 
 use crate::error::Error;
+use crate::host::Host;
 use crate::local_worker;
 use crate::progress::Progress;
 use crate::renderer::{RenderDevice, Renderer};
-use crate::report::{Outcome, RenderJobReport, Rendered, WorkerFigures};
-use crate::status::{Status, StatusLine};
+use crate::report::{Outcome, RenderJobReport, Rendered, Submission, WorkerFigures};
+use crate::status::{Moment, Status};
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
 
-/// How often the Coordinator checks for a cancellation and shows its
+/// How often the Coordinator checks for a cancellation and sends its
 /// status.
 const TICK: Duration = Duration::from_millis(250);
 
-/// A Render Job: what is rendered, how it is cut into Work Units, and the
-/// record of how to compute it again.
+/// A Render Job: what is rendered, how it is cut into Work Units, where
+/// its image goes, and the record of how to compute it again.
 #[derive(Debug)]
 pub struct RenderJob {
     /// The Scene.
     pub scene: Scene,
     /// The Render Job Options.
     pub options: RenderJobOptions,
-    /// The Reproduction Record the image carries.
+    /// Where its final image goes: the caller writes it, and the report
+    /// lists it with the options.
+    pub output: PathBuf,
+    /// Its Reproduction Record.
     pub record: ReproductionRecord,
 }
 
@@ -88,7 +93,9 @@ enum Ending {
 /// as it asks for them, Pass by Pass in raster Tile order (ADR 0009), and
 /// merging each Work Result into the Film as it arrives (ADR 0022). It
 /// blocks until the last Pass is merged or `cancel` is made; the runtime it
-/// needs is its own. `status` receives the progress.
+/// needs is its own. `status` receives its [`Status`] at each tick, as
+/// [`Moment::Running`], and once at the end, as [`Moment::Ended`]: it is
+/// the caller's to show.
 ///
 /// # Errors
 ///
@@ -98,11 +105,12 @@ pub fn coordinate(
     job: RenderJob,
     options: &CoordinatorOptions,
     cancel: &Cancellation,
-    status: StatusLine<'_>,
+    status: impl FnMut(&Status, Moment),
 ) -> Result<RenderJobOutcome, Error> {
     let RenderJob {
         scene,
         options: job_options,
+        output,
         record,
     } = job;
     let decomposition = Decomposition::new(scene.full_resolution(), &job_options)?;
@@ -113,7 +121,8 @@ pub fn coordinate(
     let mut scheduler = Scheduler {
         film: Film::new(&scene, &job_options)?,
         progress: Progress::new(&decomposition, Instant::now()),
-        status: Status::new(status, threads),
+        show: status,
+        threads,
         queue: decomposition.work_units(),
         demand: 0,
     };
@@ -129,7 +138,14 @@ pub fn coordinate(
             runtime.block_on(scheduler.run(coordinator, cancel))
         })?
     };
-    Ok(scheduler.finish(ending, record))
+    Ok(scheduler.finish(
+        ending,
+        Submission {
+            options: job_options,
+            output,
+            reproduction_record: record,
+        },
+    ))
 }
 
 /// The Local Worker's thread pool.
@@ -145,17 +161,21 @@ fn thread_pool(threads: Threads) -> Result<ThreadPool, Error> {
 }
 
 /// The Coordinator's side of a running Render Job: the Film it merges
-/// into, the Work Units not assigned yet, and the progress it shows.
-struct Scheduler<'d, 'w, Q> {
+/// into, the Work Units not assigned yet, its progress, and where its
+/// status goes.
+struct Scheduler<'d, Q, S> {
     film: Film,
     progress: Progress<'d>,
-    status: Status<'w>,
+    /// Receives the status.
+    show: S,
+    /// The Local Worker's threads.
+    threads: usize,
     queue: Q,
     /// The Work Units the Local Worker asked for and was not given yet.
     demand: u32,
 }
 
-impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
+impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S> {
     /// Assigns every Work Unit as the Worker asks, and merges each Work
     /// Result, until every one is merged or `cancel` is made.
     async fn run(
@@ -183,7 +203,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
                     }
                     let now = Instant::now();
                     self.progress.tick(now);
-                    self.status.show(&self.progress, now);
+                    (self.show)(&Status::of(&self.progress, self.threads, now), Moment::Running);
                 }
             }
         }
@@ -230,18 +250,22 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
         Ok(())
     }
 
-    /// Shows the last status and makes the outcome of the Render Job.
-    fn finish(mut self, ending: Ending, record: ReproductionRecord) -> RenderJobOutcome {
+    /// Sends the last status and makes the outcome of the Render Job
+    /// submitted as `submission` says.
+    fn finish(mut self, ending: Ending, submission: Submission) -> RenderJobOutcome {
         let now = Instant::now();
         self.progress.tick(now);
-        self.status.finish(&self.progress, now);
+        (self.show)(
+            &Status::of(&self.progress, self.threads, now),
+            Moment::Ended,
+        );
         match ending {
             Ending::Finished => {
                 let hash = self.film.hash();
                 info!("Render Job finished, Film hash {hash}");
                 let rendered = self.rendered(Outcome::Finished, Some(hash), now);
                 RenderJobOutcome::Finished {
-                    report: RenderJobReport::new(rendered, record),
+                    report: RenderJobReport::new(rendered, submission),
                     image: self.film.finish(),
                 }
             }
@@ -250,7 +274,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
                 info!("Render Job cancelled, {merged} Pixel Samples merged");
                 let rendered = self.rendered(Outcome::Cancelled, None, now);
                 RenderJobOutcome::Cancelled {
-                    report: RenderJobReport::new(rendered, record),
+                    report: RenderJobReport::new(rendered, submission),
                 }
             }
         }
@@ -266,7 +290,8 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             render_time,
             merge_time: self.progress.merge_time(),
             local_worker: WorkerFigures {
-                threads: self.status.threads(),
+                host: Host::this(),
+                threads: self.threads,
                 work_units: self.progress.merged_units(),
                 pixel_samples: self.progress.merged_samples(),
                 busy_time,

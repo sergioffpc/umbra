@@ -1,7 +1,9 @@
 # umbra
 
 The `umbra` binary: the `render`, `worker`, `trace` and `bench` subcommands,
-and how they put the other crates together. It parses the Scene File with
+and how they put the other crates together. All of it is in the library,
+`umbra::run`; `main.rs` only calls it, and the tests in `tests/` use the
+library's public items. It parses the Scene File with
 `umbra-parser`, applies the command-line overrides, builds the Reproduction
 Record, and calls `umbra-cluster`, or `umbra-cpu` for `trace`. The
 statistics of `bench` are modules of the binary.
@@ -18,13 +20,16 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 
 ## What is in it
 
-| Module           | Contents                                                                                                              |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `main`           | The exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
-| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own        |
-| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout |
-| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                      |
-| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice   |
+| Module           | Contents                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `lib`            | `run`: the exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
+| `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own               |
+| `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
+| `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
+| `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature                |
+| `status`         | `StatusLine`: shows the status `umbra-cluster` sends, redrawn in the footer or logged every ~10 s and at the end             |
+| `footer`         | `Footer`, public: stderr with the status line kept at its bottom by `indicatif`, log events printed above it                 |
+| `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice          |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
 `UMBRA_TREE` where there is no `.git` (a container build).
@@ -40,8 +45,10 @@ Copyright (c) 2026 Sérgio Carvalho
 MIT License. Includes code from pbrt-v4, under the Apache License 2.0; see NOTICE.
 ```
 
-While a Render Job runs, the status line is redrawn on stderr when it is a
-terminal, and logged as `info` events about every 10 s otherwise. Logs go
+While a Render Job runs, the status line is redrawn at the bottom of
+stderr when it is a terminal that can move its cursor (not `TERM=dumb`),
+each line cut to the terminal's width, with log events printed above it;
+otherwise it is logged as `info` events about every 10 s. Logs go
 to stderr through `tracing`: human-readable on a terminal and JSON lines
 otherwise, or as `--log-format human|json` says, filtered by `--log`, a
 `RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
@@ -159,10 +166,18 @@ The integration tests are the cross-crate tests of arc42 §5.4:
   parameters warn; a missing Scene File exits 1 and invalid usage 2; the
   version line starts every command on stderr, and `--version` adds the
   copyright and the licences, with nothing on stdout; the report has the
-  options, phase times, Pixel Samples and their rate, the Local Worker's
-  figures and a cost per Tile; logs are JSON lines without a terminal, text
-  with `--log-format human`, and filtered by `--log`, with the final status
-  among them; Ctrl-C writes a cancelled report, no image, and exits 130.
+  options with the output path, phase times, Pixel Samples and their
+  rate, the Local Worker's host, CPU and figures, and a cost per Tile;
+  logs are JSON lines without a terminal, text with `--log-format human`,
+  and filtered by `--log`, with the final status among them, its rate
+  with an SI prefix and its times as a clock; Ctrl-C writes a cancelled
+  report, no image, and exits 130, the ETA unknown before any merge and
+  provisional (`~`) during Pass 0.
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.
+- `tests/footer.rs`, `Footer` on `indicatif`'s in-memory terminal, by
+  what its screen shows: a status update replaces the last one, a log
+  event prints above the status line, which is redrawn below it, a line
+  wider than the terminal is cut to its width, and the last status stays
+  once released.
