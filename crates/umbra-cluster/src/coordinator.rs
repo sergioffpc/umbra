@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,12 +24,13 @@ use crate::children::{self, GpuWorkers};
 use crate::cpu_worker;
 use crate::device::{GpuOrdinal, RenderDevice};
 use crate::error::Error;
+use crate::host::Host;
 use crate::listener::{self, Replica};
 use crate::progress::Progress;
 use crate::quic;
-use crate::report::{Outcome, RenderJobReport, Rendered, WorkerFigures};
+use crate::report::{Occupancy, Outcome, RenderJobReport, Rendered, Submission, WorkerFigures};
 use crate::runtime;
-use crate::status::{Status, StatusLine};
+use crate::status::{Moment, Status};
 use crate::transport::{self, Event, ToCoordinator, ToWorker, WorkerId};
 
 /// How long the Coordinator waits for its Workers to close once the Render
@@ -38,15 +40,18 @@ const CLOSE_WAIT: Duration = Duration::from_secs(2);
 /// The CPU Local Worker's identifier; the Workers over QUIC follow it.
 const CPU_WORKER: WorkerId = WorkerId(0);
 
-/// A Render Job: what is rendered, how it is cut into Work Units, and the
-/// record of how to compute it again.
+/// A Render Job: what is rendered, how it is cut into Work Units, where
+/// its image goes, and the record of how to compute it again.
 #[derive(Debug)]
 pub struct RenderJob {
     /// The Scene.
     pub scene: Scene,
     /// The Render Job Options.
     pub options: RenderJobOptions,
-    /// The Reproduction Record the image carries.
+    /// Where its final image goes: the caller writes it, and the report
+    /// lists it with the options.
+    pub output: PathBuf,
+    /// Its Reproduction Record.
     pub record: ReproductionRecord,
 }
 
@@ -115,7 +120,8 @@ enum Ending {
 /// flight back to the front of the queue, and the Render Job finishes on
 /// the Workers that remain. It blocks until the last Pass is merged or
 /// `cancel` is made; the runtime it needs is its own. `status` receives
-/// the progress.
+/// its [`Status`] at each tick, as [`Moment::Running`], and once at the
+/// end, as [`Moment::Ended`]: it is the caller's to show.
 ///
 /// # Errors
 ///
@@ -126,11 +132,12 @@ pub fn coordinate(
     job: RenderJob,
     options: &CoordinatorOptions<'_>,
     cancel: &Cancellation,
-    status: StatusLine<'_>,
+    status: impl FnMut(&Status, Moment),
 ) -> Result<RenderJobOutcome, Error> {
     let RenderJob {
         scene,
         options: job_options,
+        output,
         record,
     } = job;
     let decomposition = Decomposition::new(scene.full_resolution(), &job_options)?;
@@ -139,11 +146,11 @@ pub fn coordinate(
         .cpu
         .map(|threads| CpuWorker::new(&scene, &job_options, threads))
         .transpose()?;
-    let threads = cpu.as_ref().map_or(0, CpuWorker::threads);
     let mut scheduler = Scheduler {
         film: Film::new(&scene, &job_options)?,
         progress: Progress::new(&decomposition, Instant::now()),
-        status: Status::new(status, threads),
+        show: status,
+        threads: cpu.as_ref().map_or(0, CpuWorker::threads),
         queue: Queue::new(decomposition.work_units()),
         workers: BTreeMap::new(),
         starting: Vec::new(),
@@ -159,7 +166,14 @@ pub fn coordinate(
         runtime.block_on(scheduler.drive(options.gpus.as_ref(), replica, &mut inbox, cancel))
     })?;
     drop(span);
-    Ok(scheduler.finish(ending, record))
+    Ok(scheduler.finish(
+        ending,
+        Submission {
+            options: job_options,
+            output,
+            reproduction_record: record,
+        },
+    ))
 }
 
 /// The CPU Local Worker, before it starts: its renderer and its threads.
@@ -198,7 +212,7 @@ impl<'s> CpuWorker<'s> {
         &'scope self,
         scope: &'scope thread::Scope<'scope, '_>,
         runtime: &Runtime,
-        scheduler: &mut Scheduler<'_, '_, impl Iterator<Item = WorkUnit>>,
+        scheduler: &mut Scheduler<'_, impl Iterator<Item = WorkUnit>, impl FnMut(&Status, Moment)>,
     ) {
         let (coordinator, worker) = transport::connect();
         scope.spawn(move || cpu_worker::work(&self.renderer, &self.pool, worker));
@@ -319,12 +333,15 @@ impl Worker {
 }
 
 /// The Coordinator's side of a running Render Job: the Film it merges
-/// into, the Work Units not assigned yet, its Workers, and the progress it
-/// shows.
-struct Scheduler<'d, 'w, Q> {
+/// into, the Work Units not assigned yet, its Workers, its progress, and
+/// where its status goes.
+struct Scheduler<'d, Q, S> {
     film: Film,
     progress: Progress<'d>,
-    status: Status<'w>,
+    /// Receives the status.
+    show: S,
+    /// The CPU Local Worker's threads; 0 without one.
+    threads: usize,
     queue: Queue<Q>,
     workers: BTreeMap<WorkerId, Worker>,
     /// The GPUs whose Local Worker's process runs and has not joined yet.
@@ -333,7 +350,7 @@ struct Scheduler<'d, 'w, Q> {
     events: UnboundedSender<Event>,
 }
 
-impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
+impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S> {
     /// Starts the GPU Local Workers of `gpus`, runs the Render Job, and
     /// closes every Worker once it ends; the Workers' events arrive in
     /// `inbox`.
@@ -376,7 +393,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
                     }
                     let now = Instant::now();
                     self.progress.tick(now);
-                    self.status.show(&self.progress, now);
+                    (self.show)(&Status::of(&self.progress, self.threads, now), Moment::Running);
                 }
             }
         }
@@ -461,13 +478,23 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             ToCoordinator::WorkResult {
                 result,
                 render_time,
+                thread_time,
             } => {
                 worker.in_flight.retain(|&unit| unit != result.unit());
+                self.thread_time_of(id, thread_time);
                 self.merge(&result, render_time);
             }
             ToCoordinator::Fatal(reason) => {
                 error!("Worker {id} on {} cannot continue: {reason}", worker.device);
             }
+        }
+    }
+
+    /// The threads of `worker` spent `thread_time` on a Work Unit: counted
+    /// if it is the CPU Local Worker, whose occupancy the report gives.
+    fn thread_time_of(&mut self, worker: WorkerId, thread_time: Duration) {
+        if worker == CPU_WORKER {
+            self.progress.rendered(thread_time);
         }
     }
 
@@ -542,18 +569,22 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
         }
     }
 
-    /// Shows the last status and makes the outcome of the Render Job.
-    fn finish(mut self, ending: Ending, record: ReproductionRecord) -> RenderJobOutcome {
+    /// Sends the last status and makes the outcome of the Render Job
+    /// submitted as `submission` says.
+    fn finish(mut self, ending: Ending, submission: Submission) -> RenderJobOutcome {
         let now = Instant::now();
         self.progress.tick(now);
-        self.status.finish(&self.progress, now);
+        (self.show)(
+            &Status::of(&self.progress, self.threads, now),
+            Moment::Ended,
+        );
         match ending {
             Ending::Finished => {
                 let hash = self.film.hash();
                 info!("Render Job finished, Film hash {hash}");
                 let rendered = self.rendered(Outcome::Finished, Some(hash), now);
                 RenderJobOutcome::Finished {
-                    report: RenderJobReport::new(rendered, record),
+                    report: RenderJobReport::new(rendered, submission),
                     image: self.film.finish(),
                 }
             }
@@ -562,7 +593,7 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
                 info!("Render Job cancelled, {merged} Pixel Samples merged");
                 let rendered = self.rendered(Outcome::Cancelled, None, now);
                 RenderJobOutcome::Cancelled {
-                    report: RenderJobReport::new(rendered, record),
+                    report: RenderJobReport::new(rendered, submission),
                 }
             }
         }
@@ -578,11 +609,13 @@ impl<Q: Iterator<Item = WorkUnit>> Scheduler<'_, '_, Q> {
             render_time,
             merge_time: self.progress.merge_time(),
             local_worker: WorkerFigures {
-                threads: self.status.threads(),
+                host: Host::this(),
+                threads: self.threads,
                 work_units: self.progress.merged_units(),
                 pixel_samples: self.progress.merged_samples(),
                 busy_time,
                 idle_time: render_time.saturating_sub(busy_time),
+                occupancy: Occupancy::new(self.progress.thread_time(), self.threads, render_time),
             },
             tile_costs: self.progress.tile_costs(),
         }

@@ -61,9 +61,11 @@ fn send(
     to_coordinator: &UnboundedSender<ToCoordinator>,
 ) {
     if let Rendered::Done(result) = rendered {
+        // No CPU thread renders a GPU's Work Units.
         let _ = to_coordinator.send(ToCoordinator::WorkResult {
             result,
             render_time,
+            thread_time: Duration::ZERO,
         });
         let _ = to_coordinator.send(ToCoordinator::RequestWork(1));
     }

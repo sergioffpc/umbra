@@ -72,12 +72,15 @@ impl FromCoordinator {
     }
 }
 
-/// What precedes a Work Result's pixel sums on its stream.
+/// What precedes a Work Result's pixel sums on its stream: the metadata
+/// outside its content (arc42 §8.10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct WorkResultHeader {
     pub(crate) work_unit: WorkUnit,
-    /// How long the Worker took to render it (arc42 §8.10).
+    /// How long the Worker took to render it.
     pub(crate) render_time: Duration,
+    /// The time its threads spent on it, summed over them.
+    pub(crate) thread_time: Duration,
 }
 
 /// Why a connection closed, as its QUIC application close code.
@@ -154,28 +157,24 @@ pub(crate) async fn read_frame<T: DeserializeOwned>(
     Ok(Some(postcard::from_bytes(&body)?))
 }
 
-/// Writes `result`, rendered in `render_time`, on its own stream, and
-/// ends it.
+/// Writes `header`, then the pixel sums of `result`, whose Work Unit it
+/// names, on their own stream, and ends it.
 pub(crate) async fn write_work_result(
     mut send: SendStream,
+    header: &WorkResultHeader,
     result: &WorkResult,
-    render_time: Duration,
 ) -> Result<(), Error> {
-    let header = WorkResultHeader {
-        work_unit: result.unit(),
-        render_time,
-    };
-    write_frame(&mut send, &header).await?;
+    write_frame(&mut send, header).await?;
     send.write_all(bytemuck::cast_slice(result.pixels()))
         .await?;
     send.finish()?;
     Ok(())
 }
 
-/// Reads a Work Result from its stream, and its render time.
+/// Reads a Work Result and its header from its stream.
 pub(crate) async fn read_work_result(
     mut recv: RecvStream,
-) -> Result<(WorkResult, Duration), Error> {
+) -> Result<(WorkResultHeader, WorkResult), Error> {
     let header: WorkResultHeader = read_frame(&mut recv)
         .await?
         .ok_or(Error::StreamEnded("a Work Result stream"))?;
@@ -184,8 +183,5 @@ pub(crate) async fn read_work_result(
         return Err(Error::Body(body.len()));
     }
     let pixels = bytemuck::pod_collect_to_vec(&body);
-    Ok((
-        WorkResult::new(header.work_unit, pixels),
-        header.render_time,
-    ))
+    Ok((header, WorkResult::new(header.work_unit, pixels)))
 }

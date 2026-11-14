@@ -15,7 +15,8 @@ use crate::device::RenderDevice;
 use crate::error::Error;
 use crate::transport::{Event, ToCoordinator, ToWorker, WorkerId};
 use crate::wire::{
-    self, CloseCode, FromCoordinator, FromWorker, read_frame, read_work_result, write_frame,
+    self, CloseCode, FromCoordinator, FromWorker, WorkResultHeader, read_frame, read_work_result,
+    write_frame,
 };
 
 /// What every Worker that joins is sent, and what its Work Results are
@@ -253,10 +254,11 @@ async fn read_work_result_stream(
     events: UnboundedSender<Event>,
 ) {
     match read_checked(recv, &replica.decomposition).await {
-        Ok((result, render_time)) => {
+        Ok((header, result)) => {
             let message = ToCoordinator::WorkResult {
                 result,
-                render_time,
+                render_time: header.render_time,
+                thread_time: header.thread_time,
             };
             let _ = events.send(Event::Message { worker, message });
         }
@@ -269,8 +271,8 @@ async fn read_work_result_stream(
 async fn read_checked(
     recv: RecvStream,
     decomposition: &Decomposition,
-) -> Result<(WorkResult, std::time::Duration), Error> {
-    let (result, render_time) = read_work_result(recv).await?;
+) -> Result<(WorkResultHeader, WorkResult), Error> {
+    let (header, result) = read_work_result(recv).await?;
     let unit = result.unit();
     if !decomposition.contains(unit) {
         return Err(Error::UnknownWorkUnit(unit));
@@ -279,7 +281,7 @@ async fn read_checked(
     if pixels != decomposition.tile_bounds(unit.tile).area() {
         return Err(Error::WrongSize { unit, pixels });
     }
-    Ok((result, render_time))
+    Ok((header, result))
 }
 
 /// Closes the connection of `worker` for `error`, unless it is closed

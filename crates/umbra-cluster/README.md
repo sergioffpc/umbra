@@ -4,8 +4,8 @@ The Coordinator and the Worker: `coordinate` runs a Render Job and `work`
 runs a Worker, both synchronous, each owning its `tokio` runtime. Behind them
 are the QUIC wire protocol (ADR 0010), discovery by Cluster Name, heartbeats,
 pull-based Pass-major scheduling (ADR 0009), reassignment and the speculative
-tail, the Local Worker, Build Identity admission, the status line and the
-Render Job Report.
+tail, the Local Worker, Build Identity admission, the status line's content
+and the Render Job Report.
 
 It is a `std` crate, outside the core. It depends on `umbra-render` and on
 both renderers, `umbra-cpu` and `umbra-gpu`, and the `umbra` binary depends
@@ -15,7 +15,7 @@ on it; it receives a parsed Scene and does not depend on `umbra-parser`
 ```rust
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use umbra_cluster::{CoordinatorOptions, RenderJob, RenderJobOutcome, StatusLine, coordinate};
+use umbra_cluster::{CoordinatorOptions, RenderJob, RenderJobOutcome, coordinate};
 use umbra_render::{BuildIdentity, Cancellation, ReproductionRecord, Tree};
 use umbra_scene::{ContentHash, RenderJobOptions, SceneBuilder};
 
@@ -32,10 +32,12 @@ let identity = BuildIdentity {
 };
 let record =
     ReproductionRecord::new(PathBuf::from("scene.pbrt"), ContentHash([0; 32]), &options, identity);
-let job = RenderJob { scene, options, record };
+let output = PathBuf::from("pbrt.exr");
+let job = RenderJob { scene, options, output, record };
 
 let cancel = Cancellation::new();
-let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, StatusLine::Logged)?;
+// The status is the caller's to show; this one shows none.
+let outcome = coordinate(job, &CoordinatorOptions::default(), &cancel, |_, _| {})?;
 let RenderJobOutcome::Finished { image, report } = outcome else {
     panic!("nothing cancelled it");
 };
@@ -53,15 +55,16 @@ assert_eq!(image.resolution(), resolution);
 | `device`      | `RenderDevice` (`cpu` or `gpu:N`), `GpuOrdinal`, `RenderDevices` (`--render-devices`): which Local Workers run, and the GPUs that are usable                                                     |
 | `error`       | `Error`: why a Render Job did not finish, or a Worker could not serve one, protocol violations among them                                                                                        |
 | `worker`      | `work`: a Worker in its own process for one Render Job over QUIC, on the CPU or a GPU                                                                                                            |
-| `cpu_worker`  | A CPU Worker's render loop: several Work Units at once on its own rayon pool, each timed                                                                                                         |
+| `cpu_worker`  | A CPU Worker's render loop: several Work Units at once on its own rayon pool, each timed on the clock and on its threads                                                                         |
 | `gpu_worker`  | A GPU Worker's render loop: `umbra_gpu::Renderer::CAPACITY` Work Units in flight, rendered as one batch                                                                                          |
 | `transport`   | The typed messages either way, whatever carries them; the CPU Local Worker's in-memory connection; the Coordinator's `Event`s                                                                    |
 | `wire`        | The wire protocol (§8.13): the control messages, the Work Result header, their `postcard` frames, the raw pixel sums, the close codes                                                            |
 | `quic`        | The two QUIC endpoints: the Coordinator's self-signed certificate on loopback, the Workers' acceptance of any certificate, the 5 s idle timeout and 1 s keep-alive                               |
 | `listener`    | The Coordinator's side of QUIC: `Hello`, `Welcome`, the Scene stream, then each Worker's messages and Work Results as `Event`s, a Work Result checked against the Render Job before it is merged |
 | `runtime`     | The current-thread `tokio` runtime each side owns, and the 250 ms tick at which it checks a cancellation, a stop or the status                                                                   |
-| `progress`    | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                                                         |
-| `status`      | `StatusLine`: the aggregate line and the Local Worker's, redrawn on a terminal or logged every ~10 s                                                                                             |
+| `host`        | `Host`: the Local Worker's host name and CPU model, read from `/proc`                                                                                                                            |
+| `progress`    | What is assigned and merged, the busy and thread time, each Tile's cost, the moving average of the rate and the ETA                                                                              |
+| `status`      | `Status`, the status line's content: the aggregate line and the Local Worker's; `Moment`, running or ended                                                                                       |
 | `report`      | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                                                    |
 
 Not in the report yet: the Scene and BVH statistics, with
@@ -154,11 +157,11 @@ count, so a single-Pass Film hash does not either.
   group, so Ctrl-C on the terminal reaches the Coordinator alone.
 - **`RenderDevices::gpus`** loads CUDA and OptiX to count the usable GPUs;
   `CUDA_VISIBLE_DEVICES` hides GPUs from it as from CUDA.
-- **`StatusLine::Redrawn`** writes ANSI cursor moves: give it a terminal.
-  It moves up over its own two lines, so a log event written to the same
-  terminal during the render is drawn over.
-  `StatusLine::Logged` sends `info` events about every 10 s and once at
-  the end.
+- **The status is content only.** `coordinate` calls its `status`
+  argument with a `Status` at every tick, about every 250 ms, as
+  `Moment::Running`, and once at the end as `Moment::Ended`. It neither
+  draws nor logs it: `umbra` redraws it at the bottom of a terminal, or
+  logs it about every 10 s and at the end.
 - **The report's parse, Scene build and image write times** are the
   caller's to record, with `RenderJobReport::record_phase`.
 
@@ -168,8 +171,9 @@ Through the binary, in `crates/umbra/tests/render/` (spec #72, Seam 1):
 the image and report of a camera-only Scene File, and the same Film hash
 with one thread and with all of them, the report's fields, the logged
 status, Ctrl-C, and `--render-devices` without a GPU. Scheduling is checked
-there, not through internal interfaces. The status line's number formats
-are unit tests in `status`.
+there, not through internal interfaces: the report's CPU model is checked
+on x86-64 and on arm64, which CI runs too, and the status line's number
+formats on its logged lines.
 
 QUIC is checked through `coordinate` in `local_workers.rs` there, with
 Local Workers that are `umbra worker --render-device cpu` child processes:

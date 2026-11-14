@@ -44,9 +44,9 @@ fn blocks_per_work_unit(spp: u32) -> u64 {
     };
     let cancel = Cancellation::new();
     pool.install(|| {
-        let warm_up = renderer.render(unit, &cancel);
+        let warm_up = renderer.render(unit, &cancel).rendered;
         let before = dhat::HeapStats::get().total_blocks;
-        let measured = renderer.render(unit, &cancel);
+        let measured = renderer.render(unit, &cancel).rendered;
         let blocks = dhat::HeapStats::get().total_blocks - before;
         assert!(matches!(measured, Rendered::Done(_)), "rendered");
         assert_eq!(measured, warm_up, "the same Work Result twice");

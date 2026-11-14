@@ -1,13 +1,18 @@
 //! The Render Job Report (arc42 §8.10): plain text, one `Name: value` line
 //! per figure, which `umbra` writes to stdout. The Scene and BVH
-//! statistics arrive with the BVH, and the Anomalous Pixel Sample count
-//! with [#85](https://github.com/sergioffpc/umbra/issues/85).
+//! statistics arrive with the BVH
+//! ([#79](https://github.com/sergioffpc/umbra/issues/79)), and the
+//! Anomalous Pixel Sample count with
+//! [#85](https://github.com/sergioffpc/umbra/issues/85).
 
 use std::fmt::{self, Display};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use umbra_render::{FilmHash, ReproductionRecord};
+use umbra_scene::RenderJobOptions;
 
+use crate::host::Host;
 use crate::status::Si;
 
 /// How a Render Job ended.
@@ -75,9 +80,11 @@ impl Phase {
     }
 }
 
-/// What the Local Worker did.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// What the Local Worker did, and on what machine.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkerFigures {
+    /// The machine it ran on.
+    pub(crate) host: Host,
     /// Its threads.
     pub(crate) threads: usize,
     /// The Work Units whose Work Results were merged.
@@ -88,6 +95,35 @@ pub(crate) struct WorkerFigures {
     pub(crate) busy_time: Duration,
     /// The rest of the render phase.
     pub(crate) idle_time: Duration,
+    /// How much of the render phase its threads spent rendering.
+    pub(crate) occupancy: Occupancy,
+}
+
+/// The mean thread occupancy of a Worker: the share of the render phase
+/// each of its threads spent rendering rows, averaged over them, so the
+/// time they spent rendering over its threads times the render phase. The
+/// time of a Work Unit in flight when the Render Job is cancelled is left
+/// out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Occupancy(f64);
+
+impl Occupancy {
+    /// The occupancy of `threads` threads that spent `thread_time`
+    /// rendering, summed over them, in a render phase of `render_time`.
+    pub(crate) fn new(thread_time: Duration, threads: usize, render_time: Duration) -> Self {
+        let capacity = render_time.as_secs_f64() * to_f64(threads as u64);
+        Self(if capacity > 0.0 {
+            thread_time.as_secs_f64() / capacity
+        } else {
+            0.0
+        })
+    }
+}
+
+impl Display for Occupancy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.1} %", self.0 * 100.0)
+    }
 }
 
 /// What the render phase of a Render Job produced, for its report.
@@ -101,15 +137,25 @@ pub(crate) struct Rendered {
     pub(crate) tile_costs: Vec<f64>,
 }
 
+/// What a Render Job was submitted with, for its report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Submission {
+    pub(crate) options: RenderJobOptions,
+    /// Where its final image goes.
+    pub(crate) output: PathBuf,
+    pub(crate) reproduction_record: ReproductionRecord,
+}
+
 /// What a Render Job leaves behind besides its image, finished or
 /// cancelled. Its [`Display`] is the text `umbra` writes to stdout:
 ///
 /// ```text
 /// Render Job: finished
+/// Options: seed 0, spp 4, spp per pass 2, tile size 8, output black.exr
 /// Film hash: a5bab1a6c36d4cf5
 /// Pixel Samples: 3840 merged, 2.00 M per second
 /// Phase times: parse 0.000 s, Scene build 0.000 s, render 0.002 s, merge 0.000 s, image write 0.003 s
-/// Local Worker: 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s
+/// Local Worker: host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s, occupancy 83.4 %
 /// Tile costs: min 68.9, mean 247.4, max 1603.3 (Tile 1)
 /// Reproduction Record: version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0, …
 /// ```
@@ -120,6 +166,8 @@ pub(crate) struct Rendered {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderJobReport {
     outcome: Outcome,
+    options: RenderJobOptions,
+    output: PathBuf,
     film_hash: Option<FilmHash>,
     phase_times: [Option<Duration>; Phase::ALL.len()],
     render_time: Duration,
@@ -132,17 +180,19 @@ pub struct RenderJobReport {
 }
 
 impl RenderJobReport {
-    /// The report of what `rendered` says, made as `reproduction_record`
-    /// says.
-    pub(crate) fn new(rendered: Rendered, reproduction_record: ReproductionRecord) -> Self {
+    /// The report of what `rendered` says, of a Render Job submitted as
+    /// `submission` says.
+    pub(crate) fn new(rendered: Rendered, submission: Submission) -> Self {
         let mut report = Self {
             outcome: rendered.outcome,
+            options: submission.options,
+            output: submission.output,
             film_hash: rendered.film_hash,
             phase_times: [None; Phase::ALL.len()],
             render_time: rendered.render_time,
             local_worker: rendered.local_worker,
             tile_costs: rendered.tile_costs,
-            reproduction_record,
+            reproduction_record: submission.reproduction_record,
         };
         report.record_phase(Phase::Render, rendered.render_time);
         report.record_phase(Phase::Merge, rendered.merge_time);
@@ -181,6 +231,18 @@ impl RenderJobReport {
 impl Display for RenderJobReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Render Job: {}", self.outcome)?;
+        let RenderJobOptions {
+            seed,
+            tile_size,
+            spp_per_pass,
+            spp,
+        } = self.options;
+        writeln!(
+            f,
+            "Options: seed {}, spp {spp}, spp per pass {spp_per_pass}, tile size {tile_size}, output {}",
+            seed.0,
+            self.output.display(),
+        )?;
         if let Some(hash) = self.film_hash {
             writeln!(f, "Film hash: {hash}")?;
         }
@@ -198,12 +260,14 @@ impl Display for WorkerFigures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}",
+            "{}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}, occupancy {}",
+            self.host,
             self.threads,
             self.work_units,
             self.pixel_samples,
             Seconds(self.busy_time),
             Seconds(self.idle_time),
+            self.occupancy,
         )
     }
 }

@@ -12,8 +12,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use umbra_cluster::{
-    CoordinatorOptions, GpuOrdinal, GpuWorkers, RenderJob, RenderJobOutcome, StatusLine, Threads,
-    coordinate,
+    CoordinatorOptions, GpuOrdinal, GpuWorkers, RenderJob, RenderJobOutcome, Threads, coordinate,
 };
 use umbra_math::Point2i;
 use umbra_render::{BuildIdentity, Cancellation, FilmHash, ReproductionRecord, Tree};
@@ -46,14 +45,15 @@ fn job(side: i32, spp: u32) -> RenderJob {
     RenderJob {
         scene: builder.build().expect("a camera-only Scene builds"),
         options,
+        output: PathBuf::from("scene.exr"),
         record,
     }
 }
 
 /// The Film hash of `job` rendered with `options`, which must finish it.
 fn film_hash(job: RenderJob, options: &CoordinatorOptions<'_>) -> FilmHash {
-    let outcome = coordinate(job, options, &Cancellation::new(), StatusLine::Logged)
-        .expect("the Render Job finishes");
+    let outcome =
+        coordinate(job, options, &Cancellation::new(), |_, _| {}).expect("the Render Job finishes");
     let RenderJobOutcome::Finished { report, .. } = outcome else {
         panic!("nothing cancelled it");
     };
@@ -143,12 +143,6 @@ fn with_every_worker_gone_the_render_job_fails() {
             command: &command,
         }),
     };
-    let error = coordinate(
-        job(16, 1),
-        &options,
-        &Cancellation::new(),
-        StatusLine::Logged,
-    )
-    .unwrap_err();
+    let error = coordinate(job(16, 1), &options, &Cancellation::new(), |_, _| {}).unwrap_err();
     assert!(matches!(error, umbra_cluster::Error::NoWorkers), "{error}");
 }

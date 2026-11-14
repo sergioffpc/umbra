@@ -1,6 +1,7 @@
 //! The Render Job Report of a finished Render Job, on stdout (arc42 §8.10).
 
 use std::collections::BTreeMap;
+use std::fs;
 
 use crate::cli::{CAMERA_ONLY, Workspace, code, field, report, stderr};
 
@@ -69,6 +70,33 @@ fn the_report_has_the_local_workers_figures() {
 }
 
 #[test]
+fn the_report_has_the_local_workers_mean_thread_occupancy() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    let worker = &report["Local Worker"];
+    let value = field(worker, "occupancy");
+    let percent: f64 = value
+        .strip_suffix(" %")
+        .unwrap_or_else(|| panic!("{value}"))
+        .parse()
+        .expect("a percentage");
+    // Its threads render no more than the render phase lasts, and some of it.
+    assert!(percent > 0.0 && percent <= 100.0, "{worker}");
+}
+
+#[test]
+fn the_report_names_the_local_workers_host_and_cpu() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    let worker = &report["Local Worker"];
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").expect("Linux names its host");
+    assert_eq!(field(worker, "host"), host.trim(), "{worker}");
+    // Its model name on x86-64, its implementer and part on arm64: CI runs
+    // this on both.
+    assert_ne!(field(worker, "CPU"), "unknown", "{worker}");
+}
+
+#[test]
 fn the_report_summarises_the_tile_costs() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);
@@ -83,6 +111,16 @@ fn the_report_summarises_the_tile_costs() {
         .parse()
         .unwrap();
     assert!(costliest < 3 * 2, "one of the 6 Tiles: {costs}");
+}
+
+#[test]
+fn the_report_lists_the_render_job_options_with_the_output_path() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    assert_eq!(
+        report["Options"],
+        "seed 0, spp 4, spp per pass 3, tile size 16, output black.exr"
+    );
 }
 
 #[test]

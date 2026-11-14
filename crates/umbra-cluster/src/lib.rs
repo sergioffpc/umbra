@@ -6,6 +6,7 @@ mod cpu_worker;
 mod device;
 mod error;
 mod gpu_worker;
+mod host;
 mod listener;
 mod progress;
 mod quic;
@@ -21,5 +22,5 @@ pub use coordinator::{CoordinatorOptions, RenderJob, RenderJobOutcome, Threads, 
 pub use device::{GpuOrdinal, RenderDevice, RenderDevices};
 pub use error::Error;
 pub use report::{Outcome, Phase, RenderJobReport};
-pub use status::StatusLine;
+pub use status::{Moment, Status};
 pub use worker::work;

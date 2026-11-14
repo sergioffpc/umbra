@@ -3,7 +3,7 @@
 
 use std::env;
 use std::fs;
-use std::io::{self, IsTerminal, Write};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, GpuOrdinal, GpuWorkers, Phase, RenderDevice, RenderJob, RenderJobOutcome,
-    RenderJobReport, StatusLine, Threads, coordinate,
+    CoordinatorOptions, GpuOrdinal, GpuWorkers, Moment, Phase, RenderDevice, RenderJob,
+    RenderJobOutcome, RenderJobReport, Status, Threads, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -21,17 +21,20 @@ use umbra_scene::{RenderJobOptions, Seed};
 use crate::build_identity::build_identity;
 use crate::cli::RenderArgs;
 use crate::error::Error;
+use crate::footer::Footer;
+use crate::status::StatusLine;
 
-/// Renders the Scene File of `args`, writing its warnings and progress to
-/// `stderr`, then the image, and its Render Job Report to `stdout`; or,
-/// once `cancel` is made, the report alone. Each GPU's Local Worker is this
-/// executable, run as `umbra worker` with `log_args`.
+/// Renders the Scene File of `args`, writing its warnings to `stderr` and
+/// its progress to the footer of `stderr` on a terminal, then the image,
+/// and its Render Job Report to `stdout`; or, once `cancel` is made, the
+/// report alone. Each GPU's Local Worker is this executable, run as `umbra
+/// worker` with `log_args`.
 pub(crate) fn render(
     args: &RenderArgs,
     log_args: &[String],
     cancel: &Cancellation,
     stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
+    mut stderr: &Footer,
 ) -> Result<(), Error> {
     let _span = info_span!("render_job").entered();
     let parsed = parse(args)?;
@@ -53,14 +56,16 @@ pub(crate) fn render(
     let job = RenderJob {
         scene: parsed.scene,
         options,
+        output: parsed.output.clone(),
         record,
     };
-    let status = if io::stderr().is_terminal() {
-        StatusLine::Redrawn(stderr)
-    } else {
-        StatusLine::Logged
-    };
-    let outcome = coordinate_locally(job, args, log_args, cancel, status)?;
+    let mut status_line = StatusLine::on(stderr);
+    let outcome = coordinate_locally(job, args, log_args, cancel, |status, moment| {
+        status_line.show(status, moment);
+    })?;
+    // The last status stays on the terminal, above the errors and logs
+    // that follow it.
+    drop(status_line);
     finish(outcome, parsed.times, &parsed.output, stdout)
 }
 
@@ -71,7 +76,7 @@ fn coordinate_locally(
     args: &RenderArgs,
     log_args: &[String],
     cancel: &Cancellation,
-    status: StatusLine<'_>,
+    status: impl FnMut(&Status, Moment),
 ) -> Result<RenderJobOutcome, Error> {
     let devices = args.render_devices();
     let gpus = devices.gpus()?;

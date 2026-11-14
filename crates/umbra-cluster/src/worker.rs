@@ -3,7 +3,6 @@
 
 use std::net::SocketAddr;
 use std::thread;
-use std::time::Duration;
 
 use quinn::{Connection, RecvStream, SendStream};
 use rayon::ThreadPoolBuilder;
@@ -19,7 +18,8 @@ use crate::quic::{self, SERVER_NAME};
 use crate::runtime;
 use crate::transport::{self, ToCoordinator, ToWorker, WorkerEnd};
 use crate::wire::{
-    CloseCode, FromCoordinator, FromWorker, read_frame, write_frame, write_work_result,
+    CloseCode, FromCoordinator, FromWorker, WorkResultHeader, read_frame, write_frame,
+    write_work_result,
 };
 use crate::{cpu_worker, gpu_worker};
 
@@ -238,15 +238,14 @@ async fn relay(
     outbox.close().await
 }
 
-/// Sends `result`, rendered in `render_time`, on a new stream of
-/// `connection`.
+/// Sends `result` after `header` on a new stream of `connection`.
 async fn upload(
     connection: Connection,
+    header: WorkResultHeader,
     result: WorkResult,
-    render_time: Duration,
 ) -> Result<(), Error> {
     let send = connection.open_uni().await?;
-    write_work_result(send, &result, render_time).await
+    write_work_result(send, &header, &result).await
 }
 
 /// How a Worker closes its connection once its render loop returns.
@@ -291,8 +290,14 @@ impl Outbox<'_> {
             ToCoordinator::WorkResult {
                 result,
                 render_time,
+                thread_time,
             } => {
-                let upload = upload(self.connection.clone(), result, render_time);
+                let header = WorkResultHeader {
+                    work_unit: result.unit(),
+                    render_time,
+                    thread_time,
+                };
+                let upload = upload(self.connection.clone(), header, result);
                 self.uploads.spawn(upload);
             }
             ToCoordinator::Fatal(message) => {

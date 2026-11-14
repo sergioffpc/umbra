@@ -31,11 +31,13 @@ pub(crate) enum ToWorker {
 pub(crate) enum ToCoordinator {
     /// Add this many Work Units to the Worker's demand.
     RequestWork(u32),
-    /// A finished Work Unit, and how long the Worker took to render it:
-    /// metadata outside the Work Result's content (arc42 §8.10).
+    /// A finished Work Unit, how long the Worker took to render it, and
+    /// the time its threads spent on it, summed over them: metadata outside
+    /// the Work Result's content (arc42 §8.10).
     WorkResult {
         result: WorkResult,
         render_time: Duration,
+        thread_time: Duration,
     },
     /// The Worker cannot continue, for this reason; it goes away next.
     Fatal(String),
