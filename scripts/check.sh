@@ -63,6 +63,10 @@ rust() {
         -p umbra-sampling -p umbra-spectrum -p umbra-camera -p umbra-integrators \
         -p umbra-gpu-programs \
         --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
+    # The kernels of umbra-gpu's libm bench, which only its own PTX build
+    # compiles, under `--cfg umbra_libm_bench`.
+    step env RUSTFLAGS="-D warnings --cfg umbra_libm_bench" cargo clippy -p umbra-gpu-programs \
+        --target nvptx64-nvidia-cuda --locked -- -D warnings
     step env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --all-features --locked
     step cargo nextest run --all-features --locked --profile ci
     # nextest does not run doctests.

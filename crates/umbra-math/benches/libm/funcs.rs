@@ -1,72 +1,53 @@
-//! The functions benchmarked, their inputs, and their exact results.
+//! The functions the libm benchmarks time, their inputs, and their exact
+//! results. Shared by the CPU bench (`benches/libm.rs`) and the GPU one
+//! (`umbra-gpu`'s `benches/libm.rs`), which include it by `#[path]`.
 
 use std::fmt;
 
+use umbra_math::double;
+
 /// Inputs per batch: a multiple of every vector width.
-pub const BATCH: usize = 1024;
+pub(crate) const BATCH: usize = 1024;
 
 /// The exponent of `powf`: a gamma curve, as `SampledSpectrum::pow` takes it.
-pub const GAMMA: f32 = 2.2;
+pub(crate) const GAMMA: f32 = 2.2;
 
 /// Up to three arguments per element; the unused ones are zero.
-pub struct Inputs {
-    pub a: Vec<f32>,
-    pub b: Vec<f32>,
-    pub c: Vec<f32>,
+pub(crate) struct Inputs {
+    pub(crate) a: Vec<f32>,
+    pub(crate) b: Vec<f32>,
+    pub(crate) c: Vec<f32>,
 }
 
 /// How many results one evaluation gives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Outputs {
+pub(crate) enum Outputs {
     One,
     /// `sincosf`: the sine, then the cosine.
     Two,
 }
 
 /// One function of the table.
-pub struct Func {
-    pub name: &'static str,
-    pub inputs: fn() -> Inputs,
+pub(crate) struct Func {
+    pub(crate) name: &'static str,
+    pub(crate) inputs: fn() -> Inputs,
     /// The exact result: glibc's `f64` routine, or an exact `f32` operation.
     /// The second is the cosine for `sincosf`, unused otherwise.
-    pub exact: fn(f32, f32, f32) -> [f64; 2],
-    pub outputs: Outputs,
-}
-
-/// glibc's `f64` routines, the reference the `f32` results are measured
-/// against: within 1 ULP of `f64`, far below an `f32` ULP.
-mod glibc64 {
-    #[link(name = "m")]
-    unsafe extern "C" {
-        pub fn sin(x: f64) -> f64;
-        pub fn cos(x: f64) -> f64;
-        pub fn tan(x: f64) -> f64;
-        pub fn asin(x: f64) -> f64;
-        pub fn acos(x: f64) -> f64;
-        pub fn atan2(y: f64, x: f64) -> f64;
-        pub fn cosh(x: f64) -> f64;
-        pub fn atanh(x: f64) -> f64;
-        pub fn exp(x: f64) -> f64;
-        pub fn exp2(x: f64) -> f64;
-        pub fn log(x: f64) -> f64;
-        pub fn pow(x: f64, y: f64) -> f64;
-        pub fn erf(x: f64) -> f64;
-    }
+    pub(crate) exact: fn(f32, f32, f32) -> [f64; 2],
+    pub(crate) outputs: Outputs,
 }
 
 /// The exact result of a unary `f64` routine.
 macro_rules! exact1 {
-    ($f:ident) => {
-        // SAFETY: a glibc math function of `f64` values, no preconditions.
-        |a, _, _| [unsafe { glibc64::$f(f64::from(a)) }, 0.0]
+    ($f:path) => {
+        |a, _, _| [$f(f64::from(a)), 0.0]
     };
 }
 
 /// The exact result of a binary `f64` routine.
 macro_rules! exact2 {
-    ($f:ident) => {
-        // SAFETY: a glibc math function of `f64` values, no preconditions.
-        |a, b, _| [unsafe { glibc64::$f(f64::from(a), f64::from(b)) }, 0.0]
+    ($f:path) => {
+        |a, b, _| [$f(f64::from(a), f64::from(b)), 0.0]
     };
 }
 
@@ -99,7 +80,7 @@ fn uniform(seed: u64, low: f32, high: f32) -> Vec<f32> {
 }
 
 /// [`BATCH`] values of renderer magnitude: uniform in `[−1, 1)` times a
-/// power of two in `[2⁻¹⁰, 2¹⁰]`, never zero (as umbra-math's benches).
+/// power of two in `[2⁻¹⁰, 2¹⁰]`, never zero.
 fn values(seed: u64) -> Vec<f32> {
     let mut rng = Rng(seed);
     (0..BATCH)
@@ -130,90 +111,89 @@ fn two(a: Vec<f32>, b: Vec<f32>) -> Inputs {
 
 /// The 19 `f32` functions umbra-math exports from `libm`, in the order of the
 /// table.
-pub const FUNCS: &[Func] = &[
+pub(crate) const FUNCS: &[Func] = &[
     Func {
         name: "sinf",
         inputs: || one(uniform(1, -7.0, 7.0)),
-        exact: exact1!(sin),
+        exact: exact1!(double::sin),
         outputs: Outputs::One,
     },
     Func {
         name: "cosf",
         inputs: || one(uniform(2, -7.0, 7.0)),
-        exact: exact1!(cos),
+        exact: exact1!(double::cos),
         outputs: Outputs::One,
     },
     Func {
         name: "sincosf",
         inputs: || one(uniform(3, -7.0, 7.0)),
-        // SAFETY: glibc math functions of `f64` values, no preconditions.
-        exact: |a, _, _| unsafe { [glibc64::sin(f64::from(a)), glibc64::cos(f64::from(a))] },
+        exact: |a, _, _| [double::sin(f64::from(a)), double::cos(f64::from(a))],
         outputs: Outputs::Two,
     },
     Func {
         name: "tanf",
         inputs: || one(uniform(4, -1.5, 1.5)),
-        exact: exact1!(tan),
+        exact: exact1!(double::tan),
         outputs: Outputs::One,
     },
     Func {
         name: "asinf",
         inputs: || one(uniform(5, -1.0, 1.0)),
-        exact: exact1!(asin),
+        exact: exact1!(double::asin),
         outputs: Outputs::One,
     },
     Func {
         name: "acosf",
         inputs: || one(uniform(6, -1.0, 1.0)),
-        exact: exact1!(acos),
+        exact: exact1!(double::acos),
         outputs: Outputs::One,
     },
     Func {
         name: "atan2f",
         inputs: || two(values(7), values(8)),
-        exact: exact2!(atan2),
+        exact: exact2!(double::atan2),
         outputs: Outputs::One,
     },
     Func {
         name: "coshf",
         inputs: || one(uniform(9, -10.0, 10.0)),
-        exact: exact1!(cosh),
+        exact: exact1!(double::cosh),
         outputs: Outputs::One,
     },
     Func {
         name: "atanhf",
         inputs: || one(uniform(10, -0.99, 0.99)),
-        exact: exact1!(atanh),
+        exact: exact1!(double::atanh),
         outputs: Outputs::One,
     },
     Func {
         name: "expf",
         inputs: || one(uniform(11, -20.0, 2.0)),
-        exact: exact1!(exp),
+        exact: exact1!(double::exp),
         outputs: Outputs::One,
     },
     Func {
         name: "exp2f",
         inputs: || one(uniform(12, -20.0, 20.0)),
-        exact: exact1!(exp2),
+        exact: exact1!(double::exp2),
         outputs: Outputs::One,
     },
     Func {
         name: "logf",
         inputs: || one(magnitudes(13)),
-        exact: exact1!(log),
+        exact: exact1!(double::log),
         outputs: Outputs::One,
     },
     Func {
         name: "powf",
         inputs: || two(uniform(14, 0.0, 4.0), vec![GAMMA; BATCH]),
-        exact: exact2!(pow),
+        exact: exact2!(double::pow),
         outputs: Outputs::One,
     },
     Func {
         name: "erff",
         inputs: || one(uniform(15, -4.0, 4.0)),
-        exact: exact1!(erf),
+        exact: exact1!(double::erf),
         outputs: Outputs::One,
     },
     Func {
@@ -254,7 +234,7 @@ pub const FUNCS: &[Func] = &[
 
 /// The largest error of an implementation over a batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum UlpError {
+pub(crate) enum UlpError {
     /// The distance to the correctly rounded result, in `f32` ULPs.
     Ulps(u64),
     /// A NaN where the exact result is a number, or the other way round.
@@ -277,7 +257,7 @@ impl UlpError {
     }
 
     /// The largest error of `out1` (and `out2` for two outputs) on `inputs`.
-    pub fn max(func: &Func, inputs: &Inputs, out1: &[f32], out2: &[f32]) -> Self {
+    pub(crate) fn max(func: &Func, inputs: &Inputs, out1: &[f32], out2: &[f32]) -> Self {
         (0..BATCH)
             .map(|i| {
                 let exact = (func.exact)(inputs.a[i], inputs.b[i], inputs.c[i]);

@@ -76,6 +76,12 @@ PTX and the pipeline, `Tracer::evaluate`, and `MathFunction` and
 `UnknownMathFunction` at the crate root: for the GPU tests alone, which turn
 it on by a dev-dependency of the crate on itself (#146).
 
+The `libm-bench` feature, off by default, makes the build script compile a
+second PTX, of `umbra-gpu-programs`' libm bench kernels, for
+`benches/libm.rs`: what each C math function costs on the GPU, the
+counterpart of `umbra-math`'s bench of the same name, whose README says how
+to run both.
+
 Not here yet: the stages that trace rays and shade their hits, which
 arrive with each feature on both Render Devices, and the GPU Local Worker
 that pulls Work Units for the `Renderer`

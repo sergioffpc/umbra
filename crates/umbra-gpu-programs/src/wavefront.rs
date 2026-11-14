@@ -80,8 +80,9 @@ impl<T> DeviceSlice<T> {
 
 /// The device's access to a [`DeviceSlice`]: as a `&[T]`, the storage of
 /// the core's tables, or value by value, as the stages read and write their
-/// queues. A panic is a bug, and traps (ADR 0014).
-#[cfg(target_arch = "nvptx64")]
+/// queues. A panic is a bug, and traps (ADR 0014). Not in the libm bench's
+/// PTX, which has no stages.
+#[cfg(all(target_arch = "nvptx64", not(umbra_libm_bench)))]
 mod device {
     use super::DeviceSlice;
 

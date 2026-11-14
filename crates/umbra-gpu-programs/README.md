@@ -34,6 +34,7 @@ There is no example: none of its programs runs on the host. `umbra-gpu`'s
 | `launch`      | On both targets: the layout the host shares, `LaunchParams`, `RayRecord` (from the core's `Ray`), `HitRecord` and `HitKind`                              |
 | `wavefront`   | On both targets: the wavefront's layout, `DeviceSlice` and the records of the Scene, the sampler, the batch, the queue and the film samples              |
 | `math_launch` | On both targets, with `math-program`: the math program's layout the host shares, `MathParams`, `MathFunction` and its ids, `UnknownMathFunction`         |
+| `libm_bench`  | On `nvptx64`, under `--cfg umbra_libm_bench` only: the plain CUDA kernels of `umbra-gpu`'s libm bench, and their panic handler                           |
 
 The layout's types are public at the crate root.
 
@@ -119,6 +120,18 @@ table record. It traces no ray. It, `math` and `math_launch` exist only
 with the `math-program` feature, which `umbra-gpu`'s feature of the same
 name turns on, in the programs' build and in the layout it uses; production
 PTX has no math program.
+
+### The libm bench's kernels
+
+`umbra-gpu`'s libm bench times each C math function three ways on the GPU:
+`libdevice`, `umbra-math`'s `nvptx64` backend and the approximate
+intrinsics. Its kernels are plain CUDA kernels, and the CUDA module that
+runs them cannot load the OptiX programs. So
+`umbra-gpu`'s build script, under its `libm-bench` feature, builds this
+crate a second time into a PTX of its own, with `--cfg umbra_libm_bench`,
+which compiles `libm_bench` and leaves `programs`, `optix` and `math` out.
+A cfg rather than a feature, since it takes modules out: the production
+PTX is built without it.
 
 ### Panics trap
 

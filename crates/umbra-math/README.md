@@ -417,65 +417,39 @@ stored and 1.67 ns after; with 16 transforms that stay in cache it measured
 do not justify it on their own (arc42 §8.4): the end-to-end proof is
 `umbra bench` on the Reference Scenes, once there is a renderer to run it.
 
-### Transcendentals against glibc
+### What libm costs
 
-All 19 `f32` functions of the C library that the crate exports are timed
-on the three benchmark machines and the GPU by `tools/libm-bench`, through
-`scripts/bench-libm.sh`. Its results are in the
-[Umbra Math Guide](docs/math-guide.html#libm), "What libm costs": glibc,
-this crate and the fastest SIMD form side by side, with their largest
-errors. The bench below covers the transcendentals Umbra has kernels for.
-
-`benches/transcendentals.rs` times each transcendental Umbra uses, from
-every implementation available, for
-[#138 Benchmark glibc and libmvec transcendentals](https://github.com/sergioffpc/umbra/issues/138):
-should the x86-64 backend take some of them from glibc? Each bench (`sin_cos`, `atan2`, `erf`, `exp4`
-for `Vec4::exp`, `pow4` for `Vec4::pow`) prints one line per implementation:
-
-- `Umbra`: the crate's own functions;
-- `GlibcScalar`: glibc's `libm.so` through the crate's wrappers
-  (`sincosf`, `atan2f`, `erff`, `expf`, `powf`), one call per element (per
-  lane for `Vec4`);
-- `Libmvec4` and `Libmvec8`: glibc's `libmvec`, 4 lanes per call for SSE
-  (`_ZGVbN4…`) and 8 for AVX2 (`_ZGVdN8…`). `sin_cos` calls the vector
-  `sinf` and `cosf`.
-
-The `libmvec` lines exist only on `linux-gnu`, and not under Miri. The
-bench and its test link `libmvec`; the library does not. A `LibmCrate` line
-timed the `libm` crate until Umbra dropped it; its columns below are from
-then. Every implementation sees
-the same inputs, those of the `kernels` benches. Divan prints the time per
-batch of 1024; divide the median by 1024 for the time per element, or per
-`Vec4` for `exp4` and `pow4`, where one 8-lane call does two.
-
-To compare the P620 and the R630 on the instruction set of the release
-image (ADR 0025), build the bench on each machine:
+`benches/libm.rs` times the 19 `f32` functions of the C library that the
+crate exports, each three ways: glibc's scalar function, this crate as it
+is (its own kernel, the instruction, or its wrapper of glibc), and the
+fastest SIMD form there is (glibc's `libmvec`, 8 lanes of AVX2 on x86-64
+and 4 of `AdvSIMD` on arm64, or the vector instruction). Each line has the
+median time per element and the largest error in ULPs over the same 1024
+inputs on every machine. `umbra-gpu`'s `benches/libm.rs` does the same on
+the GPU, against CUDA's `libdevice` and its approximate intrinsics.
 
 ```sh
-RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench -p umbra-math \
-  --bench transcendentals --no-run
+cargo bench -p umbra-math --bench libm
+cargo bench -p umbra-gpu --features libm-bench --bench libm
 ```
 
-The bench calls whatever glibc it runs on, and glibc's speed changes
-between versions (below), so run the executable Cargo prints in the Ubuntu
-image that the root `Dockerfile`'s `FROM` lines pin, which has the release
-image's glibc:
+Run on a benchmark machine with `UMBRA_BENCH_MACHINE` set to its name
+(`p620`, `r630`, `m2`), each bench also writes its results to
+`docs/libm-results/<machine>-cpu.js` or `-gpu.js`, which the
+[Umbra Math Guide](docs/math-guide.html#libm), "What libm costs", plots
+side by side. Run it in the dev container, whose glibc is the release
+image's, and commit the file; each machine and device has its own, so runs
+on different machines never conflict. The CPU bench pins itself to CPU 2.
 
-```sh
-docker run --rm -v "$PWD/target:/target:ro" ubuntu:26.04@sha256:<digest> \
-  /<path printed by Cargo> --bench | tee bench-$(hostname).txt
-```
+#### #138: the transcendentals against glibc and the `libm` crate
 
-Build it in the dev container (glibc 2.41) or elsewhere on a glibc no newer
-than the image's. In the dev container, `target/` is a volume: copy the
-executable out with `docker cp`.
-
-`accuracy/implementations.rs` checks every implementation on the bench's
-inputs, against the `libm` crate's `f64` routines rounded to `f32` when
-these were measured (glibc's now): within Umbra's
-bound of 1 ULP, and `libmvec` within the 4 ULPs that glibc's manual states
-for its vector functions. The largest errors there, in ULPs, are the same
-on glibc 2.41, 2.43 and 2.44:
+[#138 Benchmark glibc and libmvec transcendentals](https://github.com/sergioffpc/umbra/issues/138)
+asked whether the x86-64 backend should take some of Umbra's own
+transcendentals from glibc. The bench that answered it, since folded into
+`benches/libm.rs`, timed Umbra's kernels against glibc's scalar functions,
+`libmvec` at 4 and 8 lanes, and the `libm` crate that Umbra then used, at
+`target-cpu=x86-64-v3`, on the release image's glibc. The largest errors,
+in ULPs, were the same on glibc 2.41, 2.43 and 2.44:
 
 | Function    | `libm` crate | Umbra | glibc scalar | `libmvec`, 4 lanes | `libmvec`, 8 lanes |
 | ----------- | -----------: | ----: | -----------: | -----------------: | -----------------: |
@@ -542,12 +516,6 @@ the R630 it beats Umbra's `sin_cos` (11.9 against 13.1 ns, and 12.2 against
   `accuracy`) are `#[ignore]`d; run them with
   `cargo nextest run -p umbra-math --run-ignored all -E 'test(exhaustive)'`
   (about 35 s on the 3975WX).
-- `accuracy/implementations.rs` checks every implementation that
-  `benches/transcendentals.rs` times, glibc's included, on the bench's
-  inputs, which it shares through `transcendentals.rs`: Umbra's bound of
-  1 ULP, and glibc's 4 for `libmvec`. It catches a wrong FFI signature or
-  lane order; the `libmvec` lines run only where it is linked (not under
-  Miri).
 - `platform.rs` checks each C math wrapper against known values, which
   catches a wrong FFI signature (ADR 0007).
 

@@ -11,8 +11,8 @@
 //! machine's instruction set.
 //!
 //! The transcendentals (`sin_cos`, `atan2`, `erf`, `Vec4::exp`,
-//! `Vec4::pow`) have their own target, `benches/transcendentals.rs`, which
-//! also times glibc's.
+//! `Vec4::pow`) are timed with the rest of the C library's functions, and
+//! glibc's, by `benches/libm.rs`.
 
 #[path = "../tests/umbra_math/reference.rs"]
 #[expect(dead_code, reason = "the benchmarks time only the hot kernels")]

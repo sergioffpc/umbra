@@ -88,14 +88,24 @@ wrappers! {
     fn sin(x: f64) -> f64;
     /// `cos x`, `x` in radians.
     fn cos(x: f64) -> f64;
+    /// `tan x`, `x` in radians.
+    fn tan(x: f64) -> f64;
+    /// `asin x`, in `[−π/2, π/2]`; NaN outside `[−1, 1]`.
+    fn asin(x: f64) -> f64;
     /// `acos x`, in `[0, π]`; NaN outside `[−1, 1]`.
     fn acos(x: f64) -> f64;
     /// The angle of `(x, y)`, in `[−π, π]`.
     fn atan2(y: f64, x: f64) -> f64;
+    /// `cosh x`.
+    fn cosh(x: f64) -> f64;
+    /// `atanh x`; NaN outside `[−1, 1]`.
+    fn atanh(x: f64) -> f64;
     /// `√(x² + y²)`, without undue overflow or underflow.
     fn hypot(x: f64, y: f64) -> f64;
     /// `eˣ`.
     fn exp(x: f64) -> f64;
+    /// `2ˣ`.
+    fn exp2(x: f64) -> f64;
     /// `ln x`.
     fn log(x: f64) -> f64;
     /// `xʸ`.
