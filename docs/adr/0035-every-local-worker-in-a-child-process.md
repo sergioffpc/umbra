@@ -7,7 +7,7 @@ With the GPU's Local Worker in a child process over QUIC, the in-memory transpor
 - **One Local Worker per Render Device, each a process.** `umbra render` runs its own executable as `umbra worker --render-device cpu` and `umbra worker --render-device gpu:N`, each with `--coordinator` and the Coordinator's loopback address, and `--nthreads` for the CPU's.
 - **One transport.** Every Worker, local or remote, speaks the wire protocol of arc42 §8.13 over QUIC. Inside a Worker's process, its connection and its render loop still pass the typed messages over channels.
 - **A child is known by its process.** `Hello` carries the Worker's process identifier, so the Coordinator tells which Worker a child that exits was, and takes back its Work Units at once instead of after the idle timeout.
-- **Workers log, they do not print.** `umbra worker` logs its version line and its errors as events. A Local Worker logs JSON lines to a pipe; the Coordinator logs each event at its level, prefixed with the Worker's Render Device, so they appear above the status line, through the same `--log` filter.
+- **Workers log, they do not print.** `umbra worker` logs its version line and its errors as events. A Local Worker logs JSON lines to a pipe; the Coordinator logs each event at its level, prefixed with the Worker's Render Device, so they appear above the status line, through the same `--log-filter`.
 
 ## Considered options
 

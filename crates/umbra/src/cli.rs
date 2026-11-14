@@ -17,8 +17,8 @@ pub(crate) struct Cli {
     pub(crate) command: Command,
     /// The events logged to stderr, as a `RUST_LOG`-style filter.
     #[arg(long, global = true, default_value = "info", value_parser = parse_filter)]
-    pub(crate) log: String,
-    /// The log format; `human` on a terminal and `json` otherwise by default.
+    pub(crate) log_filter: String,
+    /// The log format; `pretty` on a terminal and `json` otherwise by default.
     #[arg(long, global = true, value_enum)]
     pub(crate) log_format: Option<LogFormat>,
 }
