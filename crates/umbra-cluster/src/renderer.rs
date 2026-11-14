@@ -2,7 +2,8 @@
 //! far: the GPU's, which renders Work Units in batches, joins with the GPU
 //! Local Worker (#128).
 
-use umbra_render::{Cancellation, Rendered, WorkUnit};
+use umbra_cpu::Render;
+use umbra_render::{Cancellation, WorkUnit};
 use umbra_scene::{RenderJobOptions, Scene};
 
 use crate::error::Error;
@@ -33,8 +34,9 @@ impl<'s> Renderer<'s> {
         })
     }
 
-    /// Renders `unit` into its Work Result, unless `cancel` stops it first.
-    pub(crate) fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Rendered {
+    /// Renders `unit` into its Work Result, unless `cancel` stops it first,
+    /// with the threads' time on it.
+    pub(crate) fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Render {
         match self {
             Self::Cpu(renderer) => renderer.render(unit, cancel),
         }

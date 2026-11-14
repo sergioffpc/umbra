@@ -1,5 +1,7 @@
 //! Seam 3: the Renderer turns each Work Unit into its Work Result.
 
+use std::time::{Duration, Instant};
+
 use rayon::ThreadPoolBuilder;
 use umbra_cpu::Renderer;
 use umbra_render::{Cancellation, Film, FilmHash, PassIndex, Rendered, TileIndex, WorkUnit};
@@ -91,7 +93,7 @@ fn a_render_is_a_pure_function_of_its_work_unit() {
     units.reverse();
     let cancel = Cancellation::new();
     for unit in units {
-        let Rendered::Done(result) = renderer.render(unit, &cancel) else {
+        let Rendered::Done(result) = renderer.render(unit, &cancel).rendered else {
             panic!("{unit:?} cancelled");
         };
         let same = first.iter().find(|r| r.unit() == unit).unwrap();
@@ -110,5 +112,28 @@ fn a_cancelled_render_returns_no_work_result() {
         tile: TileIndex(0),
         pass: PassIndex(0),
     };
-    assert_eq!(renderer.render(unit, &cancel), Rendered::Cancelled);
+    assert_eq!(renderer.render(unit, &cancel).rendered, Rendered::Cancelled);
+}
+
+#[test]
+fn a_render_on_one_thread_takes_its_time_on_that_thread() {
+    let scene = camera_only();
+    let options = options(8, 4);
+    let renderer = Renderer::new(&scene, &options).unwrap();
+    let pool = ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+    let unit = WorkUnit {
+        tile: TileIndex(0),
+        pass: PassIndex(0),
+    };
+    let cancel = Cancellation::new();
+    let start = Instant::now();
+    let render = pool.install(|| renderer.render(unit, &cancel));
+    let wall = start.elapsed();
+    assert!(matches!(render.rendered, Rendered::Done(_)), "rendered");
+    assert!(render.thread_time > Duration::ZERO, "{render:?}");
+    assert!(
+        render.thread_time <= wall,
+        "{:?} > {wall:?}",
+        render.thread_time
+    );
 }

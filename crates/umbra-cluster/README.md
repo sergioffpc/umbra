@@ -52,10 +52,10 @@ assert_eq!(image.resolution(), resolution);
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `coordinator`  | `coordinate`, `RenderJob`, `CoordinatorOptions` (the Local Worker's `Threads`), `RenderJobOutcome` (finished or cancelled); the scheduling loop                   |
 | `error`        | `Error`: why a Render Job did not finish                                                                                                                          |
-| `local_worker` | The CPU Local Worker: renders its Work Units with its `Renderer`, several at once on its own rayon pool, and times each                                           |
+| `local_worker` | The CPU Local Worker: renders its Work Units with its `Renderer`, several at once on its own rayon pool, and times each, on the clock and on its threads          |
 | `renderer`     | `Renderer`, chosen by the Worker's `RenderDevice` (ADR 0033): the CPU's so far                                                                                    |
 | `host`         | `Host`: the Local Worker's host name and CPU model, read from `/proc`                                                                                             |
-| `progress`     | What is assigned and merged, the busy time, each Tile's cost, the moving average of the rate and the ETA                                                          |
+| `progress`     | What is assigned and merged, the busy and thread time, each Tile's cost, the moving average of the rate and the ETA                                               |
 | `status`       | `Status`, the status line's content: the aggregate line and the Local Worker's; `Moment`, running or ended                                                        |
 | `transport`    | The in-memory transport: `Assign`, `JobFinished` and `Cancel` to the Worker, `RequestWork` and timed Work Results to the Coordinator, typed and unencoded (§8.13) |
 | `report`       | `RenderJobReport`, `Outcome`, `Phase`; the report's text, one `Name: value` line per figure, is its `Display`                                                     |

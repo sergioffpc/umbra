@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 use umbra_integrators::{
@@ -19,6 +20,18 @@ use umbra_scene::{RenderJobOptions, Scene};
 #[derive(Debug)]
 struct Cancelled;
 
+/// A render of a Work Unit: how it ended, and how long the pool's threads
+/// spent on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Render {
+    /// How it ended.
+    pub rendered: Rendered,
+    /// The time spent rendering its rows, summed over the threads that
+    /// rendered them: its share of the Worker's thread occupancy (arc42
+    /// §8.10). A cancelled render counts the rows it rendered.
+    pub thread_time: Duration,
+}
+
 /// What a render reads, shared by every thread rendering a Work Unit.
 struct Job<'a> {
     view: SceneView<'a>,
@@ -32,7 +45,7 @@ struct Job<'a> {
 /// behind it is generic and statically dispatched.
 trait Integrator: Sync + fmt::Debug {
     /// Renders `unit`, unless the job's cancellation stops it.
-    fn render(&self, job: &Job<'_>, unit: WorkUnit) -> Rendered;
+    fn render(&self, job: &Job<'_>, unit: WorkUnit) -> Render;
 }
 
 /// The CPU's driver of a ray integrator: the Tile's rows in parallel, each
@@ -41,19 +54,31 @@ trait Integrator: Sync + fmt::Debug {
 struct PixelLoop<I>(I);
 
 impl<I: RayIntegrator + Sync + fmt::Debug> Integrator for PixelLoop<I> {
-    fn render(&self, job: &Job<'_>, unit: WorkUnit) -> Rendered {
+    fn render(&self, job: &Job<'_>, unit: WorkUnit) -> Render {
         let bounds = job.decomposition.tile_bounds(unit.tile);
         let samples = job.decomposition.sample_indices(unit.pass);
         let mut pixels = vec![PixelSum::default(); bounds.area()];
         let rows = pixels
             .par_chunks_mut(bounds.width())
             .zip(bounds.min.y..bounds.max.y);
-        let outcome = rows.try_for_each(|(row, y)| {
-            self.render_row(job, row, Point2i::new(bounds.min.x, y), &samples)
-        });
-        match outcome {
+        // Every row runs: once cancelled, each returns at its first check.
+        let (thread_time, outcome) = rows
+            .map(|(row, y)| {
+                let start = Instant::now();
+                let outcome = self.render_row(job, row, Point2i::new(bounds.min.x, y), &samples);
+                (start.elapsed(), outcome)
+            })
+            .reduce(
+                || (Duration::ZERO, Ok(())),
+                |(a, first), (b, second)| (a + b, first.and(second)),
+            );
+        let rendered = match outcome {
             Ok(()) => Rendered::Done(WorkResult::new(unit, pixels)),
             Err(Cancelled) => Rendered::Cancelled,
+        };
+        Render {
+            rendered,
+            thread_time,
         }
     }
 }
@@ -170,12 +195,13 @@ impl<'s> Renderer<'s> {
         &self.decomposition
     }
 
-    /// Renders `unit` into its Work Result, unless `cancel` stops it first.
+    /// Renders `unit` into its Work Result, unless `cancel` stops it first,
+    /// and measures the threads' time on it.
     ///
     /// # Panics
     ///
     /// If `unit` is not one of this Render Job's.
-    pub fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Rendered {
+    pub fn render(&self, unit: WorkUnit, cancel: &Cancellation) -> Render {
         assert!(
             self.decomposition.contains(unit),
             "{unit:?} is not in this Render Job"

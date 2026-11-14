@@ -25,7 +25,7 @@ let renderer = Renderer::new(&scene, &options)?;
 let mut film = Film::new(&scene, &options)?;
 let cancel = Cancellation::new();
 for unit in renderer.decomposition().work_units() {
-    if let Rendered::Done(result) = renderer.render(unit, &cancel) {
+    if let Rendered::Done(result) = renderer.render(unit, &cancel).rendered {
         assert_eq!(film.accept(&result), Acceptance::Merged);
     }
 }
@@ -35,9 +35,9 @@ assert!(film.is_complete());
 
 ## What is in it
 
-| Module     | Contents                                                                                                                     |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `renderer` | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`, on rayon's pool |
+| Module     | Contents                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `renderer` | `Renderer`, which renders a `WorkUnit` into `Rendered::Done` with its Work Result, or `Rendered::Cancelled`, on rayon's pool, and `Render`, which adds the threads' time on it |
 
 Not here yet: Pixel Traces and their `TraceRecorder`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88).

@@ -70,6 +70,21 @@ fn the_report_has_the_local_workers_figures() {
 }
 
 #[test]
+fn the_report_has_the_local_workers_mean_thread_occupancy() {
+    let ws = Workspace::new();
+    let report = rendered_report(&ws);
+    let worker = &report["Local Worker"];
+    let value = field(worker, "occupancy");
+    let percent: f64 = value
+        .strip_suffix(" %")
+        .unwrap_or_else(|| panic!("{value}"))
+        .parse()
+        .expect("a percentage");
+    // Its threads render no more than the render phase lasts, and some of it.
+    assert!(percent > 0.0 && percent <= 100.0, "{worker}");
+}
+
+#[test]
 fn the_report_names_the_local_workers_host_and_cpu() {
     let ws = Workspace::new();
     let report = rendered_report(&ws);

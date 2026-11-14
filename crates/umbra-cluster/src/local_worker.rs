@@ -6,6 +6,7 @@ use std::time::Instant;
 use rayon::ThreadPool;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::info_span;
+use umbra_cpu::Render;
 use umbra_render::{Cancellation, Rendered, WorkUnit};
 
 use crate::renderer::Renderer;
@@ -47,8 +48,8 @@ fn next_unit(
     }
 }
 
-/// Renders `unit` and sends its Work Result, with its render time and a
-/// credit for the next.
+/// Renders `unit` and sends its Work Result, with its render time, its
+/// threads' time and a credit for the next.
 fn render(
     renderer: &Renderer<'_>,
     unit: WorkUnit,
@@ -57,11 +58,16 @@ fn render(
 ) {
     let _span = info_span!("work_unit", tile = unit.tile.0, pass = unit.pass.0).entered();
     let start = Instant::now();
-    if let Rendered::Done(result) = renderer.render(unit, cancel) {
+    let Render {
+        rendered,
+        thread_time,
+    } = renderer.render(unit, cancel);
+    if let Rendered::Done(result) = rendered {
         let render_time = start.elapsed();
         let _ = to_coordinator.send(ToCoordinator::WorkResult {
             result,
             render_time,
+            thread_time,
         });
         let _ = to_coordinator.send(ToCoordinator::RequestWork(1));
     }

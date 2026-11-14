@@ -1,7 +1,9 @@
 //! The Render Job Report (arc42 §8.10): plain text, one `Name: value` line
 //! per figure, which `umbra` writes to stdout. The Scene and BVH
-//! statistics arrive with the BVH, and the Anomalous Pixel Sample count
-//! with [#85](https://github.com/sergioffpc/umbra/issues/85).
+//! statistics arrive with the BVH
+//! ([#79](https://github.com/sergioffpc/umbra/issues/79)), and the
+//! Anomalous Pixel Sample count with
+//! [#85](https://github.com/sergioffpc/umbra/issues/85).
 
 use std::fmt::{self, Display};
 use std::path::PathBuf;
@@ -93,6 +95,35 @@ pub(crate) struct WorkerFigures {
     pub(crate) busy_time: Duration,
     /// The rest of the render phase.
     pub(crate) idle_time: Duration,
+    /// How much of the render phase its threads spent rendering.
+    pub(crate) occupancy: Occupancy,
+}
+
+/// The mean thread occupancy of a Worker: the share of the render phase
+/// each of its threads spent rendering rows, averaged over them, so the
+/// time they spent rendering over its threads times the render phase. The
+/// time of a Work Unit in flight when the Render Job is cancelled is left
+/// out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Occupancy(f64);
+
+impl Occupancy {
+    /// The occupancy of `threads` threads that spent `thread_time`
+    /// rendering, summed over them, in a render phase of `render_time`.
+    pub(crate) fn new(thread_time: Duration, threads: usize, render_time: Duration) -> Self {
+        let capacity = render_time.as_secs_f64() * to_f64(threads as u64);
+        Self(if capacity > 0.0 {
+            thread_time.as_secs_f64() / capacity
+        } else {
+            0.0
+        })
+    }
+}
+
+impl Display for Occupancy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.1} %", self.0 * 100.0)
+    }
 }
 
 /// What the render phase of a Render Job produced, for its report.
@@ -124,7 +155,7 @@ pub(crate) struct Submission {
 /// Film hash: a5bab1a6c36d4cf5
 /// Pixel Samples: 3840 merged, 2.00 M per second
 /// Phase times: parse 0.000 s, Scene build 0.000 s, render 0.002 s, merge 0.000 s, image write 0.003 s
-/// Local Worker: host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s
+/// Local Worker: host p620, CPU AMD Ryzen Threadripper PRO 3975WX 32-Cores, 12 threads, 30 Work Units, 3840 Pixel Samples, busy 0.002 s, idle 0.000 s, occupancy 83.4 %
 /// Tile costs: min 68.9, mean 247.4, max 1603.3 (Tile 1)
 /// Reproduction Record: version 1, scene file /scenes/a.pbrt, content hash 9505…, seed 0, …
 /// ```
@@ -229,13 +260,14 @@ impl Display for WorkerFigures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}",
+            "{}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}, occupancy {}",
             self.host,
             self.threads,
             self.work_units,
             self.pixel_samples,
             Seconds(self.busy_time),
             Seconds(self.idle_time),
+            self.occupancy,
         )
     }
 }

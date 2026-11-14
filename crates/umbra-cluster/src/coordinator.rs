@@ -22,7 +22,7 @@ use crate::host::Host;
 use crate::local_worker;
 use crate::progress::Progress;
 use crate::renderer::{RenderDevice, Renderer};
-use crate::report::{Outcome, RenderJobReport, Rendered, Submission, WorkerFigures};
+use crate::report::{Occupancy, Outcome, RenderJobReport, Rendered, Submission, WorkerFigures};
 use crate::status::{Moment, Status};
 use crate::transport::{CoordinatorEnd, ToCoordinator, ToWorker, connect};
 
@@ -219,7 +219,11 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S
             ToCoordinator::WorkResult {
                 result,
                 render_time,
-            } => self.merge(&result, render_time),
+                thread_time,
+            } => {
+                self.progress.rendered(thread_time);
+                self.merge(&result, render_time);
+            }
         }
     }
 
@@ -296,6 +300,7 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S
                 pixel_samples: self.progress.merged_samples(),
                 busy_time,
                 idle_time: render_time.saturating_sub(busy_time),
+                occupancy: Occupancy::new(self.progress.thread_time(), self.threads, render_time),
             },
             tile_costs: self.progress.tile_costs(),
         }
