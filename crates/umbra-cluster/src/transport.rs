@@ -1,8 +1,8 @@
-//! The typed messages between the Coordinator and a Worker, whatever
-//! carries them: in memory to the CPU Local Worker, unencoded, or over QUIC
-//! to a Worker in another process (arc42 §8.13). Each side sees a
-//! connection as a pair of channels; on the Coordinator's side, every
-//! Worker's messages arrive as [`Event`]s on one channel.
+//! The typed messages between the Coordinator and a Worker, which QUIC
+//! carries (arc42 §8.13). Inside a Worker's process, its connection's relay
+//! and its render loop pass them over a pair of channels; on the
+//! Coordinator's side, every Worker's messages arrive as [`Event`]s on one
+//! channel.
 
 use std::fmt::{self, Display};
 use std::time::Duration;
@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use umbra_render::{WorkResult, WorkUnit};
 
-use crate::device::{GpuOrdinal, RenderDevice};
+use crate::children::ProcessId;
+use crate::device::RenderDevice;
 
 /// From the Coordinator to a Worker.
 #[derive(Debug, Clone, Copy)]
@@ -63,13 +64,8 @@ impl Display for WorkerId {
 /// What happens to the Coordinator's Workers, in the order it happens.
 #[derive(Debug)]
 pub(crate) enum Event {
-    /// A Worker on `device` is ready for its first `RequestWork`, which
-    /// `to_worker` reaches it on.
-    Joined {
-        worker: WorkerId,
-        device: RenderDevice,
-        to_worker: UnboundedSender<ToWorker>,
-    },
+    /// A Worker is ready for its first `RequestWork`.
+    Joined(Joined),
     /// A message from a joined Worker.
     Message {
         worker: WorkerId,
@@ -77,25 +73,37 @@ pub(crate) enum Event {
     },
     /// The Worker's connection closed: nothing more arrives from it.
     Left { worker: WorkerId },
-    /// The process of the Local Worker of `gpu` exited, joined or not.
-    Exited { gpu: GpuOrdinal },
+    /// The process of a Local Worker exited, joined or not.
+    Exited { process: ProcessId },
 }
 
-/// The Coordinator's end of a connection.
+/// A Worker that joined: who it is, as its `Hello` says, and the channel
+/// that reaches it.
+#[derive(Debug)]
+pub(crate) struct Joined {
+    pub(crate) worker: WorkerId,
+    pub(crate) device: RenderDevice,
+    /// Its CPU threads; none on a GPU.
+    pub(crate) threads: u32,
+    pub(crate) process: ProcessId,
+    pub(crate) to_worker: UnboundedSender<ToWorker>,
+}
+
+/// The relay's end of a Worker's connection, in its process.
 #[derive(Debug)]
 pub(crate) struct CoordinatorEnd {
     pub(crate) to_worker: UnboundedSender<ToWorker>,
     pub(crate) from_worker: UnboundedReceiver<ToCoordinator>,
 }
 
-/// A Worker's end of a connection.
+/// The render loop's end of a Worker's connection.
 #[derive(Debug)]
 pub(crate) struct WorkerEnd {
     pub(crate) to_coordinator: UnboundedSender<ToCoordinator>,
     pub(crate) from_coordinator: UnboundedReceiver<ToWorker>,
 }
 
-/// A connection between the two sides, in memory.
+/// The channels between a Worker's relay and its render loop.
 pub(crate) fn connect() -> (CoordinatorEnd, WorkerEnd) {
     let (to_worker, from_coordinator) = unbounded_channel();
     let (to_coordinator, from_worker) = unbounded_channel();
@@ -109,19 +117,4 @@ pub(crate) fn connect() -> (CoordinatorEnd, WorkerEnd) {
             from_coordinator,
         },
     )
-}
-
-/// Forwards the messages of `worker`, the Worker at the other end of
-/// `from_worker`, as [`Event`]s, then its leaving.
-pub(crate) async fn forward(
-    worker: WorkerId,
-    mut from_worker: UnboundedReceiver<ToCoordinator>,
-    events: UnboundedSender<Event>,
-) {
-    // The Coordinator's loop outlives every forwarder: a send fails only
-    // as it returns, when nothing is left to tell.
-    while let Some(message) = from_worker.recv().await {
-        let _ = events.send(Event::Message { worker, message });
-    }
-    let _ = events.send(Event::Left { worker });
 }

@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, GpuOrdinal, GpuWorkers, Moment, Phase, RenderDevice, RenderJob,
-    RenderJobOutcome, RenderJobReport, Status, Threads, coordinate,
+    CoordinatorOptions, Moment, Phase, RenderDevice, RenderJob, RenderJobOutcome, RenderJobReport,
+    Status, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -27,11 +27,11 @@ use crate::status::StatusLine;
 /// Renders the Scene File of `args`, writing its warnings to `stderr` and
 /// its progress to the footer of `stderr` on a terminal, then the image,
 /// and its Render Job Report to `stdout`; or, once `cancel` is made, the
-/// report alone. Each GPU's Local Worker is this executable, run as `umbra
-/// worker` with `log_args`.
+/// report alone. Each Local Worker is this executable, run as `umbra
+/// worker`, logging with the filter `log`.
 pub(crate) fn render(
     args: &RenderArgs,
-    log_args: &[String],
+    log: &str,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
     mut stderr: &Footer,
@@ -60,7 +60,7 @@ pub(crate) fn render(
         record,
     };
     let mut status_line = StatusLine::on(stderr);
-    let outcome = coordinate_locally(job, args, log_args, cancel, |status, moment| {
+    let outcome = coordinate_locally(job, args, log, cancel, |status, moment| {
         status_line.show(status, moment);
     })?;
     // The last status stays on the terminal, above the errors and logs
@@ -70,48 +70,46 @@ pub(crate) fn render(
 }
 
 /// Renders `job` on the Local Workers of the Render Devices `args` chooses,
-/// each GPU's in a child process run with `log_args`.
+/// each in a child process that logs with the filter `log`.
 fn coordinate_locally(
     job: RenderJob,
     args: &RenderArgs,
-    log_args: &[String],
+    log: &str,
     cancel: &Cancellation,
     status: impl FnMut(&Status, Moment),
 ) -> Result<RenderJobOutcome, Error> {
     let devices = args.render_devices();
-    let gpus = devices.gpus()?;
+    let cpu = devices.includes_cpu().then_some(RenderDevice::Cpu);
+    let gpus = devices.gpus()?.into_iter().map(RenderDevice::Gpu);
     let executable = env::current_exe()?;
-    let command = |gpu: GpuOrdinal, coordinator: SocketAddr| {
-        gpu_worker(&executable, log_args, gpu, coordinator)
+    let command = |device: RenderDevice, coordinator: SocketAddr| {
+        local_worker(&executable, log, device, args, coordinator)
     };
     let options = CoordinatorOptions {
-        cpu: devices
-            .includes_cpu()
-            .then(|| args.nthreads.map_or(Threads::All, Threads::Count)),
-        gpus: Some(GpuWorkers {
-            gpus,
-            command: &command,
-        }),
+        local_workers: cpu.into_iter().chain(gpus).collect(),
+        worker_command: &command,
     };
     Ok(coordinate(job, &options, cancel, status)?)
 }
 
-/// The command line of the Local Worker of `gpu`: `executable`, run as
-/// `umbra worker` with `log_args`, connecting to `coordinator`.
-fn gpu_worker(
+/// The command line of the Local Worker of `device`: `executable`, run as
+/// `umbra worker`, logging JSON lines with the filter `log`, with the
+/// threads of `args` on the CPU, connecting to `coordinator`.
+fn local_worker(
     executable: &Path,
-    log_args: &[String],
-    gpu: GpuOrdinal,
+    log: &str,
+    device: RenderDevice,
+    args: &RenderArgs,
     coordinator: SocketAddr,
 ) -> Command {
     let mut command = Command::new(executable);
-    command.args(log_args).args([
-        "worker",
-        "--render-device",
-        &RenderDevice::Gpu(gpu).to_string(),
-        "--coordinator",
-        &coordinator.to_string(),
-    ]);
+    command
+        .args(["--log", log, "--log-format", "json", "worker"])
+        .args(["--render-device", &device.to_string()])
+        .args(["--coordinator", &coordinator.to_string()]);
+    if let (RenderDevice::Cpu, Some(threads)) = (device, args.nthreads) {
+        command.args(["--nthreads", &threads.to_string()]);
+    }
     command
 }
 

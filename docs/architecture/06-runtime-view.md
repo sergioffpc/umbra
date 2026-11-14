@@ -43,7 +43,7 @@ sequenceDiagram
 5. The heartbeat starts at `Welcome`, from a task independent of loading, so the 5 s death rule covers a loading Worker. While loading, it carries the Scene bytes received, the Scene bytes read from the Asset Cache, and the phase (`receiving`, `building BVH`). If loading stops progressing for 30 s, the Worker is shown as `stalled`, never dead: it holds no Work Units, so it blocks nothing.
 6. However the connection closes, the Worker drops the Scene and is idle again (§8.13).
 
-The CPU Local Worker skips the network. It receives the same typed messages through the in-memory transport, and shares the Coordinator's Scene, so it has no Asset Cache. A GPU Local Worker runs in a child process that the Coordinator starts with its address, so it connects over QUIC on loopback without discovery and joins like a remote Worker, receiving the Scene and using its host's Asset Cache ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md)).
+Every Local Worker, the CPU's and each GPU's, runs in a child process that the Coordinator starts with its address, so it connects over QUIC on loopback without discovery and joins like a remote Worker, receiving the Scene and using its host's Asset Cache. It logs JSON lines to a pipe, and the Coordinator logs each event as its own ([ADR 0026](../adr/0026-gpu-workers-from-the-first-milestone.md), [ADR 0035](../adr/0035-every-local-worker-in-a-child-process.md)).
 
 ## 6.2 A Render Job from submission to image
 

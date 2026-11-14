@@ -17,10 +17,10 @@ mod transport;
 mod wire;
 mod worker;
 
-pub use children::{GpuWorkers, WorkerCommand};
-pub use coordinator::{CoordinatorOptions, RenderJob, RenderJobOutcome, Threads, coordinate};
+pub use children::WorkerCommand;
+pub use coordinator::{CoordinatorOptions, RenderJob, RenderJobOutcome, coordinate};
 pub use device::{GpuOrdinal, RenderDevice, RenderDevices};
 pub use error::Error;
 pub use report::{Outcome, Phase, RenderJobReport};
 pub use status::{Moment, Status};
-pub use worker::work;
+pub use worker::{Threads, WorkerOptions, work};

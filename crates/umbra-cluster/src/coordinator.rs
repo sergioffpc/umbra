@@ -1,16 +1,13 @@
 //! `coordinate`: a Render Job from its Scene to its image, through the
-//! Local Workers (arc42 §5.3, §6.2).
+//! Local Workers, each a child process over QUIC (arc42 §5.3, §6.2).
 
 use std::collections::{BTreeMap, VecDeque};
-use std::num::NonZeroUsize;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use quinn::Endpoint;
-use rayon::{ThreadPool, ThreadPoolBuilder};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time;
 use tracing::{debug, error, info, info_span, warn};
@@ -18,11 +15,10 @@ use umbra_render::{
     Acceptance, Cancellation, Decomposition, Film, FilmHash, Image, ReproductionRecord, WorkResult,
     WorkUnit,
 };
-use umbra_scene::{RenderJobOptions, Scene};
+use umbra_scene::RenderJobOptions;
 
-use crate::children::{self, GpuWorkers};
-use crate::cpu_worker;
-use crate::device::{GpuOrdinal, RenderDevice};
+use crate::children::{self, ProcessId, WorkerCommand};
+use crate::device::RenderDevice;
 use crate::error::Error;
 use crate::host::Host;
 use crate::listener::{self, Replica};
@@ -31,21 +27,18 @@ use crate::quic;
 use crate::report::{Occupancy, Outcome, RenderJobReport, Rendered, Submission, WorkerFigures};
 use crate::runtime;
 use crate::status::{Moment, Status};
-use crate::transport::{self, Event, ToCoordinator, ToWorker, WorkerId};
+use crate::transport::{Event, Joined, ToCoordinator, ToWorker, WorkerId};
 
 /// How long the Coordinator waits for its Workers to close once the Render
 /// Job ends (arc42 §8.13).
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
-
-/// The CPU Local Worker's identifier; the Workers over QUIC follow it.
-const CPU_WORKER: WorkerId = WorkerId(0);
 
 /// A Render Job: what is rendered, how it is cut into Work Units, where
 /// its image goes, and the record of how to compute it again.
 #[derive(Debug)]
 pub struct RenderJob {
     /// The Scene.
-    pub scene: Scene,
+    pub scene: umbra_scene::Scene,
     /// The Render Job Options.
     pub options: RenderJobOptions,
     /// Where its final image goes: the caller writes it, and the report
@@ -55,35 +48,23 @@ pub struct RenderJob {
     pub record: ReproductionRecord,
 }
 
-/// How many threads a CPU Worker renders with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Threads {
-    /// One per logical CPU.
-    #[default]
-    All,
-    /// Exactly this many.
-    Count(NonZeroUsize),
-}
-
 /// How the Coordinator runs a Render Job: the Local Workers it starts on
-/// its own machine (ADR 0026). Remote Workers arrive with
+/// its own machine, each a child process that connects back to it over
+/// QUIC on loopback, as a remote Worker would (ADR 0026, ADR 0035).
+/// Remote Workers arrive with
 /// [#129](https://github.com/sergioffpc/umbra/issues/129).
-#[derive(Debug)]
 pub struct CoordinatorOptions<'c> {
-    /// The CPU Local Worker's threads, in the Coordinator's process; `None`
-    /// for no CPU Local Worker.
-    pub cpu: Option<Threads>,
-    /// The GPU Local Workers, each in a child process; `None` for none.
-    pub gpus: Option<GpuWorkers<'c>>,
+    /// The Render Devices that get a Local Worker each.
+    pub local_workers: Vec<RenderDevice>,
+    /// The command line of each one.
+    pub worker_command: &'c WorkerCommand<'c>,
 }
 
-impl Default for CoordinatorOptions<'_> {
-    /// The CPU Local Worker on every logical CPU, and no GPU's.
-    fn default() -> Self {
-        Self {
-            cpu: Some(Threads::All),
-            gpus: None,
-        }
+impl fmt::Debug for CoordinatorOptions<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoordinatorOptions")
+            .field("local_workers", &self.local_workers)
+            .finish_non_exhaustive()
     }
 }
 
@@ -125,9 +106,9 @@ enum Ending {
 ///
 /// # Errors
 ///
-/// [`Error`] if the Render Job cannot be cut into Work Units, the runtime,
-/// the QUIC endpoint or the CPU Local Worker cannot start, or every Worker
-/// goes away before the end.
+/// [`Error`] if the Render Job cannot be cut into Work Units, the runtime
+/// or the QUIC endpoint cannot start, or every Worker goes away before the
+/// end.
 pub fn coordinate(
     job: RenderJob,
     options: &CoordinatorOptions<'_>,
@@ -142,30 +123,20 @@ pub fn coordinate(
     } = job;
     let decomposition = Decomposition::new(scene.full_resolution(), &job_options)?;
     let (events, mut inbox) = unbounded_channel();
-    let cpu = options
-        .cpu
-        .map(|threads| CpuWorker::new(&scene, &job_options, threads))
-        .transpose()?;
     let mut scheduler = Scheduler {
         film: Film::new(&scene, &job_options)?,
         progress: Progress::new(&decomposition, Instant::now()),
         show: status,
-        threads: cpu.as_ref().map_or(0, CpuWorker::threads),
+        threads: 0,
         queue: Queue::new(decomposition.work_units()),
         workers: BTreeMap::new(),
-        starting: Vec::new(),
+        starting: BTreeMap::new(),
         events,
     };
-    let runtime = runtime::runtime()?;
-    let replica = || Replica::new(&job_options, scene.builder(), decomposition.clone());
-    let span = info_span!("render").entered();
-    let ending = thread::scope(|scope| {
-        if let Some(cpu) = &cpu {
-            cpu.start(scope, &runtime, &mut scheduler);
-        }
-        runtime.block_on(scheduler.drive(options.gpus.as_ref(), replica, &mut inbox, cancel))
+    let replica = Replica::new(&job_options, scene.builder(), decomposition.clone());
+    let ending = info_span!("render").in_scope(|| {
+        runtime::runtime()?.block_on(scheduler.drive(options, replica, &mut inbox, cancel))
     })?;
-    drop(span);
     Ok(scheduler.finish(
         ending,
         Submission {
@@ -174,87 +145,6 @@ pub fn coordinate(
             reproduction_record: record,
         },
     ))
-}
-
-/// The CPU Local Worker, before it starts: its renderer and its threads.
-struct CpuWorker<'s> {
-    renderer: umbra_cpu::Renderer<'s>,
-    pool: ThreadPool,
-}
-
-impl<'s> CpuWorker<'s> {
-    /// The CPU Local Worker of a Render Job of `scene` with `options`, on
-    /// `threads`.
-    fn new(scene: &'s Scene, options: &RenderJobOptions, threads: Threads) -> Result<Self, Error> {
-        let count = match threads {
-            Threads::All => 0,
-            Threads::Count(n) => n.get(),
-        };
-        let pool = ThreadPoolBuilder::new()
-            .num_threads(count)
-            .build()
-            .map_err(Error::ThreadPool)?;
-        Ok(Self {
-            renderer: umbra_cpu::Renderer::new(scene, options)?,
-            pool,
-        })
-    }
-
-    /// Its threads.
-    fn threads(&self) -> usize {
-        self.pool.current_num_threads()
-    }
-
-    /// Starts its render loop on a thread of `scope`, joins it to
-    /// `scheduler`, and forwards its messages to the scheduler's events on
-    /// `runtime`.
-    fn start<'scope>(
-        &'scope self,
-        scope: &'scope thread::Scope<'scope, '_>,
-        runtime: &Runtime,
-        scheduler: &mut Scheduler<'_, impl Iterator<Item = WorkUnit>, impl FnMut(&Status, Moment)>,
-    ) {
-        let (coordinator, worker) = transport::connect();
-        scope.spawn(move || cpu_worker::work(&self.renderer, &self.pool, worker));
-        scheduler.join(CPU_WORKER, RenderDevice::Cpu, coordinator.to_worker);
-        runtime.spawn(transport::forward(
-            CPU_WORKER,
-            coordinator.from_worker,
-            scheduler.events.clone(),
-        ));
-    }
-}
-
-/// The GPU Local Workers once started: the endpoint they connect to, open
-/// while the Render Job runs, and the GPUs whose process started.
-#[derive(Default)]
-struct GpuChildren {
-    _endpoint: Option<Endpoint>,
-    starting: Vec<GpuOrdinal>,
-}
-
-/// Starts the Local Workers of `gpus`, each sent `replica` once it joins,
-/// on an endpoint of their own whose events go to `events`.
-fn start_gpus(
-    gpus: Option<&GpuWorkers<'_>>,
-    replica: impl FnOnce() -> Replica,
-    events: &UnboundedSender<Event>,
-) -> Result<GpuChildren, Error> {
-    let Some(GpuWorkers { gpus, command }) = gpus.filter(|workers| !workers.gpus.is_empty()) else {
-        return Ok(GpuChildren::default());
-    };
-    let endpoint = quic::coordinator_endpoint()?;
-    let address = endpoint.local_addr().map_err(Error::Listen)?;
-    tokio::spawn(listener::listen(
-        endpoint.clone(),
-        Arc::new(replica()),
-        CPU_WORKER.next(),
-        events.clone(),
-    ));
-    Ok(GpuChildren {
-        starting: children::launch(gpus, *command, address, events),
-        _endpoint: Some(endpoint),
-    })
 }
 
 /// The Work Units not assigned yet: those given back by Workers that went
@@ -293,6 +183,8 @@ impl<I: Iterator<Item = WorkUnit>> Iterator for Queue<I> {
 struct Worker {
     id: WorkerId,
     device: RenderDevice,
+    /// Its process, when it is a Local Worker the Coordinator started.
+    process: ProcessId,
     sender: UnboundedSender<ToWorker>,
     readiness: Readiness,
     demand: u32,
@@ -318,6 +210,15 @@ impl Worker {
         self.demand = self.demand.saturating_add(count);
     }
 
+    /// The share of `thread_time` that counts for the CPU's occupancy: all
+    /// of it on the CPU, none on a GPU.
+    fn cpu_thread_time(&self, thread_time: Duration) -> Duration {
+        match self.device {
+            RenderDevice::Cpu => thread_time,
+            RenderDevice::Gpu(_) => Duration::ZERO,
+        }
+    }
+
     /// Assigns it Work Units from `queue` while it asks for more and any is
     /// left. A Worker gone away meanwhile gives them back when it leaves.
     fn fill(&mut self, queue: &mut impl Iterator<Item = WorkUnit>, progress: &mut Progress<'_>) {
@@ -340,36 +241,56 @@ struct Scheduler<'d, Q, S> {
     progress: Progress<'d>,
     /// Receives the status.
     show: S,
-    /// The CPU Local Worker's threads; 0 without one.
+    /// The threads of the CPU Workers that joined, summed over them.
     threads: usize,
     queue: Queue<Q>,
     workers: BTreeMap<WorkerId, Worker>,
-    /// The GPUs whose Local Worker's process runs and has not joined yet.
-    starting: Vec<GpuOrdinal>,
+    /// The Local Workers whose process runs and has not joined yet.
+    starting: BTreeMap<ProcessId, RenderDevice>,
     /// Where the Workers' events go.
     events: UnboundedSender<Event>,
 }
 
 impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S> {
-    /// Starts the GPU Local Workers of `gpus`, runs the Render Job, and
-    /// closes every Worker once it ends; the Workers' events arrive in
-    /// `inbox`.
+    /// Starts the Local Workers of `options`, runs the Render Job, and
+    /// closes every Worker once it ends; each joins with `replica`, and the
+    /// Workers' events arrive in `inbox`.
     async fn drive(
         &mut self,
-        gpus: Option<&GpuWorkers<'_>>,
-        replica: impl FnOnce() -> Replica,
+        options: &CoordinatorOptions<'_>,
+        replica: Replica,
         inbox: &mut UnboundedReceiver<Event>,
         cancel: &Cancellation,
     ) -> Result<Ending, Error> {
-        let (ending, _children) = match start_gpus(gpus, replica, &self.events) {
-            Ok(children) => {
-                self.starting.clone_from(&children.starting);
-                (self.run(inbox, cancel).await, children)
-            }
-            Err(error) => (Err(error), GpuChildren::default()),
+        let (ending, _endpoint) = match self.start(options, replica) {
+            Ok(endpoint) => (self.run(inbox, cancel).await, Some(endpoint)),
+            Err(error) => (Err(error), None),
         };
         self.close(inbox, &ending).await;
         ending
+    }
+
+    /// Listens for the Local Workers of `options` on an endpoint of their
+    /// own, open while the Render Job runs, and starts them.
+    fn start(
+        &mut self,
+        options: &CoordinatorOptions<'_>,
+        replica: Replica,
+    ) -> Result<Endpoint, Error> {
+        let endpoint = quic::coordinator_endpoint()?;
+        let address = endpoint.local_addr().map_err(Error::Listen)?;
+        tokio::spawn(listener::listen(
+            endpoint.clone(),
+            Arc::new(replica),
+            self.events.clone(),
+        ));
+        self.starting = children::launch(
+            &options.local_workers,
+            options.worker_command,
+            address,
+            &self.events,
+        );
+        Ok(endpoint)
     }
 
     /// Assigns every Work Unit as the Workers ask, and merges each Work
@@ -412,60 +333,52 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S
     /// Takes in what happened to a Worker.
     fn receive(&mut self, event: Event) {
         match event {
-            Event::Joined {
-                worker,
-                device,
-                to_worker,
-            } => self.join(worker, device, to_worker),
+            Event::Joined(joined) => self.join(joined),
             Event::Message { worker, message } => self.message(worker, message),
             Event::Left { worker } => self.retire(worker),
-            Event::Exited { gpu } => self.exited(gpu),
+            Event::Exited { process } => self.exited(process),
         }
     }
 
-    /// The Local Worker of `gpu` exited: it is no longer starting, and if
-    /// it joined, it goes. A Worker is told apart by its Render Device, so
-    /// another Worker on the same device would be taken for it.
-    fn exited(&mut self, gpu: GpuOrdinal) {
-        self.started(gpu);
-        let device = RenderDevice::Gpu(gpu);
+    /// The Local Worker of `process` exited: it is no longer starting, and
+    /// if it joined, it goes.
+    fn exited(&mut self, process: ProcessId) {
+        self.starting.remove(&process);
         let joined = self
             .workers
-            .iter()
-            .find_map(|(&id, worker)| (worker.device == device).then_some(id));
+            .values()
+            .find_map(|worker| (worker.process == process).then_some(worker.id));
         if let Some(worker) = joined {
             self.retire(worker);
         }
     }
 
-    /// Lets `worker`, on `device`, ask for Work Units through `to_worker`.
-    fn join(
-        &mut self,
-        worker: WorkerId,
-        device: RenderDevice,
-        to_worker: UnboundedSender<ToWorker>,
-    ) {
-        debug!("Worker {worker} joined on {device}");
-        if let RenderDevice::Gpu(gpu) = device {
-            self.started(gpu);
+    /// Lets the Worker that `joined` describes ask for Work Units.
+    fn join(&mut self, joined: Joined) {
+        let Joined {
+            worker,
+            device,
+            threads,
+            process,
+            to_worker,
+        } = joined;
+        debug!("Worker {worker} joined on {device}, {threads} threads");
+        self.starting.remove(&process);
+        if device == RenderDevice::Cpu {
+            self.threads += usize::try_from(threads).unwrap_or(usize::MAX);
         }
         self.workers.insert(
             worker,
             Worker {
                 id: worker,
                 device,
+                process,
                 sender: to_worker,
                 readiness: Readiness::Loading,
                 demand: 0,
                 in_flight: Vec::new(),
             },
         );
-    }
-
-    /// The Local Worker of `gpu` is no longer starting: it joined, or its
-    /// process exited.
-    fn started(&mut self, gpu: GpuOrdinal) {
-        self.starting.retain(|&starting| starting != gpu);
     }
 
     /// Takes in a message from `worker`, unless it has gone away already.
@@ -481,20 +394,12 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S
                 thread_time,
             } => {
                 worker.in_flight.retain(|&unit| unit != result.unit());
-                self.thread_time_of(id, thread_time);
+                self.progress.rendered(worker.cpu_thread_time(thread_time));
                 self.merge(&result, render_time);
             }
             ToCoordinator::Fatal(reason) => {
                 error!("Worker {id} on {} cannot continue: {reason}", worker.device);
             }
-        }
-    }
-
-    /// The threads of `worker` spent `thread_time` on a Work Unit: counted
-    /// if it is the CPU Local Worker, whose occupancy the report gives.
-    fn thread_time_of(&mut self, worker: WorkerId, thread_time: Duration) {
-        if worker == CPU_WORKER {
-            self.progress.rendered(thread_time);
         }
     }
 
@@ -559,8 +464,8 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, Q, S
                     Event::Left { worker } => {
                         self.workers.remove(&worker);
                     }
-                    Event::Joined { to_worker, .. } => {
-                        let _ = to_worker.send(message());
+                    Event::Joined(joined) => {
+                        let _ = joined.to_worker.send(message());
                     }
                     Event::Exited { .. } | Event::Message { .. } => {}
                 },

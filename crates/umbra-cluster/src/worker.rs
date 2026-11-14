@@ -1,18 +1,20 @@
 //! `work`: a Worker in its own process, serving one Render Job over QUIC
-//! (arc42 §8.13). A GPU's Local Worker is one, started by the Coordinator.
+//! (arc42 §8.13). Each Local Worker is one, started by the Coordinator.
 
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::thread;
 
 use quinn::{Connection, RecvStream, SendStream};
-use rayon::ThreadPoolBuilder;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinSet;
 use tracing::{debug, info_span};
 use umbra_render::{Cancellation, WorkResult};
 use umbra_scene::{RenderJobOptions, Scene, SceneBuilder};
 
-use crate::device::RenderDevice;
+use crate::children::ProcessId;
+use crate::device::{GpuOrdinal, RenderDevice};
 use crate::error::Error;
 use crate::quic::{self, SERVER_NAME};
 use crate::runtime;
@@ -23,23 +25,85 @@ use crate::wire::{
 };
 use crate::{cpu_worker, gpu_worker};
 
-/// Serves one Render Job on `device` for the Coordinator at `coordinator`:
-/// connects, receives the Scene and builds it, then renders the Work Units
-/// it is assigned until the Render Job finishes or is cancelled, or its
+/// How many threads a CPU Worker renders with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Threads {
+    /// One per logical CPU.
+    #[default]
+    All,
+    /// Exactly this many.
+    Count(NonZeroUsize),
+}
+
+/// How a Worker serves a Render Job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerOptions {
+    /// The Render Device it renders on.
+    pub render_device: RenderDevice,
+    /// Its threads, on the CPU.
+    pub threads: Threads,
+    /// The Coordinator's address.
+    pub coordinator: SocketAddr,
+}
+
+/// A Render Device, ready to render: the CPU's thread pool, or a GPU.
+#[derive(Debug)]
+enum Device {
+    Cpu(ThreadPool),
+    Gpu(GpuOrdinal),
+}
+
+impl Device {
+    /// The Render Device of `options`, with its threads on the CPU.
+    fn new(options: &WorkerOptions) -> Result<Self, Error> {
+        Ok(match options.render_device {
+            RenderDevice::Cpu => {
+                let count = match options.threads {
+                    Threads::All => 0,
+                    Threads::Count(n) => n.get(),
+                };
+                let pool = ThreadPoolBuilder::new()
+                    .num_threads(count)
+                    .build()
+                    .map_err(Error::ThreadPool)?;
+                Self::Cpu(pool)
+            }
+            RenderDevice::Gpu(gpu) => Self::Gpu(gpu),
+        })
+    }
+
+    /// Which Render Device it is.
+    fn render_device(&self) -> RenderDevice {
+        match self {
+            Self::Cpu(_) => RenderDevice::Cpu,
+            Self::Gpu(gpu) => RenderDevice::Gpu(*gpu),
+        }
+    }
+
+    /// Its CPU threads: none on a GPU.
+    fn threads(&self) -> u32 {
+        match self {
+            Self::Cpu(pool) => u32::try_from(pool.current_num_threads()).unwrap_or(u32::MAX),
+            Self::Gpu(_) => 0,
+        }
+    }
+}
+
+/// Serves one Render Job as `options` say: connects to the Coordinator,
+/// receives the Scene and builds it, then renders the Work Units it is
+/// assigned until the Render Job finishes or is cancelled, or its
 /// connection closes. It blocks; the runtime it needs is its own. Once
 /// `stop` is made, it closes its connection with `WORKER_STOPPED` and
 /// returns.
 ///
 /// # Errors
 ///
-/// [`Error`] if the runtime or the endpoint cannot start, the connection
-/// fails, the Coordinator breaks the wire protocol, the Scene cannot be
-/// built, or the Render Device cannot render it.
-pub fn work(
-    device: RenderDevice,
-    coordinator: SocketAddr,
-    stop: &Cancellation,
-) -> Result<(), Error> {
+/// [`Error`] if the runtime, the CPU's threads or the endpoint cannot
+/// start, the connection fails, the Coordinator breaks the wire protocol,
+/// the Scene cannot be built, or the Render Device cannot render it.
+pub fn work(options: &WorkerOptions, stop: &Cancellation) -> Result<(), Error> {
+    let device = Device::new(options)?;
+    let coordinator = options.coordinator;
     runtime::runtime()?.block_on(async {
         let endpoint = quic::worker_endpoint(coordinator)?;
         let connection = endpoint.connect(coordinator, SERVER_NAME)?.await?;
@@ -66,12 +130,8 @@ fn close_code(error: &Error) -> CloseCode {
 }
 
 /// Serves the Render Job of `connection` on `device`.
-async fn serve(
-    connection: &Connection,
-    device: RenderDevice,
-    stop: &Cancellation,
-) -> Result<(), Error> {
-    let (mut control_send, control_recv) = handshake(connection, device).await?;
+async fn serve(connection: &Connection, device: Device, stop: &Cancellation) -> Result<(), Error> {
+    let (mut control_send, control_recv) = handshake(connection, &device).await?;
     let (options, builder) = receive_scene(connection).await?;
     let (coordinator_end, worker_end) = transport::connect();
     let renders = thread::spawn(move || render(device, builder, &options, worker_end));
@@ -96,16 +156,15 @@ async fn serve(
 /// `Hello`, answered by `Welcome`: the control stream's two halves.
 async fn handshake(
     connection: &Connection,
-    device: RenderDevice,
+    device: &Device,
 ) -> Result<(SendStream, RecvStream), Error> {
     let (mut send, mut recv) = connection.open_bi().await?;
-    write_frame(
-        &mut send,
-        &FromWorker::Hello {
-            render_device: device,
-        },
-    )
-    .await?;
+    let hello = FromWorker::Hello {
+        render_device: device.render_device(),
+        threads: device.threads(),
+        process_id: ProcessId::this(),
+    };
+    write_frame(&mut send, &hello).await?;
     match read_frame(&mut recv).await? {
         Some(FromCoordinator::Welcome { worker_id }) => {
             debug!("joined the Render Job as Worker {worker_id}");
@@ -134,7 +193,7 @@ async fn receive_scene(connection: &Connection) -> Result<(RenderJobOptions, Sce
 /// alive meanwhile, and a GPU's renderer stays on the thread that made it.
 /// A Worker that cannot render tells the Coordinator why.
 fn render(
-    device: RenderDevice,
+    device: Device,
     builder: SceneBuilder,
     options: &RenderJobOptions,
     connection: WorkerEnd,
@@ -154,24 +213,13 @@ fn fatal(connection: &WorkerEnd, error: &dyn std::error::Error) {
 }
 
 /// Builds the renderer of `device` for `scene` and runs its render loop.
-fn render_scene(
-    device: RenderDevice,
-    scene: &Scene,
-    options: &RenderJobOptions,
-    connection: WorkerEnd,
-) {
+fn render_scene(device: Device, scene: &Scene, options: &RenderJobOptions, connection: WorkerEnd) {
     match device {
-        RenderDevice::Cpu => {
-            let pool = match ThreadPoolBuilder::new().build() {
-                Ok(pool) => pool,
-                Err(error) => return fatal(&connection, &error),
-            };
-            match umbra_cpu::Renderer::new(scene, options) {
-                Ok(renderer) => cpu_worker::work(&renderer, &pool, connection),
-                Err(error) => fatal(&connection, &error),
-            }
-        }
-        RenderDevice::Gpu(gpu) => {
+        Device::Cpu(pool) => match umbra_cpu::Renderer::new(scene, options) {
+            Ok(renderer) => cpu_worker::work(&renderer, &pool, connection),
+            Err(error) => fatal(&connection, &error),
+        },
+        Device::Gpu(gpu) => {
             let renderer = match umbra_gpu::Renderer::new(usize::from(gpu), scene, options) {
                 Ok(renderer) => renderer,
                 Err(error) => return fatal(&connection, &error),

@@ -435,7 +435,7 @@ svg .t-small { font-size: 11px; }
             <rect x="200" y="206" width="360" height="36" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
             <text x="380" y="229" text-anchor="middle" font-size="12">umbra-render: WorkUnit, Rendered, Cancellation, Decomposition</text>
         </svg></div>
-        <figcaption>The crates of <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>. Both renderers depend on <code>umbra-render</code> alone of the three, so neither can lean on the other's insides. <code>umbra-cluster</code> runs one of them, chosen by the Worker's Render Device: the CPU's in the Coordinator's process or a CPU Worker's, the GPU's in a GPU Worker's, such as each GPU's Local Worker, a child process of the Coordinator.</figcaption>
+        <figcaption>The crates of <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>. Both renderers depend on <code>umbra-render</code> alone of the three, so neither can lean on the other's insides. <code>umbra-cluster</code> runs one of them, chosen by the Worker's Render Device: the CPU's in a CPU Worker, the GPU's in a GPU Worker, such as the Local Workers, child processes of the Coordinator.</figcaption>
     </figure>
 
     <div class="prose">

@@ -13,7 +13,7 @@ use umbra_scene::{RenderJobOptions, SceneBuilder};
 
 use crate::device::RenderDevice;
 use crate::error::Error;
-use crate::transport::{Event, ToCoordinator, ToWorker, WorkerId};
+use crate::transport::{self, Event, ToCoordinator, ToWorker, WorkerId};
 use crate::wire::{
     self, CloseCode, FromCoordinator, FromWorker, WorkResultHeader, read_frame, read_work_result,
     write_frame,
@@ -47,15 +47,14 @@ impl Replica {
     }
 }
 
-/// Admits every Worker that connects to `endpoint`, numbering them from
-/// `first`, until the endpoint closes.
+/// Admits every Worker that connects to `endpoint`, numbering them in the
+/// order they connect, until the endpoint closes.
 pub(crate) async fn listen(
     endpoint: Endpoint,
     replica: Arc<Replica>,
-    first: WorkerId,
     events: UnboundedSender<Event>,
 ) {
-    let mut next = first;
+    let mut next = WorkerId(0);
     let mut connections = JoinSet::new();
     while let Some(incoming) = endpoint.accept().await {
         connections.spawn(serve(incoming, next, Arc::clone(&replica), events.clone()));
@@ -89,17 +88,17 @@ async fn serve(
 /// connection closes, then lets the Coordinator know it left.
 async fn relay(
     connection: &Connection,
-    joined: Joined,
+    admitted: Admitted,
     worker: WorkerId,
     replica: Arc<Replica>,
     events: &UnboundedSender<Event>,
 ) {
-    let Joined {
+    let Admitted {
         device,
         control_send,
         control_recv,
         from_coordinator,
-    } = joined;
+    } = admitted;
     let mut readers = JoinSet::new();
     readers.spawn(read_control(
         connection.clone(),
@@ -126,7 +125,7 @@ async fn relay(
 
 /// A Worker admitted: its Render Device, the control stream's two halves,
 /// and the channel the Coordinator's messages to it arrive on.
-struct Joined {
+struct Admitted {
     device: RenderDevice,
     control_send: SendStream,
     control_recv: RecvStream,
@@ -140,10 +139,14 @@ async fn admit(
     worker: WorkerId,
     replica: &Replica,
     events: &UnboundedSender<Event>,
-) -> Result<Joined, Error> {
+) -> Result<Admitted, Error> {
     let (mut send, mut recv) = connection.accept_bi().await?;
-    let device = match read_frame(&mut recv).await? {
-        Some(FromWorker::Hello { render_device }) => render_device,
+    let (device, threads, process) = match read_frame(&mut recv).await? {
+        Some(FromWorker::Hello {
+            render_device,
+            threads,
+            process_id,
+        }) => (render_device, threads, process_id),
         Some(other) => return Err(Error::OutOfOrder(other.name())),
         None => return Err(Error::StreamEnded("the control stream")),
     };
@@ -152,12 +155,14 @@ async fn admit(
     scene.write_all(&replica.scene_stream).await?;
     scene.finish()?;
     let (to_worker, from_coordinator) = unbounded_channel();
-    let _ = events.send(Event::Joined {
+    let _ = events.send(Event::Joined(transport::Joined {
         worker,
         device,
+        threads,
+        process,
         to_worker,
-    });
-    Ok(Joined {
+    }));
+    Ok(Admitted {
         device,
         control_send: send,
         control_recv: recv,

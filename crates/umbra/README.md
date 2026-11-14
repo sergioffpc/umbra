@@ -25,7 +25,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | `lib`            | `run`: the exit codes of arc42 §8.13, a panic hook that exits 1, and the version line on stderr at start and for `--version` |
 | `cli`            | The `clap` command line: `render` with pbrt-v4's `--spp`, `--seed`, `--outfile`, `--nthreads`, and Umbra's own               |
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
-| `worker`         | `umbra worker`: one Render Job for the Coordinator at `--coordinator`; how `render` runs each GPU's Local Worker             |
+| `worker`         | `umbra worker`: one Render Job for the Coordinator at `--coordinator`; how `render` runs each Local Worker                   |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
 | `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature                |
 | `status`         | `StatusLine`: shows the status `umbra-cluster` sends, redrawn in the footer or logged every ~10 s and at the end             |
@@ -57,14 +57,17 @@ Job: its report says `Render Job: cancelled`, no image is written, and
 `umbra` exits 130; a second Ctrl-C exits at once. The `tracy` feature, off
 by default, sends the `tracing` spans to Tracy.
 
-`umbra render` renders on every Render Device of its machine: the CPU in
-its own process, and each GPU in a child process, its Local Worker
-(ADR 0026). `--render-devices cpu`, `gpu` or `cpu,gpu` chooses them. With
-none chosen and no usable GPU, it renders on the CPU alone and warns once;
-a GPU chosen and none usable is an error. A GPU's Local Worker is this
-executable run as `umbra worker --render-device gpu:N --coordinator
-ADDRESS`, with the same `--log` and `--log-format`; `worker` is hidden from
-`--help` until remote Workers arrive.
+`umbra render` renders on every Render Device of its machine, each with a
+Local Worker in a child process (ADR 0026, ADR 0035). `--render-devices
+cpu`, `gpu` or `cpu,gpu` chooses them. With none chosen and no usable GPU,
+it renders on the CPU alone and warns once; a GPU chosen and none usable
+is an error. A Local Worker is this executable run as `umbra worker
+--render-device cpu` (with `--nthreads`) or `gpu:N`, `--coordinator
+ADDRESS`, with the same `--log` filter and JSON logs. `umbra worker`
+writes nothing to the terminal on its own: its version line and its
+errors are log events, and `umbra render` logs each event of its Local
+Workers again, prefixed with their Render Device, above the status line.
+`worker` is hidden from `--help` until remote Workers arrive.
 
 Not here yet: `trace`, with
 [#88](https://github.com/sergioffpc/umbra/issues/88); `bench`, with

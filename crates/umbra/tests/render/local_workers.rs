@@ -1,18 +1,18 @@
 //! Local Workers in child processes over QUIC, through `coordinate` (ADR
-//! 0010, ADR 0016, ADR 0026). The children are this crate's `umbra worker`
-//! on the CPU, so that the transport, the wire encoding and the
-//! reassignment of a lost Worker's Work Units run without a GPU: a CPU
+//! 0010, ADR 0016, ADR 0026, ADR 0035). The children are this crate's
+//! `umbra worker` on the CPU, so that the transport, the wire encoding and
+//! the reassignment of a lost Worker's Work Units run without a GPU: a CPU
 //! Work Result does not depend on the Worker or its threads, so a
 //! single-Pass Film has the same hash however its Work Units travel.
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use umbra_cluster::{
-    CoordinatorOptions, GpuOrdinal, GpuWorkers, RenderJob, RenderJobOutcome, Threads, coordinate,
+    CoordinatorOptions, GpuOrdinal, RenderDevice, RenderJob, RenderJobOutcome, coordinate,
 };
 use umbra_math::Point2i;
 use umbra_render::{BuildIdentity, Cancellation, FilmHash, ReproductionRecord, Tree};
@@ -62,32 +62,40 @@ fn film_hash(job: RenderJob, options: &CoordinatorOptions<'_>) -> FilmHash {
         .expect("a finished Render Job has a Film hash")
 }
 
-/// `umbra worker` on the CPU, connecting to `coordinator`.
-fn cpu_worker(coordinator: SocketAddr) -> Command {
+/// `umbra worker` on the CPU with `threads`, connecting to `coordinator`.
+fn cpu_worker(coordinator: SocketAddr, threads: Threads) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_umbra"));
-    command.args([
-        "--log",
-        "warn",
-        "worker",
-        "--render-device",
-        "cpu",
-        "--coordinator",
-        &coordinator.to_string(),
-    ]);
+    command.args(["--log", "warn", "--log-format", "json", "worker"]);
+    command.args(["--render-device", "cpu"]);
+    command.args(["--coordinator", &coordinator.to_string()]);
+    if let Threads::One = threads {
+        command.args(["--nthreads", "1"]);
+    }
     command
 }
 
-#[test]
-fn workers_over_quic_merge_the_film_of_the_in_memory_worker() {
-    let expected = film_hash(job(64, 64), &CoordinatorOptions::default());
+/// The threads a CPU Worker of these tests renders with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Threads {
+    One,
+    All,
+}
 
-    let command = |_: GpuOrdinal, coordinator: SocketAddr| cpu_worker(coordinator);
+#[test]
+fn one_worker_on_one_thread_and_two_on_every_thread_merge_the_same_film() {
+    let one = |_: RenderDevice, coordinator: SocketAddr| cpu_worker(coordinator, Threads::One);
+    let expected = film_hash(
+        job(64, 64),
+        &CoordinatorOptions {
+            local_workers: vec![RenderDevice::Cpu],
+            worker_command: &one,
+        },
+    );
+
+    let all = |_: RenderDevice, coordinator: SocketAddr| cpu_worker(coordinator, Threads::All);
     let options = CoordinatorOptions {
-        cpu: None,
-        gpus: Some(GpuWorkers {
-            gpus: vec![GpuOrdinal(0), GpuOrdinal(1)],
-            command: &command,
-        }),
+        local_workers: vec![RenderDevice::Cpu, RenderDevice::Cpu],
+        worker_command: &all,
     };
     assert_eq!(film_hash(job(64, 64), &options), expected);
 }
@@ -95,31 +103,38 @@ fn workers_over_quic_merge_the_film_of_the_in_memory_worker() {
 #[test]
 fn a_worker_killed_mid_render_gives_its_work_units_back_and_the_film_completes() {
     let (side, spp) = (64, 1024);
-    let expected = film_hash(job(side, spp), &CoordinatorOptions::default());
+    let all = |_: RenderDevice, coordinator: SocketAddr| cpu_worker(coordinator, Threads::All);
+    let expected = film_hash(
+        job(side, spp),
+        &CoordinatorOptions {
+            local_workers: vec![RenderDevice::Cpu],
+            worker_command: &all,
+        },
+    );
 
-    // The child renders on one core, so on any machine it is ready well
-    // before it is killed, and the Render Job, on that core and one thread
-    // of this process, runs well past the kill (checked below): the child
-    // always holds its one Work Unit in flight. Its loss is found by the
-    // QUIC idle timeout, as the child joins as a CPU Worker, not as the GPU
-    // whose process exited.
+    // The Worker started for `gpu:0` is a CPU Worker on one core, killed
+    // `kill_after` after it starts: on any machine it is ready well before,
+    // and the Render Job, on that core and the other Worker's one thread,
+    // runs well past it (checked below), so it always holds its one Work
+    // Unit in flight. Its loss is found by the QUIC idle timeout, as the
+    // process that exits is `timeout`, not the Worker.
     let kill_after = Duration::from_secs(1);
-    let command = |_: GpuOrdinal, coordinator: SocketAddr| {
-        let worker = cpu_worker(coordinator);
-        let mut command = Command::new("timeout");
-        command
-            .args(["--signal=KILL", &format!("{}s", kill_after.as_secs())])
-            .args(["taskset", "-c", "0"])
-            .arg(worker.get_program())
-            .args(worker.get_args());
-        command
+    let command = |device: RenderDevice, coordinator: SocketAddr| match device {
+        RenderDevice::Cpu => cpu_worker(coordinator, Threads::One),
+        RenderDevice::Gpu(_) => {
+            let worker = cpu_worker(coordinator, Threads::All);
+            let mut command = Command::new("timeout");
+            command
+                .args(["--signal=KILL", &format!("{}s", kill_after.as_secs())])
+                .args(["taskset", "-c", "0"])
+                .arg(worker.get_program())
+                .args(worker.get_args());
+            command
+        }
     };
     let options = CoordinatorOptions {
-        cpu: Some(Threads::Count(NonZeroUsize::MIN)),
-        gpus: Some(GpuWorkers {
-            gpus: vec![GpuOrdinal(0)],
-            command: &command,
-        }),
+        local_workers: vec![RenderDevice::Cpu, RenderDevice::Gpu(GpuOrdinal(0))],
+        worker_command: &command,
     };
     let start = Instant::now();
     let hash = film_hash(job(side, spp), &options);
@@ -135,13 +150,10 @@ fn a_worker_killed_mid_render_gives_its_work_units_back_and_the_film_completes()
 #[test]
 fn with_every_worker_gone_the_render_job_fails() {
     // A child that exits at once, before it ever joins.
-    let command = |_: GpuOrdinal, _: SocketAddr| Command::new("true");
+    let command = |_: RenderDevice, _: SocketAddr| Command::new("true");
     let options = CoordinatorOptions {
-        cpu: None,
-        gpus: Some(GpuWorkers {
-            gpus: vec![GpuOrdinal(0)],
-            command: &command,
-        }),
+        local_workers: vec![RenderDevice::Cpu],
+        worker_command: &command,
     };
     let error = coordinate(job(16, 1), &options, &Cancellation::new(), |_, _| {}).unwrap_err();
     assert!(matches!(error, umbra_cluster::Error::NoWorkers), "{error}");

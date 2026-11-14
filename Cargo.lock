@@ -1775,6 +1775,7 @@ dependencies = [
  "rcgen",
  "rustls",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",

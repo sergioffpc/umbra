@@ -87,6 +87,7 @@ thiserror = { version = "2.0.21", default-features = false }
 # The runtime `coordinate` and `work` each own (arc42 §5.3): its UDP sockets
 # carry QUIC, and its child processes are the GPU Local Workers.
 tokio = { version = "1.48.0", default-features = false, features = [
+  "io-util",
   "macros",
   "net",
   "process",

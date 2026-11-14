@@ -15,6 +15,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use umbra_render::{PixelSum, WorkResult, WorkUnit};
 
+use crate::children::ProcessId;
 use crate::device::RenderDevice;
 use crate::error::Error;
 use crate::transport::WorkerId;
@@ -30,8 +31,13 @@ const MAX_BODY: usize = 4096 * 4096 * size_of::<PixelSum>();
 /// What a Worker sends on the control stream.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) enum FromWorker {
-    /// The first message: which Render Device the Worker renders on.
-    Hello { render_device: RenderDevice },
+    /// The first message: the Render Device the Worker renders on, its
+    /// CPU threads (none on a GPU), and its process.
+    Hello {
+        render_device: RenderDevice,
+        threads: u32,
+        process_id: ProcessId,
+    },
     /// Add `count` Work Units to the Worker's demand; the first is the
     /// Worker's readiness.
     RequestWork { count: u32 },

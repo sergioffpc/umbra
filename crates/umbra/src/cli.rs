@@ -23,28 +23,14 @@ pub(crate) struct Cli {
     pub(crate) log_format: Option<LogFormat>,
 }
 
-impl Cli {
-    /// The global options that set the logs, as given: a child process
-    /// logs as its parent does.
-    pub(crate) fn log_args(&self) -> Vec<String> {
-        let format = self
-            .log_format
-            .and_then(|format| format.to_possible_value())
-            .map(|format| ["--log-format".to_owned(), format.get_name().to_owned()]);
-        ["--log".to_owned(), self.log.clone()]
-            .into_iter()
-            .chain(format.into_iter().flatten())
-            .collect()
-    }
-}
-
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// Render a Scene File into its final image and Render Job Report.
     Render(RenderArgs),
     /// Serve one Render Job for the Coordinator at an address: how `umbra
-    /// render` runs the Local Worker of each GPU, in a child process.
+    /// render` runs the Local Worker of each Render Device, in a child
+    /// process.
     #[command(hide = true)]
     Worker(WorkerArgs),
 }
@@ -112,4 +98,7 @@ pub(crate) struct WorkerArgs {
     /// The Coordinator's address.
     #[arg(long)]
     pub(crate) coordinator: SocketAddr,
+    /// Threads to render with on the CPU; one per logical CPU by default.
+    #[arg(long)]
+    pub(crate) nthreads: Option<NonZeroUsize>,
 }
