@@ -65,7 +65,7 @@ fn film_hash(job: RenderJob, options: &CoordinatorOptions<'_>) -> FilmHash {
 /// `umbra worker` on the CPU with `threads`, connecting to `coordinator`.
 fn cpu_worker(coordinator: SocketAddr, threads: Threads) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_umbra"));
-    command.args(["--log", "warn", "--log-format", "json", "worker"]);
+    command.args(["--log-filter", "warn", "--log-format", "json", "worker"]);
     command.args(["--render-device", "cpu"]);
     command.args(["--coordinator", &coordinator.to_string()]);
     if let Threads::One = threads {

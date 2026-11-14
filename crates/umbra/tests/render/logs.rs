@@ -1,5 +1,6 @@
-//! `tracing` logs on stderr: JSON lines without a TTY, human-readable with
-//! `--log-format human`, filtered by `--log` (arc42 §8.10).
+//! `tracing` logs on stderr: JSON lines without a TTY, text with
+//! `--log-format pretty` or `compact`, filtered by `--log-filter` (arc42
+//! §8.10).
 
 use serde_json::Value;
 
@@ -44,17 +45,54 @@ fn without_a_tty_the_logs_are_json_lines_with_the_final_status() {
     );
 }
 
-#[test]
-fn log_format_human_writes_text() {
+/// The stderr of rendering a camera alone with the log format `format`.
+fn logged_in(format: &str) -> String {
     let ws = Workspace::new();
     ws.file("scene.pbrt", CAMERA_ONLY);
-    let output = ws.umbra(&["--log-format", "human", "render", "scene.pbrt"]);
+    let output = ws.umbra(&["--log-format", format, "render", "scene.pbrt"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
+    stderr(&output)
+}
 
-    let stderr = stderr(&output);
-    let status = stderr.lines().find(|l| l.contains("Work Units")).unwrap();
+/// The text event of `stderr` that carries the final status, without the
+/// module that logged it.
+fn status_line(stderr: &str) -> &str {
+    let status = stderr
+        .lines()
+        .rfind(|l| l.contains("Work Units"))
+        .unwrap_or_else(|| panic!("a status event in {stderr}"));
     assert!(status.contains("INFO"), "{status}");
     assert!(serde_json::from_str::<Value>(status).is_err(), "{status}");
+    assert!(!status.contains("umbra::status"), "{status}");
+    status
+}
+
+#[test]
+fn log_format_pretty_writes_each_span_on_a_line_of_its_own() {
+    let stderr = logged_in("pretty");
+    let status = status_line(&stderr);
+
+    let spans: Vec<&str> = stderr
+        .lines()
+        .skip_while(|&l| l != status)
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .map(str::trim)
+        .collect();
+    assert_eq!(spans, ["in render_job"], "{stderr}");
+    assert!(!stderr.contains(".rs:"), "no source location in {stderr}");
+}
+
+#[test]
+fn log_format_compact_writes_each_event_on_one_line() {
+    let stderr = logged_in("compact");
+    let status = status_line(&stderr);
+
+    assert!(status.contains("render_job: Pass 1/1"), "{status}");
+    assert!(
+        stderr.lines().all(|l| !l.trim_start().starts_with("in ")),
+        "no span on a line of its own in {stderr}"
+    );
 }
 
 #[test]
@@ -63,7 +101,7 @@ fn log_filters_the_events() {
     ws.file("scene.pbrt", CAMERA_ONLY);
     // On the CPU alone: without a GPU, the default warns once.
     let output = ws.umbra(&[
-        "--log",
+        "--log-filter",
         "warn",
         "render",
         "scene.pbrt",
