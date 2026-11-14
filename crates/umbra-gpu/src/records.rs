@@ -4,7 +4,10 @@
 
 use cudarc::driver::DeviceRepr;
 use umbra_geometry::Sphere;
-use umbra_gpu_programs::{HitKind, HitRecord, LaunchParams, RayRecord};
+use umbra_gpu_programs::{
+    FilmSampleRecord, HitKind, HitRecord, LaunchParams, RayRecord, SamplerRecord, SceneRecord,
+    WavefrontParams, WorkUnitRecord,
+};
 
 use crate::Error;
 use crate::optix::SBT_RECORD_HEADER_SIZE;
@@ -44,13 +47,14 @@ const _: () = {
 /// to and from device memory byte for byte.
 macro_rules! device_repr {
     ($($t:ty),+ $(,)?) => {$(
-        // SAFETY: a `#[repr(C)]` type of `f32`s, integers and byte arrays,
-        // or a transparent wrapper of one, with no pointer to host memory,
-        // whose layout the device shares (`umbra-gpu-programs`' `launch.rs`,
-        // `Sphere`'s assertions). Its padding bytes are copied
-        // as they are and never read as values; of these types, the host
-        // reads back only `HitRecord`, which has no padding and for which
-        // any bits are a valid value.
+        // SAFETY: a `#[repr(C)]` type of `f32`s, integers, byte arrays and
+        // device addresses, or a transparent wrapper of one, with no pointer
+        // to host memory, whose layout the device shares (the assertions of
+        // `umbra-gpu-programs`' `launch.rs` and `wavefront.rs`, and of the
+        // core types they hold). Its padding bytes are copied as they are
+        // and never read as values; of these types, the host reads back
+        // only `HitRecord` and `FilmSampleRecord`, which have no padding and
+        // for which any bits are a valid value.
         #[expect(unsafe_code, reason = "copying records to and from the GPU (ADR 0007, ADR 0028)")]
         unsafe impl DeviceRepr for $t {}
     )+};
@@ -60,6 +64,11 @@ device_repr!(
     DeviceCopy<LaunchParams>,
     DeviceCopy<RayRecord>,
     DeviceCopy<HitRecord>,
+    DeviceCopy<SceneRecord>,
+    DeviceCopy<SamplerRecord>,
+    DeviceCopy<WorkUnitRecord>,
+    DeviceCopy<FilmSampleRecord>,
+    DeviceCopy<WavefrontParams>,
     SbtRecord<()>,
     SbtRecord<Sphere>
 );

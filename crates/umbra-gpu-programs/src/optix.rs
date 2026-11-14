@@ -63,6 +63,23 @@ pub(crate) fn launch_param_u64<const OFFSET: usize>() -> u64 {
     word
 }
 
+/// The generic address of the launch parameters, the `.const` variable
+/// `params` that `programs.rs` declares, through which a program reads them
+/// whole. Any program type.
+#[expect(
+    unsafe_code,
+    reason = "OptiX device API in inline PTX (ADR 0007, ADR 0028)"
+)]
+pub(crate) fn launch_params_address() -> u64 {
+    let address: u64;
+    // SAFETY: `cvta` converts the address of `params` in the constant state
+    // space to a generic one, and writes only `address`.
+    unsafe {
+        asm!("cvta.const.u64 {a}, params;", a = out(reg64) address, options(pure, nomem, nostack));
+    }
+    address
+}
+
 /// The 32-bit word at byte `OFFSET` of the launch parameters, as
 /// [`launch_param_u64`].
 #[expect(

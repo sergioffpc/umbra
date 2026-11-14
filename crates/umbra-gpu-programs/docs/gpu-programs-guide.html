@@ -390,7 +390,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <g class="step"><circle cx="618" cy="320" r="11"/><text x="618" y="324" text-anchor="middle">4</text></g>
             <text x="636" y="324">many threads run it at once</text>
         </svg></div>
-        <figcaption id="big-cap">The crate's place in Umbra. <b>①</b> The core crates (<code>umbra-math</code>, <code>umbra-geometry</code>) are written once. <b>②</b> <code>rustc</code> compiles them twice: for the CPU, and for the GPU target <code>nvptx64</code>, together with <code>umbra-gpu-programs</code>, whose programs only exist on that second build; on the CPU it keeps only the layout it shares with the host (<a href="#one-core">section 1</a>). <b>③</b> The host crate <code>umbra-gpu</code> embeds the GPU text (PTX) and hands it to OptiX. <b>④</b> A <a href="#launch">launch</a> starts one GPU thread per ray; each thread runs the crate's <a href="#optix">programs</a> and writes its own result back.</figcaption>
+        <figcaption id="big-cap">The crate's place in Umbra. <b>①</b> The core crates (<code>umbra-math</code>, <code>umbra-geometry</code> and the rest) are written once. <b>②</b> <code>rustc</code> compiles them twice: for the CPU, and for the GPU target <code>nvptx64</code>, together with <code>umbra-gpu-programs</code>, whose programs only exist on that second build; on the CPU it keeps only the layout it shares with the host (<a href="#one-core">section 1</a>). <b>③</b> The host crate <code>umbra-gpu</code> embeds the GPU text (PTX) and hands it to OptiX. <b>④</b> A <a href="#launch">launch</a> starts one GPU thread per ray; each thread runs the crate's <a href="#optix">programs</a> and writes its own result back. The renderer's <a href="#stages">stages</a> work the same way, one thread per Pixel Sample.</figcaption>
     </figure>
 
     <ol class="flow" aria-label="One ray through umbra-gpu-programs, as types and functions">
@@ -416,20 +416,21 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
                     <li><a href="#launch"><span class="n">2</span><span class="t">Programs, launches and the launch index</span><span class="c">launch_index_x · count guard</span></a></li>
                     <li><a href="#optix"><span class="n">3</span><span class="t">OptiX programs: one ray's trip</span><span class="c">raygen · intersection · closest hit · miss</span></a></li>
                     <li><a href="#params"><span class="n">4</span><span class="t">Talking to the host: shared layouts</span><span class="c">LaunchParams · RayRecord · HitRecord</span></a></li>
-                    <li><a href="#math"><span class="n">5</span><span class="t">The math program: the GPU's maths, checked</span><span class="c">MathFunction · __raygen__math · ULPs</span></a></li>
-                    <li><a href="#panics"><span class="n">6</span><span class="t">When something goes wrong: trap</span><span class="c">#[panic_handler] · ADR 0014</span></a></li>
+                    <li><a href="#stages"><span class="n">5</span><span class="t">The wavefront's stages: a Pixel Sample in two launches</span><span class="c">__raygen__camera · __raygen__film · DeviceSlice</span></a></li>
+                    <li><a href="#math"><span class="n">6</span><span class="t">The math program: the GPU's maths, checked</span><span class="c">MathFunction · __raygen__math · ULPs</span></a></li>
+                    <li><a href="#panics"><span class="n">7</span><span class="t">When something goes wrong: trap</span><span class="c">#[panic_handler] · ADR 0014</span></a></li>
                 </ol>
             </div>
             <div class="toc-part">
                 <div class="kicker">Part II · Implementation</div>
                 <ol>
-                    <li><a href="#map"><span class="n">7</span><span class="t">The crate at a glance</span><span class="c">modules, types, functions</span></a></li>
-                    <li><a href="#shared-layout"><span class="n">8</span><span class="t">One layout, two targets</span><span class="c">a normal dependency · repr(C) · const assertions</span></a></li>
-                    <li><a href="#inline-ptx"><span class="n">9</span><span class="t">OptiX's device API in inline PTX</span><span class="c">asm! · global_asm! · ld.const</span></a></li>
-                    <li><a href="#decisions"><span class="n">10</span><span class="t">Smaller design decisions</span><span class="c">sm_70 · math-program feature · ids by macro</span></a></li>
-                    <li><a href="#unsafe"><span class="n">11</span><span class="t">The unsafe boundary</span><span class="c">#[expect(unsafe_code)] · ADR 0007</span></a></li>
-                    <li><a href="#tests"><span class="n">12</span><span class="t">How it is built and tested</span><span class="c">build.rs · check.sh · --profile gpu</span></a></li>
-                    <li><a href="#not-yet"><span class="n">13</span><span class="t">Not here yet</span><span class="c">wavefront programs, #127</span></a></li>
+                    <li><a href="#map"><span class="n">8</span><span class="t">The crate at a glance</span><span class="c">modules, types, functions</span></a></li>
+                    <li><a href="#shared-layout"><span class="n">9</span><span class="t">One layout, two targets</span><span class="c">a normal dependency · repr(C) · const assertions</span></a></li>
+                    <li><a href="#inline-ptx"><span class="n">10</span><span class="t">OptiX's device API in inline PTX</span><span class="c">asm! · global_asm! · ld.const</span></a></li>
+                    <li><a href="#decisions"><span class="n">11</span><span class="t">Smaller design decisions</span><span class="c">sm_70 · math-program feature · ids by macro</span></a></li>
+                    <li><a href="#unsafe"><span class="n">12</span><span class="t">The unsafe boundary</span><span class="c">#[expect(unsafe_code)] · ADR 0007</span></a></li>
+                    <li><a href="#tests"><span class="n">13</span><span class="t">How it is built and tested</span><span class="c">build.rs · check.sh · --profile gpu</span></a></li>
+                    <li><a href="#not-yet"><span class="n">14</span><span class="t">Not here yet</span><span class="c">trace and shade stages</span></a></li>
                 </ol>
             </div>
         </div>
@@ -535,14 +536,14 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <thead><tr><th>word</th><th>read it as</th><th>in this crate</th></tr></thead>
             <tbody>
                 <tr><td>host / device</td><td>the CPU side / the GPU side</td><td><code>umbra-gpu</code> / <code>umbra-gpu-programs</code></td></tr>
-                <tr><td>kernel</td><td>a program the GPU runs, once per thread</td><td>the five <code>extern "ptx-kernel" fn</code>s</td></tr>
-                <tr><td>launch, width</td><td>“run it now, this many times”</td><td>one per <code>Tracer::trace</code> call on the host</td></tr>
+                <tr><td>kernel</td><td>a program the GPU runs, once per thread</td><td>the seven <code>extern "ptx-kernel" fn</code>s</td></tr>
+                <tr><td>launch, width</td><td>“run it now, this many times”</td><td>one per <code>Tracer::trace</code> call on the host, and one per stage of a <code>Renderer::render</code> batch</td></tr>
                 <tr><td>launch index</td><td>which thread am I? 0, 1, 2 …</td><td><code>optix::launch_index_x()</code></td></tr>
                 <tr><td>PTX</td><td>the GPU's assembly text, finished by the driver</td><td><code>umbra_gpu_programs.ptx</code></td></tr>
                 <tr><td>OptiX</td><td>NVIDIA's ray-tracing library on the GPU</td><td>the <code>optix</code> module talks to it</td></tr>
                 <tr><td>OptiX program</td><td>a kernel OptiX calls at a set moment of a ray's trip</td><td><code>__raygen__</code>, <code>__miss__</code>, <code>__closesthit__</code>, <code>__intersection__</code></td></tr>
                 <tr><td>payload</td><td>a few numbers that travel with a ray</td><td>two <code>u32</code> registers</td></tr>
-                <tr><td>launch parameters</td><td>the one block of settings the host passes to a launch</td><td><code>LaunchParams</code>, <code>MathParams</code> in <code>params</code></td></tr>
+                <tr><td>launch parameters</td><td>the one block of settings the host passes to a launch</td><td><code>LaunchParams</code>, <code>MathParams</code> or <code>WavefrontParams</code> in <code>params</code></td></tr>
                 <tr><td>SBT (shader binding table)</td><td>the host's list of which program to run, with its data</td><td><code>optix::sbt_data_pointer()</code></td></tr>
                 <tr><td>trap</td><td>the GPU's emergency stop</td><td><code>optix::trap()</code></td></tr>
             </tbody>
@@ -569,7 +570,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="210" y="104" text-anchor="middle" class="t-small t-mut">x86-64 backend: glibc, SIMD</text>
             <rect x="40" y="124" width="340" height="56" rx="6" class="f-mut-soft k-mut" stroke-dasharray="5 4"/>
             <text x="210" y="148" text-anchor="middle">umbra-gpu-programs</text>
-            <text x="210" y="168" text-anchor="middle" class="t-mut t-small">layout only: launch · math_launch → umbra-gpu</text>
+            <text x="210" y="168" text-anchor="middle" class="t-mut t-small">layout only: launch · wavefront · math_launch → umbra-gpu</text>
             <rect x="40" y="200" width="340" height="44" rx="6" class="f-acc-soft k-acc"/>
             <text x="210" y="227" text-anchor="middle" font-size="12">umbra-integrators … the CPU Worker</text>
             <!-- right -->
@@ -578,7 +579,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="680" y="104" text-anchor="middle" class="t-small t-mut">nvptx64 backend: libdevice, scalar lanes</text>
             <rect x="510" y="124" width="340" height="56" rx="6" class="f-warm-soft k-warm" stroke-width="1.6"/>
             <text x="680" y="148" text-anchor="middle">umbra-gpu-programs</text>
-            <text x="680" y="168" text-anchor="middle" class="t-warm t-small">programs · params · optix · panic handler</text>
+            <text x="680" y="168" text-anchor="middle" class="t-warm t-small">programs · stages · params · optix · panic handler</text>
             <line x1="590" y1="86" x2="590" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="770" y1="86" x2="770" y2="120" class="k-ink" marker-end="url(#ah-ink)"/>
             <rect x="510" y="200" width="340" height="44" rx="6" class="f-acc-soft k-acc"/>
@@ -608,11 +609,18 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <span class="k">mod</span> optix;
 <span class="k">#[cfg(target_arch = "nvptx64")]</span>
 <span class="k">mod</span> programs;
+<span class="k">#[cfg(target_arch = "nvptx64")]</span>
+<span class="k">mod</span> stages;
+<span class="k">mod</span> wavefront;
 
 <span class="k">pub use</span> launch::{HitKind, HitRecord, LaunchParams, RayRecord};
 <span class="k">#[cfg(feature = "math-program")]</span>
-<span class="k">pub use</span> math_launch::{MathFunction, MathParams, UnknownMathFunction};</pre>
-        <p><code>Cargo.toml</code> does the same for dependencies: <code>umbra-geometry</code> is a dependency on every target, since the layout converts its <code>Ray</code> into a <code>RayRecord</code>; <code>umbra-math</code> sits under <code>[target.'cfg(target_arch = "nvptx64")'.dependencies]</code>, for the programs alone. The library is an ordinary <code>rlib</code>, which <code>umbra-gpu</code> depends on for the layout. <code>umbra-gpu</code>'s build script asks for a <code>cdylib</code> instead, with <code>cargo rustc --lib --crate-type cdylib</code>, which is what the <code>nvptx64</code> target links into one PTX module (ADR 0033).</p>
+<span class="k">pub use</span> math_launch::{MathFunction, MathParams, UnknownMathFunction};
+<span class="k">pub use</span> wavefront::{
+    DeviceSlice, FilmSampleRecord, PixelSampleQueue, RandomizerRecord, SamplerRecord, SceneRecord,
+    WavefrontParams, WorkUnitRecord,
+};</pre>
+        <p><code>Cargo.toml</code> lists the core crates as dependencies on every target: <code>umbra-geometry</code>, since the layout converts its <code>Ray</code> into a <code>RayRecord</code>, and <code>umbra-camera</code>, <code>umbra-integrators</code>, <code>umbra-sampling</code>, <code>umbra-spectrum</code> and <code>umbra-math</code>, since the wavefront's records hold the core's camera, filter, sensor, integrator and digit permutations, and the stages run the core. The library is an ordinary <code>rlib</code>, which <code>umbra-gpu</code> depends on for the layout. <code>umbra-gpu</code>'s build script asks for a <code>cdylib</code> instead, with <code>cargo rustc --lib --crate-type cdylib</code>, which is what the <code>nvptx64</code> target links into one PTX module (ADR 0033).</p>
         <p>Why does the core compile for the GPU at all? Because ADR 0014 wrote it for that from day one: <code>no_std</code> without <code>alloc</code>, <code>f32</code> only, closed enums instead of trait objects, no recursion. ADR 0028 adds that the core <b>works on values</b>: a core function takes and returns <code>Copy</code> values and never sees a queue, a buffer or a thread index. The GPU-specific parts (thread indices, buffers, OptiX) all live here, in the programs.</p>
         <p>Two unstable compiler features are needed, so the workspace builds with a pinned nightly <code>rustc</code> (ADR 0027): <code>abi_ptx</code> for <code>extern "ptx-kernel"</code> entry points, and <code>asm_experimental_arch</code> for inline assembly on <code>nvptx64</code>. <code>umbra-gpu-programs</code> is the only crate allowed to switch on unstable features, and only on its <code>nvptx64</code> build, so a host build compiles it on stable features alone; <code>scripts/check.sh</code> fails if any other crate does.</p>
     </div>
@@ -635,7 +643,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <div><p class="panel-title">what umbra-gpu-programs contains in this build</p><ul class="build" id="bd-list"></ul></div>
             <div><p class="panel-title">what umbra-gpu (host) uses from this crate</p><ul class="build" id="bd-host"></ul><dl class="readout" id="bd-read" style="margin-top:0.8rem"></dl></div>
         </div>
-        <figcaption><span class="sim">simulation</span> <b>Try:</b> switch the target to x86_64 and watch the programs disappear, leaving only the layout: that is a normal workspace build on a laptop. Then switch back and turn the math-program feature on, as the GPU tests do: the math program and its two modules join. Note the right column: the host uses <code>launch.rs</code> (and <code>math_launch.rs</code>) through its ordinary dependency on this crate, built for the CPU, whatever the target of the programs' PTX (<a href="#shared-layout">section 8</a>).</figcaption>
+        <figcaption><span class="sim">simulation</span> <b>Try:</b> switch the target to x86_64 and watch the programs disappear, leaving only the layout: that is a normal workspace build on a laptop. Then switch back and turn the math-program feature on, as the GPU tests do: the math program and its two modules join. Note the right column: the host uses <code>launch.rs</code>, <code>wavefront.rs</code> (and <code>math_launch.rs</code>) through its ordinary dependency on this crate, built for the CPU, whatever the target of the programs' PTX (<a href="#shared-layout">section 9</a>).</figcaption>
     </figure>
 </section>
 
@@ -697,7 +705,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
     write_hit(params.hits, i, HitRecord { t: f32::from_bits(t), kind });   <span class="c">// my slot</span>
 }</pre>
         <p><b><code>extern "ptx-kernel"</code></b> tells <code>rustc</code> to emit this function as a GPU entry point, the kind a launch can start. <b><code>#[unsafe(no_mangle)]</code></b> (above it in the source) keeps its name exactly <code>__raygen__trace</code> in the PTX, because the host looks it up by that name, and OptiX reads the prefix <code>__raygen__</code> to know what kind of program it is.</p>
-        <p>The rays and hits are not Rust slices. The host passes their <b>device addresses</b>: plain 64-bit numbers saying where in GPU memory the arrays start. <code>read_ray</code> turns the address into a pointer, steps <var>i</var> records forward with <code>wrapping_add</code>, and reads one <code>RayRecord</code>. <code>write_hit</code> does the same for a <code>HitRecord</code>. Those two reads and writes are <code>unsafe</code>: the compiler cannot check the host's promise that the arrays are long enough (<a href="#unsafe">section 11</a>).</p>
+        <p>The rays and hits are not Rust slices. The host passes their <b>device addresses</b>: plain 64-bit numbers saying where in GPU memory the arrays start. <code>read_ray</code> turns the address into a pointer, steps <var>i</var> records forward with <code>wrapping_add</code>, and reads one <code>RayRecord</code>. <code>write_hit</code> does the same for a <code>HitRecord</code>. Those two reads and writes are <code>unsafe</code>: the compiler cannot check the host's promise that the arrays are long enough (<a href="#unsafe">section 12</a>).</p>
         <p>Only the <var>x</var> part of the launch index is read. OptiX launches can be up to three-dimensional (width × height × depth), but a list of rays needs one dimension.</p>
     </div>
 
@@ -810,8 +818,8 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
     <div class="plain"><span class="tag">In plain words</span>The CPU and the GPU pass each other raw bytes, not Rust values. For that to work, both must agree exactly where each field sits: “the ray count is the 4 bytes starting at byte 24”. Umbra writes each shared struct once, fixes its layout with <code>#[repr(C)]</code>, and has the compiler check every byte position. If either side ever disagreed, the build would fail instead of the GPU reading garbage.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 880 250" class="dg-wide" role="img" aria-label="Byte map of the 32-byte params variable holding LaunchParams or MathParams">
-            <text x="20" y="22" class="t-bold">the .const variable params: 32 bytes</text>
+        <div class="dg-wrap"><svg viewBox="0 0 880 250" class="dg-wide" role="img" aria-label="Byte map of the first 32 bytes of the params variable holding LaunchParams or MathParams">
+            <text x="20" y="22" class="t-bold">the .const variable params: its first 32 bytes, of 128</text>
             <!-- ruler -->
             <g class="t-mut t-small">
                 <text x="130" y="48" text-anchor="middle">0</text><text x="310" y="48" text-anchor="middle">8</text><text x="490" y="48" text-anchor="middle">16</text><text x="670" y="48" text-anchor="middle">24</text><text x="850" y="48" text-anchor="middle">32</text>
@@ -833,15 +841,24 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <rect x="690" y="178" width="180" height="30" class="f-ok-soft k-ok"/><text x="780" y="198" text-anchor="middle" font-size="12">HitRecord: t, kind = 8 B</text>
             <text x="440" y="236" text-anchor="middle" class="t-mut t-small">records live in their own buffers; params holds their device addresses (rays, hits)</text>
         </svg></div>
-        <figcaption>The layouts the two sides share, to scale (one column of the ruler is one byte, 22.5 px). <code>LaunchParams</code> fills the 32-byte variable; its last 4 bytes are padding, because the struct's size must be a multiple of its 8-byte alignment. A math launch puts the smaller <code>MathParams</code> in the same variable (<a href="#math">section 5</a>).</figcaption>
+        <figcaption>The layouts the two sides share, to scale (one column of the ruler is one byte, 22.5 px). <code>LaunchParams</code> fills the first 32 bytes; its last 4 bytes are padding, because the struct's size must be a multiple of its 8-byte alignment. A math launch puts the smaller <code>MathParams</code> in the same variable (<a href="#math">section 6</a>), and a stage of the wavefront its 128-byte <code>WavefrontParams</code> (<a href="#stages">section 5</a>), for which the variable is sized.</figcaption>
     </figure>
 
     <div class="prose">
         <p><b>Launch parameters</b> are OptiX's way to hand every thread the same small block of settings. The pipeline names a variable, here <code>params</code>, and OptiX copies the host's bytes into it before the launch. The variable lives in the GPU's <b>constant memory</b> (<code>.const</code> in PTX): read-only during a launch and cheap when every thread reads the same address. <code>rustc</code> cannot put a Rust <code>static</code> there, so <code>programs.rs</code> declares it in assembly, sized by the compiler:</p>
 <pre class="code"><span class="k">mod</span> params {
+    <span class="k">use</span> crate::launch::LaunchParams;
+    <span class="k">use</span> crate::wavefront::WavefrontParams;
+
+    <span class="k">const</span> SIZE: usize = <span class="k">if</span> size_of::&lt;LaunchParams&gt;() &gt; size_of::&lt;WavefrontParams&gt;() {
+        size_of::&lt;LaunchParams&gt;()
+    } <span class="k">else</span> {
+        size_of::&lt;WavefrontParams&gt;()
+    };
+    ...                                   <span class="c">// both at most 8-byte aligned, asserted</span>
     core::arch::global_asm!(
         <span class="k">".visible .const .align 8 .b8 params[{size}];"</span>,
-        size = <span class="k">const</span> size_of::&lt;crate::launch::LaunchParams&gt;(),
+        size = <span class="k">const</span> SIZE,
     );
 }</pre>
         <p>Rust can't read that variable as a struct either, so <code>launch_params()</code> reads it field by field, each at the offset the compiler computes with <code>offset_of!</code>:</p>
@@ -872,14 +889,91 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
         <div class="tablewrap"><div class="bytes" id="by-map" aria-label="Byte map of the selected struct"></div></div>
         <div class="bytes-legend" id="by-legend"></div>
         <dl class="readout" id="by-read"></dl>
-        <figcaption><b>Try:</b> pick a field and read how the program loads it. For the two launch-parameter structs it is one <code>ld.const</code> instruction at a fixed offset of <code>params</code>. For the records it is an address computed from the thread's index. Switch to <code>MathParams</code> and see that it fits in the first 24 bytes of the same 32-byte variable. Offsets and sizes are the ones <code>launch.rs</code> and <code>math_launch.rs</code> assert; the addresses are made up.</figcaption>
+        <figcaption><b>Try:</b> pick a field and read how the program loads it. For the two launch-parameter structs it is one <code>ld.const</code> instruction at a fixed offset of <code>params</code>. For the records it is an address computed from the thread's index. Switch to <code>MathParams</code> and see that it fits in the first 24 bytes of the same variable. Offsets and sizes are the ones <code>launch.rs</code> and <code>math_launch.rs</code> assert; the addresses are made up.</figcaption>
     </figure>
+</section>
+
+<!-- ================================================================= -->
+<section class="topic" id="stages">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/stages.rs">stages.rs</a> · <code>__raygen__camera</code>, <code>__raygen__film</code> · <a href="../src/wavefront.rs">wavefront.rs</a> · <code>WavefrontParams</code>, <code>DeviceSlice</code> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>The wavefront's stages: a Pixel Sample in two launches</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>The tracer bullet gives each thread one ray. The renderer gives each thread one Pixel Sample, and splits the work on it into stages, one program each. The host launches the camera stage over every Pixel Sample of a batch of Work Units, then the film stage over all of them again. What one stage leaves for the next waits in a queue in GPU memory, one slot per Pixel Sample. Both stages call the same core functions the CPU calls for a Pixel Sample; only the order of the work is the GPU's own.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 880 260" class="dg-wide" role="img" aria-label="Both stages read WavefrontParams from params; the camera stage writes Pixel Sample i into the queue, the film stage reads it and writes film sample record i">
+            <rect x="20" y="20" width="840" height="44" rx="6" class="f-surf k-ink"/>
+            <text x="36" y="47" class="t-bold">params: WavefrontParams, 128 bytes</text>
+            <text x="844" y="47" text-anchor="end" class="t-small t-mut">scene · sampler · units · queue · film_samples, each a DeviceSlice</text>
+            <rect x="20" y="100" width="300" height="116" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="36" y="124" class="t-bold">__raygen__camera</text>
+            <text x="36" y="146" class="t-small">start_pixel_sample(pixel, sample index)</text>
+            <text x="36" y="164" class="t-small">SampledWavelengths::sample_visible</text>
+            <text x="36" y="182" class="t-small">get_camera_sample, generate_ray</text>
+            <text x="36" y="200" class="t-small">weight · integrator.li(…)</text>
+            <rect x="360" y="100" width="180" height="116" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="450" y="124" text-anchor="middle" class="t-bold">PixelSampleQueue</text>
+            <text x="450" y="146" text-anchor="middle" class="t-small">lambda: [f32; 4]</text>
+            <text x="450" y="164" text-anchor="middle" class="t-small">pdf: [f32; 4]</text>
+            <text x="450" y="182" text-anchor="middle" class="t-small">radiance: [f32; 4]</text>
+            <text x="450" y="200" text-anchor="middle" class="t-small">filter_weight: f32</text>
+            <rect x="580" y="100" width="280" height="116" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="596" y="124" class="t-bold">__raygen__film</text>
+            <text x="596" y="146" class="t-small">SampledWavelengths::from_parts</text>
+            <text x="596" y="164" class="t-small">PixelSensor::to_sensor_rgb</text>
+            <text x="596" y="182" class="t-small">→ FilmSampleRecord i:</text>
+            <text x="596" y="200" class="t-small">rgb, filter weight</text>
+            <line x1="322" y1="158" x2="356" y2="158" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="339" y="150" text-anchor="middle" class="t-small t-mut">i</text>
+            <line x1="542" y1="158" x2="576" y2="158" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="559" y="150" text-anchor="middle" class="t-small t-mut">i</text>
+            <line x1="170" y1="66" x2="170" y2="96" class="k-mut" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+            <line x1="720" y1="66" x2="720" y2="96" class="k-mut" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+            <text x="180" y="86" class="t-small t-mut">read whole</text>
+            <text x="730" y="86" class="t-small t-mut">read whole</text>
+            <text x="440" y="244" text-anchor="middle" class="t-small t-mut">thread i of each launch is Pixel Sample i of the batch; the host waits between the two launches</text>
+        </svg></div>
+        <figcaption>The two stages of a batch. Each is one launch, one thread per Pixel Sample. The camera stage writes slot <var>i</var> of each queue array, the film stage reads it back and writes film sample record <var>i</var>, which the host copies back and sums per pixel. The host's side is in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>, “One batch, step by step”.</figcaption>
+    </figure>
+
+    <div class="prose">
+        <p>The film stage in full, from <code>stages.rs</code>, without its <code>#[expect]</code> and <code>#[unsafe(no_mangle)]</code> lines:</p>
+<pre class="code"><span class="k">extern "ptx-kernel" fn</span> __raygen__film() {
+    <span class="k">let</span> params = wavefront_params();                 <span class="c">// the whole WavefrontParams</span>
+    <span class="k">let</span> i = optix::launch_index_x();               <span class="c">// which Pixel Sample am I?</span>
+    <span class="k">let</span> view = params.scene.as_ref()[<span class="k">0</span>].view();      <span class="c">// the core's SceneView</span>
+    <span class="k">let</span> queue = params.queue;
+    <span class="k">let</span> lambda = SampledWavelengths::from_parts(
+        queue.lambda.read(i),
+        SampledSpectrum::from(queue.pdf.read(i)),
+    );
+    <span class="k">let</span> rgb = view
+        .sensor()
+        .to_sensor_rgb(SampledSpectrum::from(queue.radiance.read(i)), &amp;lambda);
+    params.film_samples.write(i, FilmSampleRecord {
+        rgb: [rgb.r, rgb.g, rgb.b],
+        weight: queue.filter_weight.read(i),
+    });
+}</pre>
+        <p><b>The parameters, read whole.</b> The tracer's programs read <code>LaunchParams</code> field by field with <code>ld.const</code> (<a href="#params">section 4</a>). A <code>WavefrontParams</code> is 128 bytes of nested records, so <code>wavefront_params</code> reads it in one go instead: <code>optix::launch_params_address</code> converts the address of <code>params</code> in constant memory into a generic one with <code>cvta.const.u64</code>, and the stage reads a <code>WavefrontParams</code> from there. <code>params</code> is now sized for the larger of the two structs.</p>
+        <p><b>Tables through <code>DeviceSlice</code>.</b> Each field of <code>WavefrontParams</code> is a <code>DeviceSlice&lt;T&gt;</code>, a device address and a length that the host made. On <code>nvptx64</code>, a <code>DeviceSlice&lt;T&gt;</code> is <code>AsRef&lt;[T]&gt;</code>, so <code>params.scene.as_ref()[0]</code> is the <code>SceneRecord</code>, and <code>SceneRecord::view</code> builds the core's <code>SceneView</code> over it. The filter's and the sensor's tables in that record are <code>DeviceSlice&lt;f32&gt;</code>s, which the core reads as it reads a <code>Vec</code> on the CPU. The queue's slices are read and written value by value with <code>read(i)</code> and <code>write(i, value)</code>, each checking <var>i</var> against the length.</p>
+        <p><b>Which Pixel Sample.</b> In the camera stage, thread <var>i</var> finds its Work Unit with <code>unit_of</code>, a binary search for the last <code>WorkUnitRecord</code> whose first Pixel Sample is not after <var>i</var>; <code>WorkUnitRecord::pixel_sample</code> then gives its pixel and sample index. Each thread builds its own sampler from the <code>SamplerRecord</code> (<code>SamplerRecord::sampler</code>, a Halton sampler) and starts it at that Pixel Sample, so it draws the same numbers the CPU draws for the same Pixel Sample. It keeps the wavelengths with <code>SampledWavelengths::to_parts</code>, which the film stage turns back with <code>from_parts</code>.</p>
+        <p><b>So far a path is its camera ray.</b> The camera stage calls the integrator's <code>li</code> in one step. The stages that split <code>li</code>, intersection and shading, arrive with the Shapes and lights that need them (<a href="#not-yet">section 14</a>).</p>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">size(params) = max(32, 128) = 128</div><div class="mb-d"><b>One variable for every launch.</b> <code>programs.rs</code> sizes <code>params</code> for the larger of <code>LaunchParams</code> and <code>WavefrontParams</code>, and asserts that neither needs more than its 8-byte alignment.</div></div>
+        <div class="mb-row"><div class="mb-f">launch width = Pixel Samples in the batch</div><div class="mb-d"><b>One thread per Pixel Sample.</b> The host launches exactly that many threads for each stage, so every <var>i</var> has a Pixel Sample.</div></div>
+        <div class="mb-row"><div class="mb-f">address(lambda i) = lambda + 16 i</div><div class="mb-d"><b>Finding slot <var>i</var>.</b> A <code>[f32; 4]</code> is 16 bytes. <code>DeviceSlice::read</code> and <code>write</code> check <var>i</var> &lt; length first; a failed check panics, which traps (<a href="#panics">section 7</a>).</div></div>
+    </div>
 </section>
 
 <!-- ================================================================= -->
 <section class="topic" id="math">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">5</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/math.rs">math.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <code>__raygen__math</code>, <code>MathFunction</code>, <code>MathParams</code> · <a href="https://github.com/sergioffpc/umbra/issues/146">#146</a></div>
+        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/math.rs">math.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <code>__raygen__math</code>, <code>MathFunction</code>, <code>MathParams</code> · <a href="https://github.com/sergioffpc/umbra/issues/146">#146</a></div>
         <h3>The math program: the GPU's maths, checked</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>On the GPU, <code>sin</code>, <code>exp</code> and friends come from NVIDIA's maths library, not from the one the CPU uses. They give slightly different answers in the last digit or so. To know how different, the tests need the GPU to compute, say, <code>expf</code> for four million chosen inputs. The math program does exactly that: each thread takes one input, calls the same <code>umbra_math</code> function the renderer calls, and writes the answer. The host then compares every answer with the CPU's.</div>
@@ -932,7 +1026,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
         <p><b>Which function?</b> <code>MathFunction</code> is an enum of 18 variants, one per <code>umbra_math</code> function under test: <code>Fma</code>, <code>Sqrt</code>, <code>Floor</code>, <code>Ceil</code>, <code>Roundf</code>, <code>Sinf</code>, <code>SinOfSinCos</code>, <code>CosOfSinCos</code>, <code>Tanf</code>, <code>Asinf</code>, <code>Acosf</code>, <code>Atan2</code>, <code>Erf</code>, <code>Expf</code>, <code>Powf</code>, <code>Logf</code>, <code>Atanhf</code>, <code>Coshf</code>. Its number on the wire is its position in that list: <code>u32::from(function)</code> one way, <code>MathFunction::try_from(id)</code> the other, which fails with <code>UnknownMathFunction</code> on any id past the end.</p>
         <p><b>Its arguments</b> are always three <code>f32</code>s, <code>[a, b, c]</code>; a function takes as many as it needs, in order, and ignores the rest. <code>MathFunction::evaluate</code> is one <code>match</code>: <code>Self::Fma =&gt; umbra_math::fma(a, b, c)</code>, <code>Self::Atan2 =&gt; umbra_math::atan2(a, b)</code> (so the arguments are <code>[y, x, _]</code>), <code>Self::SinOfSinCos =&gt; umbra_math::sin_cos(a).0</code>, and so on.</p>
         <p><b>Why these functions?</b> On <code>nvptx64</code>, <code>umbra-math</code> takes its C maths from CUDA's <code>libdevice</code> (<code>__nv_expf</code>, <code>__nv_powf</code>, …) where glibc serves the CPU (ADR 0028). The two libraries differ, and the GPU's are allowed to be approximate, since a GPU Worker promises only statistical equality with the CPU (ADR 0026). The test measures how far apart they are and holds each function to the bound <code>umbra-math</code> documents. The comparison is <b>not</b> bit for bit, except for the primitives whose bound is 0.</p>
-        <p>The math program only exists with the <code>math-program</code> feature (<a href="#decisions">section 10</a>). Production PTX has no math program.</p>
+        <p>The math program only exists with the <code>math-program</code> feature (<a href="#decisions">section 11</a>). Production PTX has no math program.</p>
     </div>
 
     <div class="mathbox">
@@ -965,7 +1059,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <!-- ================================================================= -->
 <section class="topic" id="panics">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">6</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/programs.rs">programs.rs</a> · <code>#[panic_handler]</code> · <a href="../src/optix.rs">optix.rs</a> · <code>trap</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
+        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/programs.rs">programs.rs</a> · <code>#[panic_handler]</code> · <a href="../src/optix.rs">optix.rs</a> · <code>trap</code> · <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a></div>
         <h3>When something goes wrong: trap</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>On the CPU, a Rust panic prints a message and stops the program. A GPU thread can't print and has nowhere to unwind to. So in this crate a panic pulls the emergency brake: the PTX instruction <code>trap</code>, which stops the whole launch. The host then sees the launch fail with a CUDA error. That is fine, because in Umbra a panic always means a bug, never normal control flow.</div>
@@ -1019,17 +1113,17 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-gpu-programs</code> is small: six files, five entry points, and a public API that is only the shared layout. <code>umbra-gpu</code>'s build script compiles it to PTX, and <code>umbra-gpu</code> depends on it as an ordinary crate, on the host, for that layout.</p>
+    <p><code>umbra-gpu-programs</code> is small: eight files, seven entry points, and a public API that is only the shared layout. <code>umbra-gpu</code>'s build script compiles it to PTX, and <code>umbra-gpu</code> depends on it as an ordinary crate, on the host, for that layout.</p>
 </div>
 
 <section class="topic" id="map">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">7</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../src/programs.rs">programs.rs</a> · <a href="../README.md">README.md</a></div>
+        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../src/programs.rs">programs.rs</a> · <a href="../README.md">README.md</a></div>
         <h3>The crate at a glance</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span><code>programs.rs</code> holds the programs. <code>optix.rs</code> is the phone line to OptiX. <code>launch.rs</code> and <code>math_launch.rs</code> describe the bytes shared with the host. <code>math.rs</code> is the math program's helper. <code>lib.rs</code> only picks the modules for the target and re-exports the layout types, the crate's whole public API; the modules themselves are private.</div>
+    <div class="plain"><span class="tag">In plain words</span><code>programs.rs</code> holds the tracer's and the math programs, and <code>stages.rs</code> the wavefront's two stages. <code>optix.rs</code> is the phone line to OptiX. <code>launch.rs</code>, <code>wavefront.rs</code> and <code>math_launch.rs</code> describe the bytes shared with the host. <code>math.rs</code> is the math program's helper. <code>lib.rs</code> only picks the modules for the target and re-exports the layout types, the crate's whole public API; the modules themselves are private.</div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 900 300" class="dg-wide" role="img" aria-label="The five modules of umbra-gpu-programs and how they use each other">
+        <div class="dg-wrap"><svg viewBox="0 0 900 420" class="dg-wide" role="img" aria-label="The seven modules of umbra-gpu-programs and how they use each other">
             <rect x="230" y="20" width="440" height="130" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
             <text x="244" y="42" class="t-bold">programs.rs</text>
             <text x="450" y="64" text-anchor="middle" font-size="12">__raygen__trace · __miss__trace</text>
@@ -1067,8 +1161,23 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="690" y="58" class="t-small">Ray, Sphere</text>
             <text x="690" y="84" class="t-small t-mut">uses umbra-math:</text>
             <text x="690" y="102" class="t-small">Point3f, Vector3f, expf, …</text>
+            <rect x="20" y="320" width="200" height="90" rx="8" class="f-surf k-ink"/>
+            <text x="34" y="342" class="t-bold">wavefront.rs</text>
+            <text x="120" y="366" text-anchor="middle" font-size="11">DeviceSlice · SceneRecord</text>
+            <text x="120" y="384" text-anchor="middle" font-size="11">WavefrontParams · …</text>
+            <text x="120" y="402" text-anchor="middle" font-size="10" class="t-acc">shared with umbra-gpu</text>
+            <rect x="240" y="320" width="200" height="90" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="254" y="342" class="t-bold">stages.rs</text>
+            <text x="340" y="366" text-anchor="middle" font-size="11">__raygen__camera</text>
+            <text x="340" y="384" text-anchor="middle" font-size="11">__raygen__film</text>
+            <text x="340" y="402" text-anchor="middle" font-size="10" class="t-mut">wavefront_params · unit_of</text>
+            <line x1="340" y1="318" x2="340" y2="284" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="238" y1="365" x2="224" y2="365" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="460" y="350" class="t-small t-mut">stages.rs and wavefront.rs use the core:</text>
+            <text x="460" y="368" class="t-small">umbra-camera, umbra-integrators,</text>
+            <text x="460" y="386" class="t-small">umbra-sampling, umbra-spectrum, umbra-math</text>
         </svg></div>
-        <figcaption>The modules and what uses what (arrows point at what is used). The dashed, warm modules only exist with the <code>math-program</code> feature. <code>programs.rs</code>, <code>optix.rs</code> and <code>math.rs</code> exist on <code>nvptx64</code> only; <code>launch.rs</code> and <code>math_launch.rs</code> on every target, re-exported by <code>lib.rs</code>. <code>math.rs</code> uses <code>optix.rs</code> for the launch index and launch parameters, and adds <code>evaluate</code> to <code>math_launch.rs</code>'s <code>MathFunction</code>.</figcaption>
+        <figcaption>The modules and what uses what (arrows point at what is used). The dashed, warm modules only exist with the <code>math-program</code> feature. <code>programs.rs</code>, <code>stages.rs</code>, <code>optix.rs</code> and <code>math.rs</code> exist on <code>nvptx64</code> only; <code>launch.rs</code>, <code>wavefront.rs</code> and <code>math_launch.rs</code> on every target, re-exported by <code>lib.rs</code>. <code>programs.rs</code> also reads the size of <code>wavefront.rs</code>'s <code>WavefrontParams</code>, for <code>params</code>; that arrow is left out. <code>math.rs</code> uses <code>optix.rs</code> for the launch index and launch parameters, and adds <code>evaluate</code> to <code>math_launch.rs</code>'s <code>MathFunction</code>.</figcaption>
     </figure>
     <div class="tablewrap">
         <table class="data">
@@ -1079,13 +1188,19 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
                 <tr><td><code>__closesthit__trace</code></td><td>programs.rs</td><td>closest hit: the hit's <code>t</code> and whether a triangle or the sphere</td></tr>
                 <tr><td><code>__intersection__sphere</code></td><td>programs.rs</td><td>custom intersection through the core's <code>Sphere::intersect</code></td></tr>
                 <tr><td><code>__raygen__math</code></td><td>programs.rs</td><td>math program: <code>MathFunction</code> on argument record <var>i</var> (feature)</td></tr>
-                <tr><td><code>params</code></td><td>programs.rs</td><td>the <code>.const</code> launch-parameter variable, sized for <code>LaunchParams</code></td></tr>
+                <tr><td><code>__raygen__camera</code></td><td>stages.rs</td><td>camera stage: Pixel Sample <var>i</var> to the radiance along its camera ray, into the queue</td></tr>
+                <tr><td><code>__raygen__film</code></td><td>stages.rs</td><td>film stage: the queue's radiance in the sensor's RGB, into film sample record <var>i</var></td></tr>
+                <tr><td><code>wavefront_params</code>, <code>unit_of</code>, <code>SceneRecord::view</code>, <code>SamplerRecord::sampler</code></td><td>stages.rs</td><td>the stages' read of <code>params</code>; thread <var>i</var>'s Work Unit; the core's <code>SceneView</code> and sampler over the records</td></tr>
+                <tr><td><code>params</code></td><td>programs.rs</td><td>the <code>.const</code> launch-parameter variable, sized for the larger of <code>LaunchParams</code> and <code>WavefrontParams</code></td></tr>
                 <tr><td><code>launch_params</code>, <code>read_ray</code>, <code>write_hit</code>, <code>read_sphere</code></td><td>programs.rs</td><td>reads of <code>params</code> and of device memory</td></tr>
                 <tr><td><code>LaunchParams</code>, <code>RayRecord</code>, <code>HitRecord</code>, <code>HitKind</code></td><td>launch.rs</td><td>the trace programs' layout shared with the host</td></tr>
                 <tr><td><code>From&lt;&amp;Ray&gt; for RayRecord</code></td><td>launch.rs</td><td>the host's conversion of the core's ray into its record</td></tr>
+                <tr><td><code>DeviceSlice</code>, <code>SceneRecord</code>, <code>RandomizerRecord</code>, <code>SamplerRecord</code>, <code>WorkUnitRecord</code>, <code>PixelSampleQueue</code>, <code>FilmSampleRecord</code>, <code>WavefrontParams</code></td><td>wavefront.rs</td><td>the wavefront's layout shared with the host</td></tr>
+                <tr><td><code>WorkUnitRecord::pixel_sample</code></td><td>wavefront.rs</td><td>which pixel and sample index Pixel Sample <var>i</var> of a batch is</td></tr>
+                <tr><td><code>DeviceSlice</code>: <code>AsRef&lt;[T]&gt;</code>, <code>read</code>, <code>write</code></td><td>wavefront.rs</td><td>the device's access to a slice: as a <code>&amp;[T]</code>, or value by value (<code>nvptx64</code> only)</td></tr>
                 <tr><td><code>MathParams</code>, <code>MathFunction</code>, <code>UnknownMathFunction</code></td><td>math_launch.rs</td><td>the math program's layout shared with the host (feature)</td></tr>
                 <tr><td><code>MathFunction::evaluate</code>, <code>math_params</code>, <code>read_args</code>, <code>write_result</code></td><td>math.rs</td><td>what the math program runs (feature)</td></tr>
-                <tr><td><code>launch_index_x</code>, <code>launch_param_u64</code>, <code>launch_param_u32</code></td><td>optix.rs</td><td>launch index; <code>ld.const</code> loads from <code>params</code></td></tr>
+                <tr><td><code>launch_index_x</code>, <code>launch_param_u64</code>, <code>launch_param_u32</code>, <code>launch_params_address</code></td><td>optix.rs</td><td>launch index; <code>ld.const</code> loads from <code>params</code>; its generic address, by <code>cvta.const</code></td></tr>
                 <tr><td><code>set_payload</code>, <code>ray_tmax</code>, <code>object_ray_origin</code>, <code>object_ray_direction</code></td><td>optix.rs</td><td>the current ray's state</td></tr>
                 <tr><td><code>sbt_data_pointer</code>, <code>hit_primitive</code>, <code>Primitive</code></td><td>optix.rs</td><td>record data; triangle or custom hit</td></tr>
                 <tr><td><code>report_intersection</code>, <code>trace</code>, <code>TraceRay</code>, <code>trap</code></td><td>optix.rs</td><td>report a hit; trace a ray; stop the launch</td></tr>
@@ -1097,10 +1212,10 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <!-- ================================================================= -->
 <section class="topic" id="shared-layout">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/launch.rs">launch.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/launch.rs">launch.rs</a> · <a href="../src/wavefront.rs">wavefront.rs</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
         <h3>One layout, two targets</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The struct the host fills and the struct the program reads must be identical. The surest way is to have only one. So <code>launch.rs</code> is written once, inside <code>umbra-gpu-programs</code>, which compiles on both targets, and <code>umbra-gpu</code> depends on it like on any other crate and uses its very types. Two copies of the struct can't drift apart if there is only one.</div>
+    <div class="plain"><span class="tag">In plain words</span>The struct the host fills and the struct the program reads must be identical. The surest way is to have only one. So <code>launch.rs</code> and <code>wavefront.rs</code> are written once, inside <code>umbra-gpu-programs</code>, which compiles on both targets, and <code>umbra-gpu</code> depends on it like on any other crate and uses its very types. Two copies of the struct can't drift apart if there is only one.</div>
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 220" class="dg-wide" role="img" aria-label="launch.rs compiled into umbra-gpu-programs for nvptx64 and for x86_64, where umbra-gpu depends on it">
             <rect x="330" y="70" width="200" height="70" rx="6" class="f-acc-soft k-acc" stroke-width="1.6"/>
@@ -1121,16 +1236,19 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="720" y="190" text-anchor="middle" class="t-small t-mut">for x86_64</text>
             <text x="430" y="190" text-anchor="middle" class="t-small t-acc">same bytes on both sides</text>
         </svg></div>
-        <figcaption>The same file, two compilations: the PTX build for <code>nvptx64</code>, and the host build that <code>umbra-gpu</code> depends on. The <code>const</code> assertions inside it run in both, so a layout that differed between the CPU and the GPU would stop either build. <code>math_launch.rs</code> is shared the same way, with the <code>math-program</code> feature on both sides: <code>umbra-gpu</code>'s feature of that name turns on this crate's.</figcaption>
+        <figcaption>The same file, two compilations: the PTX build for <code>nvptx64</code>, and the host build that <code>umbra-gpu</code> depends on. The <code>const</code> assertions inside it run in both, so a layout that differed between the CPU and the GPU would stop either build. <code>wavefront.rs</code> is shared the same way, and <code>math_launch.rs</code> too, with the <code>math-program</code> feature on both sides: <code>umbra-gpu</code>'s feature of that name turns on this crate's.</figcaption>
     </figure>
     <div class="prose">
         <p>On the host side, <code>umbra-gpu</code> lists the crate under <code>[dependencies]</code> and imports the types, in <code>umbra-gpu/src/records.rs</code>. Since the types are this crate's, <code>umbra-gpu</code> cannot implement <code>cudarc</code>'s <code>DeviceRepr</code> on them directly (Rust's orphan rule), so it wraps each in a transparent newtype, whose layout is that of the type it holds:</p>
-<pre class="code"><span class="k">use</span> umbra_gpu_programs::{HitKind, HitRecord, LaunchParams, RayRecord};
+<pre class="code"><span class="k">use</span> umbra_gpu_programs::{
+    FilmSampleRecord, HitKind, HitRecord, LaunchParams, RayRecord, SamplerRecord, SceneRecord,
+    WavefrontParams, WorkUnitRecord,
+};
 
 <span class="k">#[derive(Debug, Clone, Copy, Default)]</span>
 <span class="k">#[repr(transparent)]</span>
 <span class="k">pub(crate) struct</span> DeviceCopy&lt;T&gt;(<span class="k">pub(crate)</span> T);</pre>
-        <p>For that to work the file must compile on both targets, so it uses only <code>core</code> and the <code>no_std</code> core crates (<code>launch.rs</code> converts <code>umbra-geometry</code>'s <code>Ray</code> into a <code>RayRecord</code> with <code>From&lt;&amp;Ray&gt;</code>; <code>math_launch.rs</code> uses <code>core</code> alone), and every type is <code>#[repr(C)]</code>, whose layout is defined (ADR 0028 rejects relying on <code>repr(Rust)</code> agreeing on two targets: likely, but not guaranteed). Below each type, a <code>const</code> block of assertions is evaluated by the compiler; a false one is a compile error:</p>
+        <p>For that to work the file must compile on both targets, so it uses only <code>core</code> and the <code>no_std</code> core crates (<code>launch.rs</code> converts <code>umbra-geometry</code>'s <code>Ray</code> into a <code>RayRecord</code> with <code>From&lt;&amp;Ray&gt;</code>; <code>wavefront.rs</code> holds <code>umbra-camera</code>'s, <code>umbra-integrators</code>' and <code>umbra-sampling</code>'s types; <code>math_launch.rs</code> uses <code>core</code> alone), and every type is <code>#[repr(C)]</code>, whose layout is defined (ADR 0028 rejects relying on <code>repr(Rust)</code> agreeing on two targets: likely, but not guaranteed). Below each type, a <code>const</code> block of assertions is evaluated by the compiler; a false one is a compile error:</p>
 <pre class="code"><span class="k">const</span> _: () = {
     <span class="k">use</span> core::mem::offset_of;
 
@@ -1140,7 +1258,8 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
     <span class="k">assert!</span>(offset_of!(LaunchParams, hits) == <span class="k">16</span>, <span class="k">"`hits` is at byte 16"</span>);
     <span class="k">assert!</span>(offset_of!(LaunchParams, count) == <span class="k">24</span>, <span class="k">"`count` is at byte 24"</span>);
 };</pre>
-        <p><code>math_launch.rs</code> adds one more: <code>size_of::&lt;MathParams&gt;() &lt;= size_of::&lt;crate::launch::LaunchParams&gt;()</code>, since a math launch reuses the <code>params</code> variable that is sized for <code>LaunchParams</code>.</p>
+        <p><code>math_launch.rs</code> adds one more: <code>size_of::&lt;MathParams&gt;() &lt;= size_of::&lt;crate::launch::LaunchParams&gt;()</code>, since a math launch reuses the <code>params</code> variable, which is at least as large as <code>LaunchParams</code>. <code>wavefront.rs</code> asserts its records the same way: <code>WavefrontParams</code> is 128 bytes, <code>SceneRecord</code> 1 056, <code>DeviceSlice</code> 16.</p>
+        <p><b>The wavefront's records hold the core's own types.</b> A <code>SceneRecord</code> is the core's <code>CameraKind</code>, <code>FilterKind&lt;DeviceSlice&lt;f32&gt;&gt;</code>, <code>PixelSensor&lt;DeviceSlice&lt;f32&gt;&gt;</code> and <code>VolPathIntegrator</code>; a <code>RandomizerRecord</code> holds <code>DigitPermutations&lt;DeviceSlice&lt;u16&gt;&gt;</code>. Those core types are <code>#[repr(C)]</code> and generic over the storage of their tables, so the host moves each table to device memory with their <code>map_storage</code> and copies the rest byte for byte (ADR 0028). A <code>DeviceSlice&lt;T&gt;</code> is a device address and a length; making one is <code>unsafe</code> (<code>from_raw_parts</code>), since the device trusts it. <code>RandomizerRecord</code>'s <code>Debug</code> is written by hand, because <code>DigitPermutations</code>' reads its storage, which the host cannot.</p>
         <p><code>HitRecord::kind</code> is a plain <code>u32</code>, not a <code>HitKind</code>. Device memory may hold any bits, and a Rust enum with an impossible value is undefined behaviour, so the host reads a number and matches it against the <code>HitKind</code> discriminants, failing with <code>umbra_gpu::Error::HitKind</code> on anything that isn't 0, 1 or 2. <code>MathParams::function</code> is a <code>u32</code> for the same reason, converted on the device with <code>TryFrom</code>.</p>
         <p>The <code>Sphere</code> of the intersection program crosses the boundary too, in its hit group's shader binding table record. It comes from <code>umbra-geometry</code> and is copied byte for byte; <code>read_sphere</code>'s <code>SAFETY</code> comment records that its layout is the same on both targets and that the record is 16-byte aligned.</p>
     </div>
@@ -1148,14 +1267,14 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
         <div class="mb-head">Rules used here</div>
         <div class="mb-row"><div class="mb-f">#[repr(C)] + const asserts</div><div class="mb-d"><b>A fixed layout, checked twice.</b> Once per target, at compile time (ADR 0028).</div></div>
         <div class="mb-row"><div class="mb-f">enums cross as u32</div><div class="mb-d"><b>Validate after crossing.</b> <code>HitKind</code> and <code>MathFunction</code> travel as numbers and are converted on arrival.</div></div>
-        <div class="mb-row"><div class="mb-f">core and the core crates only</div><div class="mb-d"><b>Compilable anywhere.</b> The shared files import nothing beyond <code>core</code> and <code>umbra-geometry</code>, so the crate builds them for the host and for the GPU alike.</div></div>
+        <div class="mb-row"><div class="mb-f">core and the core crates only</div><div class="mb-d"><b>Compilable anywhere.</b> The shared files import nothing beyond <code>core</code> and the <code>no_std</code> core crates, so the crate builds them for the host and for the GPU alike.</div></div>
     </div>
 </section>
 
 <!-- ================================================================= -->
 <section class="topic" id="inline-ptx">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/optix.rs">optix.rs</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-gpu-programs</span> · <a href="../src/optix.rs">optix.rs</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
         <h3>OptiX's device API in inline PTX</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>In C++, a GPU program talks to OptiX through functions from NVIDIA's header files, like <code>optixGetLaunchIndex()</code>. Rust can't use those headers, and Umbra may not copy them (their licence forbids it). But underneath, each of those functions is one call to a built-in with a fixed name, such as <code>_optix_get_launch_index_x</code>. So <code>optix.rs</code> writes those calls directly, in the GPU's assembly language, one small safe Rust function per built-in.</div>
@@ -1201,7 +1320,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
     t = out(reg32) t,
     options(nostack)
 );</pre>
-        <p><b>Launch parameters</b> are loaded with <code>ld.const</code>. The offset is a <em>const generic</em>, <code>launch_param_u64::&lt;OFFSET&gt;()</code>, so it is a number fixed at compile time, written straight into the instruction: <code>"ld.const.u64 {w}, [params+{o}];"</code> with <code>o = const OFFSET</code>.</p>
+        <p><b>Launch parameters</b> are loaded with <code>ld.const</code>. The offset is a <em>const generic</em>, <code>launch_param_u64::&lt;OFFSET&gt;()</code>, so it is a number fixed at compile time, written straight into the instruction: <code>"ld.const.u64 {w}, [params+{o}];"</code> with <code>o = const OFFSET</code>. The wavefront's stages read their parameters whole instead: <code>launch_params_address</code> returns the generic address of <code>params</code>, from <code>"cvta.const.u64 {a}, params;"</code>, and <code>stages.rs</code> reads a <code>WavefrontParams</code> through it (<a href="#stages">section 5</a>).</p>
         <p><b><code>trace</code> is the long one.</b> <code>optixTrace</code> becomes <code>_optix_trace_typed_32</code>, which always takes 32 payload registers in and 32 out. Only the first two are live (<code>size</code> = 2); the rest are passed as zeros and their outputs discarded. Its other fixed choices: the default payload type, ray time 0, visibility mask <code>0xFF</code>, no ray flags, hit group record 0 (SBT offset 0, stride 1) and miss record 0. The function carries <code>#[expect(clippy::too_many_lines)]</code> for its one long operand list.</p>
         <p><b>Where the names come from.</b> The built-ins' names, operands and constants (<code>HIT_KIND_TRIANGLE_FRONT_FACE = 0xFE</code>, <code>HIT_KIND_TRIANGLE_BACK_FACE = 0xFF</code>) are interoperability facts of OptiX 9.0's ABI, written by hand from its documentation. No header text is copied: most of the OptiX SDK's headers are under NVIDIA's proprietary licence (ADR 0026, NOTICE). Building needs no OptiX SDK.</p>
     </div>
@@ -1216,7 +1335,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <!-- ================================================================= -->
 <section class="topic" id="decisions">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-gpu-programs</span> · <a href="../Cargo.toml">Cargo.toml</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0027-a-pinned-nightly-toolchain.md">ADR 0027</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-gpu-programs</span> · <a href="../Cargo.toml">Cargo.toml</a> · <a href="../src/math_launch.rs">math_launch.rs</a> · <a href="../../../docs/adr/0027-a-pinned-nightly-toolchain.md">ADR 0027</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
         <h3>Smaller design decisions</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>Three more choices shape the crate. It is compiled by the ordinary Rust compiler for the oldest GPU generation the target supports, and the driver adapts it to newer cards. The test-only math program is behind a switch (a Cargo feature) that production builds leave off. And the numbers that name the math functions are generated from the enum itself, so they can't get out of step.</div>
@@ -1271,7 +1390,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <!-- ================================================================= -->
 <section class="topic" id="unsafe">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-gpu-programs</span> · every <code>#[expect(unsafe_code)]</code> · <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a></div>
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-gpu-programs</span> · every <code>#[expect(unsafe_code)]</code> · <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a></div>
         <h3>The unsafe boundary</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>Rust's <code>unsafe</code> marks code the compiler can't check, where the programmer promises it is correct. Umbra forbids it by default. The GPU is an exception, because there is no safe way to reach it: talking to OptiX, keeping entry-point names, and reading or writing memory the host handed over. Each such spot is as small as possible, carries a written reason, and is wrapped so the code around it stays safe.</div>
@@ -1283,24 +1402,26 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="165" y="86" text-anchor="middle" font-size="12">OptiX device API</text>
             <text x="165" y="108" text-anchor="middle" class="t-small">asm! / global_asm!</text>
             <text x="165" y="130" text-anchor="middle" class="t-small t-mut">launch_index_x, trace,</text>
-            <text x="165" y="146" text-anchor="middle" class="t-small t-mut">set_payload, trap, …</text>
-            <text x="165" y="168" text-anchor="middle" class="t-small t-mut">params (.const)</text>
+            <text x="165" y="146" text-anchor="middle" class="t-small t-mut">set_payload, trap,</text>
+            <text x="165" y="162" text-anchor="middle" class="t-small t-mut">launch_params_address, …</text>
+            <text x="165" y="184" text-anchor="middle" class="t-small t-mut">params (.const)</text>
             <rect x="305" y="62" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="430" y="86" text-anchor="middle" font-size="12">entry-point names</text>
             <text x="430" y="108" text-anchor="middle" class="t-small">#[unsafe(no_mangle)]</text>
-            <text x="430" y="130" text-anchor="middle" class="t-small t-mut">the five programs</text>
+            <text x="430" y="130" text-anchor="middle" class="t-small t-mut">the seven programs</text>
             <text x="430" y="146" text-anchor="middle" class="t-small t-mut">keep their PTX names</text>
             <rect x="570" y="62" width="250" height="140" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="695" y="86" text-anchor="middle" font-size="12">device memory</text>
             <text x="695" y="108" text-anchor="middle" class="t-small">pointer read / write</text>
             <text x="695" y="130" text-anchor="middle" class="t-small t-mut">read_ray, write_hit,</text>
             <text x="695" y="146" text-anchor="middle" class="t-small t-mut">read_sphere, read_args,</text>
-            <text x="695" y="162" text-anchor="middle" class="t-small t-mut">write_result</text>
+            <text x="695" y="162" text-anchor="middle" class="t-small t-mut">write_result, DeviceSlice,</text>
+            <text x="695" y="178" text-anchor="middle" class="t-small t-mut">wavefront_params</text>
         </svg></div>
         <figcaption>The three kinds of <code>unsafe</code> the crate contains, as amended into ADR 0007 by <a href="https://github.com/sergioffpc/umbra/issues/126">#126</a>. Each warm box is a set of small functions with safe signatures; callers in the blue area never write <code>unsafe</code> themselves.</figcaption>
     </figure>
     <div class="prose">
-        <p>Each exception is a <code>#[expect(unsafe_code, reason = "...")]</code> on the narrowest item possible, here always one function (or, for <code>params</code>, a module made just for it, “the narrowest item an <code>expect</code> can sit on”). Inside, each <code>unsafe</code> block holds one operation and a <code>// SAFETY:</code> comment. A memory read reads like this:</p>
+        <p>Each exception is a <code>#[expect(unsafe_code, reason = "...")]</code> on the narrowest item possible, here one function, or a small module: <code>params</code>, a module made just for it (“the narrowest item an <code>expect</code> can sit on”), and <code>wavefront.rs</code>'s <code>device</code>, which holds <code>DeviceSlice</code>'s device access. Inside, each <code>unsafe</code> block holds one operation and a <code>// SAFETY:</code> comment. A memory read reads like this:</p>
 <pre class="code"><span class="k">#[expect(</span>
 <span class="k">    unsafe_code,</span>
 <span class="k">    reason = "reads a buffer the host wrote, by its device address (ADR 0007, ADR 0028)"</span>
@@ -1312,18 +1433,22 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
     <span class="k">unsafe</span> { record.read() }
 }</pre>
         <p>The safety argument has two halves: a promise the host keeps (the buffers are <code>count</code> records long, aligned and filled) and a check the program makes (<code>i &lt; count</code>). For writes there is a third: only thread <var>i</var> writes slot <var>i</var>, so no two threads write the same memory.</p>
-        <p>None of this can be checked by Miri or AddressSanitizer, which don't run on a GPU. ADR 0007 therefore makes the GPU tests on the test machine the verification (<a href="#tests">section 12</a>).</p>
+        <p>None of this can be checked by Miri or AddressSanitizer, which don't run on a GPU. ADR 0007 therefore makes the GPU tests on the test machine the verification (<a href="#tests">section 13</a>).</p>
     </div>
     <div class="tablewrap">
         <table class="data">
             <thead><tr><th>item</th><th>unsafe operation</th><th>why it holds</th></tr></thead>
             <tbody>
-                <tr><td><code>params</code></td><td><code>global_asm!</code> declaring the <code>.const</code> variable</td><td>sized by <code>size_of::&lt;LaunchParams&gt;()</code></td></tr>
-                <tr><td>five programs</td><td><code>#[unsafe(no_mangle)]</code></td><td>OptiX finds programs by name</td></tr>
+                <tr><td><code>params</code></td><td><code>global_asm!</code> declaring the <code>.const</code> variable</td><td>sized for the larger of <code>LaunchParams</code> and <code>WavefrontParams</code>, both at most 8-byte aligned (asserted)</td></tr>
+                <tr><td>seven programs</td><td><code>#[unsafe(no_mangle)]</code></td><td>OptiX finds programs by name</td></tr>
                 <tr><td><code>read_ray</code>, <code>read_args</code></td><td>pointer read at <code>base + i</code></td><td>host sized the buffer to <code>count</code>; caller checked <code>i &lt; count</code></td></tr>
                 <tr><td><code>write_hit</code>, <code>write_result</code></td><td>pointer write at <code>base + i</code></td><td>as above, and only thread <var>i</var> writes slot <var>i</var></td></tr>
                 <tr><td><code>read_sphere</code></td><td>pointer read of the SBT record data</td><td>the host copied one <code>Sphere</code> there, 16-byte aligned</td></tr>
                 <tr><td><code>launch_param_u64</code>, <code>launch_param_u32</code></td><td><code>ld.const</code> from <code>params</code></td><td>offsets are the fields', asserted in <code>launch.rs</code></td></tr>
+                <tr><td><code>launch_params_address</code></td><td><code>cvta.const.u64</code> of <code>params</code></td><td>converts the address and writes only its output</td></tr>
+                <tr><td><code>wavefront_params</code></td><td>read of a <code>WavefrontParams</code> at that address</td><td>the host launches the stages with a <code>WavefrontParams</code>, which fits <code>params</code>; nothing writes it during a launch</td></tr>
+                <tr><td><code>DeviceSlice::from_raw_parts</code></td><td>an <code>unsafe fn</code>: the caller's promise</td><td>the address starts an allocation of at least <code>len</code> initialised, aligned values that outlives every launch given the slice, and no launch writes what it reads as a slice</td></tr>
+                <tr><td><code>DeviceSlice</code>'s <code>as_ref</code>, <code>read</code>, <code>write</code></td><td>slice from address and length; pointer read or write at <code>address + i</code></td><td><code>from_raw_parts</code>' promise; <code>read</code> and <code>write</code> check <var>i</var> &lt; length, and only the thread whose Pixel Sample it is writes value <var>i</var></td></tr>
                 <tr><td><code>trace</code></td><td><code>_optix_trace_typed_32</code></td><td>2 live payloads match the pipeline; <code>handle</code> built for it</td></tr>
                 <tr><td>other wrappers in <code>optix.rs</code></td><td>one <code>_optix_*</code> call or <code>trap</code></td><td>each reads or writes only its own operands</td></tr>
             </tbody>
@@ -1340,12 +1465,12 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 <!-- ================================================================= -->
 <section class="topic" id="tests">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-gpu-programs</span> · built by <code>umbra-gpu/build.rs</code> · <code>scripts/check.sh</code> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-gpu-programs</span> · built by <code>umbra-gpu/build.rs</code> · <code>scripts/check.sh</code> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
         <h3>How it is built and tested</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>The crate has no tests of its own: its programs cannot run on an ordinary computer, and on the host it holds only the layout, whose assertions run at compile time. Two kinds of checking cover it. Everywhere, including CI, it is compiled for the GPU and linted, which catches compile errors and any core crate that needs <code>std</code>. On the one machine with the GPU, <code>umbra-gpu</code>'s tests run the programs for real and compare the results with the CPU.</div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 880 250" class="dg-wide" role="img" aria-label="CI compiles and lints the programs; the GPU machine runs umbra-gpu's GPU tests">
+        <div class="dg-wrap"><svg viewBox="0 0 880 320" class="dg-wide" role="img" aria-label="CI compiles and lints the programs; the GPU machine runs umbra-gpu's GPU tests">
             <rect x="20" y="30" width="400" height="200" rx="8" class="f-mut-soft k-mut"/>
             <text x="220" y="54" text-anchor="middle" class="t-bold">every build, CI included (no GPU)</text>
             <rect x="40" y="70" width="360" height="40" rx="5" class="f-surf k-ink"/>
@@ -1354,7 +1479,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <text x="220" y="145" text-anchor="middle" font-size="12">check.sh: clippy --target nvptx64-nvidia-cuda</text>
             <rect x="40" y="170" width="360" height="40" rx="5" class="f-surf k-ink"/>
             <text x="220" y="195" text-anchor="middle" font-size="12">check.sh unstable: #![feature] only here</text>
-            <rect x="460" y="30" width="400" height="200" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <rect x="460" y="30" width="400" height="276" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="660" y="54" text-anchor="middle" class="t-bold">the GPU machine: --profile gpu</text>
             <rect x="480" y="70" width="360" height="62" rx="5" class="f-surf k-ink"/>
             <text x="660" y="94" text-anchor="middle" font-size="12">tests/gpu/optix.rs</text>
@@ -1362,13 +1487,16 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
             <rect x="480" y="146" width="360" height="62" rx="5" class="f-surf k-ink"/>
             <text x="660" y="170" text-anchor="middle" font-size="12">tests/gpu/libdevice.rs</text>
             <text x="660" y="192" text-anchor="middle" class="t-small t-mut">math program vs glibc, within each bound</text>
+            <rect x="480" y="222" width="360" height="62" rx="5" class="f-surf k-ink"/>
+            <text x="660" y="246" text-anchor="middle" font-size="12">tests/gpu/renderer.rs</text>
+            <text x="660" y="268" text-anchor="middle" class="t-small t-mut">the stages' Work Results = umbra-cpu's, to rounding</text>
         </svg></div>
-        <figcaption>Left: checks that need no GPU. Right: <code>cargo nextest run --profile gpu</code>, which runs the test binary named <code>gpu</code> that every other nextest profile leaves out. Both test files live in <code>umbra-gpu</code> and are documented in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>.</figcaption>
+        <figcaption>Left: checks that need no GPU. Right: <code>cargo nextest run --profile gpu</code>, which runs the test binary named <code>gpu</code> that every other nextest profile leaves out. The test files live in <code>umbra-gpu</code> and are documented in the <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a>.</figcaption>
     </figure>
     <div class="prose">
         <p><b>Building.</b> <code>umbra-gpu</code>'s <code>build.rs</code> runs a nested <code>cargo rustc --lib --crate-type cdylib</code> on this crate for <code>nvptx64-nvidia-cuda</code>, which links the library into one PTX module, <code>umbra_gpu_programs.ptx</code>, in release, without debug information, in a target directory of its own. It removes the host build's <code>RUSTFLAGS</code> and compiler wrappers, which are for the CPU. If CUDA's <code>libdevice.10.bc</code> is found it is passed as a link argument, and the toolchain's <code>llvm-bitcode-linker</code> inlines the <code>__nv_*</code> maths functions into the PTX. Without it, as in CI, the programs still build, with a warning, but the PTX keeps unresolved <code>.extern</code> functions and the GPU can't run it.</p>
         <p><b>Linting.</b> The workspace's ordinary clippy run covers the host build of the layout. <code>scripts/check.sh</code> also runs clippy for <code>nvptx64</code> on this crate and on the core crates it uses. Its <code>unstable</code> step fails if any crate other than this one enables <code>#![feature(...)]</code>.</p>
-        <p><b>Running.</b> <code>tests/gpu/optix.rs</code> traces rays at the triangle (expected hits worked out by hand) and the sphere (expected hits from the core's own <code>Sphere::intersect</code> on the CPU, agreeing to a few ULP). <code>tests/gpu/libdevice.rs</code> uses the math program to sweep about four million <code>f32</code> inputs, subnormals included, through each function and compares with glibc within its bound. It also checks that the primitives keep subnormal results instead of flushing them to zero.</p>
+        <p><b>Running.</b> <code>tests/gpu/optix.rs</code> traces rays at the triangle (expected hits worked out by hand) and the sphere (expected hits from the core's own <code>Sphere::intersect</code> on the CPU, agreeing to a few ULP). <code>tests/gpu/libdevice.rs</code> uses the math program to sweep about four million <code>f32</code> inputs, subnormals included, through each function and compares with glibc within its bound. It also checks that the primitives keep subnormal results instead of flushing them to zero. <code>tests/gpu/renderer.rs</code> runs the two stages: it renders the camera-only Scene File in batches on the GPU and Work Unit by Work Unit on <code>umbra-cpu</code>'s <code>Renderer</code>, and checks one black Work Result per Work Unit whose pixels' sums of filter weights are the CPU's within a relative 10<sup>−6</sup>. A second test checks that a cancelled batch returns <code>Rendered::Cancelled</code> for every Work Unit.</p>
     </div>
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
@@ -1379,13 +1507,13 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
 
 <section class="topic" id="not-yet">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-gpu-programs</span> · roadmap</div>
+        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-gpu-programs</span> · roadmap</div>
         <h3>Not here yet</h3>
     </div>
     <div class="prose">
         <ul>
-            <li><b>The wavefront programs.</b> Today's programs are the tracer bullet: one triangle and one sphere. The integrators' programs, one per stage of a path with queues between stages (ADR 0028), arrive with each feature on both Render Devices (<a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>).</li>
-            <li><b>Scene data.</b> The programs read one <code>Sphere</code> from a shader binding table record. Uploading a whole <code>SceneView</code> to GPU buffers is <code>umbra-gpu</code>'s job, still to come.</li>
+            <li><b>The stages that trace and shade.</b> The wavefront has two stages, camera and film (<a href="#stages">section 5</a>), and the camera stage calls the integrator's <code>li</code> in one step. The intersection and shading stages that split <code>li</code>, with queues between them (ADR 0028), arrive with the Shapes and lights that need them, on both Render Devices. No stage traces a ray yet; only the tracer bullet does.</li>
+            <li><b>Scene data.</b> A <code>SceneRecord</code> holds the camera, the filter, the sensor and the integrator. The Shapes, lights and BVH join it with the features that use them.</li>
             <li><b>More of OptiX's device API.</b> <code>optix.rs</code> wraps only the built-ins the current programs call; each new one comes with the program that needs it.</li>
         </ul>
     </div>
@@ -1397,7 +1525,7 @@ ol.steps li b { color: var(--accent); font-weight: 600; }
         <h3>Where to read more</h3>
     </div>
     <ul class="sources">
-        <li>In this crate: <a href="../README.md">README.md</a>, <a href="../src/lib.rs">lib.rs</a>, <a href="../src/programs.rs">programs.rs</a>, <a href="../src/optix.rs">optix.rs</a>, <a href="../src/launch.rs">launch.rs</a>, <a href="../src/math.rs">math.rs</a>, <a href="../src/math_launch.rs">math_launch.rs</a>, <a href="../Cargo.toml">Cargo.toml</a>.</li>
+        <li>In this crate: <a href="../README.md">README.md</a>, <a href="../src/lib.rs">lib.rs</a>, <a href="../src/programs.rs">programs.rs</a>, <a href="../src/optix.rs">optix.rs</a>, <a href="../src/launch.rs">launch.rs</a>, <a href="../src/stages.rs">stages.rs</a>, <a href="../src/wavefront.rs">wavefront.rs</a>, <a href="../src/math.rs">math.rs</a>, <a href="../src/math_launch.rs">math_launch.rs</a>, <a href="../Cargo.toml">Cargo.toml</a>.</li>
         <li>Decisions: <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (one core for CPU and GPU), <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a> (one crate per Render Device, the layout as an ordinary dependency), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (GPU-ready <code>no_std</code> core), <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a> (<code>unsafe</code>), <a href="../../../docs/adr/0027-a-pinned-nightly-toolchain.md">ADR 0027</a> (pinned nightly), <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a> (GPU Workers, OptiX, licence).</li>
         <li>Architecture: <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a> (building blocks), <a href="../../../docs/architecture/08-crosscutting-concepts.md">arc42 §8</a> (cross-cutting concepts), <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Render Device, Worker).</li>
         <li>Sister guides: <a href="../../umbra-gpu/docs/gpu-guide.html">Umbra GPU Guide</a> (the host side), <a href="../../umbra-math/docs/math-guide.html">Umbra Math Guide</a> (the functions the math program evaluates).</li>
@@ -1480,17 +1608,21 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
 (() => {
     const items = [
         { code: "no_std, feature(abi_ptx, asm_experimental_arch)", what: "under cfg_attr(target_arch = \"nvptx64\")", gpu: true, feat: false },
-        { code: "umbra-geometry", what: "dependency on every target", gpu: false, feat: false },
-        { code: "umbra-math", what: "nvptx64-only dependency", gpu: true, feat: false },
+        { code: "umbra-geometry, umbra-math", what: "dependencies on every target", gpu: false, feat: false },
+        { code: "umbra-camera, umbra-integrators, umbra-sampling, umbra-spectrum", what: "dependencies on every target: the core the stages run", gpu: false, feat: false },
         { code: "mod launch", what: "LaunchParams, RayRecord, HitRecord, HitKind, re-exported", gpu: false, feat: false },
+        { code: "mod wavefront", what: "DeviceSlice, SceneRecord, SamplerRecord, WorkUnitRecord, PixelSampleQueue, FilmSampleRecord, WavefrontParams, re-exported", gpu: false, feat: false },
         { code: "mod optix", what: "the OptiX device API in inline PTX", gpu: true, feat: false },
         { code: "mod programs", what: "the entry points, params and the panic handler below", gpu: true, feat: false },
-        { code: "params", what: "the .const launch-parameter variable", gpu: true, feat: false },
+        { code: "params", what: "the .const launch-parameter variable, sized for the larger of LaunchParams and WavefrontParams", gpu: true, feat: false },
         { code: "__raygen__trace", what: "ray generation", gpu: true, feat: false },
         { code: "__miss__trace", what: "miss", gpu: true, feat: false },
         { code: "__closesthit__trace", what: "closest hit", gpu: true, feat: false },
         { code: "__intersection__sphere", what: "custom intersection", gpu: true, feat: false },
         { code: "#[panic_handler]", what: "panics trap", gpu: true, feat: false },
+        { code: "mod stages", what: "the wavefront's stages", gpu: true, feat: false },
+        { code: "__raygen__camera", what: "camera stage", gpu: true, feat: false },
+        { code: "__raygen__film", what: "film stage", gpu: true, feat: false },
         { code: "mod math", what: "MathFunction::evaluate, read_args, write_result", gpu: true, feat: true },
         { code: "mod math_launch", what: "MathParams, MathFunction, re-exported", gpu: false, feat: true },
         { code: "__raygen__math", what: "the math program", gpu: true, feat: true },
@@ -1506,13 +1638,14 @@ new MutationObserver(redrawAll).observe(document.documentElement, { attributes: 
         }).join("");
         $("bd-host").innerHTML = [
             { code: "LaunchParams, RayRecord, HitRecord, HitKind", what: "the ordinary dependency, always", inc: true },
+            { code: "SceneRecord, SamplerRecord, WorkUnitRecord, PixelSampleQueue, FilmSampleRecord, WavefrontParams, DeviceSlice", what: "the ordinary dependency, always", inc: true },
             { code: "MathParams, MathFunction", what: "with umbra-gpu's math-program", inc: on },
         ].map((h) => `<li class="${h.inc ? "on" : "off"}"><span class="st">${h.inc ? "shared" : "absent"}</span><span><code>${h.code}</code> · ${h.what}</span></li>`).join("");
         $("bd-read").innerHTML = `
             <dt>target</dt><dd>${ptx ? "nvptx64-nvidia-cuda" : "x86_64-unknown-linux-gnu"}</dd>
             <dt>crate</dt><dd class="${ptx ? "ok" : "mut"}">${ptx ? `${n} of ${items.length} items` : `${n} of ${items.length} items: the layout`}</dd>
             <dt>output</dt><dd>${ptx ? "umbra_gpu_programs.ptx, one PTX module (a cdylib)" : "an rlib: the layout umbra-gpu depends on"}</dd>
-            <dt>entry points</dt><dd>${ptx ? (on ? 5 : 4) : 0}</dd>`;
+            <dt>entry points</dt><dd>${ptx ? (on ? 7 : 6) : 0}</dd>`;
     }
     $("bd-target").addEventListener("change", draw);
     $("bd-feat").addEventListener("change", draw);

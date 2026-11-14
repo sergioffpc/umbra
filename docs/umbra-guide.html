@@ -598,7 +598,7 @@ input[type="search"] {
         </div>
         <div class="dg-wrap"><svg viewBox="0 0 1350 470" class="dg-map" id="map-svg" role="img" aria-label="Dependency graph of the Umbra crates"></svg></div>
         <div class="cratecard" id="map-card" aria-live="polite"></div>
-        <figcaption id="map-cap"><b>Click a crate.</b> The graph is the one <code>Cargo.toml</code> declares today, with shortcut arrows left out (if A needs B and B needs C, the arrow from C to A is not drawn). The dotted arrow is a build step: besides using its layout as an ordinary dependency, <code>umbra-gpu</code>'s build script compiles <code>umbra-gpu-programs</code> to PTX and embeds it. <code>umbra-cpu</code> and <code>umbra-gpu</code> both stand on <code>umbra-render</code>'s contract, and <code>umbra-cluster</code> picks one by the Worker's Render Device (<a href="adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>). <a href="architecture/05-building-block-view.md">arc42 §5.1</a> describes each crate in words.</figcaption>
+        <figcaption id="map-cap"><b>Click a crate.</b> The graph is the one <code>Cargo.toml</code> declares today, with shortcut arrows left out (if A needs B and B needs C, the arrow from C to A is not drawn). The dotted arrow is a build step: besides using its layout as an ordinary dependency, <code>umbra-gpu</code>'s build script compiles <code>umbra-gpu-programs</code> to PTX and embeds it. <code>umbra-cpu</code> and <code>umbra-gpu</code> both stand on <code>umbra-render</code>'s contract, and <code>umbra-cluster</code> picks one by the Worker's Render Device, the CPU's alone until the GPU Local Worker (<a href="adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>). <a href="architecture/05-building-block-view.md">arc42 §5.1</a> describes each crate in words.</figcaption>
     </figure>
 
     <div class="prose">
@@ -891,7 +891,7 @@ const CRATES = {
         x: 1255, y: 260, st: "part", guide: false,
         q: "Who renders what, and when",
         now: "coordinate with an in-process CPU Local Worker, a renderer chosen by the Worker's Render Device, and the Render Job Report. Next: QUIC and the GPU Local Worker (#128), remote Workers (#129), the status line (#86).",
-        deps: ["umbra-cpu", "umbra-gpu", "umbra-render", "umbra-scene"],
+        deps: ["umbra-cpu", "umbra-render", "umbra-scene"],
     },
     "umbra": {
         x: 1255, y: 75, st: "part", guide: false,
@@ -902,14 +902,14 @@ const CRATES = {
     "umbra-gpu-programs": {
         x: 585, y: 405, st: "part", guide: true,
         q: "What runs on the GPU",
-        now: "The layout the host shares with the GPU, OptiX entry points for the tracer bullet, and the GPU's maths checked against the CPU. Next: the wavefront volpath programs (#127).",
-        deps: ["umbra-geometry", "umbra-math"],
+        now: "The layout the host shares with the GPU, OptiX entry points for the tracer bullet, the GPU's maths checked against the CPU, and the wavefront's camera and film stages. Next: the stages that trace and shade, with the Shapes and lights.",
+        deps: ["umbra-camera", "umbra-geometry", "umbra-integrators", "umbra-math", "umbra-sampling", "umbra-spectrum"],
     },
     "umbra-gpu": {
         x: 750, y: 405, st: "part", guide: true,
         q: "How the host drives the GPU",
-        now: "CUDA through cudarc, OptiX from Rust, one triangle and one sphere traced and read back, and the Renderer's shape. Next: its wavefront (#127).",
-        deps: ["umbra-geometry", "umbra-gpu-programs", "umbra-math", "umbra-render", "umbra-scene"],
+        now: "CUDA through cudarc, OptiX from Rust, one triangle and one sphere traced and read back, and a Renderer that renders a batch of Work Units through the wavefront. Next: the GPU Local Worker (#128).",
+        deps: ["umbra-geometry", "umbra-gpu-programs", "umbra-integrators", "umbra-math", "umbra-render", "umbra-sampling", "umbra-scene", "umbra-spectrum"],
     },
 };
 const ST_LABEL = { done: "built", part: "partly built", plan: "not started" };
@@ -1044,8 +1044,8 @@ function buildStrip(el) {
         },
         {
             t: "Render one Work Unit", on: ["umbra-cpu"],
-            d: "The Worker's renderer, chosen by its Render Device, turns the Work Unit into its Work Result. The CPU's runs the Work Unit's rows on the Worker's threads, one Pixel Sample after another, and gathers the results. A GPU Worker will do the same job through umbra-gpu's renderer, which has the same shape.",
-            st: "part", s: "on the CPU today; on the GPU with #127.",
+            d: "The Worker's renderer, chosen by its Render Device, turns the Work Unit into its Work Result. The CPU's runs the Work Unit's rows on the Worker's threads, one Pixel Sample after another, and gathers the results. A GPU Worker will do the same job through umbra-gpu's renderer, a batch of Work Units at a time.",
+            st: "part", s: "on the CPU today; umbra-gpu's renderer is built, and its Worker comes with #128.",
             l: [["CPU Guide, Rendering one Work Unit", G("umbra-cpu", "render-unit")], ["Render Guide, How a render ends", G("umbra-render", "render-unit")], adr("0033")], v: "WorkResult",
         },
         {

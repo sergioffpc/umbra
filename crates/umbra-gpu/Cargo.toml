@@ -29,19 +29,26 @@ cudarc = { workspace = true }
 libloading = { workspace = true }
 thiserror = { workspace = true }
 umbra-geometry = { workspace = true }
+umbra-integrators = { workspace = true }
 # The layout the host shares with the device (ADR 0033); its programs are
 # built for `nvptx64` by the build script, not by this dependency.
 umbra-gpu-programs = { workspace = true }
 umbra-math = { workspace = true }
 umbra-render = { workspace = true }
+umbra-sampling = { workspace = true }
 umbra-scene = { workspace = true }
+umbra-spectrum = { workspace = true }
 
 [dev-dependencies]
+# The CPU's Renderer, which the GPU's is compared with (`tests/gpu/renderer.rs`).
+umbra-cpu = { workspace = true }
 # `Ptx`, which loads the libm bench's kernels into a plain CUDA module; the
 # library itself loads its PTX through OptiX.
 cudarc = { workspace = true, features = ["nvrtc"] }
 # This crate with the math program, for the GPU tests (`tests/gpu/libdevice.rs`).
 umbra-gpu = { path = ".", features = ["math-program"] }
+# Reads the Scene Files the GPU tests render.
+umbra-parser = { workspace = true }
 
 # What libm costs on the GPU, the counterpart of `umbra-math`'s
 # `benches/libm.rs`, with the report the math guide plots.

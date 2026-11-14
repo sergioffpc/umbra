@@ -1250,7 +1250,6 @@ dependencies = [
  "tokio",
  "tracing",
  "umbra-cpu",
- "umbra-gpu",
  "umbra-render",
  "umbra-scene",
 ]
@@ -1283,20 +1282,29 @@ dependencies = [
  "cudarc",
  "libloading",
  "thiserror",
+ "umbra-cpu",
  "umbra-geometry",
  "umbra-gpu",
  "umbra-gpu-programs",
+ "umbra-integrators",
  "umbra-math",
+ "umbra-parser",
  "umbra-render",
+ "umbra-sampling",
  "umbra-scene",
+ "umbra-spectrum",
 ]
 
 [[package]]
 name = "umbra-gpu-programs"
 version = "0.1.0"
 dependencies = [
+ "umbra-camera",
  "umbra-geometry",
+ "umbra-integrators",
  "umbra-math",
+ "umbra-sampling",
+ "umbra-spectrum",
 ]
 
 [[package]]

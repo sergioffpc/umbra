@@ -952,8 +952,10 @@ CameraSample {
 
     <div class="prose">
 <pre class="code"><span class="k">let</span> l = l.safe_div(lambda.pdf());                               <span class="c">// divide by how likely each λ was</span>
-<span class="k">let</span> response = |bar: &amp;DenselySampledSpectrum&lt;'_&gt;| (bar.sample(lambda) * l).average();
-RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="k">self</span>.r_bar), ...)</pre>
+<span class="k">let</span> [r, g, b] = <span class="k">self</span>.responses.each_ref().map(|response| {   <span class="c">// r̄, ḡ, b̄</span>
+    <span class="k">self</span>.imaging_ratio * (response.spectrum().sample(lambda) * l).average()
+});
+RGB::new(r, g, b)</pre>
         <p>The four wavelengths come from <code>SampledWavelengths::sample_visible</code>. Wavelengths near 538 nm, where the eye is most sensitive, are picked most often, and the four are spread a quarter apart so they don't bunch up. The default sensor, <code>PixelSensor::cie1931</code>, uses the CIE 1931 colour-matching functions <var>x̄</var>, <var>ȳ</var>, <var>z̄</var> as its three curves. Its “RGB” is therefore the standard XYZ colour space. Real camera sensors and white balance come later (<a href="https://github.com/sergioffpc/umbra/issues/84">#84</a>).</p>
     </div>
 
@@ -1035,7 +1037,7 @@ RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="
             <rect x="490" y="166" width="100" height="48" rx="4" class="f-surf k-ink"/><text x="540" y="186" text-anchor="middle" font-size="11">Filter-</text><text x="540" y="202" text-anchor="middle" font-size="11">Sample</text>
             <rect x="650" y="30" width="230" height="200" rx="8" class="f-mut-soft k-mut"/>
             <text x="664" y="54" class="t-bold">sensor.rs</text>
-            <rect x="670" y="70" width="190" height="32" rx="4" class="f-surf k-ink"/><text x="765" y="91" text-anchor="middle" font-size="12">PixelSensor&lt;'a&gt;</text>
+            <rect x="670" y="70" width="190" height="32" rx="4" class="f-surf k-ink"/><text x="765" y="91" text-anchor="middle" font-size="12">PixelSensor&lt;S&gt;</text>
             <text x="765" y="130" text-anchor="middle" font-size="12" class="t-mut">cie1931(k)</text>
             <text x="765" y="150" text-anchor="middle" font-size="12" class="t-mut">to_sensor_rgb(L, λ)</text>
             <path d="M380 86 C 340 86, 200 50, 102 68" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
@@ -1059,7 +1061,7 @@ RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="
                 <tr><td><code>FilterSampler&lt;S&gt;</code></td><td>tabulated filter and its distribution</td><td><code>FilterSampler</code></td></tr>
                 <tr><td><code>GaussianFilter&lt;S&gt;</code></td><td>the lowered Gaussian</td><td><code>GaussianFilter</code></td></tr>
                 <tr><td><code>Filter</code>, <code>FilterKind&lt;S&gt;</code></td><td>the interface and its closed enum</td><td><code>Filter</code></td></tr>
-                <tr><td><code>PixelSensor&lt;'a&gt;</code></td><td>three response curves, imaging ratio</td><td><code>PixelSensor</code></td></tr>
+                <tr><td><code>PixelSensor&lt;S&gt;</code></td><td>three response curves, imaging ratio</td><td><code>PixelSensor</code></td></tr>
             </tbody>
         </table>
     </div>
@@ -1146,7 +1148,8 @@ RGB::new(<span class="k">self</span>.imaging_ratio * response(&amp;<span class="
 
 <span class="c">// per Pixel Sample, allocation-free</span>
 <span class="k">let</span> sample = get_camera_sample(&amp;<span class="k">mut</span> sampler, pixel, &amp;filter.view());</pre>
-        <p><code>new_in</code> checks that the closure returned storage of the right length. It also checks that the radius is at least 1⁄32, since a smaller radius would give a table with no cells. A GPU backend can pass its own buffers through the same closure. <code>PixelSensor&lt;'a&gt;</code> solves the same problem with a lifetime: it borrows its curves, which are <code>static</code> for CIE 1931.</p>
+        <p><code>new_in</code> checks that the closure returned storage of the right length. It also checks that the radius is at least 1⁄32, since a smaller radius would give a table with no cells. A GPU backend can pass its own buffers through the same closure. <code>PixelSensor&lt;S&gt;</code> is generic over the storage of its three curves in the same way: <code>PixelSensor::cie1931</code> returns a <code>PixelSensor&lt;&amp;'static [f32]&gt;</code> over the <code>static</code> CIE 1931 tables, and its <code>view()</code> lends a <code>PixelSensor&lt;&amp;[f32]&gt;</code>.</p>
+        <p><code>FilterKind</code>, <code>GaussianFilter</code>, <code>FilterSampler</code> and <code>PixelSensor</code> also have <code>map_storage</code>, which moves each table into other storage through a closure and keeps everything else. The GPU Worker uses it to put the tables in device memory, then copies the whole value to the device byte for byte. That copy is why those types and the camera's (<code>CameraKind</code>, <code>PerspectiveCamera</code>, <code>CameraBaseParameters</code>, <code>CameraTransform</code>, <code>ThinLens</code>) are <code>#[repr(C)]</code>, the two enums <code>#[repr(C, u32)]</code>, and why <code>camera.rs</code> asserts its types' sizes and field offsets, which hold on <code>x86_64</code> and <code>nvptx64</code> alike (ADR 0028, arc42 §8.12).</p>
     </div>
 </section>
 

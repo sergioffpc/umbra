@@ -9,3 +9,4 @@
 
 mod libdevice;
 mod optix;
+mod renderer;

@@ -314,7 +314,7 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
         <div class="kicker">crates/umbra-gpu/docs · Umbra, a pbrt-v4 renderer in Rust</div>
         <h1>Umbra GPU Guide</h1>
     </div>
-    <p class="lede">A graphics card can follow thousands of rays at the same time. <code>umbra-gpu</code> is the part of Umbra that talks to the card. It loads NVIDIA's ray-tracing library, OptiX, hands it the GPU programs, sends rays over, and reads the answers back. Today it traces one triangle and one sphere, as a first test of the whole path, and holds the GPU's <code>Renderer</code>, which has the CPU's shape but cannot be built until the GPU renders a Scene. This guide explains each idea in pictures first and code second. It assumes no background in GPUs.</p>
+    <p class="lede">A graphics card can follow thousands of rays at the same time. <code>umbra-gpu</code> is the part of Umbra that talks to the card. It loads NVIDIA's ray-tracing library, OptiX, hands it the GPU programs, sends rays over, and reads the answers back. Its <code>Renderer</code> renders a Scene's Work Units a batch at a time, through a wavefront of GPU programs, one launch per stage. Its <code>Tracer</code> traces one triangle and one sphere, the first test of the whole path. This guide explains each idea in pictures first and code second. It assumes no background in GPUs.</p>
 
     <figure class="diagram" aria-labelledby="big-cap">
         <div class="dg-wrap"><svg viewBox="0 0 900 400" class="dg-wide" role="img" aria-label="The big picture: the GPU programs are compiled into the binary at build time, then the host loads them onto the GPU and sends rays">
@@ -405,12 +405,13 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
                 <ol>
                     <li><a href="#map"><span class="n">8</span><span class="t">The crate at a glance</span><span class="c">modules, types, functions, Renderer</span></a></li>
                     <li><a href="#trace-call"><span class="n">9</span><span class="t">One trace call, step by step</span><span class="c">Tracer::trace</span></a></li>
-                    <li><a href="#layout"><span class="n">10</span><span class="t">The layout shared with umbra-gpu-programs</span><span class="c">a dependency · DeviceCopy&lt;T&gt;</span></a></li>
-                    <li><a href="#decisions"><span class="n">11</span><span class="t">Design decisions</span><span class="c">no NVIDIA at build time, one SBT per geometry, Rc</span></a></li>
-                    <li><a href="#unsafe"><span class="n">12</span><span class="t">The unsafe and FFI boundaries</span><span class="c">every unsafe site · ADR 0007</span></a></li>
-                    <li><a href="#errors"><span class="n">13</span><span class="t">What can go wrong</span><span class="c">Error</span></a></li>
-                    <li><a href="#tests"><span class="n">14</span><span class="t">The GPU tests</span><span class="c">tests/gpu · nextest profile gpu</span></a></li>
-                    <li><a href="#not-yet"><span class="n">15</span><span class="t">Not here yet</span><span class="c">#127, #128</span></a></li>
+                    <li><a href="#batch"><span class="n">10</span><span class="t">One batch, step by step</span><span class="c">Renderer::render · the wavefront</span></a></li>
+                    <li><a href="#layout"><span class="n">11</span><span class="t">The layout shared with umbra-gpu-programs</span><span class="c">a dependency · DeviceCopy&lt;T&gt;</span></a></li>
+                    <li><a href="#decisions"><span class="n">12</span><span class="t">Design decisions</span><span class="c">no NVIDIA at build time, one SBT per geometry, Rc</span></a></li>
+                    <li><a href="#unsafe"><span class="n">13</span><span class="t">The unsafe and FFI boundaries</span><span class="c">every unsafe site · ADR 0007</span></a></li>
+                    <li><a href="#errors"><span class="n">14</span><span class="t">What can go wrong</span><span class="c">Error</span></a></li>
+                    <li><a href="#tests"><span class="n">15</span><span class="t">The GPU tests</span><span class="c">tests/gpu · nextest profile gpu</span></a></li>
+                    <li><a href="#not-yet"><span class="n">16</span><span class="t">Not here yet</span><span class="c">trace and shade stages, #128</span></a></li>
                 </ol>
             </div>
         </div>
@@ -523,7 +524,8 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
                 <tr><td>SBT</td><td>shader binding table: tells OptiX which program, with which data, for each case</td><td><a href="#sbt">section 5</a>, <code>ShaderBindingTable</code>, <code>SbtRecord</code></td></tr>
                 <tr><td>payload</td><td>a few 32-bit values that travel with a ray between programs</td><td>two values: the hit's <var>t</var> and its kind</td></tr>
                 <tr><td>stream</td><td>a CUDA queue: work put on it runs in order, and the host can wait for it</td><td><code>CudaStream</code>, <code>synchronize()</code></td></tr>
-                <tr><td><code>unsafe</code></td><td>a Rust block where the compiler stops checking one thing and the programmer promises it</td><td><a href="#unsafe">section 12</a></td></tr>
+                <tr><td>wavefront</td><td>rendering one step of a path at a time, each step a launch over many Pixel Samples, with queues between the steps</td><td><a href="#batch">section 10</a>, <code>Renderer::render</code></td></tr>
+                <tr><td><code>unsafe</code></td><td>a Rust block where the compiler stops checking one thing and the programmer promises it</td><td><a href="#unsafe">section 13</a></td></tr>
                 <tr><td><var>t</var></td><td>distance along a ray: the point is origin + <var>t</var> × direction</td><td><code>Hit::t</code></td></tr>
             </tbody>
         </table>
@@ -675,20 +677,20 @@ svg .step text { fill: var(--surface); font-weight: 600; font-size: 12px; }
 
     <div class="prose">
         <p>Rust normally lets the compiler arrange a struct's fields however it likes. That is no good when another program, compiled separately, reads the same bytes. So every shared type is <code>#[repr(C)]</code>: fields in written order, laid out by C's rules. And every one carries <em>compile-time assertions</em> on its size and on each field's offset. If a field ever moved, the build would fail before any wrong byte reached a GPU.</p>
-        <p><code>records.rs</code> marks five types with <code>DeviceRepr</code> through a small macro, <code>device_repr!</code>: <code>DeviceCopy&lt;LaunchParams&gt;</code>, <code>DeviceCopy&lt;RayRecord&gt;</code>, <code>DeviceCopy&lt;HitRecord&gt;</code>, <code>SbtRecord&lt;()&gt;</code> and <code>SbtRecord&lt;Sphere&gt;</code>, plus <code>DeviceCopy&lt;MathParams&gt;</code> with the <code>math-program</code> feature. <code>DeviceCopy&lt;T&gt;</code> is a <code>#[repr(transparent)]</code> wrapper with <code>T</code>'s layout: the shared records belong to <code>umbra-gpu-programs</code> and <code>DeviceRepr</code> to <code>cudarc</code>, and Rust lets a crate implement another crate's trait only for a type of its own (<a href="#layout">section 10</a>). The marker is an <code>unsafe impl</code>: the compiler cannot check the promise, so the code states it in a <code>// SAFETY:</code> comment.</p>
-<pre class="code"><span class="c">// SAFETY: a `#[repr(C)]` type of `f32`s, integers and byte arrays,
-// or a transparent wrapper of one, with no pointer to host memory,
-// whose layout the device shares ...</span>
+        <p><code>records.rs</code> marks ten types with <code>DeviceRepr</code> through a small macro, <code>device_repr!</code>: the tracer's <code>DeviceCopy&lt;LaunchParams&gt;</code>, <code>DeviceCopy&lt;RayRecord&gt;</code> and <code>DeviceCopy&lt;HitRecord&gt;</code>; the wavefront's <code>DeviceCopy&lt;SceneRecord&gt;</code>, <code>DeviceCopy&lt;SamplerRecord&gt;</code>, <code>DeviceCopy&lt;WorkUnitRecord&gt;</code>, <code>DeviceCopy&lt;FilmSampleRecord&gt;</code> and <code>DeviceCopy&lt;WavefrontParams&gt;</code>; and <code>SbtRecord&lt;()&gt;</code> and <code>SbtRecord&lt;Sphere&gt;</code>; plus <code>DeviceCopy&lt;MathParams&gt;</code> with the <code>math-program</code> feature. <code>DeviceCopy&lt;T&gt;</code> is a <code>#[repr(transparent)]</code> wrapper with <code>T</code>'s layout: the shared records belong to <code>umbra-gpu-programs</code> and <code>DeviceRepr</code> to <code>cudarc</code>, and Rust lets a crate implement another crate's trait only for a type of its own (<a href="#layout">section 11</a>). The marker is an <code>unsafe impl</code>: the compiler cannot check the promise, so the code states it in a <code>// SAFETY:</code> comment.</p>
+<pre class="code"><span class="c">// SAFETY: a `#[repr(C)]` type of `f32`s, integers, byte arrays and
+// device addresses, or a transparent wrapper of one, with no pointer
+// to host memory, whose layout the device shares ...</span>
 <span class="k">#[expect(unsafe_code, reason = "copying records to and from the GPU (ADR 0007, ADR 0028)")]</span>
 <span class="k">unsafe impl</span> DeviceRepr <span class="k">for</span> $t {}</pre>
-        <p>The data that comes back from the GPU could, in principle, be any bits. So the host never trusts it blindly. A <code>HitRecord</code> stores its kind as a plain <code>u32</code>, and the host converts it with <code>umbra-gpu-programs</code>' <code>HitKind::try_from</code>, which refuses any number other than 0, 1 or 2 (<a href="#errors">section 13</a>).</p>
+        <p>The data that comes back from the GPU could, in principle, be any bits. So the host never trusts it blindly. A <code>HitRecord</code> stores its kind as a plain <code>u32</code>, and the host converts it with <code>umbra-gpu-programs</code>' <code>HitKind::try_from</code>, which refuses any number other than 0, 1 or 2 (<a href="#errors">section 14</a>).</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
-        <div class="mb-row"><div class="mb-f">#[repr(C)] + size_of / offset_of asserted</div><div class="mb-d"><b>Fixed layout.</b> <code>umbra-gpu-programs</code>' <code>launch.rs</code> is compiled for the host and for the GPU, and its <code>const _: () = { assert!(…) }</code> blocks run in both builds, for <code>x86_64</code> and for <code>nvptx64</code> (<a href="#layout">section 10</a>).</div></div>
+        <div class="mb-row"><div class="mb-f">#[repr(C)] + size_of / offset_of asserted</div><div class="mb-d"><b>Fixed layout.</b> <code>umbra-gpu-programs</code>' <code>launch.rs</code> and <code>wavefront.rs</code> are compiled for the host and for the GPU, and their <code>const _: () = { assert!(…) }</code> blocks run in both builds, for <code>x86_64</code> and for <code>nvptx64</code> (<a href="#layout">section 11</a>).</div></div>
         <div class="mb-row"><div class="mb-f">no host pointers inside a record</div><div class="mb-d"><b>Copyable.</b> Records hold <code>f32</code>s, integers, byte arrays and device addresses only. ADR 0028 and arc42 §8.12 state the same rule for every future Scene arena type.</div></div>
-        <div class="mb-row"><div class="mb-f">read back: any bits → validated value</div><div class="mb-d"><b>Untrusted input.</b> Of the copied types, the host reads back only <code>HitRecord</code>, which has no padding, and checks its <code>kind</code> before using it.</div></div>
+        <div class="mb-row"><div class="mb-f">read back: any bits → validated value</div><div class="mb-d"><b>Untrusted input.</b> Of the copied types, the host reads back only <code>HitRecord</code> and <code>FilmSampleRecord</code>, which have no padding. It checks a hit's <code>kind</code> before using it; a film sample's floats are valid whatever their bits.</div></div>
     </div>
 </section>
 
@@ -853,14 +855,14 @@ stream.synchronize()?;</pre>
 }</pre>
         <p>The intersection program is an <code>Option</code>: <code>None</code> for the triangle's hit group, <code>Some(c"__intersection__sphere")</code> for the sphere's. Both hit groups share the same closest-hit program; it asks OptiX which kind of primitive it was called for.</p>
         <p>A few settings must agree between the Module and the Pipeline, so one function, <code>pipeline_compile_options</code>, makes them for both: one GAS traced directly (<code>TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS</code>), two payload values, triangles and custom primitives, and the name of the launch-parameter variable, <code>c"params"</code> (<code>LAUNCH_PARAMS_VARIABLE</code>). The pipeline's link options set <code>max_trace_depth: 1</code>: only the ray-generation program traces; the hit and miss programs never start rays of their own.</p>
-        <p>When a compile fails, OptiX writes an explanation into a text buffer. Every compiling call hands it a 4 096-byte log (<code>LOG_SIZE</code>), and the error carries that text back to the user (<a href="#errors">section 13</a>).</p>
+        <p>When a compile fails, OptiX writes an explanation into a text buffer. Every compiling call hands it a 4 096-byte log (<code>LOG_SIZE</code>), and the error carries that text back to the user (<a href="#errors">section 14</a>).</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
         <div class="mb-row"><div class="mb-f">payload = [ t as bits, HitKind as u32 ]</div><div class="mb-d"><b>Two 32-bit values per ray.</b> A payload slot holds a <code>u32</code>, so the closest-hit program stores <var>t</var> with <code>f32::to_bits</code> and the ray-generation program gets it back with <code>f32::from_bits</code>: the same 32 bits, read two ways. It starts as <code>[0, Miss]</code>.</div></div>
         <div class="mb-row"><div class="mb-f">num_payload_values = 2<br>num_attribute_values = 2<br>max_trace_depth = 1</div><div class="mb-d"><b>Pipeline limits.</b> Two payload values, OptiX's minimum of two attribute values (which triangles use for their barycentric coordinates), and tracing from ray generation only.</div></div>
-        <div class="mb-row"><div class="mb-f">Validation::All if debug_assertions</div><div class="mb-d"><b>Checked in debug builds.</b> <code>Tracer::new</code> turns on OptiX's validation mode in builds with debug assertions: slower, but OptiX then reports misuse. Release builds use <code>Validation::Off</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">Validation::All if debug_assertions</div><div class="mb-d"><b>Checked in debug builds.</b> <code>Device::open</code>, under <code>Tracer::new</code> and <code>Renderer::new</code>, turns on OptiX's validation mode in builds with debug assertions: slower, but OptiX then reports misuse. Release builds use <code>Validation::Off</code>.</div></div>
     </div>
 </section>
 
@@ -918,7 +920,7 @@ stream.synchronize()?;</pre>
     Geometry::Triangle =&gt; (<span class="k">self</span>.triangle_hitgroup.device_ptr(&amp;<span class="k">self</span>.stream).<span class="k">0</span>, size_of::&lt;SbtRecord&lt;()&gt;&gt;()),
     Geometry::Sphere =&gt; (<span class="k">self</span>.sphere_hitgroup.device_ptr(&amp;<span class="k">self</span>.stream).<span class="k">0</span>, size_of::&lt;SbtRecord&lt;Sphere&gt;&gt;()),
 };</pre>
-        <p>The records themselves are written once, in <code>Tracer::new</code>, by the helper <code>record</code>: pack the header, attach the data, copy the record to the GPU with <code>clone_htod</code>.</p>
+        <p>The records themselves are written once, in <code>Tracer::new</code>, by the helper <code>record</code> of <code>device.rs</code>, which <code>Renderer::new</code> uses too: pack the header, attach the data, copy the record to the GPU with <code>clone_htod</code>.</p>
     </div>
 
     <div class="mathbox">
@@ -1013,7 +1015,7 @@ stream.synchronize()?;</pre>
 <span class="k">let</span> result = <span class="k">unsafe</span> { pack(<span class="k">self</span>.handle, header.as_mut_ptr().cast()) };
 api.check(<span class="c">"optixSbtRecordPackHeader"</span>, result, &amp;[])?;
 Ok(header)</pre>
-        <p><b>Cleaning up.</b> Every OptiX object must be destroyed, and only after everything made from it. Each wrapper owns its OptiX handle and destroys it in <code>Drop</code>, and holds an <code>Rc</code> (a shared, counted reference) to the object it came from, so the parent outlives it (<a href="#decisions">section 11</a>).</p>
+        <p><b>Cleaning up.</b> Every OptiX object must be destroyed, and only after everything made from it. Each wrapper owns its OptiX handle and destroys it in <code>Drop</code>, and holds an <code>Rc</code> (a shared, counted reference) to the object it came from, so the parent outlives it (<a href="#decisions">section 12</a>).</p>
     </div>
 
     <div class="mathbox">
@@ -1033,7 +1035,7 @@ Ok(header)</pre>
     <div class="plain"><span class="tag">In plain words</span>The GPU programs are written in Rust, in a separate crate, <code>umbra-gpu-programs</code>. Before <code>umbra-gpu</code> itself compiles, its build script runs a second, nested Rust compile of those programs for the GPU, which produces a PTX text file. That text is pasted into <code>umbra-gpu</code> as a string constant. Nothing from NVIDIA is needed for this step, except one optional file of maths functions, <code>libdevice</code>.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 900 250" class="dg-wide" role="img" aria-label="build.rs compiles umbra-gpu-programs for nvptx64, links libdevice, and copies the PTX to OUT_DIR, which tracer.rs embeds">
+        <div class="dg-wrap"><svg viewBox="0 0 900 250" class="dg-wide" role="img" aria-label="build.rs compiles umbra-gpu-programs for nvptx64, links libdevice, and copies the PTX to OUT_DIR, which device.rs embeds">
             <rect x="20" y="40" width="160" height="60" rx="6" class="f-warm-soft k-warm"/>
             <text x="100" y="65" text-anchor="middle" font-size="12" font-weight="600">umbra-gpu-programs</text>
             <text x="100" y="85" text-anchor="middle" font-size="11">+ the core crates</text>
@@ -1054,7 +1056,7 @@ Ok(header)</pre>
             <line x1="692" y1="70" x2="736" y2="70" class="k-ink" marker-end="url(#ah-ink)"/>
             <rect x="740" y="40" width="140" height="60" rx="6" class="f-acc-soft k-acc"/>
             <text x="810" y="65" text-anchor="middle" font-size="12" font-weight="600">const PTX</text>
-            <text x="810" y="85" text-anchor="middle" font-size="11">tracer.rs</text>
+            <text x="810" y="85" text-anchor="middle" font-size="11">device.rs</text>
             <text x="610" y="140" text-anchor="middle" font-size="11" class="t-mut">check: no .extern .func left</text>
             <text x="810" y="140" text-anchor="middle" font-size="11" class="t-mut">include_str!</text>
             <text x="450" y="236" text-anchor="middle" font-size="12">at run time, Module::new hands this text to OptiX, which compiles it for the GPU in the machine</text>
@@ -1063,17 +1065,17 @@ Ok(header)</pre>
     </figure>
 
     <div class="prose">
-        <p><b>libdevice</b> is CUDA's library of maths functions for the GPU (<code>sinf</code>, <code>expf</code>, <code>powf</code>, …) in LLVM bitcode form. <code>umbra-math</code>'s GPU backend calls them. <code>find_libdevice</code> looks for it at <code>UMBRA_LIBDEVICE</code>, then under <code>CUDA_PATH</code>, <code>CUDA_HOME</code> and <code>/usr/local/cuda</code>. When found, the toolchain links the functions straight into the PTX. When not found, as on CI, which has no CUDA, the programs still compile, but every maths function stays an unresolved <code>.extern .func</code>, and the build prints a warning. Such PTX cannot run, so <code>Tracer::new</code> checks the text first:</p>
+        <p><b>libdevice</b> is CUDA's library of maths functions for the GPU (<code>sinf</code>, <code>expf</code>, <code>powf</code>, …) in LLVM bitcode form. <code>umbra-math</code>'s GPU backend calls them. <code>find_libdevice</code> looks for it at <code>UMBRA_LIBDEVICE</code>, then under <code>CUDA_PATH</code>, <code>CUDA_HOME</code> and <code>/usr/local/cuda</code>. When found, the toolchain links the functions straight into the PTX. When not found, as on CI, which has no CUDA, the programs still compile, but every maths function stays an unresolved <code>.extern .func</code>, and the build prints a warning. Such PTX cannot run, so <code>Device::open</code>, which <code>Tracer::new</code> and <code>Renderer::new</code> both call, checks the text first:</p>
 <pre class="code"><span class="k">if</span> PTX.contains(<span class="c">".extern"</span>) {
     <span class="k">return</span> Err(Error::UnlinkedPtx);
 }</pre>
         <p>The nested build drops the outer build's <code>RUSTFLAGS</code> and compiler wrappers: those are for the host CPU (CI sets <code>-C target-cpu=x86-64-v3</code>, which the GPU target does not know). It also leaves the GPU target's default CPU, <code>sm_70</code>, alone; the driver compiles <code>sm_70</code> PTX for any newer GPU. With <code>umbra-gpu</code>'s <code>math-program</code> feature on, it passes <code>--features math-program</code> to the programs too; the feature also turns on <code>umbra-gpu-programs/math-program</code> in <code>Cargo.toml</code>, so the host sees the math program's layout.</p>
-        <p><b>Why <code>--crate-type cdylib</code>.</b> In its own manifest, <code>umbra-gpu-programs</code>' library is an ordinary <code>rlib</code>, which is what <code>umbra-gpu</code> needs to use its layout (<a href="#layout">section 10</a>). The nested <code>cargo rustc --lib --crate-type cdylib</code> asks for a <code>cdylib</code> instead, which the <code>nvptx64</code> target links into one PTX module, <code>umbra_gpu_programs.ptx</code>.</p>
+        <p><b>Why <code>--crate-type cdylib</code>.</b> In its own manifest, <code>umbra-gpu-programs</code>' library is an ordinary <code>rlib</code>, which is what <code>umbra-gpu</code> needs to use its layout (<a href="#layout">section 11</a>). The nested <code>cargo rustc --lib --crate-type cdylib</code> asks for a <code>cdylib</code> instead, which the <code>nvptx64</code> target links into one PTX module, <code>umbra_gpu_programs.ptx</code>.</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
-        <div class="mb-row"><div class="mb-f">libdevice linked ⇒ no ".extern .func" in the PTX</div><div class="mb-d"><b>Checked twice.</b> <code>build.rs</code> fails the build if libdevice was linked and an <code>.extern .func</code> is still there; <code>Tracer::new</code> refuses PTX with any <code>.extern</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">libdevice linked ⇒ no ".extern .func" in the PTX</div><div class="mb-d"><b>Checked twice.</b> <code>build.rs</code> fails the build if libdevice was linked and an <code>.extern .func</code> is still there; <code>Device::open</code> refuses PTX with any <code>.extern</code>.</div></div>
         <div class="mb-row"><div class="mb-f">env removed: RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, CARGO_BUILD_RUSTFLAGS, RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER, CARGO_TARGET_DIR, CARGO_BUILD_TARGET</div><div class="mb-d"><b>Host settings stay on the host.</b> <code>programs_build</code> builds the command and strips these.</div></div>
         <div class="mb-row"><div class="mb-f">rerun when a program source, Cargo.lock or UMBRA_LIBDEVICE / CUDA_PATH / CUDA_HOME changes</div><div class="mb-d"><b>Rebuilt when it must be.</b> <code>rerun_if_sources_change</code> reads the dep-info file of the nested build, which lists every source file it used, the core crates' included.</div></div>
     </div>
@@ -1083,7 +1085,7 @@ Ok(header)</pre>
 <div class="part">
     <div class="kicker">Part II · Implementation</div>
     <h2>How the crate is built</h2>
-    <p><code>umbra-gpu</code> is a <code>std</code> crate, outside the <code>no_std</code> core. It depends on <code>umbra-geometry</code> and <code>umbra-math</code>, on <code>umbra-gpu-programs</code> for the layout it shares with the GPU, on <code>umbra-render</code> and <code>umbra-scene</code> for the Renderer's Work Units and Scene, on <code>cudarc</code> for the CUDA driver and on <code>libloading</code> for OptiX; its build script also compiles <code>umbra-gpu-programs</code> to PTX (arc42 §5.1, ADR 0033). Today it holds the tracer bullet of <a href="https://github.com/sergioffpc/umbra/issues/126">#126</a>: one triangle and one sphere, traced through OptiX and read back on the host. Its <code>Renderer</code> has the shape of the CPU's, but no wavefront behind it yet.</p>
+    <p><code>umbra-gpu</code> is a <code>std</code> crate, outside the <code>no_std</code> core. It depends on <code>umbra-geometry</code> and <code>umbra-math</code>, on <code>umbra-gpu-programs</code> for the layout it shares with the GPU, on <code>umbra-render</code> and <code>umbra-scene</code> for the Renderer's Work Units and Scene, on <code>umbra-integrators</code>, <code>umbra-sampling</code> and <code>umbra-spectrum</code> for what it uploads and sums, on <code>cudarc</code> for the CUDA driver and on <code>libloading</code> for OptiX; its build script also compiles <code>umbra-gpu-programs</code> to PTX (arc42 §5.1, ADR 0033). It holds the GPU's <code>Renderer</code>, which renders batches of Work Units through the wavefront of <code>umbra-gpu-programs</code> (<a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>), and the tracer bullet of <a href="https://github.com/sergioffpc/umbra/issues/126">#126</a>: one triangle and one sphere, traced through OptiX and read back on the host.</p>
 </div>
 
 <section class="topic" id="map">
@@ -1091,9 +1093,9 @@ Ok(header)</pre>
         <div class="eyebrow"><span class="no">8</span><span class="crate">umbra-gpu</span> · <a href="../src/lib.rs">lib.rs</a> · <a href="../README.md">README.md</a> · <a href="../Cargo.toml">Cargo.toml</a></div>
         <h3>The crate at a glance</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Users see five names: <code>Tracer</code>, which does the work; <code>Geometry</code>, which says what to trace against; <code>Hit</code>, what comes back; <code>Error</code>; and <code>Renderer</code>, the GPU Worker's renderer, which cannot be built yet. Everything else is private machinery: OptiX wrappers, the hand-written C layouts, and the records shared with the GPU.</div>
+    <div class="plain"><span class="tag">In plain words</span>Users see five names: <code>Tracer</code>, which does the work; <code>Geometry</code>, which says what to trace against; <code>Hit</code>, what comes back; <code>Error</code>; and <code>Renderer</code>, the GPU Worker's renderer, which renders batches of Work Units. Everything else is private machinery: what the two share on a GPU, OptiX wrappers, the hand-written C layouts, and the records shared with the GPU.</div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 900 330" class="dg-wide" role="img" aria-label="The modules of umbra-gpu and how they depend on each other">
+        <div class="dg-wrap"><svg viewBox="0 0 900 385" class="dg-wide" role="img" aria-label="The modules of umbra-gpu and how they depend on each other">
             <rect x="20" y="20" width="260" height="120" rx="8" class="f-acc-soft k-acc"/>
             <text x="34" y="44" class="t-bold">lib.rs (public)</text>
             <text x="36" y="70" font-size="12">Renderer, Tracer, Geometry, Hit, Error</text>
@@ -1103,7 +1105,7 @@ Ok(header)</pre>
             <rect x="320" y="20" width="270" height="120" rx="8" class="f-acc-soft k-acc"/>
             <text x="334" y="44" class="t-bold">tracer.rs</text>
             <text x="336" y="70" font-size="12">Tracer::new, Tracer::trace</text>
-            <text x="336" y="92" font-size="12">Gas, Groups, const PTX</text>
+            <text x="336" y="92" font-size="12">Gas, Groups</text>
             <text x="336" y="114" font-size="12" class="t-mut">tracer/math.rs: evaluate</text>
             <rect x="630" y="20" width="250" height="120" rx="8" class="f-warm-soft k-warm"/>
             <text x="644" y="44" class="t-bold">optix.rs</text>
@@ -1121,22 +1123,33 @@ Ok(header)</pre>
             <text x="336" y="248" font-size="12">DeviceRepr impls, DeviceCopy::hit</text>
             <rect x="20" y="180" width="260" height="80" rx="8" class="f-surf k-ink" stroke-dasharray="5 4"/>
             <text x="34" y="204" class="t-bold">umbra-gpu-programs</text>
-            <text x="36" y="228" font-size="12">LaunchParams, RayRecord,</text>
-            <text x="36" y="248" font-size="12">HitRecord, HitKind</text>
-            <rect x="20" y="280" width="260" height="40" rx="8" class="f-surf k-mut"/>
-            <text x="150" y="305" text-anchor="middle" font-size="12">error.rs: Error</text>
-            <rect x="320" y="280" width="270" height="40" rx="8" class="f-surf k-mut"/>
-            <text x="455" y="305" text-anchor="middle" font-size="12">build.rs → umbra_gpu_programs.ptx</text>
-            <rect x="630" y="280" width="250" height="40" rx="8" class="f-surf k-mut"/>
-            <text x="755" y="305" text-anchor="middle" font-size="12">renderer.rs: Renderer</text>
+            <text x="36" y="228" font-size="11">LaunchParams, RayRecord, HitRecord,</text>
+            <text x="36" y="248" font-size="11">SceneRecord, WavefrontParams, …</text>
+            <rect x="320" y="290" width="270" height="80" rx="8" class="f-acc-soft k-acc"/>
+            <text x="334" y="314" class="t-bold">renderer.rs</text>
+            <text x="336" y="338" font-size="12">Renderer::new, render, CAPACITY</text>
+            <text x="336" y="358" font-size="12" class="t-mut">Batch, Queue, Uploaded, Staging</text>
+            <rect x="630" y="290" width="250" height="80" rx="8" class="f-acc-soft k-acc"/>
+            <text x="644" y="314" class="t-bold">device.rs</text>
+            <text x="646" y="338" font-size="12">Device::open, record, launch,</text>
+            <text x="646" y="358" font-size="12">stride, stream_handle, const PTX</text>
+            <rect x="20" y="290" width="260" height="36" rx="8" class="f-surf k-mut"/>
+            <text x="150" y="313" text-anchor="middle" font-size="12">error.rs: Error</text>
+            <rect x="20" y="334" width="260" height="36" rx="8" class="f-surf k-mut"/>
+            <text x="150" y="357" text-anchor="middle" font-size="12">build.rs → umbra_gpu_programs.ptx</text>
             <line x1="592" y1="80" x2="626" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="755" y1="142" x2="755" y2="176" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="455" y1="142" x2="455" y2="176" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="318" y1="220" x2="284" y2="220" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="282" y1="80" x2="316" y2="80" class="k-ink" marker-end="url(#ah-ink)"/>
-            <text x="150" y="172" text-anchor="middle" font-size="10" class="t-mut">a dependency: launch.rs</text>
+            <line x1="455" y1="288" x2="455" y2="264" class="k-ink" marker-end="url(#ah-ink)"/>
+            <line x1="592" y1="330" x2="626" y2="330" class="k-ink" marker-end="url(#ah-ink)"/>
+            <path d="M592 120 C 612 120, 608 300, 626 304" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <path d="M882 320 C 898 320, 898 100, 884 100" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <path d="M318 312 C 298 312, 292 290, 284 264" class="k-ink" fill="none" marker-end="url(#ah-ink)"/>
+            <text x="150" y="172" text-anchor="middle" font-size="10" class="t-mut">a dependency: launch.rs, wavefront.rs</text>
         </svg></div>
-        <figcaption>The modules. Arrows point from a user to what it uses. The dashed box is not a module of this crate: the shared layout comes from <code>umbra-gpu-programs</code>, an ordinary dependency (<a href="#layout">section 10</a>). <code>renderer.rs</code> uses none of the others yet.</figcaption>
+        <figcaption>The modules. Arrows point from a user to what it uses. The dashed box is not a module of this crate: the shared layout comes from <code>umbra-gpu-programs</code>, an ordinary dependency (<a href="#layout">section 11</a>). <code>device.rs</code> holds what <code>tracer.rs</code> and <code>renderer.rs</code> share: opening a GPU with the embedded PTX, shader binding table records, and a launch that waits for its end. <code>renderer.rs</code> also uses <code>optix.rs</code>, as <code>tracer.rs</code> does; that arrow is left out.</figcaption>
     </figure>
     <div class="tablewrap">
         <table class="data">
@@ -1148,9 +1161,12 @@ Ok(header)</pre>
                 <tr><td><code>Tracer::evaluate(function, &amp;args)</code></td><td>pub, feature</td><td>runs an <code>umbra-math</code> function on the GPU, for the tests</td></tr>
                 <tr><td><code>Geometry</code></td><td>pub</td><td><code>Triangle</code> (built-in intersection) or <code>Sphere</code> (custom)</td></tr>
                 <tr><td><code>Hit</code></td><td>pub</td><td><code>t</code>, the ray parameter, and <code>geometry</code>, what it hit</td></tr>
-                <tr><td><code>Error</code></td><td>pub</td><td>every failure of the GPU path (<a href="#errors">section 13</a>)</td></tr>
-                <tr><td><code>Renderer::new(&amp;scene, &amp;options)</code></td><td>pub</td><td>the GPU Worker's renderer of a Render Job; <code>Err(Error::NoRenderer)</code> for every Scene until <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a></td></tr>
-                <tr><td><code>Renderer::render(unit, &amp;cancel)</code></td><td>pub</td><td>a <code>WorkUnit</code> in, <code>Rendered</code> out, as on the CPU; unreachable, since no <code>Renderer</code> can be built</td></tr>
+                <tr><td><code>Error</code></td><td>pub</td><td>every failure of the GPU path (<a href="#errors">section 14</a>)</td></tr>
+                <tr><td><code>Renderer::new(ordinal, &amp;scene, &amp;options)</code></td><td>pub</td><td>the GPU Worker's renderer of a Render Job on GPU <code>ordinal</code>: builds the stages' pipeline and uploads the Scene's view and the sampler, once</td></tr>
+                <tr><td><code>Renderer::CAPACITY</code></td><td>pub</td><td>16: the Work Units a GPU Worker keeps in flight and renders as one batch, to be tuned by benchmark (ADR 0026)</td></tr>
+                <tr><td><code>Renderer::decomposition()</code></td><td>pub</td><td>how the Render Job is cut into Work Units</td></tr>
+                <tr><td><code>Renderer::render(&amp;units, &amp;cancel)</code></td><td>pub</td><td>one batch in, one <code>Rendered</code> per Work Unit out, in order; every one <code>Cancelled</code> if <code>cancel</code> stops it (<a href="#batch">section 10</a>)</td></tr>
+                <tr><td><code>Device</code>, <code>record</code>, <code>launch</code></td><td>crate</td><td>what <code>Tracer</code> and <code>Renderer</code> share: a GPU's stream, OptiX context and module of the PTX; an SBT record; a launch that waits for its end</td></tr>
                 <tr><td><code>Api</code></td><td>crate</td><td>the loaded <code>libnvoptix.so.1</code> and its function table</td></tr>
                 <tr><td><code>DeviceContext</code></td><td>crate</td><td>an OptiX context on a CUDA context; also builds GAS (<code>gas_sizes</code>, <code>build_gas</code>)</td></tr>
                 <tr><td><code>Module</code>, <code>ProgramGroup</code>, <code>Pipeline</code></td><td>crate</td><td>owning wrappers of OptiX objects, destroyed on drop</td></tr>
@@ -1160,8 +1176,10 @@ Ok(header)</pre>
                 <tr><td><code>Validation</code></td><td>crate</td><td><code>Off</code> or <code>All</code>: OptiX's validation mode</td></tr>
                 <tr><td><code>SbtRecord&lt;T&gt;</code></td><td>crate</td><td>32-byte header plus data, 16-byte aligned</td></tr>
                 <tr><td><code>DeviceCopy&lt;T&gt;</code></td><td>crate</td><td>a shared record as <code>cudarc</code> copies it; <code>DeviceCopy&lt;HitRecord&gt;::hit</code> reads a hit back</td></tr>
-                <tr><td><code>LaunchParams</code>, <code>RayRecord</code>, <code>HitRecord</code>, <code>HitKind</code></td><td>dependency</td><td>the layout shared with the GPU, from <code>umbra-gpu-programs</code></td></tr>
-                <tr><td><code>Gas</code>, <code>Groups</code></td><td>private</td><td>a GAS and its memory; the five program groups</td></tr>
+                <tr><td><code>LaunchParams</code>, <code>RayRecord</code>, <code>HitRecord</code>, <code>HitKind</code></td><td>dependency</td><td>the tracer's layout shared with the GPU, from <code>umbra-gpu-programs</code></td></tr>
+                <tr><td><code>SceneRecord</code>, <code>SamplerRecord</code>, <code>WorkUnitRecord</code>, <code>PixelSampleQueue</code>, <code>FilmSampleRecord</code>, <code>WavefrontParams</code>, <code>DeviceSlice</code></td><td>dependency</td><td>the wavefront's layout shared with the GPU, from <code>umbra-gpu-programs</code></td></tr>
+                <tr><td><code>Gas</code>, <code>Groups</code></td><td>private</td><td>a GAS and its memory; the program groups of a pipeline, the Tracer's and the Renderer's</td></tr>
+                <tr><td><code>Batch</code>, <code>Queue</code>, <code>Uploaded</code>, <code>Staging</code></td><td>private</td><td>a batch's <code>WorkUnitRecord</code>s; the queue between the stages; device memory and its address; host values gathered for one upload</td></tr>
             </tbody>
         </table>
     </div>
@@ -1175,7 +1193,7 @@ Ok(header)</pre>
 <!-- ================================================================= -->
 <section class="topic" id="trace-call">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-gpu</span> · <a href="../src/tracer.rs">tracer.rs</a> · <code>Tracer::trace</code>, <code>trace_launch</code>, <code>launch</code></div>
+        <div class="eyebrow"><span class="no">9</span><span class="crate">umbra-gpu</span> · <a href="../src/tracer.rs">tracer.rs</a> · <code>Tracer::trace</code>, <code>trace_launch</code>, <code>launch</code> · <a href="../src/device.rs">device.rs</a> <code>launch</code></div>
         <h3>One trace call, step by step</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>A call to <code>trace</code> is a round trip. Pack the rays and copy them to the GPU. Make room there for the answers. Tell OptiX what to trace and where everything is. Start one thread per ray and wait. Copy the answers back and turn each one into a Rust value. The figure below lets you walk through it one step at a time.</div>
@@ -1214,7 +1232,7 @@ Ok(header)</pre>
     <span class="k">self</span>.stream.clone_dtoh(&amp;hit_buffer)?.into_iter().map(DeviceCopy::hit).collect()
 }</pre>
         <p>Note the last line. <code>DeviceCopy&lt;HitRecord&gt;::hit</code> returns <code>Result&lt;Option&lt;Hit&gt;, Error&gt;</code>, and collecting an iterator of <code>Result</code>s into a <code>Result&lt;Vec&lt;…&gt;&gt;</code> stops at the first error. So one bad hit kind fails the whole call rather than slipping through.</p>
-        <p><code>launch</code> is generic over the parameter type <code>P: DeviceRepr</code>, so the same function serves <code>DeviceCopy&lt;LaunchParams&gt;</code> for a trace and <code>DeviceCopy&lt;MathParams&gt;</code> for a math launch. It copies the parameters to the GPU, calls <code>Pipeline::launch</code> with <code>width</code> threads, and waits with <code>stream.synchronize()</code>. A buffer's device address comes from <code>cudarc</code>'s <code>device_ptr</code> or <code>device_ptr_mut</code>, which return the address together with a guard value. <code>trace_launch</code> keeps its guards in named variables (<code>_rays_read</code>, <code>_hits_written</code>) until <code>launch</code> has synchronised the stream, so the buffers stay marked as in use for the whole launch.</p>
+        <p><code>launch</code> is generic over the parameter type <code>P: DeviceRepr</code>, so the same function serves <code>DeviceCopy&lt;LaunchParams&gt;</code> for a trace and <code>DeviceCopy&lt;MathParams&gt;</code> for a math launch. It hands them to <code>device::launch</code>, which the <code>Renderer</code>'s stages use too with <code>DeviceCopy&lt;WavefrontParams&gt;</code>: it copies the parameters to the GPU, calls <code>Pipeline::launch</code> with <code>width</code> threads, and waits with <code>stream.synchronize()</code>. A buffer's device address comes from <code>cudarc</code>'s <code>device_ptr</code> or <code>device_ptr_mut</code>, which return the address together with a guard value. <code>trace_launch</code> keeps its guards in named variables (<code>_rays_read</code>, <code>_hits_written</code>) until <code>launch</code> has synchronised the stream, so the buffers stay marked as in use for the whole launch.</p>
     </div>
 
     <div class="mathbox">
@@ -1244,9 +1262,94 @@ Ok(header)</pre>
 </section>
 
 <!-- ================================================================= -->
+<section class="topic" id="batch">
+    <div class="topic-head">
+        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-gpu</span> · <a href="../src/renderer.rs">renderer.rs</a> · <code>Renderer::new</code>, <code>Renderer::render</code> · <span class="crate">umbra-gpu-programs</span> <a href="../../umbra-gpu-programs/src/wavefront.rs">wavefront.rs</a>, <a href="../../umbra-gpu-programs/src/stages.rs">stages.rs</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <h3>One batch, step by step</h3>
+    </div>
+    <div class="plain"><span class="tag">In plain words</span>A GPU is fast only with many threads at once, so the <code>Renderer</code> takes a batch of Work Units, up to 16 in a GPU Worker, and runs each step of a Pixel Sample as a launch of its own over all of their Pixel Samples: first the camera step for every one, then the film step for every one. Between the steps, each Pixel Sample's numbers wait in a queue in GPU memory. At the end, the host copies one small record per Pixel Sample back and adds them up per pixel, in the same way as the CPU. This way of rendering is called a <em>wavefront</em>.</div>
+
+    <figure class="diagram">
+        <div class="dg-wrap"><svg viewBox="0 0 900 325" class="dg-wide" role="img" aria-label="render: lay out the batch on the host, run the camera stage and then the film stage on the GPU with a queue between them, copy the film samples back and sum them per pixel">
+            <text x="880" y="24" text-anchor="end" font-size="12" class="t-mut">host</text>
+            <line x1="20" y1="140" x2="880" y2="140" class="k-mut" stroke-dasharray="3 5"/>
+            <text x="880" y="160" text-anchor="end" font-size="12" class="t-mut">device</text>
+            <rect x="20" y="40" width="200" height="60" rx="6" class="f-acc-soft k-acc"/>
+            <text x="120" y="64" text-anchor="middle" font-size="12" font-weight="600">units: &amp;[WorkUnit]</text>
+            <text x="120" y="84" text-anchor="middle" font-size="11">Batch: a WorkUnitRecord each</text>
+            <line x1="120" y1="102" x2="196" y2="166" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="186" y="126" font-size="11" class="t-bad">cancel?</text>
+            <rect x="110" y="170" width="210" height="64" rx="6" class="f-warm-soft k-warm"/>
+            <text x="215" y="196" text-anchor="middle" font-size="12" font-weight="600">__raygen__camera</text>
+            <text x="215" y="216" text-anchor="middle" font-size="11">one thread per Pixel Sample</text>
+            <line x1="322" y1="202" x2="346" y2="202" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="350" y="164" width="200" height="76" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
+            <text x="450" y="186" text-anchor="middle" font-size="12" font-weight="600">PixelSampleQueue</text>
+            <text x="450" y="206" text-anchor="middle" font-size="11">lambda, pdf, radiance</text>
+            <text x="450" y="224" text-anchor="middle" font-size="11">filter_weight</text>
+            <line x1="552" y1="202" x2="576" y2="202" class="k-ink" marker-end="url(#ah-ink)"/>
+            <text x="565" y="156" text-anchor="middle" font-size="11" class="t-bad">cancel?</text>
+            <rect x="580" y="170" width="200" height="64" rx="6" class="f-warm-soft k-warm"/>
+            <text x="680" y="196" text-anchor="middle" font-size="12" font-weight="600">__raygen__film</text>
+            <text x="680" y="216" text-anchor="middle" font-size="11">PixelSensor::to_sensor_rgb</text>
+            <line x1="680" y1="168" x2="720" y2="104" class="k-ink" marker-end="url(#ah-ink)"/>
+            <rect x="560" y="40" width="320" height="60" rx="6" class="f-acc-soft k-acc"/>
+            <text x="720" y="64" text-anchor="middle" font-size="12" font-weight="600">clone_dtoh: a FilmSampleRecord each</text>
+            <text x="720" y="84" text-anchor="middle" font-size="11">PixelSum per pixel, in f64 → Vec&lt;Rendered&gt;</text>
+            <rect x="110" y="270" width="670" height="40" rx="6" class="f-mut-soft k-mut"/>
+            <text x="445" y="295" text-anchor="middle" font-size="11">uploaded once by Renderer::new: SceneRecord (camera, filter, sensor, integrator), SamplerRecord</text>
+            <line x1="215" y1="268" x2="215" y2="238" class="k-mut" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+            <line x1="680" y1="268" x2="680" y2="238" class="k-mut" stroke-dasharray="4 3" marker-end="url(#ah-mut)"/>
+        </svg></div>
+        <figcaption>One call of <code>render</code>. The host lays the batch out and checks for cancellation before the first launch and between the two. Each stage is one launch with one thread per Pixel Sample of the whole batch, and the queue holds each Pixel Sample's values between them, one array per field. What the stages read of the Scene and the sampler was uploaded once, by <code>Renderer::new</code>.</figcaption>
+    </figure>
+
+    <div class="prose">
+<pre class="code"><span class="k">pub fn</span> render(&amp;<span class="k">self</span>, units: &amp;[WorkUnit], cancel: &amp;Cancellation) -&gt; Result&lt;Vec&lt;Rendered&gt;, Error&gt; {
+    <span class="k">let</span> cancelled = || vec![Rendered::Cancelled; units.len()];
+    <span class="k">if</span> units.is_empty() || cancel.is_cancelled() { <span class="k">return</span> Ok(cancelled()); }
+    <span class="k">let</span> batch = Batch::new(&amp;<span class="k">self</span>.decomposition, units)?;
+    <span class="k">let</span> queue = Queue::new(&amp;<span class="k">self</span>.stream, batch.pixel_samples)?;
+    ...                                   <span class="c">// film samples, Work Unit records, WavefrontParams</span>
+    <span class="k">self</span>.launch(&amp;<span class="k">self</span>.camera, params, width)?;
+    <span class="k">if</span> cancel.is_cancelled() { <span class="k">return</span> Ok(cancelled()); }
+    <span class="k">self</span>.launch(&amp;<span class="k">self</span>.film, params, width)?;
+    <span class="k">let</span> film_samples = <span class="k">self</span>.stream.clone_dtoh(&amp;film_samples.buffer)?;
+    Ok(batch.results(units, &amp;film_samples))
+}</pre>
+        <p><b>Built once.</b> <code>Renderer::new(ordinal, &amp;scene, &amp;options)</code> cuts the Render Job into Work Units with a <code>Decomposition</code>, as every renderer does, and opens the GPU with <code>Device::open</code>, as <code>Tracer::new</code> does. Its pipeline has four program groups: the two stages' ray-generation programs, <code>__raygen__camera</code> and <code>__raygen__film</code>, and <code>__miss__trace</code> with a closest-hit-only hit group, which no stage calls yet but every shader binding table must hold. Then it uploads what the stages read for the whole Render Job: a <code>SceneRecord</code>, the Scene view's camera, filter and sensor with the integrator, and a <code>SamplerRecord</code>, the Halton sampler's randomisation, the full resolution and the Pixel Samples per pixel. The filter's and the sensor's tables are generic over their storage in the core. <code>upload_scene</code> gathers them into one host buffer with <code>map_storage</code>, uploads it, and maps each table's place in it to a <code>DeviceSlice</code>, an address and a length that the record holds instead of a host reference (arc42 §8.12). The digit permutations, when the sampler permutes digits, go the same way.</p>
+        <p><b>The batch's order.</b> A batch's Pixel Samples are its Work Units' in order, each Work Unit's pixel by pixel in raster order, each pixel's in ascending sample index. <code>Batch::new</code> writes one <code>WorkUnitRecord</code> per Work Unit: the Tile's top-left pixel and width, the Pass's first sample index and Pixel Samples per pixel, and the index of its first Pixel Sample in the batch. Thread <var>i</var> of a stage finds its Work Unit by a binary search over those first indices, then its pixel and sample index with <code>WorkUnitRecord::pixel_sample</code>.</p>
+        <p><b>The two stages.</b> The camera stage runs the core's steps for its Pixel Sample: it starts the sampler there, draws four wavelengths with <code>SampledWavelengths::sample_visible</code> and a camera sample with <code>get_camera_sample</code>, generates the camera ray, and writes the radiance along it (the ray's weight times the integrator's <code>li</code>), the wavelengths, their PDFs and the filter weight into the queue. The film stage reads them back, turns the radiance into the sensor's RGB with <code>PixelSensor::to_sensor_rgb</code>, and writes a <code>FilmSampleRecord</code>: the RGB and the filter weight. Both stages live in <code>umbra-gpu-programs</code>; see the <a href="../../umbra-gpu-programs/docs/gpu-programs-guide.html">Umbra GPU Programs Guide</a>.</p>
+        <p><b>Back on the host.</b> <code>render</code> copies the film samples back and sums each pixel's in <code>f64</code> into a <code>PixelSum</code>, as the CPU does, giving one <code>Rendered::Done</code> per Work Unit, in the order of <code>units</code>. A Work Unit that is not one of this Render Job's is a bug, and <code>render</code> panics, as <code>umbra-cpu</code>'s does. The batch's buffers are freed when <code>render</code> returns; the Scene's and the sampler's records stay for the Renderer's life.</p>
+    </div>
+
+    <div class="tablewrap" style="max-width: 48rem">
+        <table class="data">
+            <thead><tr><th>record, in wavefront.rs</th><th>bytes</th><th>what it holds</th></tr></thead>
+            <tbody>
+                <tr><td><code>DeviceSlice&lt;T&gt;</code></td><td>16</td><td>a device address and a length; on the GPU, <code>AsRef&lt;[T]&gt;</code></td></tr>
+                <tr><td><code>SceneRecord</code></td><td>1 056</td><td>camera, filter and sensor over <code>DeviceSlice&lt;f32&gt;</code>, integrator</td></tr>
+                <tr><td><code>SamplerRecord</code></td><td>40</td><td>randomiser, resolution, Pixel Samples per pixel</td></tr>
+                <tr><td><code>WorkUnitRecord</code></td><td>24</td><td>Tile, Pass, index of its first Pixel Sample</td></tr>
+                <tr><td><code>PixelSampleQueue</code></td><td>64</td><td>four <code>DeviceSlice</code>s, one per field</td></tr>
+                <tr><td><code>FilmSampleRecord</code></td><td>16</td><td>sensor RGB, filter weight</td></tr>
+                <tr><td><code>WavefrontParams</code></td><td>128</td><td>all of the above by address: what each stage's <code>params</code> holds</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mathbox">
+        <div class="mb-head">Maths used here</div>
+        <div class="mb-row"><div class="mb-f">width = Σ<sub>units</sub> area(Tile) × Pixel Samples per Pass</div><div class="mb-d"><b>Threads per stage.</b> 16 Work Units of 32 × 32 Tiles at 4 Pixel Samples per Pass are 16 · 1 024 · 4 = 65 536 threads. Beyond <code>u32::MAX</code> it is <code>Error::TooMany("Pixel Samples")</code>.</div></div>
+        <div class="mb-row"><div class="mb-f">local = i − first_pixel_sample, &nbsp; pixel = local div spp<br>(x, y) = tile_min + (pixel mod width, pixel div width)<br>sample index = first_sample_index + local mod spp</div><div class="mb-d"><b>Which Pixel Sample thread <var>i</var> is.</b> <code>WorkUnitRecord::pixel_sample</code>, after <code>unit_of</code> found the last Work Unit whose <code>first</code> is not after <var>i</var>.</div></div>
+        <div class="mb-row"><div class="mb-f">3 × 16 + 4 = 52 bytes queued, 16 bytes back</div><div class="mb-d"><b>Memory per Pixel Sample.</b> Three <code>[f32; 4]</code> arrays and one <code>f32</code> array in the queue, one <code>FilmSampleRecord</code> copied back. 65 536 Pixel Samples hold about 3.4 MB of queue and return 1 MiB.</div></div>
+    </div>
+</section>
+
+<!-- ================================================================= -->
 <section class="topic" id="layout">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">10</span><span class="crate">umbra-gpu</span> · <span class="crate">umbra-gpu-programs</span> <a href="../../umbra-gpu-programs/src/launch.rs">src/launch.rs</a> · <a href="../src/records.rs">records.rs</a> <code>DeviceCopy&lt;T&gt;</code> · <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a></div>
+        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-gpu</span> · <span class="crate">umbra-gpu-programs</span> <a href="../../umbra-gpu-programs/src/launch.rs">src/launch.rs</a> · <a href="../src/records.rs">records.rs</a> <code>DeviceCopy&lt;T&gt;</code> · <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a></div>
         <h3>The layout shared with umbra-gpu-programs</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>The host writes records and the GPU reads them, and both are compiled separately, for different machines. The safest way to make them agree is to have only one description. So the file <code>launch.rs</code> lives in <code>umbra-gpu-programs</code>, which compiles for the host as well as for the GPU, and <code>umbra-gpu</code> depends on it like on any other crate. One file, two compilers, the same bytes.</div>
@@ -1270,7 +1373,7 @@ Ok(header)</pre>
             <text x="250" y="268" font-size="12" class="t-mut">kind: 0 = Miss, 1 = Triangle, 2 = Sphere (HitKind)</text>
             <text x="250" y="286" font-size="12" class="t-mut">t is unspecified on a miss</text>
         </svg></div>
-        <figcaption>The three shared records, 25 pixels per byte. All three are <code>#[repr(C)]</code> and carry <code>size_of</code> and <code>offset_of</code> assertions, which hold for <code>x86_64</code> and <code>nvptx64</code> alike. The GPU reads <code>LaunchParams</code> field by field at these offsets; see the <a href="../../umbra-gpu-programs/docs/gpu-programs-guide.html">Umbra GPU Programs Guide</a> for that side.</figcaption>
+        <figcaption>The three shared records, 25 pixels per byte. All three are <code>#[repr(C)]</code> and carry <code>size_of</code> and <code>offset_of</code> assertions, which hold for <code>x86_64</code> and <code>nvptx64</code> alike. The GPU reads <code>LaunchParams</code> field by field at these offsets. The wavefront's records in <code>wavefront.rs</code> keep the same rules (<a href="#batch">section 10</a>), and the stages read <code>WavefrontParams</code> whole; see the <a href="../../umbra-gpu-programs/docs/gpu-programs-guide.html">Umbra GPU Programs Guide</a> for that side.</figcaption>
     </figure>
 
     <div class="prose">
@@ -1282,15 +1385,15 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
 <span class="k">#[derive(Debug, Clone, Copy, Default)]</span>
 <span class="k">#[repr(transparent)]</span>
 <span class="k">pub(crate) struct</span> DeviceCopy&lt;T&gt;(<span class="k">pub(crate)</span> T);</pre>
-        <p>On the host, <code>umbra-gpu-programs</code> holds only <code>launch.rs</code> (and, with the feature, <code>math_launch.rs</code>), whose types are <code>pub</code> and re-exported at its root; its programs, its OptiX bindings and its unstable features exist only in the <code>nvptx64</code> build. The layout depends on <code>core</code> and <code>umbra-geometry</code>, so it compiles in both worlds, and it brings the conversion both sides agree on: <code>From&lt;&amp;Ray&gt; for RayRecord</code>, which copies the six floats.</p>
+        <p>On the host, <code>umbra-gpu-programs</code> holds only <code>launch.rs</code> and <code>wavefront.rs</code> (and, with the feature, <code>math_launch.rs</code>), whose types are <code>pub</code> and re-exported at its root; its programs, its stages, its OptiX bindings and its unstable features exist only in the <code>nvptx64</code> build. The layout depends on <code>core</code>, <code>umbra-geometry</code> and the core crates whose types the wavefront's records hold, all <code>no_std</code>, so it compiles in both worlds, and it brings the conversion both sides agree on: <code>From&lt;&amp;Ray&gt; for RayRecord</code>, which copies the six floats.</p>
         <p>What only the host needs stays in <code>records.rs</code>. <code>cudarc</code> copies a type only if it implements <code>DeviceRepr</code>, and Rust's orphan rule forbids <code>umbra-gpu</code> to implement <code>cudarc</code>'s trait for <code>umbra-gpu-programs</code>' types. So each record crosses the bus wrapped in <code>DeviceCopy&lt;T&gt;</code>, whose <code>#[repr(transparent)]</code> gives it exactly <code>T</code>'s layout, and the promise is made for the wrapper (<a href="#memory">section 2</a>). <code>DeviceCopy&lt;HitRecord&gt;::hit</code> turns a record into <code>Option&lt;Hit&gt;</code>, matching its kind against the <code>HitKind</code> discriminants and failing with <code>Error::HitKind</code> on any other number.</p>
-        <p><b>Where the line is.</b> <code>umbra-gpu-programs</code> owns everything that runs on the GPU: the five entry points, the OptiX device calls in inline PTX, the panic handler. <code>umbra-gpu</code> owns everything on the CPU: loading, compiling, building, launching, copying. They meet only in the shared layout and in the entry-point names. <code>umbra-gpu</code> uses <code>umbra-gpu-programs</code> twice: as a dependency for the layout, and from its build script, which compiles it to PTX.</p>
+        <p><b>Where the line is.</b> <code>umbra-gpu-programs</code> owns everything that runs on the GPU: the seven entry points, the wavefront's two stages among them, the OptiX device calls in inline PTX, the panic handler. <code>umbra-gpu</code> owns everything on the CPU: loading, compiling, building, launching, copying. They meet only in the shared layout and in the entry-point names. <code>umbra-gpu</code> uses <code>umbra-gpu-programs</code> twice: as a dependency for the layout, and from its build script, which compiles it to PTX.</p>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Maths used here</div>
-        <div class="mb-row"><div class="mb-f">offset(count) = 8 + 8 + 8 = 24<br>size = round up(24 + 4, to 8) = 32</div><div class="mb-d"><b>Why <code>LaunchParams</code> has padding.</b> A struct's size is rounded up to its largest alignment, here 8 (the <code>u64</code>s), so 28 becomes 32. The device's <code>params</code> variable is sized from <code>size_of::&lt;LaunchParams&gt;()</code>.</div></div>
-        <div class="mb-row"><div class="mb-f">MathParams = 24 bytes ≤ 32</div><div class="mb-d"><b>One variable, two uses.</b> A math launch puts <code>MathParams</code> into the same <code>params</code> variable, which an assertion proves is big enough.</div></div>
+        <div class="mb-row"><div class="mb-f">offset(count) = 8 + 8 + 8 = 24<br>size = round up(24 + 4, to 8) = 32</div><div class="mb-d"><b>Why <code>LaunchParams</code> has padding.</b> A struct's size is rounded up to its largest alignment, here 8 (the <code>u64</code>s), so 28 becomes 32. The device's <code>params</code> variable is sized for the larger of <code>LaunchParams</code> and <code>WavefrontParams</code>: 128 bytes.</div></div>
+        <div class="mb-row"><div class="mb-f">MathParams = 24 bytes ≤ 32</div><div class="mb-d"><b>One variable, three uses.</b> A math launch puts <code>MathParams</code> into the same <code>params</code> variable, which an assertion proves is big enough, and a stage of the wavefront puts <code>WavefrontParams</code> there.</div></div>
         <div class="mb-row"><div class="mb-f">kind ∈ {0, 1, 2}, else Error::HitKind(kind)</div><div class="mb-d"><b>Checking the way back.</b> <code>DeviceCopy::hit</code> searches <code>[Miss, Triangle, Sphere]</code> for the number; any other is <code>Error::HitKind</code>.</div></div>
     </div>
 </section>
@@ -1298,10 +1401,10 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
 <!-- ================================================================= -->
 <section class="topic" id="decisions">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">11</span><span class="crate">umbra-gpu</span> · <a href="../README.md">README.md</a> “Design decisions” · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
+        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-gpu</span> · <a href="../README.md">README.md</a> “Design decisions” · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a>, <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a></div>
         <h3>Design decisions</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Four choices shape the crate. It needs nothing from NVIDIA to build, only to run. It compiles the GPU programs itself, in a nested build. It keeps one small table per shape instead of one shared table. And it lets Rust's reference counting decide the order in which OptiX objects are destroyed.</div>
+    <div class="plain"><span class="tag">In plain words</span>Five choices shape the crate. It needs nothing from NVIDIA to build, only to run. It compiles the GPU programs itself, in a nested build. Its renderer takes Work Units in batches, to keep the GPU busy. It keeps one small table per shape, and per stage, instead of one shared table. And it lets Rust's reference counting decide the order in which OptiX objects are destroyed.</div>
 
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 230" class="dg-wide" role="img" aria-label="Ownership: each OptiX object holds an Rc of what it was made from">
@@ -1320,7 +1423,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
             <text x="740" y="198" font-size="12" class="t-mut">context + groups</text>
             <text x="430" y="218" text-anchor="middle" font-size="12">arrow = “keeps alive”: a parent is destroyed only after everything pointing at it</text>
         </svg></div>
-        <figcaption>OptiX requires destroying a context last, a module after its program groups, and so on. Umbra never writes that order down. Each wrapper holds an <code>Rc</code> of its parent, so the parent's <code>Drop</code> cannot run while a child still exists, whatever order <code>Tracer</code>'s fields drop in. The objects are not shared across threads (<code>Rc</code>, not <code>Arc</code>): they stay on the thread that made them.</figcaption>
+        <figcaption>OptiX requires destroying a context last, a module after its program groups, and so on. Umbra never writes that order down. Each wrapper holds an <code>Rc</code> of its parent, so the parent's <code>Drop</code> cannot run while a child still exists, whatever order <code>Tracer</code>'s or <code>Renderer</code>'s fields drop in. The objects are not shared across threads (<code>Rc</code>, not <code>Arc</code>): they stay on the thread that made them.</figcaption>
     </figure>
 
     <div class="prose">
@@ -1330,11 +1433,14 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <h4>The programs built by a nested cargo</h4>
         <p>See <a href="#ptx">section 7</a>. The rejected alternatives are in ADR 0028: Rust-CUDA (an external code generator long unmaintained), hand-written CUDA C++ (a second implementation, sharing no code with the core), and putting the device code in a module of this crate (mixing <code>std</code> and <code>no_std</code>). ADR 0033 adds that this crate's build script would then compile its own crate for <code>nvptx64</code>, a build that recurses into itself.</p>
 
-        <h4>One Renderer per Render Device</h4>
-        <p><code>Renderer</code> has the shape of <code>umbra-cpu</code>'s: <code>new(&amp;Scene, &amp;RenderJobOptions)</code>, then <code>render(WorkUnit, &amp;Cancellation) -&gt; Rendered</code>, over <code>umbra-render</code>'s device-neutral contract (ADR 0033). <code>umbra-cluster</code> chooses between the two by the Worker's Render Device. Until the wavefront arrives, <code>new</code> returns <code>Error::NoRenderer</code> for every Scene, and the type holds an <code>Infallible</code>, so no value of it exists and <code>render</code> is <code>match self.unbuilt {}</code>.</p>
+        <h4>One Renderer per Render Device, a batch per call</h4>
+        <p><code>Renderer</code> is built from what <code>umbra-cpu</code>'s is, a <code>&amp;Scene</code> and its <code>&amp;RenderJobOptions</code>, plus the GPU's ordinal, and keeps <code>umbra-render</code>'s device-neutral contract: <code>WorkUnit</code>s in, <code>Rendered</code> out, <code>Cancellation</code> to stop (ADR 0033). Its <code>render</code> takes a batch, though: <code>&amp;[WorkUnit]</code> in, <code>Vec&lt;Rendered&gt;</code> out. A GPU fills only with many Pixel Samples in flight, so a GPU Worker keeps <code>Renderer::CAPACITY</code> Work Units, 16 to start with, and renders them together, while Tile size and Pixel Samples per Pass stay those of every Worker (ADR 0026). <code>render</code> may be given more than <code>CAPACITY</code>; the batch's memory grows with it. <code>umbra-cluster</code> holds only the CPU's renderer until the GPU Local Worker joins it (<a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>).</p>
 
-        <h4>One shader binding table per geometry</h4>
-        <p>See <a href="#sbt">section 5</a>. Each launch traces one GAS directly, with a table holding that geometry's one hit group record and the shared ray-generation and miss records.</p>
+        <h4>The Scene uploaded once, its tables by map_storage</h4>
+        <p>The core's filter, sensor and digit permutations are generic over the storage of their tables. On the CPU the storage is a <code>Vec</code> or a borrowed slice; for the GPU, <code>Renderer::new</code> moves each table into one upload buffer with <code>map_storage</code> and gives the record a <code>DeviceSlice</code> of it instead. The records are then copied to the device byte for byte, which the <code>#[repr(C)]</code> layout of the core types and the records' size assertions allow (ADR 0028, arc42 §8.12). On the device, <code>DeviceSlice</code> is <code>AsRef&lt;[T]&gt;</code>, so the same core code samples the tables there.</p>
+
+        <h4>One shader binding table per geometry, one per stage</h4>
+        <p>See <a href="#sbt">section 5</a>. Each launch traces one GAS directly, with a table holding that geometry's one hit group record and the shared ray-generation and miss records. The <code>Renderer</code> has one table per stage, which differ only in their ray-generation record. No stage traces a ray yet, but every table still holds a miss and a hit group record.</p>
 
         <h4>Field order as drop order</h4>
 <pre class="code"><span class="k">pub struct</span> Tracer {
@@ -1346,7 +1452,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
     sphere_hitgroup: CudaSlice&lt;SbtRecord&lt;Sphere&gt;&gt;,
     stream: Arc&lt;CudaStream&gt;,
 }</pre>
-        <p>Rust drops a struct's fields in the order they are written. The pipeline goes first, while the CUDA context it was built on still exists; the stream, which holds that context, goes last.</p>
+        <p>Rust drops a struct's fields in the order they are written. The pipeline goes first, while the CUDA context it was built on still exists; the stream, which holds that context, goes last. <code>Renderer</code> is declared the same way.</p>
 
         <h4>A math program, for the tests only</h4>
         <p>Checking the GPU's maths needs the GPU to run maths functions on chosen inputs. Rather than a second pipeline, a second ray-generation program, <code>__raygen__math</code>, joins the same pipeline when the <code>math-program</code> feature is on. A math launch selects it by its SBT record and puts <code>MathParams</code> in the same <code>params</code> variable. Production builds contain none of it.</p>
@@ -1363,14 +1469,14 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
 <!-- ================================================================= -->
 <section class="topic" id="unsafe">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">12</span><span class="crate">umbra-gpu</span> · <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a>, amended by #126</div>
+        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-gpu</span> · <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a>, amended by #126</div>
         <h3>The unsafe and FFI boundaries</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>Umbra forbids <code>unsafe</code> code by default. The GPU path is a declared exception, because there is no safe way to reach a GPU. The exception is fenced in: you can find every spot by searching for <code>expect(unsafe_code</code>, each spot does one dangerous thing, and each says in writing why it is fine. Since no memory checker runs on the GPU, the GPU tests are what verify these promises.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 860 220" class="dg-wide" role="img" aria-label="Where unsafe lives in umbra-gpu: optix.rs and records.rs only">
-            <rect x="20" y="30" width="190" height="60" rx="6" class="f-acc-soft k-acc"/><text x="115" y="56" text-anchor="middle" font-size="12">tracer.rs</text><text x="115" y="76" text-anchor="middle" font-size="11" class="t-exact">0 unsafe</text>
+        <div class="dg-wrap"><svg viewBox="0 0 860 290" class="dg-wide" role="img" aria-label="Where unsafe lives in umbra-gpu: optix.rs, records.rs and renderer.rs only">
+            <rect x="20" y="30" width="190" height="60" rx="6" class="f-acc-soft k-acc"/><text x="115" y="56" text-anchor="middle" font-size="12">tracer.rs, device.rs</text><text x="115" y="76" text-anchor="middle" font-size="11" class="t-exact">0 unsafe</text>
             <rect x="20" y="110" width="190" height="60" rx="6" class="f-acc-soft k-acc"/><text x="115" y="136" text-anchor="middle" font-size="12">error.rs, lib.rs</text><text x="115" y="156" text-anchor="middle" font-size="11" class="t-exact">0 unsafe</text>
             <rect x="250" y="30" width="270" height="140" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="385" y="56" text-anchor="middle" font-size="12" font-weight="600">optix.rs</text>
@@ -1380,11 +1486,14 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
             <text x="385" y="148" text-anchor="middle" font-size="11" class="t-mut">read OptiX's error-name strings</text>
             <rect x="560" y="30" width="280" height="60" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="700" y="56" text-anchor="middle" font-size="12" font-weight="600">records.rs</text>
-            <text x="700" y="76" text-anchor="middle" font-size="12">unsafe impl DeviceRepr × 5 (+1)</text>
+            <text x="700" y="76" text-anchor="middle" font-size="12">unsafe impl DeviceRepr × 10 (+1)</text>
             <rect x="560" y="110" width="280" height="60" rx="6" class="f-mut-soft k-mut"/>
             <text x="700" y="136" text-anchor="middle" font-size="12" font-weight="600">optix/ffi.rs</text>
             <text x="700" y="156" text-anchor="middle" font-size="11">types and layouts only, no unsafe block</text>
-            <text x="430" y="206" text-anchor="middle" font-size="12" class="t-mut">amber = where Umbra makes promises the compiler cannot check</text>
+            <rect x="20" y="190" width="500" height="60" rx="6" class="f-warm-soft k-warm" stroke-width="1.5"/>
+            <text x="270" y="216" text-anchor="middle" font-size="12" font-weight="600">renderer.rs</text>
+            <text x="270" y="236" text-anchor="middle" font-size="12">2 functions, 1 unsafe block each: DeviceSlice::from_raw_parts</text>
+            <text x="430" y="278" text-anchor="middle" font-size="12" class="t-mut">amber = where Umbra makes promises the compiler cannot check</text>
         </svg></div>
         <figcaption>The map of <code>unsafe</code> in the crate. <code>ffi.rs</code> declares C function types as <code>unsafe extern "C" fn</code>, which marks them dangerous to <em>call</em>; the calls themselves all happen in <code>optix.rs</code>.</figcaption>
     </figure>
@@ -1401,6 +1510,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
                 <tr><td><code>Pipeline::new</code>, <code>launch</code>, <code>Drop</code></td><td>link, launch, destroy</td><td>the options and groups are valid for the call; for a launch, the parameters and records stay alive until the stream is synchronised</td></tr>
                 <tr><td><code>DeviceContext::gas_sizes</code>, <code>build_gas</code></td><td>measure, build a GAS</td><td>the host arrays the build input points into (boxed, kept in <code>_keep</code>) outlive the call; buffers are the sizes OptiX asked for</td></tr>
                 <tr><td><code>records.rs</code> <code>device_repr!</code></td><td><code>unsafe impl DeviceRepr</code></td><td><code>#[repr(C)]</code> plain data, no host pointers, layout shared and asserted</td></tr>
+                <tr><td><code>renderer.rs</code> <code>Uploaded::slice</code>, <code>lanes</code></td><td><code>DeviceSlice::from_raw_parts</code></td><td>the range is within a buffer of initialised, aligned values; the buffer lives as long as the launches that read it, and no launch writes what a stage reads as a slice</td></tr>
             </tbody>
         </table>
     </div>
@@ -1416,20 +1526,20 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <div class="mb-head">Rules used here</div>
         <div class="mb-row"><div class="mb-f">#[expect(unsafe_code, reason = "…")] on the narrowest item</div><div class="mb-d"><b>Fenced.</b> Never on a module or a crate. The workspace lint stays at <code>deny</code>, so any other <code>unsafe</code> fails the build.</div></div>
         <div class="mb-row"><div class="mb-f">one unsafe operation per block, each with // SAFETY:</div><div class="mb-d"><b>Explained.</b> Lints check that every block has the comment and that comments appear on nothing else.</div></div>
-        <div class="mb-row"><div class="mb-f">verified by the GPU tests</div><div class="mb-d"><b>Tested.</b> Miri and AddressSanitizer cannot run through the driver or on the GPU, so ADR 0007 (as amended by #126) names the GPU tests on the P620 as the check (<a href="#tests">section 14</a>).</div></div>
+        <div class="mb-row"><div class="mb-f">verified by the GPU tests</div><div class="mb-d"><b>Tested.</b> Miri and AddressSanitizer cannot run through the driver or on the GPU, so ADR 0007 (as amended by #126) names the GPU tests on the P620 as the check (<a href="#tests">section 15</a>).</div></div>
     </div>
 </section>
 
 <!-- ================================================================= -->
 <section class="topic" id="errors">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">13</span><span class="crate">umbra-gpu</span> · <a href="../src/error.rs">error.rs</a> · <code>Error</code></div>
+        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-gpu</span> · <a href="../src/error.rs">error.rs</a> · <code>Error</code></div>
         <h3>What can go wrong</h3>
     </div>
     <div class="plain"><span class="tag">In plain words</span>Many things outside Umbra can fail: no GPU, an old driver, a container without OptiX, a build without libdevice. Every one of them becomes a value of one enum, <code>Error</code>, with a message that says what to fix. Nothing in the crate panics on a GPU problem.</div>
 
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 900 250" class="dg-wide" role="img" aria-label="Which Error variant each stage of Tracer::new, Tracer::trace and Renderer::new can return">
+        <div class="dg-wrap"><svg viewBox="0 0 900 282" class="dg-wide" role="img" aria-label="Which Error variant each stage of Tracer::new, Tracer::trace and the Renderer can return">
             <text x="20" y="24" class="t-bold">Tracer::new</text>
             <rect x="20" y="36" width="130" height="40" rx="4" class="f-surf k-ink"/><text x="85" y="61" text-anchor="middle" font-size="12">check PTX</text>
             <rect x="160" y="36" width="130" height="40" rx="4" class="f-surf k-ink"/><text x="225" y="61" text-anchor="middle" font-size="12">CUDA context</text>
@@ -1451,9 +1561,11 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
             <text x="120" y="236" text-anchor="middle" font-size="12" class="t-bad">TooMany("rays")</text>
             <text x="330" y="236" text-anchor="middle" font-size="12" class="t-bad">Cuda, Optix</text>
             <text x="550" y="236" text-anchor="middle" font-size="12" class="t-bad">HitKind(kind)</text>
-            <text x="670" y="160" class="t-bold">Renderer::new</text>
-            <rect x="670" y="172" width="210" height="40" rx="4" class="f-surf k-mut" stroke-dasharray="5 4"/><text x="775" y="197" text-anchor="middle" font-size="12">no wavefront yet</text>
-            <text x="775" y="236" text-anchor="middle" font-size="12" class="t-bad">NoRenderer</text>
+            <text x="670" y="160" class="t-bold">Renderer::new, render</text>
+            <rect x="670" y="172" width="210" height="40" rx="4" class="f-surf k-ink"/><text x="775" y="197" text-anchor="middle" font-size="12">cut the Render Job</text>
+            <text x="775" y="236" text-anchor="middle" font-size="12" class="t-bad">Render(umbra_render::Error)</text>
+            <text x="775" y="256" text-anchor="middle" font-size="11" class="t-mut">then as the Tracer's, and</text>
+            <text x="775" y="270" text-anchor="middle" font-size="11" class="t-bad">TooMany("Pixel Samples")</text>
         </svg></div>
         <figcaption>Where each variant can come from. A panic inside a GPU program also surfaces here: the programs' panic handler executes <code>trap</code>, which aborts the launch, and the host sees a CUDA error when it waits on the stream.</figcaption>
     </figure>
@@ -1467,16 +1579,16 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
                 <tr><td><code>OptixFunction(&amp;'static str)</code></td><td>the driver's OptiX lacks a function at ABI 105</td><td>a driver new enough for OptiX 9.0</td></tr>
                 <tr><td><code>Optix { call, result, log }</code></td><td>an OptiX call returned an error; for compiling calls, with OptiX's log</td><td>read the result name and the log</td></tr>
                 <tr><td><code>UnlinkedPtx</code></td><td>the PTX still calls libdevice functions it should have inlined</td><td>set <code>CUDA_PATH</code> or <code>UMBRA_LIBDEVICE</code> and rebuild</td></tr>
-                <tr><td><code>TooMany(&amp;'static str)</code></td><td>more rays, primitives, arguments or program groups than a <code>u32</code> counts</td><td>split the work</td></tr>
+                <tr><td><code>TooMany(&amp;'static str)</code></td><td>more rays, Pixel Samples, pixels, primitives, arguments or program groups than a <code>u32</code> counts</td><td>split the work</td></tr>
                 <tr><td><code>HitKind(u32)</code></td><td>a hit record came back with a kind the programs never write</td><td>a bug: report it</td></tr>
-                <tr><td><code>NoRenderer</code></td><td>the GPU cannot render a Scene yet: it has no wavefront</td><td>render on the CPU; the GPU renders from <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a></td></tr>
+                <tr><td><code>Render(umbra_render::Error)</code></td><td><code>Renderer::new</code> cannot cut the Render Job into Work Units</td><td>a Tile size the image can be cut into; <code>From&lt;umbra_render::Error&gt;</code> lets <code>?</code> convert it</td></tr>
             </tbody>
         </table>
     </div>
 
     <div class="mathbox">
         <div class="mb-head">Rules used here</div>
-        <div class="mb-row"><div class="mb-f">impl std::error::Error, with source()</div><div class="mb-d"><b>Chained causes.</b> <code>Cuda</code> and <code>OptixLibrary</code> return the underlying error from <code>source()</code>; the others have none.</div></div>
+        <div class="mb-row"><div class="mb-f">impl std::error::Error, with source()</div><div class="mb-d"><b>Chained causes.</b> <code>Cuda</code>, <code>OptixLibrary</code> and <code>Render</code> return the underlying error from <code>source()</code>; the others have none.</div></div>
         <div class="mb-row"><div class="mb-f">log shown only when non-empty</div><div class="mb-d"><b>Readable messages.</b> <code>Display</code> prints “`optixModuleCreate` failed: OPTIX_ERROR_…” and then the compile log on the next line, if there is one.</div></div>
     </div>
 </section>
@@ -1484,10 +1596,10 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
 <!-- ================================================================= -->
 <section class="topic" id="tests">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">14</span><span class="crate">umbra-gpu</span> · <a href="../tests/gpu/">tests/gpu</a> · <a href="../../../.config/nextest.toml">.config/nextest.toml</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
+        <div class="eyebrow"><span class="no">15</span><span class="crate">umbra-gpu</span> · <a href="../tests/gpu/">tests/gpu</a> · <a href="../../../.config/nextest.toml">.config/nextest.toml</a> · <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a></div>
         <h3>The GPU tests</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>The GPU's answers are checked against the CPU's. Rays are traced through OptiX, and the same rays are intersected by the core's own code on the CPU; the distances must agree to a few units in the last digit. A second set of tests runs maths functions on the GPU over millions of inputs and compares them with the CPU's maths library. CI has no GPU, so these tests are a separate test program, run by hand on the machine with the GPU.</div>
+    <div class="plain"><span class="tag">In plain words</span>The GPU's answers are checked against the CPU's. Rays are traced through OptiX, and the same rays are intersected by the core's own code on the CPU; the distances must agree to a few units in the last digit. A second set of tests runs maths functions on the GPU over millions of inputs and compares them with the CPU's maths library. A third renders a Scene File on both, the GPU's <code>Renderer</code> against the CPU's, and compares their Work Results. CI has no GPU, so these tests are a separate test program, run by hand on the machine with the GPU.</div>
 
     <figure class="diagram">
         <div class="dg-wrap"><svg viewBox="0 0 860 220" class="dg-wide" role="img" aria-label="The same rays go to the GPU through Tracer::trace and to the CPU through Sphere::intersect; the results are compared">
@@ -1509,6 +1621,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <ul>
             <li><a href="../tests/gpu/optix.rs"><code>tests/gpu/optix.rs</code></a>: the two tracing tests above, through the public API only (<code>Tracer</code>, <code>Geometry</code>, <code>Hit</code>).</li>
             <li><a href="../tests/gpu/libdevice.rs"><code>tests/gpu/libdevice.rs</code></a>: every <code>libdevice</code> function that <code>umbra-math</code>'s GPU backend calls, evaluated with <code>Tracer::evaluate</code> on about four million <code>f32</code> inputs (every 1 021st bit pattern, plus extra subnormals, plus special values), and compared with glibc on the CPU within the bound <code>umbra-math</code> documents.</li>
+            <li><a href="../tests/gpu/renderer.rs"><code>tests/gpu/renderer.rs</code></a>: parses the camera-only Scene File of <code>tests/gpu/scenes/</code> and renders it in batches of <code>Renderer::CAPACITY</code> on the GPU and Work Unit by Work Unit on <code>umbra-cpu</code>'s <code>Renderer</code>. It checks one black Work Result per Work Unit, in order, whose pixels' sums of filter weights are the CPU's within a relative 10<sup>−6</sup>: the GPU draws the same Pixel Samples, and with no radiance the noise is no larger than the rounding. A second test checks that a cancelled batch returns <code>Rendered::Cancelled</code> for every Work Unit.</li>
             <li>The test binary is named <code>gpu</code> (<code>tests/gpu/main.rs</code>). nextest's <code>default</code> profile, and those inheriting from it such as <code>ci</code>, filter out <code>binary(=gpu)</code>; <code>cargo nextest run --profile gpu</code> runs only it, on the P620. Add <code>--no-capture</code> to see the measured errors.</li>
         </ul>
     </div>
@@ -1536,19 +1649,19 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
 <!-- ================================================================= -->
 <section class="topic" id="not-yet">
     <div class="topic-head">
-        <div class="eyebrow"><span class="no">15</span><span class="crate">umbra-gpu</span> · roadmap · arc42 §4</div>
+        <div class="eyebrow"><span class="no">16</span><span class="crate">umbra-gpu</span> · roadmap · arc42 §4</div>
         <h3>Not here yet</h3>
     </div>
-    <div class="plain"><span class="tag">In plain words</span>Today the crate is a test bench: one triangle, one sphere, rays in, hits out. It proves the riskiest parts work: the toolchain, OptiX from Rust, and the shared layout. The real GPU renderer is built on top of it, feature by feature, in later issues.</div>
+    <div class="plain"><span class="tag">In plain words</span>The GPU renders a Scene now, but only as far as the core goes: a path is its camera ray, so the image of today's Scenes is black, as on the CPU. The stages that trace rays and shade what they hit come feature by feature, in later issues, and so does the Worker that feeds the <code>Renderer</code> its Work Units.</div>
     <figure class="diagram">
-        <div class="dg-wrap"><svg viewBox="0 0 860 150" class="dg-wide" role="img" aria-label="From the tracer bullet to the GPU Worker">
+        <div class="dg-wrap"><svg viewBox="0 0 860 150" class="dg-wide" role="img" aria-label="From the tracer bullet and the wavefront Renderer to the GPU Worker">
             <rect x="20" y="40" width="230" height="64" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
-            <text x="135" y="66" text-anchor="middle" font-size="12" font-weight="600">now: tracer bullet (#126)</text>
+            <text x="135" y="66" text-anchor="middle" font-size="12" font-weight="600">tracer bullet (#126)</text>
             <text x="135" y="88" text-anchor="middle" font-size="11">1 triangle, 1 sphere, Tracer</text>
             <line x1="252" y1="72" x2="306" y2="72" class="k-ink" marker-end="url(#ah-ink)"/>
-            <rect x="310" y="40" width="260" height="64" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
-            <text x="440" y="66" text-anchor="middle" font-size="12" font-weight="600">features on both devices (#127)</text>
-            <text x="440" y="88" text-anchor="middle" font-size="11">SceneView upload, wavefront queues</text>
+            <rect x="310" y="40" width="260" height="64" rx="6" class="f-acc-soft k-acc" stroke-width="1.5"/>
+            <text x="440" y="66" text-anchor="middle" font-size="12" font-weight="600">wavefront Renderer (#127)</text>
+            <text x="440" y="88" text-anchor="middle" font-size="11">camera and film stages, in batches</text>
             <line x1="572" y1="72" x2="626" y2="72" class="k-ink" marker-end="url(#ah-ink)"/>
             <rect x="630" y="40" width="210" height="64" rx="6" class="f-surf k-mut" stroke-dasharray="5 4"/>
             <text x="735" y="66" text-anchor="middle" font-size="12" font-weight="600">GPU Local Worker (#128)</text>
@@ -1558,9 +1671,9 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
     </figure>
     <div class="prose">
         <ul>
-            <li><b>The <code>SceneView</code> upload:</b> copying the Scene's arenas to the GPU byte for byte, which their <code>#[repr(C)]</code> layout allows (ADR 0028, arc42 §8.12). Arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>.</li>
-            <li><b>The wavefront queues:</b> structure-of-arrays queues between GPU stages, one kernel per stage, as pbrt-v4's GPU renderer does. Also <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>.</li>
-            <li><b>A <code>Renderer</code> that renders:</b> its shape is here, its wavefront arrives with <a href="https://github.com/sergioffpc/umbra/issues/127">#127</a>. The GPU Local Worker in a child process of the Coordinator comes with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>.</li>
+            <li><b>The stages that trace and shade:</b> intersection and shading stages that split the integrator's <code>li</code>, with more queues between them, arrive with the Shapes and lights that need them, on both Render Devices. Until then the camera stage calls <code>li</code> in one step, and no stage traces a ray.</li>
+            <li><b>The GPU Local Worker:</b> a Worker in a child process of the Coordinator that asks for <code>Renderer::CAPACITY</code> Work Units and renders them as one batch, with <a href="https://github.com/sergioffpc/umbra/issues/128">#128</a>. Until then <code>umbra-cluster</code> does not depend on this crate.</li>
+            <li><b>A tuned capacity:</b> <code>CAPACITY</code> is 16 to start with, to be set by benchmark (ADR 0026).</li>
             <li><b>More shapes:</b> each new Shape becomes an OptiX custom intersection program that calls the core, as the sphere does; triangles stay in hardware (arc42 §8.12).</li>
         </ul>
     </div>
@@ -1577,7 +1690,7 @@ umbra-gpu-programs = { workspace = <span class="k">true</span> }
         <h3>Where to read more</h3>
     </div>
     <ul class="sources">
-        <li>In this crate: <a href="../README.md">README.md</a>, <a href="../src/tracer.rs">tracer.rs</a>, <a href="../src/renderer.rs">renderer.rs</a>, <a href="../src/optix.rs">optix.rs</a>, <a href="../src/optix/ffi.rs">optix/ffi.rs</a>, <a href="../src/records.rs">records.rs</a>, <a href="../src/error.rs">error.rs</a>, <a href="../build.rs">build.rs</a>, <a href="../tests/gpu/">tests/gpu</a>.</li>
+        <li>In this crate: <a href="../README.md">README.md</a>, <a href="../src/tracer.rs">tracer.rs</a>, <a href="../src/renderer.rs">renderer.rs</a>, <a href="../src/device.rs">device.rs</a>, <a href="../src/optix.rs">optix.rs</a>, <a href="../src/optix/ffi.rs">optix/ffi.rs</a>, <a href="../src/records.rs">records.rs</a>, <a href="../src/error.rs">error.rs</a>, <a href="../build.rs">build.rs</a>, <a href="../tests/gpu/">tests/gpu</a>.</li>
         <li>The device side: <a href="../../umbra-gpu-programs/docs/gpu-programs-guide.html">Umbra GPU Programs Guide</a> and <a href="../../umbra-gpu-programs/README.md">umbra-gpu-programs' README</a>. The CPU's renderer: <a href="../../umbra-cpu/docs/cpu-guide.html">Umbra CPU Guide</a>.</li>
         <li>Decisions: <a href="../../../docs/adr/0007-unsafe-code-as-an-aggressive-optimisation.md">ADR 0007</a> (unsafe code), <a href="../../../docs/adr/0014-gpu-ready-no-std-rendering-core.md">ADR 0014</a> (GPU-ready no_std core), <a href="../../../docs/adr/0024-a-gpu-backend-on-the-roadmap.md">ADR 0024</a> (superseded), <a href="../../../docs/adr/0026-gpu-workers-from-the-first-milestone.md">ADR 0026</a> (GPU Workers), <a href="../../../docs/adr/0028-one-core-for-cpu-and-gpu.md">ADR 0028</a> (one core for CPU and GPU), <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a> (one crate per Render Device).</li>
         <li>Architecture: <a href="../../../docs/architecture/05-building-block-view.md">arc42 §5</a> (crates), <a href="../../../docs/architecture/07-deployment-view.md">§7</a> (driver, container capabilities), <a href="../../../docs/architecture/08-crosscutting-concepts.md">§8.12</a> (one core for CPU and GPU), <a href="../../../docs/architecture/11-risks-and-technical-debt.md">§11</a> (RK-9, RK-11, RK-12); <a href="../../../GLOSSARY.md">GLOSSARY.md</a> (Worker, Render Device, Local Worker).</li>

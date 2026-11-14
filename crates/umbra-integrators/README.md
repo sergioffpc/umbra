@@ -38,7 +38,7 @@ let camera: CameraKind =
 let filter: FilterKind<Vec<f32>> =
     GaussianFilter::new_in(Vector2f::new(1.5, 1.5), 0.5, |n| vec![0.0; n]).into();
 let sensor = PixelSensor::cie1931(1.0);
-let view = SceneView::new(&camera, filter.view(), &sensor);
+let view = SceneView::new(&camera, filter.view(), sensor);
 
 // A thread's state, reused for every Pixel Sample it computes.
 let mut state = PixelSampleState {

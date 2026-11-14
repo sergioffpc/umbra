@@ -255,7 +255,7 @@ pub struct Scene {
     resolution: Point2i,
     camera: CameraKind,
     filter: FilterKind<Vec<f32>>,
-    sensor: PixelSensor<'static>,
+    sensor: PixelSensor<&'static [f32]>,
     output_rgb_from_sensor_rgb: SquareMatrix<3>,
     randomize: RandomizeStrategy,
     integrator: VolPathIntegrator,
@@ -265,7 +265,7 @@ impl Scene {
     /// What per-sample code reads of the Scene (ADR 0014).
     #[must_use]
     pub fn view(&self) -> SceneView<'_> {
-        SceneView::new(&self.camera, self.filter.view(), &self.sensor)
+        SceneView::new(&self.camera, self.filter.view(), self.sensor.view())
     }
 
     /// The image's full resolution, in pixels; both sides are positive.

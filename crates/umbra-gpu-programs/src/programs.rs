@@ -16,16 +16,32 @@ use crate::math_launch::MathFunction;
 use crate::optix::{self, Primitive, TraceRay};
 
 /// The launch parameters: the `.const` variable the host's pipeline names
-/// `params`, as large as `LaunchParams`. A module of its own, the narrowest
-/// item an `expect` can sit on.
+/// `params`, as large as the larger of `LaunchParams` and
+/// `WavefrontParams`. A module of its own, the narrowest item an `expect`
+/// can sit on.
 #[expect(
     unsafe_code,
     reason = "OptiX's launch parameters are a `.const` variable (ADR 0007, ADR 0028)"
 )]
 mod params {
+    use crate::launch::LaunchParams;
+    use crate::wavefront::WavefrontParams;
+
+    /// The size of `params`.
+    const SIZE: usize = if size_of::<LaunchParams>() > size_of::<WavefrontParams>() {
+        size_of::<LaunchParams>()
+    } else {
+        size_of::<WavefrontParams>()
+    };
+
+    const _: () = assert!(
+        align_of::<LaunchParams>() <= 8 && align_of::<WavefrontParams>() <= 8,
+        "`params` is 8-byte aligned"
+    );
+
     core::arch::global_asm!(
         ".visible .const .align 8 .b8 params[{size}];",
-        size = const size_of::<crate::launch::LaunchParams>(),
+        size = const SIZE,
     );
 }
 

@@ -13,7 +13,7 @@ use umbra_camera::{CameraKind, FilterKind, PixelSensor};
 pub struct SceneView<'a> {
     camera: &'a CameraKind,
     filter: FilterKind<&'a [f32]>,
-    sensor: &'a PixelSensor<'a>,
+    sensor: PixelSensor<&'a [f32]>,
 }
 
 impl<'a> SceneView<'a> {
@@ -22,7 +22,7 @@ impl<'a> SceneView<'a> {
     pub fn new(
         camera: &'a CameraKind,
         filter: FilterKind<&'a [f32]>,
-        sensor: &'a PixelSensor<'a>,
+        sensor: PixelSensor<&'a [f32]>,
     ) -> Self {
         Self {
             camera,
@@ -45,7 +45,7 @@ impl<'a> SceneView<'a> {
 
     /// The film's sensor.
     #[must_use]
-    pub fn sensor(&self) -> &'a PixelSensor<'a> {
-        self.sensor
+    pub fn sensor(&self) -> &PixelSensor<&'a [f32]> {
+        &self.sensor
     }
 }

@@ -99,3 +99,17 @@ fn terminate_secondary_keeps_the_first_wavelength() {
     lambda.terminate_secondary();
     assert_eq!(lambda.pdf().to_array(), [1.0 / 1600.0, 0.0, 0.0, 0.0]);
 }
+
+#[test]
+fn wavelengths_come_apart_into_their_parts_and_back() {
+    let lambda =
+        SampledWavelengths::from_parts([400.0, 500.0, 600.0, 700.0], s([0.5, 1.0, 2.0, 4.0]));
+    assert_eq!(
+        [lambda[0], lambda[1], lambda[2], lambda[3]],
+        [400.0, 500.0, 600.0, 700.0]
+    );
+    assert_eq!(lambda.pdf().to_array(), [0.5, 1.0, 2.0, 4.0]);
+    let (wavelengths, pdf) = lambda.to_parts();
+    assert_eq!(wavelengths, [400.0, 500.0, 600.0, 700.0]);
+    assert_eq!(pdf.to_array(), [0.5, 1.0, 2.0, 4.0]);
+}

@@ -2,27 +2,24 @@
 //! sphere, each in a geometry acceleration structure of its own, traced
 //! through OptiX by the programs of `umbra-gpu-programs`.
 
-use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr, DevicePtrMut, DeviceRepr};
+use cudarc::driver::{CudaSlice, CudaStream, DevicePtr, DevicePtrMut, DeviceRepr};
 use umbra_geometry::{Ray, Sphere};
 use umbra_gpu_programs::{HitRecord, LaunchParams, RayRecord};
 use umbra_math::Point3f;
 
+use crate::device::{self, Device, record, stream_handle, stride};
 use crate::optix::{
-    Api, DeviceContext, GasInput, Launch, Module, Pipeline, ProgramGroup, Programs,
-    ShaderBindingTable, TraversableHandle, Validation,
+    DeviceContext, GasInput, Module, Pipeline, ProgramGroup, Programs, ShaderBindingTable,
+    TraversableHandle,
 };
 use crate::records::{DeviceCopy, SbtRecord};
 use crate::{Error, Geometry, Hit};
 
 #[cfg(feature = "math-program")]
 mod math;
-
-/// The PTX of `umbra-gpu-programs`, which the build script compiles.
-const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/umbra_gpu_programs.ptx"));
 
 /// One triangle and one sphere on a GPU, ready to be traced.
 ///
@@ -89,19 +86,12 @@ impl Tracer {
     /// [`Error::UnlinkedPtx`] when the crate was built without `libdevice`,
     /// and [`Error::Optix`] when OptiX rejects the programs or a build.
     pub fn new(ordinal: usize, vertices: [Point3f; 3], sphere: &Sphere) -> Result<Self, Error> {
-        if PTX.contains(".extern") {
-            return Err(Error::UnlinkedPtx);
-        }
-        let cuda = CudaContext::new(ordinal)?;
-        let stream = cuda.default_stream();
-        let api = Api::load()?;
-        let validation = if cfg!(debug_assertions) {
-            Validation::All
-        } else {
-            Validation::Off
-        };
-        let context = DeviceContext::new(&api, cuda.cu_ctx().cast(), validation)?;
-        let groups = program_groups(&context)?;
+        let Device {
+            stream,
+            context,
+            module,
+        } = Device::open(ordinal)?;
+        let groups = program_groups(&module)?;
         let pipeline = Pipeline::new(&context, &groups.all())?;
         let triangle_vertices: Vec<f32> = vertices.iter().flat_map(|p| [p.x, p.y, p.z]).collect();
         let bounds = sphere.bounds();
@@ -181,17 +171,7 @@ impl Tracer {
         width: u32,
         sbt: &ShaderBindingTable,
     ) -> Result<(), Error> {
-        let params = self.stream.clone_htod(&[params])?;
-        let (address, _params_read) = params.device_ptr(&self.stream);
-        let launch = Launch {
-            address,
-            size: size_of::<P>(),
-            width,
-        };
-        self.pipeline
-            .launch(stream_handle(&self.stream), launch, sbt)?;
-        self.stream.synchronize()?;
-        Ok(())
+        device::launch(&self.pipeline, &self.stream, params, width, sbt)
     }
 
     /// The traversable of `geometry` and the shader binding table that
@@ -234,57 +214,29 @@ impl Tracer {
     }
 }
 
-/// A record's size as the `u32` stride OptiX takes; records are a few
-/// hundred bytes.
-fn stride(size: usize) -> u32 {
-    u32::try_from(size).expect("an SBT record is far smaller than 4 GiB")
-}
-
-/// The stream as the `CUstream` OptiX takes.
-fn stream_handle(stream: &CudaStream) -> *mut c_void {
-    stream.cu_stream().cast()
-}
-
-/// The module of `umbra-gpu-programs` and its program groups: four, and the math
-/// program's with the `math-program` feature.
-fn program_groups(context: &Rc<DeviceContext>) -> Result<Groups, Error> {
-    let module = Module::new(context, PTX)?;
+/// The program groups of `module`: four, and the math program's with the
+/// `math-program` feature.
+fn program_groups(module: &Rc<Module>) -> Result<Groups, Error> {
     Ok(Groups {
-        raygen: ProgramGroup::new(&module, Programs::Raygen(c"__raygen__trace"))?,
+        raygen: ProgramGroup::new(module, Programs::Raygen(c"__raygen__trace"))?,
         #[cfg(feature = "math-program")]
-        math_raygen: ProgramGroup::new(&module, Programs::Raygen(c"__raygen__math"))?,
-        miss: ProgramGroup::new(&module, Programs::Miss(c"__miss__trace"))?,
+        math_raygen: ProgramGroup::new(module, Programs::Raygen(c"__raygen__math"))?,
+        miss: ProgramGroup::new(module, Programs::Miss(c"__miss__trace"))?,
         triangle: ProgramGroup::new(
-            &module,
+            module,
             Programs::Hitgroup {
                 closest_hit: c"__closesthit__trace",
                 intersection: None,
             },
         )?,
         sphere: ProgramGroup::new(
-            &module,
+            module,
             Programs::Hitgroup {
                 closest_hit: c"__closesthit__trace",
                 intersection: Some(c"__intersection__sphere"),
             },
         )?,
     })
-}
-
-/// The shader binding table record of `group` with `data`, on the device.
-fn record<T>(
-    stream: &Arc<CudaStream>,
-    group: &ProgramGroup,
-    data: T,
-) -> Result<CudaSlice<SbtRecord<T>>, Error>
-where
-    SbtRecord<T>: DeviceRepr,
-{
-    let record = SbtRecord {
-        header: group.record_header()?,
-        data,
-    };
-    Ok(stream.clone_htod(&[record])?)
 }
 
 /// Builds the GAS of `geometry`: a triangle's three vertices, or a custom

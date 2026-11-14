@@ -19,9 +19,17 @@ use crate::view::SceneView;
 ///
 /// PBR 4e §14.2, pbrt-v4 `VolPathIntegrator`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct VolPathIntegrator {
     max_depth: u32,
 }
+
+// The GPU Worker copies the integrator to the device byte for byte
+// (ADR 0028, arc42 §8.12): its layout is the same on `x86_64` and `nvptx64`.
+const _: () = assert!(
+    size_of::<VolPathIntegrator>() == 4,
+    "`VolPathIntegrator` is its `u32` depth"
+);
 
 impl VolPathIntegrator {
     /// The integrator that follows paths of up to `max_depth` bounces;

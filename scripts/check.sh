@@ -52,14 +52,16 @@ rust() {
     step cargo fmt --all -- --check
     step cargo clippy --all-targets --all-features --locked -- -D warnings
     # The GPU's code (ADR 0028), which no CI runner can run: umbra-math's
-    # nvptx64 backend, umbra-geometry, umbra-sampling, umbra-spectrum and
-    # umbra-gpu-programs must build and pass clippy for the GPU. Clippy needs
-    # no libdevice: its functions are only declared. The build of umbra-gpu
+    # nvptx64 backend, umbra-geometry, umbra-sampling, umbra-spectrum,
+    # umbra-camera, umbra-integrators and umbra-gpu-programs must build and
+    # pass clippy for the GPU. Clippy needs no libdevice: its functions are
+    # only declared. The build of umbra-gpu
     # above already compiled the programs to PTX, which checks that no core
     # crate pulls `std`. RUSTFLAGS drops the x86-64 CPU that CI sets, which
     # the GPU target does not have.
     step env RUSTFLAGS="-D warnings" cargo clippy -p umbra-math -p umbra-geometry \
-        -p umbra-sampling -p umbra-spectrum -p umbra-gpu-programs \
+        -p umbra-sampling -p umbra-spectrum -p umbra-camera -p umbra-integrators \
+        -p umbra-gpu-programs \
         --target nvptx64-nvidia-cuda --all-features --locked -- -D warnings
     # The kernels of umbra-gpu's libm bench, which only its own PTX build
     # compiles, under `--cfg umbra_libm_bench`.
