@@ -46,6 +46,10 @@ divan = "0.1.21"
 # its `rayon` feature, `exr` compresses in one thread, so the file's bytes
 # are a pure function of the image (ADR 0020).
 image = { version = "0.25.10", default-features = false, features = ["exr"] }
+# The status line at the bottom of the terminal, with log events printed
+# above it and each line cut to the terminal's width (arc42 §8.10). Its
+# `in_memory` terminal is for tests only.
+indicatif = { version = "0.18.6", default-features = false, features = ["unicode-width"] }
 # Loads the driver's OptiX, `libnvoptix.so.1`, at run time (ADR 0028).
 libloading = "0.9.0"
 # The `.pbrt` tokenizer, with locations (ADR 0003).

@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use clap::error::ErrorKind;
+use indicatif::ProgressDrawTarget;
 use tracing::warn;
 use umbra_render::Cancellation;
 
@@ -46,39 +47,34 @@ impl From<Exit> for ExitCode {
 /// Runs `umbra` on the command line of this process, and how it exits.
 pub fn run() -> ExitCode {
     exit_on_panic();
-    // Not locked: `tracing` writes to stderr from other threads too.
-    let mut stderr = io::stderr();
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         // `clap` would write the version to stdout; Umbra writes it to
         // stderr, as the version line at the start of every command.
         Err(error) if error.kind() == ErrorKind::DisplayVersion => {
-            let _ = writeln!(stderr, "{}", version_notice());
+            let _ = writeln!(io::stderr(), "{}", version_notice());
             return Exit::Success.into();
         }
         Err(error) => error.exit(),
     };
     // Logs and the status line share stderr: events print above the
     // status line.
-    let terminal = Arc::new(Footer::new(stderr));
-    logs::init(cli.log_format, &cli.log, Arc::clone(&terminal));
+    let stderr = Arc::new(Footer::new(ProgressDrawTarget::stderr()));
+    logs::init(cli.log_format, &cli.log, Arc::clone(&stderr));
     let cancel = cancel_on_ctrl_c();
-    let mut stderr = &*terminal;
     // Informative: a closed stderr does not stop the command.
-    let _ = writeln!(stderr, "{}", version_line());
+    let _ = writeln!(&*stderr, "{}", version_line());
     let exit = match cli.command {
-        Command::Render(args) => {
-            match render::render(&args, &cancel, &mut io::stdout(), &terminal) {
-                Ok(()) => Exit::Success,
-                Err(error) => report(&error, &mut stderr),
-            }
-        }
+        Command::Render(args) => match render::render(&args, &cancel, &mut io::stdout(), &stderr) {
+            Ok(()) => Exit::Success,
+            Err(error) => report(&error, &stderr),
+        },
     };
     exit.into()
 }
 
 /// Writes `error` to `stderr`, and how `umbra` exits for it.
-fn report(error: &Error, stderr: &mut dyn Write) -> Exit {
+fn report(error: &Error, mut stderr: &Footer) -> Exit {
     // Nothing is left to tell the operator with if stderr is closed.
     let _ = writeln!(stderr, "{error}");
     match error {

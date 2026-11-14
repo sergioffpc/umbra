@@ -2,7 +2,7 @@
 //! lines otherwise, filtered by `--log`; with the `tracy` feature, the
 //! spans go to Tracy too (arc42 §8.4).
 
-use std::io::{self, IsTerminal, Stderr};
+use std::io::{self, IsTerminal};
 use std::sync::Arc;
 
 use clap::ValueEnum;
@@ -41,7 +41,7 @@ pub(crate) fn parse_filter(filter: &str) -> Result<String, String> {
 
 /// Sends every `tracing` event that passes `filter` to `stderr`, above its
 /// status line, in `format` or the one that suits stderr.
-pub(crate) fn init(format: Option<LogFormat>, filter: &str, stderr: Arc<Footer<Stderr>>) {
+pub(crate) fn init(format: Option<LogFormat>, filter: &str, stderr: Arc<Footer>) {
     let (human, json) = match format.unwrap_or_else(LogFormat::for_stderr) {
         LogFormat::Human => (
             Some(

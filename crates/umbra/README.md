@@ -27,7 +27,7 @@ umbra render scene.pbrt --spp 16 --seed 0 --outfile out.exr --tile-size 32 --spp
 | `render`         | `umbra render`: parse, set the Render Job Options, `coordinate`, write the image, and the Render Job Report to stdout        |
 | `error`          | `Error`: why `umbra render` did not write an image, and the exit code it maps to                                             |
 | `logs`           | `tracing` to stderr: human-readable or JSON lines, filtered by `--log`, and to Tracy with the `tracy` feature                |
-| `footer`         | `Footer`, public: stderr with the status line kept at its bottom, log events printed above it                                |
+| `footer`         | `Footer`, public: stderr with the status line kept at its bottom by `indicatif`, log events printed above it                 |
 | `build_identity` | The Build Identity that `build.rs` embeds: commit, clean or dirty tree; the version line and the `--version` notice          |
 
 `build.rs` reads the commit and tree from git, or from `UMBRA_COMMIT` and
@@ -45,8 +45,9 @@ MIT License. Includes code from pbrt-v4, under the Apache License 2.0; see NOTIC
 ```
 
 While a Render Job runs, the status line is redrawn at the bottom of
-stderr when it is a terminal, with log events printed above it, and
-logged as `info` events about every 10 s otherwise. Logs go
+stderr when it is a terminal that can move its cursor (not `TERM=dumb`),
+each line cut to the terminal's width, with log events printed above it;
+otherwise it is logged as `info` events about every 10 s. Logs go
 to stderr through `tracing`: human-readable on a terminal and JSON lines
 otherwise, or as `--log-format human|json` says, filtered by `--log`, a
 `RUST_LOG`-style filter (`info` by default). Ctrl-C cancels the Render
@@ -172,6 +173,8 @@ The integration tests are the cross-crate tests of arc42 §5.4:
 - `tests/allocation.rs`, the counting-allocator test of ADR 0008, which
   renders Work Units with N and 2N Pixel Samples and requires the same
   number of heap allocations.
-- `tests/footer.rs`, `Footer` over an in-memory terminal: a status update
-  replaces the last one, and a log event prints above the status line,
-  which is redrawn below it.
+- `tests/footer.rs`, `Footer` on `indicatif`'s in-memory terminal, by
+  what its screen shows: a status update replaces the last one, a log
+  event prints above the status line, which is redrawn below it, a line
+  wider than the terminal is cut to its width, and the last status stays
+  once released.

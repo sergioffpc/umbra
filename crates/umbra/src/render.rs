@@ -2,7 +2,7 @@
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
 use std::fs;
-use std::io::{self, IsTerminal, Stderr, Write};
+use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
@@ -28,14 +28,13 @@ pub(crate) fn render(
     args: &RenderArgs,
     cancel: &Cancellation,
     stdout: &mut dyn Write,
-    stderr: &Footer<Stderr>,
+    mut stderr: &Footer,
 ) -> Result<(), Error> {
     let _span = info_span!("render_job").entered();
     let parsed = parse(args)?;
-    let mut warnings = stderr;
     for warning in &parsed.warnings {
         // Warnings are informative: a closed stderr does not fail the render.
-        let _ = writeln!(warnings, "{warning}");
+        let _ = writeln!(stderr, "{warning}");
     }
     let options = RenderJobOptions {
         tile_size: args.tile_size,
@@ -55,16 +54,16 @@ pub(crate) fn render(
         record,
     };
     let threads = args.nthreads.map_or(Threads::All, Threads::Count);
-    let mut footer = stderr.redrawn();
-    let status = if io::stderr().is_terminal() {
-        StatusLine::Redrawn(&mut footer)
-    } else {
+    let mut status = stderr.redrawn();
+    let status_line = if stderr.is_hidden() {
         StatusLine::Logged
+    } else {
+        StatusLine::Redrawn(&mut status)
     };
-    let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status)?;
+    let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status_line)?;
     // The last status stays on the terminal, above the errors and logs
     // that follow it.
-    drop(footer);
+    drop(status);
     finish(outcome, parsed.times, &parsed.output, stdout)
 }
 
