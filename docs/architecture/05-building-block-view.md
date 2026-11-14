@@ -137,7 +137,7 @@ impl umbra_gpu::Renderer {
 
 - Each Render Device's `Renderer` hides everything between a Work Unit and its Work Result. The CPU's: the `dyn Integrator`, per-thread buffers, `par_iter` over rows, Anomalous Pixel Sample collection and the choice of `Recorder`. The GPU's: the `SceneView` upload, the wavefront of `umbra-gpu-programs` and its queues. The CPU's `render` may be called concurrently for several Work Units (§8.8); the GPU's renders its Work Units in flight as one batch, one launch per stage, and fails with an `Error` when CUDA or OptiX does. Cancellation is cooperative, checked between rows on the CPU and between stages on the GPU, and serves the speculative tail.
 - `trace` re-runs Pixel Samples through the same code path as the CPU's `render`, with a `TraceRecorder`. That shared path is what the bit-identical oracle tests (§8.9).
-- The two `Renderer`s turn Work Units into the same `Rendered` and depend on `umbra-render` alone of the three; the GPU's takes a batch (ADR 0026). `umbra-cluster` chooses one with an enum by the Worker's Render Device; until the GPU Local Worker, the enum holds the CPU's alone.
+- The two `Renderer`s turn Work Units into the same `Rendered` and depend on `umbra-render` alone of the three; the GPU's takes a batch (ADR 0026). `umbra-cluster` runs each in a render loop of its own, chosen by the Worker's Render Device: the CPU's renders several Work Units at once, the GPU's renders what it has been assigned as one batch.
 
 ### `umbra-cluster`
 

@@ -7,6 +7,7 @@ mod records;
 mod renderer;
 mod tracer;
 
+pub use device::device_count;
 pub use error::Error;
 pub use renderer::Renderer;
 pub use tracer::Tracer;

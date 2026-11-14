@@ -419,11 +419,11 @@ svg .t-small { font-size: 11px; }
         <div class="dg-wrap"><svg viewBox="0 0 760 250" class="dg-wide" role="img" aria-label="umbra-cpu and umbra-gpu both use umbra-render's contract; umbra-cluster picks one by the Worker's Render Device">
             <rect x="250" y="20" width="260" height="56" rx="8" class="f-acc-soft k-acc" stroke-width="1.5"/>
             <text x="380" y="42" text-anchor="middle" class="t-bold">umbra-cluster</text>
-            <text x="380" y="62" text-anchor="middle" class="t-mut" font-size="12">enum Renderer { Cpu(…) }; Gpu with #128</text>
+            <text x="380" y="62" text-anchor="middle" class="t-mut" font-size="12">a render loop per Render Device</text>
             <line x1="320" y1="78" x2="190" y2="112" class="k-ink" marker-end="url(#ah-ink)"/>
             <line x1="440" y1="78" x2="570" y2="112" class="k-ink" marker-end="url(#ah-ink)"/>
             <text x="220" y="94" text-anchor="end" class="t-mut" font-size="12">RenderDevice::Cpu</text>
-            <text x="540" y="94" class="t-mut" font-size="12">GPU Local Worker (#128)</text>
+            <text x="540" y="94" class="t-mut" font-size="12">RenderDevice::Gpu(N)</text>
             <rect x="60" y="116" width="240" height="62" rx="8" class="f-warm-soft k-warm" stroke-width="1.5"/>
             <text x="180" y="140" text-anchor="middle" class="t-bold">umbra-cpu</text>
             <text x="180" y="160" text-anchor="middle" font-size="12">Renderer: rayon over rows</text>
@@ -435,7 +435,7 @@ svg .t-small { font-size: 11px; }
             <rect x="200" y="206" width="360" height="36" rx="6" class="f-surf k-ink" stroke-width="1.5"/>
             <text x="380" y="229" text-anchor="middle" font-size="12">umbra-render: WorkUnit, Rendered, Cancellation, Decomposition</text>
         </svg></div>
-        <figcaption>The crates of <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>. Both renderers depend on <code>umbra-render</code> alone of the three, so neither can lean on the other's insides. <code>umbra-cluster</code> holds one of them, chosen by the Worker's Render Device; today it holds the CPU's alone, and the GPU's joins with the GPU Local Worker (#128).</figcaption>
+        <figcaption>The crates of <a href="../../../docs/adr/0033-one-crate-per-render-device-over-a-shared-contract.md">ADR 0033</a>. Both renderers depend on <code>umbra-render</code> alone of the three, so neither can lean on the other's insides. <code>umbra-cluster</code> runs one of them, chosen by the Worker's Render Device: the CPU's in the Coordinator's process or a CPU Worker's, the GPU's in a GPU Worker's, such as each GPU's Local Worker, a child process of the Coordinator.</figcaption>
     </figure>
 
     <div class="prose">
@@ -450,7 +450,7 @@ svg .t-small { font-size: 11px; }
         <table class="data">
             <thead><tr><th>word</th><th>in plain words</th><th>in the code</th></tr></thead>
             <tbody>
-                <tr><td>Render Device</td><td>the hardware a Worker renders on</td><td><code>RenderDevice::Cpu</code> (umbra-cluster); the GPU's joins with #128</td></tr>
+                <tr><td>Render Device</td><td>the hardware a Worker renders on</td><td><code>RenderDevice::Cpu</code> or <code>RenderDevice::Gpu</code> (umbra-cluster)</td></tr>
                 <tr><td>Work Unit</td><td>one Tile for one Pass</td><td><code>WorkUnit</code> (umbra-render)</td></tr>
                 <tr><td>Work Result</td><td>a Work Unit's answer: sums per pixel</td><td><code>WorkResult</code>, <code>PixelSum</code> (umbra-render)</td></tr>
                 <tr><td>Pixel Sample</td><td>one guess at one pixel, numbered by its sample index</td><td><code>PixelSampleId</code> (umbra-integrators)</td></tr>

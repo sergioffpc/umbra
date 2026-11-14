@@ -81,6 +81,7 @@ impl Bounds3f {
 ///
 /// PBR 4e §3.7, pbrt-v4 `Bounds2f`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bounds2f {
     /// The corner with the smallest coordinates.
     pub p_min: Point2f,

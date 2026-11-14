@@ -121,6 +121,7 @@ pub struct CameraBaseParameters {
 ///
 /// pbrt-v4's `lensradius` and `focaldistance`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct ThinLens {
     /// The lens radius; 0 for a pinhole.

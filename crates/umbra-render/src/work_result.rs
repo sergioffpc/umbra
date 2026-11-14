@@ -2,6 +2,8 @@
 
 use std::ops::AddAssign;
 
+use bytemuck::{Pod, Zeroable};
+
 use umbra_integrators::FilmSample;
 
 use crate::decomposition::WorkUnit;
@@ -10,7 +12,8 @@ use crate::decomposition::WorkUnit;
 /// filter-weighted sensor RGB and the filter weights.
 ///
 /// pbrt-v4 `RGBFilm::RGBPixel`.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[repr(C)]
 pub struct PixelSum {
     /// The sum of `weight · rgb` over the Pixel Samples, red, green, blue.
     pub rgb: [f64; 3],

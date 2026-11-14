@@ -61,7 +61,15 @@ fn log_format_human_writes_text() {
 fn log_filters_the_events() {
     let ws = Workspace::new();
     ws.file("scene.pbrt", CAMERA_ONLY);
-    let output = ws.umbra(&["--log", "warn", "render", "scene.pbrt"]);
+    // On the CPU alone: without a GPU, the default warns once.
+    let output = ws.umbra(&[
+        "--log",
+        "warn",
+        "render",
+        "scene.pbrt",
+        "--render-devices",
+        "cpu",
+    ]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert!(events(&stderr(&output)).is_empty(), "{}", stderr(&output));
 }

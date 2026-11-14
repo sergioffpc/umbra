@@ -19,9 +19,8 @@ fn long_scene() -> String {
 fn ctrl_c_writes_a_cancelled_report_and_no_image_and_exits_130() {
     let ws = Workspace::new();
     ws.file("scene.pbrt", &long_scene());
-    let mut umbra = Command::new(env!("CARGO_BIN_EXE_umbra"))
-        .args(["render", "scene.pbrt", "--spp-per-pass", "65536"])
-        .current_dir(ws.path(""))
+    let mut umbra = ws
+        .command(&["render", "scene.pbrt", "--spp-per-pass", "65536"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

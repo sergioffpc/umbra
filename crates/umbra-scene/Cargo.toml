@@ -12,12 +12,15 @@ categories.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The Scene's builder and the Render Job Options travel to every Worker
+# (arc42 §8.13): the core crates' `serde` features derive their types.
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-umbra-camera = { workspace = true }
-umbra-geometry = { workspace = true }
+umbra-camera = { workspace = true, features = ["serde"] }
+umbra-geometry = { workspace = true, features = ["serde"] }
 umbra-integrators = { workspace = true, features = ["serde"] }
-umbra-math = { workspace = true }
-umbra-sampling = { workspace = true }
+umbra-math = { workspace = true, features = ["serde"] }
+umbra-sampling = { workspace = true, features = ["serde"] }
 umbra-spectrum = { workspace = true }
 
 [lints]

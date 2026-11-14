@@ -1,15 +1,18 @@
 //! `umbra render`: parse, apply the overrides, render through
 //! `coordinate`, write the image and its Render Job Report (arc42 §6.2).
 
+use std::env;
 use std::fs;
 use std::io::{self, IsTerminal, Write};
+use std::net::SocketAddr;
 use std::path::Path;
+use std::process::Command;
 use std::time::Instant;
 
 use tracing::info_span;
 use umbra_cluster::{
-    CoordinatorOptions, Phase, RenderJob, RenderJobOutcome, RenderJobReport, StatusLine, Threads,
-    coordinate,
+    CoordinatorOptions, GpuOrdinal, GpuWorkers, Phase, RenderDevice, RenderJob, RenderJobOutcome,
+    RenderJobReport, StatusLine, Threads, coordinate,
 };
 use umbra_parser::{Overrides, ParseTimes, Parsed};
 use umbra_render::{Cancellation, ReproductionRecord};
@@ -21,9 +24,11 @@ use crate::error::Error;
 
 /// Renders the Scene File of `args`, writing its warnings and progress to
 /// `stderr`, then the image, and its Render Job Report to `stdout`; or,
-/// once `cancel` is made, the report alone.
+/// once `cancel` is made, the report alone. Each GPU's Local Worker is this
+/// executable, run as `umbra worker` with `log_args`.
 pub(crate) fn render(
     args: &RenderArgs,
+    log_args: &[String],
     cancel: &Cancellation,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -50,14 +55,59 @@ pub(crate) fn render(
         options,
         record,
     };
-    let threads = args.nthreads.map_or(Threads::All, Threads::Count);
     let status = if io::stderr().is_terminal() {
         StatusLine::Redrawn(stderr)
     } else {
         StatusLine::Logged
     };
-    let outcome = coordinate(job, &CoordinatorOptions { threads }, cancel, status)?;
+    let outcome = coordinate_locally(job, args, log_args, cancel, status)?;
     finish(outcome, parsed.times, &parsed.output, stdout)
+}
+
+/// Renders `job` on the Local Workers of the Render Devices `args` chooses,
+/// each GPU's in a child process run with `log_args`.
+fn coordinate_locally(
+    job: RenderJob,
+    args: &RenderArgs,
+    log_args: &[String],
+    cancel: &Cancellation,
+    status: StatusLine<'_>,
+) -> Result<RenderJobOutcome, Error> {
+    let devices = args.render_devices();
+    let gpus = devices.gpus()?;
+    let executable = env::current_exe()?;
+    let command = |gpu: GpuOrdinal, coordinator: SocketAddr| {
+        gpu_worker(&executable, log_args, gpu, coordinator)
+    };
+    let options = CoordinatorOptions {
+        cpu: devices
+            .includes_cpu()
+            .then(|| args.nthreads.map_or(Threads::All, Threads::Count)),
+        gpus: Some(GpuWorkers {
+            gpus,
+            command: &command,
+        }),
+    };
+    Ok(coordinate(job, &options, cancel, status)?)
+}
+
+/// The command line of the Local Worker of `gpu`: `executable`, run as
+/// `umbra worker` with `log_args`, connecting to `coordinator`.
+fn gpu_worker(
+    executable: &Path,
+    log_args: &[String],
+    gpu: GpuOrdinal,
+    coordinator: SocketAddr,
+) -> Command {
+    let mut command = Command::new(executable);
+    command.args(log_args).args([
+        "worker",
+        "--render-device",
+        &RenderDevice::Gpu(gpu).to_string(),
+        "--coordinator",
+        &coordinator.to_string(),
+    ]);
+    command
 }
 
 /// Writes the image of `outcome` to `image`, then its report to `stdout`,

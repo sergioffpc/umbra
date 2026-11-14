@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 
+use serde::{Deserialize, Serialize};
+
 use umbra_math::Point2i;
 use umbra_scene::RenderJobOptions;
 
@@ -10,17 +12,17 @@ use crate::error::Error;
 
 /// The index of a Tile, in raster order: left to right, then top to
 /// bottom.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TileIndex(pub u32);
 
 /// The index of a Pass: Pass `p` is the same range of sample indices in
 /// every pixel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PassIndex(pub u32);
 
 /// One Tile rendered for one Pass: what a Worker is assigned, and what one
 /// Work Result answers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct WorkUnit {
     /// The Tile.
     pub tile: TileIndex,

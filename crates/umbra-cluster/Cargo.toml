@@ -12,11 +12,18 @@ categories.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytemuck = { workspace = true }
+postcard = { workspace = true }
+quinn = { workspace = true }
 rayon = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive", "std"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 umbra-cpu = { workspace = true }
+umbra-gpu = { workspace = true }
 umbra-render = { workspace = true }
 umbra-scene = { workspace = true }
 

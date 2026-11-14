@@ -5,6 +5,7 @@ mod cli;
 mod error;
 mod logs;
 mod render;
+mod worker;
 
 use std::io::{self, Write};
 use std::panic;
@@ -58,13 +59,16 @@ fn main() -> ExitCode {
     let cancel = cancel_on_ctrl_c();
     // Informative: a closed stderr does not stop the command.
     let _ = writeln!(stderr, "{}", version_line());
-    let exit = match cli.command {
+    let log_args = cli.log_args();
+    let done = match cli.command {
         Command::Render(args) => {
-            match render::render(&args, &cancel, &mut io::stdout(), &mut stderr) {
-                Ok(()) => Exit::Success,
-                Err(error) => report(&error, &mut stderr),
-            }
+            render::render(&args, &log_args, &cancel, &mut io::stdout(), &mut stderr)
         }
+        Command::Worker(args) => worker::work(&args, &cancel),
+    };
+    let exit = match done {
+        Ok(()) => Exit::Success,
+        Err(error) => report(&error, &mut stderr),
     };
     exit.into()
 }

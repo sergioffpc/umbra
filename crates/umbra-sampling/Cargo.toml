@@ -17,7 +17,7 @@ publish.workspace = true
 serde = ["dep:serde", "umbra-math/serde"]
 
 [dependencies]
-serde = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 umbra-math = { workspace = true }
 
 [lints]

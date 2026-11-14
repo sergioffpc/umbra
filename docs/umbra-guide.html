@@ -890,13 +890,13 @@ const CRATES = {
     "umbra-cluster": {
         x: 1255, y: 260, st: "part", guide: false,
         q: "Who renders what, and when",
-        now: "coordinate with an in-process CPU Local Worker, a renderer chosen by the Worker's Render Device, and the Render Job Report. Next: QUIC and the GPU Local Worker (#128), remote Workers (#129), the status line (#86).",
-        deps: ["umbra-cpu", "umbra-render", "umbra-scene"],
+        now: "coordinate with a CPU Local Worker in its process and a GPU Local Worker per GPU in a child process over QUIC, a lost Worker's Work Units back to the queue, and the Render Job Report. Next: remote Workers (#129), the status line (#86).",
+        deps: ["umbra-cpu", "umbra-gpu", "umbra-render", "umbra-scene"],
     },
     "umbra": {
         x: 1255, y: 75, st: "part", guide: false,
         q: "What the operator types",
-        now: "The render subcommand. Next: worker (#129), trace (#88), bench (#93).",
+        now: "The render subcommand, with --render-devices, and worker for a GPU's Local Worker. Next: worker on a named Cluster (#129), trace (#88), bench (#93).",
         deps: ["umbra-cluster", "umbra-parser", "umbra-render", "umbra-scene"],
     },
     "umbra-gpu-programs": {
@@ -908,7 +908,7 @@ const CRATES = {
     "umbra-gpu": {
         x: 750, y: 405, st: "part", guide: true,
         q: "How the host drives the GPU",
-        now: "CUDA through cudarc, OptiX from Rust, one triangle and one sphere traced and read back, and a Renderer that renders a batch of Work Units through the wavefront. Next: the GPU Local Worker (#128).",
+        now: "CUDA through cudarc, OptiX from Rust, one triangle and one sphere traced and read back, and a Renderer that renders a batch of Work Units through the wavefront, for the GPU Local Worker. Next: the stages that trace and shade.",
         deps: ["umbra-geometry", "umbra-gpu-programs", "umbra-integrators", "umbra-math", "umbra-render", "umbra-sampling", "umbra-scene", "umbra-spectrum"],
     },
 };
@@ -1033,7 +1033,7 @@ function buildStrip(el) {
         {
             t: "Hand the Render Job to coordinate", on: ["umbra-cluster"],
             d: "From here coordinate owns the Render Job: it starts the Local Workers, hands out Work Units, merges what comes back and builds the Render Job Report. Async code, QUIC and scheduling stay hidden behind this one synchronous call.",
-            st: "part", s: "one in-process CPU Local Worker today; QUIC, the GPU and remote Workers arrive with #128 and #129.",
+            st: "part", s: "the CPU Local Worker in-process and each GPU's in a child process over QUIC today; remote Workers arrive with #129.",
             l: [["umbra-cluster README", README("umbra-cluster")], ["arc42 §6.2", "architecture/06-runtime-view.md"]], v: "RenderJob { scene, options, record }",
         },
         {
@@ -1044,8 +1044,8 @@ function buildStrip(el) {
         },
         {
             t: "Render one Work Unit", on: ["umbra-cpu"],
-            d: "The Worker's renderer, chosen by its Render Device, turns the Work Unit into its Work Result. The CPU's runs the Work Unit's rows on the Worker's threads, one Pixel Sample after another, and gathers the results. A GPU Worker will do the same job through umbra-gpu's renderer, a batch of Work Units at a time.",
-            st: "part", s: "on the CPU today; umbra-gpu's renderer is built, and its Worker comes with #128.",
+            d: "The Worker's renderer, chosen by its Render Device, turns the Work Unit into its Work Result. The CPU's runs the Work Unit's rows on the Worker's threads, one Pixel Sample after another, and gathers the results. A GPU Worker does the same job through umbra-gpu's renderer, a batch of Work Units at a time.",
+            st: "part", s: "on the CPU and the GPU; on the GPU, only as far as the camera ray.",
             l: [["CPU Guide, Rendering one Work Unit", G("umbra-cpu", "render-unit")], ["Render Guide, How a render ends", G("umbra-render", "render-unit")], adr("0033")], v: "WorkResult",
         },
         {

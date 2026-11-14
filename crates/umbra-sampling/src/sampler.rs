@@ -53,6 +53,7 @@ pub trait Sampler {
 ///
 /// pbrt-v4 `RandomizeStrategy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RandomizeStrategy {
     /// No randomisation: the plain Halton sequence.
     None,

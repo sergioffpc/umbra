@@ -10,10 +10,6 @@ mod rng;
 mod sampler;
 mod warp;
 
-// Dependency edge of arc42 §5.1, used once the crate has types to serialise.
-#[cfg(feature = "serde")]
-use serde as _;
-
 pub use hash::{Hashable, hash, hash_float, mix_bits, murmur_hash_64a};
 pub use lowdiscrepancy::{
     DigitPermutation, DigitPermutations, PRIME_TABLE_SIZE, PRIMES, inverse_radical_inverse,

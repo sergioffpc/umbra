@@ -1,5 +1,6 @@
 //! The Scene and the builder that is the only way to make one.
 
+use serde::{Deserialize, Serialize};
 use umbra_camera::{
     CameraBaseParameters, CameraKind, CameraTransform, FilterKind, GaussianFilter,
     PerspectiveCamera, PixelSensor, ThinLens,
@@ -17,7 +18,7 @@ use crate::error::Error;
 /// [#84](https://github.com/sergioffpc/umbra/issues/84).
 ///
 /// pbrt-v4 `Film "rgb"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilmParameters {
     /// The image's full resolution, in pixels.
     pub resolution: Point2i,
@@ -35,7 +36,7 @@ impl Default for FilmParameters {
 /// A perspective camera, as a Scene File gives it.
 ///
 /// pbrt-v4 `Camera "perspective"` and `PerspectiveCamera::Create`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PerspectiveCameraParameters {
     /// Where the camera is: the inverse of the current transformation at
     /// the `Camera` directive.
@@ -113,7 +114,7 @@ fn default_screen_window(frame: f32) -> Bounds2f {
 /// A Gaussian pixel filter, as a Scene File gives it.
 ///
 /// pbrt-v4 `PixelFilter "gaussian"`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GaussianFilterParameters {
     /// The half-widths of its support.
     pub radius: Vector2f,
@@ -135,7 +136,7 @@ impl Default for GaussianFilterParameters {
 /// and its seed are Render Job Options.
 ///
 /// pbrt-v4 `Sampler "halton"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct HaltonSamplerParameters {
     /// How the sequence is randomised; pbrt-v4's default permutes digits.
     pub randomize: RandomizeStrategy,
@@ -145,7 +146,7 @@ pub struct HaltonSamplerParameters {
 /// adapter, tests that build Scenes directly are another (arc42 §5.3).
 /// Every setting starts at pbrt-v4's default, but the sampler: Umbra has
 /// only `halton` so far, where pbrt-v4 defaults to `zsobol`.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SceneBuilder {
     film: FilmParameters,
     camera: PerspectiveCameraParameters,
@@ -218,6 +219,7 @@ impl SceneBuilder {
             sensor,
             randomize: self.sampler.randomize,
             integrator: self.integrator,
+            builder: self,
         })
     }
 
@@ -252,6 +254,7 @@ fn imaging_ratio(exposure_time: f32) -> f32 {
 /// arenas in [#79](https://github.com/sergioffpc/umbra/issues/79) and after.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
+    builder: SceneBuilder,
     resolution: Point2i,
     camera: CameraKind,
     filter: FilterKind<Vec<f32>>,
@@ -262,6 +265,14 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// The builder this Scene was built from: what replication sends to
+    /// each Worker, which builds its own replica from it (arc42 §5.2,
+    /// §8.13).
+    #[must_use]
+    pub fn builder(&self) -> &SceneBuilder {
+        &self.builder
+    }
+
     /// What per-sample code reads of the Scene (ADR 0014).
     #[must_use]
     pub fn view(&self) -> SceneView<'_> {

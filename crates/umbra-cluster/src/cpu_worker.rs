@@ -1,19 +1,21 @@
-//! The CPU Local Worker: renders the Work Units it is assigned in this
-//! process, several at once on its own rayon pool (arc42 §8.8).
+//! A CPU Worker's render loop: it renders the Work Units it is assigned,
+//! several at once on its own rayon pool (arc42 §8.8). The CPU Local
+//! Worker runs it in the Coordinator's process, a CPU Worker over QUIC in
+//! its own.
 
 use std::time::Instant;
 
 use rayon::ThreadPool;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tracing::info_span;
+use umbra_cpu::Renderer;
 use umbra_render::{Cancellation, Rendered, WorkUnit};
 
-use crate::renderer::Renderer;
 use crate::transport::{ToCoordinator, ToWorker, WorkerEnd};
 
-/// Runs the Local Worker until the Render Job finishes or is cancelled, or
-/// the Coordinator goes away: it asks for as many Work Units as it renders
-/// at once, and for one more after each Work Result.
+/// Renders with `renderer` until the Render Job finishes or is cancelled,
+/// or the Coordinator goes away: it asks for as many Work Units as it
+/// renders at once, and for one more after each Work Result.
 pub(crate) fn work(renderer: &Renderer<'_>, pool: &ThreadPool, connection: WorkerEnd) {
     let WorkerEnd {
         to_coordinator,
