@@ -22,13 +22,31 @@ FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Build-only packages, not shipped: unpinned, since the Ubuntu archive drops
-# superseded versions and a pin would break the build.
+# superseded versions and a pin would break the build. python3 extracts
+# libdevice below.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev \
+    && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev python3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# CUDA's libdevice.10.bc, which umbra-gpu's build.rs links into the GPU
+# programs; without it a GPU Worker from this image refuses its PTX. It is
+# taken from NVIDIA's nvidia-cuda-nvcc-cu12 wheel on PyPI, checked against the
+# SHA-256 PyPI publishes, and goes where the build script looks by default.
+# LLVM bitcode, so the same file serves both platforms. Only the build reads
+# it: the runtime image ships nothing from NVIDIA, whose driver and OptiX the
+# NVIDIA Container Toolkit mounts. Same wheel as .devcontainer/Dockerfile:
+# bump the URL and the sum together, in both files.
+ARG LIBDEVICE_WHEEL_URL=https://files.pythonhosted.org/packages/25/48/b54a06168a2190572a312bfe4ce443687773eb61367ced31e064953dd2f7/nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl
+ARG LIBDEVICE_WHEEL_SHA256=5d6a0d32fdc7ea39917c20065614ae93add6f577d840233237ff08e9a38f58f0
+RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/nvcc.whl "${LIBDEVICE_WHEEL_URL}" \
+    && echo "${LIBDEVICE_WHEEL_SHA256}  /tmp/nvcc.whl" | sha256sum -c - \
+    && install -d /usr/local/cuda/nvvm/libdevice \
+    && python3 -I -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("nvidia/cuda_nvcc/nvvm/libdevice/libdevice.10.bc"))' \
+        /tmp/nvcc.whl > /usr/local/cuda/nvvm/libdevice/libdevice.10.bc \
+    && rm /tmp/nvcc.whl
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
