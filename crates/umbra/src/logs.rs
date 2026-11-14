@@ -15,7 +15,7 @@ use crate::footer::Footer;
 /// How the logs are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum LogFormat {
-    /// Text for a person to read.
+    /// Multi-line text for a person to read.
     Human,
     /// One JSON object per line.
     Json,
@@ -46,6 +46,10 @@ pub(crate) fn init(format: Option<LogFormat>, filter: &str, stderr: Arc<Footer>)
         LogFormat::Human => (
             Some(
                 fmt::layer()
+                    .pretty()
+                    .map_event_format(|format| {
+                        format.with_target(false).with_source_location(false)
+                    })
                     .with_writer(stderr)
                     .with_ansi(io::stderr().is_terminal()),
             ),
