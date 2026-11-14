@@ -26,8 +26,9 @@ RUN apt-get update \
 # LLVM bitcode. It is taken from NVIDIA's nvidia-cuda-nvcc-cu12 wheel on PyPI,
 # checked against the SHA-256 PyPI publishes, instead of installing the CUDA
 # toolkit, and goes where the build script looks by default. The driver and
-# OptiX come from the host, mounted by the NVIDIA Container Toolkit. Bump the
-# URL and the sum together.
+# OptiX come from the host, mounted by the NVIDIA Container Toolkit. Same
+# wheel as the root Dockerfile: bump the URL and the sum together, in both
+# files.
 ARG LIBDEVICE_WHEEL_URL=https://files.pythonhosted.org/packages/25/48/b54a06168a2190572a312bfe4ce443687773eb61367ced31e064953dd2f7/nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl
 ARG LIBDEVICE_WHEEL_SHA256=5d6a0d32fdc7ea39917c20065614ae93add6f577d840233237ff08e9a38f58f0
 RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/nvcc.whl "${LIBDEVICE_WHEEL_URL}" \
