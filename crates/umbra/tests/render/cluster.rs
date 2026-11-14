@@ -14,8 +14,10 @@ use serde_json::Value;
 
 use crate::cli::{CAMERA_ONLY, Workspace, field};
 
-/// How long a test waits for something it expects the cluster to log.
-const PATIENCE: Duration = Duration::from_secs(30);
+/// How long a test waits for something it expects the cluster to log:
+/// generous, because discovery by multicast DNS may lose a query to a
+/// machine loaded by the other tests, and asks again only after a while.
+const PATIENCE: Duration = Duration::from_secs(60);
 
 /// A Cluster Name of its own for the test `test` of this run.
 pub(crate) fn cluster(test: &str) -> String {
@@ -360,7 +362,7 @@ fn a_worker_slot_that_fails_three_times_in_a_row_is_refused() {
     }
     let mut fourth = RemoteWorker::start(&cluster, &["--render-device", "gpu:0"]);
     coordinator.log.wait_for("the refusal", |line| {
-        line.contains("refused") && line.contains("failed three times in a row")
+        line.contains("refused") && line.contains("failed 3 times in a row")
     });
     fourth
         .log

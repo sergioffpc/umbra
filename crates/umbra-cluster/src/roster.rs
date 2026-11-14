@@ -50,6 +50,15 @@ pub(crate) enum WorkerKind {
     Remote,
 }
 
+impl Display for WorkerKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Local => "Local Worker",
+            Self::Remote => "Worker",
+        })
+    }
+}
+
 /// Whether a Worker has asked for its first Work Units, which it does once
 /// it has loaded the Scene and can render (arc42 §8.13).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +117,8 @@ struct Tally {
     /// When it last sent a heartbeat, or joined.
     heard: Instant,
     heartbeat: Option<Heartbeat>,
-    /// Its progress the last time it grew, and when.
+    /// Its progress at the last tick, and when it last changed or the
+    /// Worker last had nothing to do.
     progress: u64,
     grew: Instant,
     rate: Rate,
@@ -176,6 +186,11 @@ impl Worker {
         self.presence == Presence::Present
     }
 
+    /// Whether it is in the Render Job and holds `unit`.
+    pub(crate) fn holds(&self, unit: WorkUnit) -> bool {
+        self.is_present() && self.in_flight.contains(&unit)
+    }
+
     /// Adds `count` Work Units to its demand, logging its first request: it
     /// is ready.
     pub(crate) fn request(&mut self, count: u32) {
@@ -188,12 +203,16 @@ impl Worker {
 
     /// `Local Worker 0` or `Worker 3`.
     pub(crate) fn name(&self) -> impl Display {
-        let kind = match self.kind {
-            WorkerKind::Local => "Local Worker",
-            WorkerKind::Remote => "Worker",
-        };
-        let id = self.id;
+        let (kind, id) = (self.kind, self.id);
         fmt::from_fn(move |f| write!(f, "{kind} {id}"))
+    }
+
+    /// Its threads rendering a row, as its last heartbeat counts them.
+    fn busy_threads(&self) -> u32 {
+        match &self.tally.heartbeat {
+            Some(Heartbeat::Rendering { busy_threads, .. }) => *busy_threads,
+            Some(Heartbeat::Loading(_)) | None => 0,
+        }
     }
 
     /// Gives it `unit` at `now`.
@@ -276,7 +295,11 @@ impl Worker {
         let progress = self.progress();
         let rendered = self.tally.rendered_samples + self.in_flight_samples();
         self.tally.rate.tick(now, rendered);
-        if progress > self.tally.progress {
+        // An idle Worker, ready with nothing in flight, is waiting, not
+        // stalled; a Worker whose progress fell, its Work Units cancelled,
+        // is moving.
+        let idle = self.readiness == Readiness::Ready && self.in_flight.is_empty();
+        if progress != self.tally.progress || idle {
             self.tally.progress = progress;
             self.tally.grew = now;
         }
@@ -330,18 +353,16 @@ impl Worker {
     }
 
     /// Its line on the status line at `now`, with its Worker Slot's
-    /// `failures`: `Worker 1 · cpu on host p620 node 0 · 16 threads · 4 in
-    /// flight · 1.25 M Pixel Samples/s · heartbeat 0.4 s · alive · 0
+    /// `failures`: `Worker 1 · p620 node 0 cpu · 16 threads, 12 busy · 4
+    /// in flight · 1.25 M Pixel Samples/s · heartbeat 0.4 s · alive · 0
     /// failures`.
     pub(crate) fn status_line(&self, now: Instant, liveness: Liveness, failures: u32) -> String {
-        let hello = &self.hello;
         format!(
-            "{} · {} on host {} node {} · {} threads · {} in flight · {} Pixel Samples/s · heartbeat {:.1} s · {} · {failures} failures",
+            "{} · {} · {} threads, {} busy · {} in flight · {} Pixel Samples/s · heartbeat {:.1} s · {} · {failures} failures",
             self.name(),
-            hello.render_device,
-            hello.host.name(),
-            hello.numa_node,
-            hello.threads,
+            self.slot(),
+            self.hello.threads,
+            self.busy_threads(),
             self.in_flight.len(),
             Si(self.tally.rate.per_second()),
             now.duration_since(self.tally.heard).as_secs_f64(),
@@ -364,12 +385,9 @@ impl Worker {
                 until.saturating_duration_since(since)
             });
         let threads = usize::try_from(hello.threads).unwrap_or(usize::MAX);
-        let kind = match self.kind {
-            WorkerKind::Local => "Local Worker",
-            WorkerKind::Remote => "Worker",
-        };
         format!(
-            "{kind} on {}, {}, node {}, build {}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}, occupancy {}, {}",
+            "{} on {}, {}, node {}, build {}, {} threads, {} Work Units, {} Pixel Samples, busy {}, idle {}, occupancy {}, {}",
+            self.kind,
             hello.render_device,
             hello.host,
             hello.numa_node,

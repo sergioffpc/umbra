@@ -74,8 +74,9 @@ impl<'a> Renders<'_, 'a> {
                 self.activity.cancel(unit);
                 Flow::Continue
             }
-            Some(ToWorker::JobFinished) => Flow::Stop,
-            Some(ToWorker::Stop) | None => {
+            // Every Work Unit is merged, or nothing more is wanted: what is
+            // still in flight is dropped, not sent.
+            Some(ToWorker::JobFinished | ToWorker::Stop) | None => {
                 self.activity.cancel_all();
                 Flow::Stop
             }

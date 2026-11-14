@@ -233,7 +233,7 @@ impl Browser {
     /// has an IPv4 address.
     fn announced(&self, service: &ResolvedService) -> Option<Discovery> {
         let cluster = service.txt_properties.get_property_val_str(CLUSTER_KEY)?;
-        if cluster != self.cluster.to_string() {
+        if cluster != self.cluster.as_str() {
             return None;
         }
         let ip = service

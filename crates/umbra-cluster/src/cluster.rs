@@ -17,6 +17,13 @@ const MAX_LEN: usize = 63;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ClusterName(String);
 
+impl ClusterName {
+    /// The name, as text.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl Default for ClusterName {
     fn default() -> Self {
         Self("default".to_owned())

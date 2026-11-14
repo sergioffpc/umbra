@@ -129,9 +129,9 @@ pub enum RenderJobOutcome {
     },
 }
 
-/// Why the scheduling loop ended.
+/// How the scheduling loop ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ending {
+enum Conclusion {
     Finished,
     Cancelled,
 }
@@ -185,10 +185,10 @@ pub fn coordinate(
         last: None,
     };
     let replica = Replica::new(&job_options, scene.builder(), decomposition.clone());
-    let ending = info_span!("render")
+    let conclusion = info_span!("render")
         .in_scope(|| runtime::runtime()?.block_on(scheduler.drive(replica, &mut inbox, cancel)))?;
     Ok(scheduler.finish(
-        ending,
+        conclusion,
         Submission {
             options: job_options,
             output,
@@ -275,9 +275,9 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
         replica: Replica,
         inbox: &mut UnboundedReceiver<Event>,
         cancel: &Cancellation,
-    ) -> Result<Ending, Error> {
+    ) -> Result<Conclusion, Error> {
         let (endpoint, announcement) = self.start(replica)?;
-        let ending = self.run(inbox, cancel).await;
+        let conclusion = self.run(inbox, cancel).await;
         // The last status is the Render Job's as it ends, before its
         // Workers close.
         let now = Instant::now();
@@ -286,9 +286,9 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
         if let Some(announcement) = announcement {
             announcement.withdraw();
         }
-        self.close(inbox, ending).await;
+        self.close(inbox, conclusion).await;
         drop(endpoint);
-        Ok(ending)
+        Ok(conclusion)
     }
 
     /// Listens where the options say, announces the Render Job there, and
@@ -340,7 +340,11 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
 
     /// Assigns every Work Unit as the Workers ask, and merges each Work
     /// Result, until every one is merged or `cancel` is made.
-    async fn run(&mut self, inbox: &mut UnboundedReceiver<Event>, cancel: &Cancellation) -> Ending {
+    async fn run(
+        &mut self,
+        inbox: &mut UnboundedReceiver<Event>,
+        cancel: &Cancellation,
+    ) -> Conclusion {
         let mut ticker = runtime::ticker();
         while !self.film.is_complete() {
             tokio::select! {
@@ -350,13 +354,13 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
                 }
                 _ = ticker.tick() => {
                     if cancel.is_cancelled() {
-                        return Ending::Cancelled;
+                        return Conclusion::Cancelled;
                     }
                     self.tick(Instant::now());
                 }
             }
         }
-        Ending::Finished
+        Conclusion::Finished
     }
 
     /// Takes in the progress made up to `now`, and shows the status.
@@ -431,26 +435,15 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
         let slot = hello.slot();
         match self.admission(kind, &hello) {
             Verdict::Welcome => {
-                info!(
-                    "Worker {id} joined: {} on host {} node {}, {} threads",
-                    hello.render_device,
-                    hello.host.name(),
-                    hello.numa_node,
-                    hello.threads
-                );
+                info!("Worker {id} joined: {slot}, {} threads", hello.threads);
                 self.slots.joined(&slot);
                 let worker = Worker::new(id, kind, hello, to_worker, Instant::now());
                 self.workers.insert(id, worker);
                 let _ = verdict.send(Verdict::Welcome);
             }
             Verdict::Reject(reason) => {
-                warn!(
-                    "Worker {id} refused: {} on host {} node {}, build {}: {reason}",
-                    hello.render_device,
-                    hello.host.name(),
-                    hello.numa_node,
-                    hello.build_identity.commit
-                );
+                let commit = &hello.build_identity.commit;
+                warn!("Worker {id} refused: {slot}, build {commit}: {reason}");
                 self.slots.refused(&slot);
                 let _ = verdict.send(Verdict::Reject(reason));
             }
@@ -545,10 +538,10 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
         thread_time: Duration,
     ) {
         let unit = result.unit();
-        let now = Instant::now();
         let start = Instant::now();
         let acceptance = info_span!("merge").in_scope(|| self.film.accept(result));
-        let merge_time = start.elapsed();
+        let now = Instant::now();
+        let merge_time = now - start;
         let merged = match acceptance {
             Acceptance::Merged => {
                 self.progress.merged(unit, render_time, merge_time);
@@ -577,9 +570,10 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
             Some(_) => self.scheduling.copies_lost += 1,
             None => {}
         }
-        let holders = self.workers.values_mut().filter(|worker| {
-            worker.id != winner && worker.is_present() && worker.in_flight.contains(&unit)
-        });
+        let holders = self
+            .workers
+            .values_mut()
+            .filter(|worker| worker.id != winner && worker.holds(unit));
         for worker in holders {
             worker.cancel(unit, now);
             self.scheduling.cancelled += 1;
@@ -610,14 +604,11 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
         };
         let name = worker.name().to_string();
         let held = worker.leave(Instant::now());
+        // A copy it held can be made again.
+        self.tail.copies.retain(|_, holder| *holder != id);
         let lost: Vec<WorkUnit> = held
             .into_iter()
-            .filter(|unit| {
-                !self
-                    .workers
-                    .values()
-                    .any(|other| other.is_present() && other.in_flight.contains(unit))
-            })
+            .filter(|&unit| !self.workers.values().any(|other| other.holds(unit)))
             .collect();
         if !lost.is_empty() {
             warn!(
@@ -682,10 +673,10 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
     /// Tells every Worker how the Render Job ended, `JobFinished` or a
     /// cancellation, and waits for them to close, for at most
     /// [`CLOSE_WAIT`].
-    async fn close(&mut self, inbox: &mut UnboundedReceiver<Event>, ending: Ending) {
-        let message = match ending {
-            Ending::Finished => ToWorker::JobFinished,
-            Ending::Cancelled => ToWorker::Stop,
+    async fn close(&mut self, inbox: &mut UnboundedReceiver<Event>, conclusion: Conclusion) {
+        let message = match conclusion {
+            Conclusion::Finished => ToWorker::JobFinished,
+            Conclusion::Cancelled => ToWorker::Stop,
         };
         for worker in self.workers.values().filter(|w| w.is_present()) {
             let _ = worker.sender.send(message);
@@ -714,12 +705,12 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
 
     /// Sends the last status and makes the outcome of the Render Job
     /// submitted as `submission` says.
-    fn finish(mut self, ending: Ending, submission: Submission) -> RenderJobOutcome {
+    fn finish(mut self, conclusion: Conclusion, submission: Submission) -> RenderJobOutcome {
         let now = Instant::now();
         let status = self.last.take().unwrap_or_else(|| self.status(now));
         (self.show)(&status, Moment::Ended);
-        match ending {
-            Ending::Finished => {
+        match conclusion {
+            Conclusion::Finished => {
                 let hash = self.film.hash();
                 info!("Render Job finished, Film hash {hash}");
                 let rendered = self.rendered(Outcome::Finished, Some(hash), now);
@@ -728,7 +719,7 @@ impl<Q: Iterator<Item = WorkUnit>, S: FnMut(&Status, Moment)> Scheduler<'_, '_, 
                     image: self.film.finish(),
                 }
             }
-            Ending::Cancelled => {
+            Conclusion::Cancelled => {
                 let merged = self.progress.merged_samples();
                 info!("Render Job cancelled, {merged} Pixel Samples merged");
                 let rendered = self.rendered(Outcome::Cancelled, None, now);

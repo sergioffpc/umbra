@@ -21,7 +21,7 @@ use crate::cluster::ClusterName;
 use crate::device::RenderDevice;
 use crate::error::Error;
 use crate::host::{Host, NumaNode};
-use crate::slot::WorkerSlot;
+use crate::slot::{FAILURES_TO_REFUSE, WorkerSlot};
 use crate::transport::WorkerId;
 
 /// The largest frame either side reads: far above the largest Scene
@@ -143,7 +143,10 @@ impl Display for Refusal {
             Self::DirtyBuild => {
                 f.write_str("it was built from a dirty tree, and the Render Job does not allow it (`--allow-dirty`)")
             }
-            Self::TooManyFailures => f.write_str("its Worker Slot failed three times in a row"),
+            Self::TooManyFailures => write!(
+                f,
+                "its Worker Slot failed {FAILURES_TO_REFUSE} times in a row"
+            ),
         }
     }
 }
@@ -196,24 +199,26 @@ pub(crate) struct WorkResultHeader {
     pub(crate) thread_time: Duration,
 }
 
-/// Why a connection closed, as its QUIC application close code.
+/// Why a connection closed, as its QUIC application close code. None is 0,
+/// the code QUIC closes a connection with when its last handle is dropped:
+/// such a close is never mistaken for one of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CloseCode {
     /// The Render Job finished; the Worker closes.
-    Finished = 0,
+    Finished = 1,
     /// The Coordinator's operator cancelled the Render Job.
-    JobCancelled = 1,
+    JobCancelled = 2,
     /// The Worker was refused, and said why with `Reject`.
-    Rejected = 2,
+    Rejected = 3,
     /// The Worker could not continue, and said why with `Fatal`.
-    WorkerFatal = 3,
+    WorkerFatal = 4,
     /// The Coordinator heard no heartbeat from the Worker for its death
     /// time.
-    WorkerTimedOut = 4,
+    WorkerTimedOut = 5,
     /// The Worker's operator stopped it.
-    WorkerStopped = 5,
+    WorkerStopped = 6,
     /// A malformed or out-of-order message: always a bug.
-    ProtocolError = 6,
+    ProtocolError = 7,
 }
 
 impl From<CloseCode> for VarInt {
@@ -322,17 +327,25 @@ pub(crate) async fn write_work_result(
     Ok(())
 }
 
-/// Reads a Work Result and its header from its stream.
-pub(crate) async fn read_work_result(
-    mut recv: RecvStream,
-) -> Result<(WorkResultHeader, WorkResult), Error> {
-    let header: WorkResultHeader = read_frame(&mut recv)
+/// Reads the header of a Work Result from its stream.
+pub(crate) async fn read_work_result_header(
+    recv: &mut RecvStream,
+) -> Result<WorkResultHeader, Error> {
+    read_frame(recv)
         .await?
-        .ok_or(Error::StreamEnded("a Work Result stream"))?;
+        .ok_or(Error::StreamEnded("a Work Result stream"))
+}
+
+/// Reads the pixel sums of the Work Result `header` heads, to the end of
+/// its stream.
+pub(crate) async fn read_work_result_body(
+    mut recv: RecvStream,
+    header: &WorkResultHeader,
+) -> Result<WorkResult, Error> {
     let body = recv.read_to_end(MAX_BODY).await?;
     if !body.len().is_multiple_of(size_of::<PixelSum>()) {
         return Err(Error::Body(body.len()));
     }
     let pixels = bytemuck::pod_collect_to_vec(&body);
-    Ok((header, WorkResult::new(header.work_unit, pixels)))
+    Ok(WorkResult::new(header.work_unit, pixels))
 }

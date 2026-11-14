@@ -30,7 +30,7 @@ impl Display for WorkerSlot {
 
 /// How many failures in a row, without a Work Result in between, refuse a
 /// Worker Slot for the rest of the Render Job (ADR 0021).
-const FAILURES_TO_REFUSE: u32 = 3;
+pub(crate) const FAILURES_TO_REFUSE: u32 = 3;
 
 /// What happened to the Workers of each Worker Slot in one Render Job.
 #[derive(Debug, Default)]

@@ -161,8 +161,8 @@ struct Idle {
 enum Retry {
     /// Rejoin it.
     Rejoin,
-    /// It was withdrawn meanwhile: be idle.
-    Withdrawn,
+    /// It ended for this Worker, or was withdrawn: be idle.
+    Idle,
     /// The Worker was stopped.
     Stopped,
 }
@@ -181,11 +181,11 @@ impl Idle {
     /// Joins each Render Job of its Cluster as it is announced, until
     /// `stop` is made.
     async fn serve(mut self, stop: &Cancellation) -> Result<(), Error> {
-        let mut retry = Retry::Withdrawn;
+        let mut retry = Retry::Idle;
         while retry != Retry::Stopped
             && let Some((job, address)) = self.wait_for_job(stop).await?
         {
-            retry = self.serve_job(&job, address, stop).await;
+            retry = self.serve_job(&job, address, stop).await?;
         }
         Ok(())
     }
@@ -238,13 +238,18 @@ impl Idle {
 
     /// Serves `job`, at `address`, rejoining it after each failure for as
     /// long as it is announced, until it ends for this Worker.
-    async fn serve_job(&mut self, job: &JobId, address: SocketAddr, stop: &Cancellation) -> Retry {
+    async fn serve_job(
+        &mut self,
+        job: &JobId,
+        address: SocketAddr,
+        stop: &Cancellation,
+    ) -> Result<Retry, Error> {
         let mut failures = 0;
         let mut retry = Retry::Rejoin;
         while retry == Retry::Rejoin {
-            retry = self.attempt(job, address, stop, &mut failures).await;
+            retry = self.attempt(job, address, stop, &mut failures).await?;
         }
-        retry
+        Ok(retry)
     }
 
     /// Serves `job` once, and waits before the next attempt if it failed,
@@ -255,12 +260,12 @@ impl Idle {
         address: SocketAddr,
         stop: &Cancellation,
         failures: &mut usize,
-    ) -> Retry {
+    ) -> Result<Retry, Error> {
         let Attempt { ending, delivered } =
             join::join(address, &self.device, &self.hello, stop).await;
         info!("left Render Job {job}: {ending}");
         if let Some(retry) = self.after(job, &ending) {
-            return retry;
+            return Ok(retry);
         }
         if delivered > 0 {
             *failures = 0;
@@ -276,12 +281,12 @@ impl Idle {
             Ending::Stopped => Some(Retry::Stopped),
             Ending::Finished | Ending::Cancelled => {
                 self.done.insert(job.clone());
-                Some(Retry::Withdrawn)
+                Some(Retry::Idle)
             }
             Ending::Rejected(_) | Ending::ProtocolError(_) => {
                 warn!("never rejoining Render Job {job}");
                 self.done.insert(job.clone());
-                Some(Retry::Withdrawn)
+                Some(Retry::Idle)
             }
             Ending::Failed(_) => None,
         }
@@ -289,7 +294,12 @@ impl Idle {
 
     /// Waits `delay` before rejoining `job`, taking in what it discovers
     /// meanwhile.
-    async fn wait(&mut self, job: &JobId, delay: Duration, stop: &Cancellation) -> Retry {
+    async fn wait(
+        &mut self,
+        job: &JobId,
+        delay: Duration,
+        stop: &Cancellation,
+    ) -> Result<Retry, Error> {
         info!("rejoining Render Job {job} in {} s", delay.as_secs());
         let deadline = time::sleep(delay);
         tokio::pin!(deadline);
@@ -298,24 +308,21 @@ impl Idle {
         while retry.is_none() {
             retry = tokio::select! {
                 () = &mut deadline => Some(Retry::Rejoin),
-                discovery = self.browser.next() => self.withdrawn(job, discovery),
+                discovery = self.browser.next() => self.withdrawn(job, discovery?),
                 _ = ticker.tick() => stop.is_cancelled().then_some(Retry::Stopped),
             };
         }
-        retry.unwrap_or(Retry::Rejoin)
+        Ok(retry.unwrap_or(Retry::Rejoin))
     }
 
     /// Takes in `discovery`, made while waiting to rejoin `job`: whether
-    /// `job` was withdrawn meanwhile. If browsing stopped, it rejoins now.
-    fn withdrawn(&mut self, job: &JobId, discovery: Result<Discovery, Error>) -> Option<Retry> {
-        let Ok(discovery) = discovery else {
-            return Some(Retry::Rejoin);
-        };
+    /// `job` was withdrawn meanwhile.
+    fn withdrawn(&mut self, job: &JobId, discovery: Discovery) -> Option<Retry> {
         self.discovered(discovery);
         let announced = self.announced.iter().any(|(known, _)| known == job);
         (!announced).then(|| {
             info!("Render Job {job} withdrawn");
-            Retry::Withdrawn
+            Retry::Idle
         })
     }
 }

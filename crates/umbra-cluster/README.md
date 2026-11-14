@@ -166,7 +166,10 @@ copy yet (ADR 0009). The first Work Result merged wins; every other holder
 is sent `Cancel`, and drops the Work Unit if it is still rendering, a CPU
 Worker between rows, a GPU Worker only before it batches it. A Worker sends
 exactly one credit per Work Unit, rendered or cancelled. A Work Result for
-a Work Unit merged already is discarded unread.
+a Work Unit its Worker was told to drop has its stream stopped after its
+header (`stop_sending`), and one for a Work Unit merged already is
+discarded unread. On `JobFinished`, a Worker drops its Work Units in
+flight instead of finishing them.
 
 ### Heartbeats carry progress
 

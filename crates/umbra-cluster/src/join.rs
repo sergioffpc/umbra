@@ -336,18 +336,22 @@ fn render(device: &Device, received: Received, connection: WorkerEnd, activity: 
     activity.loading(Loading::Building {
         bytes: loaded.bytes,
     });
-    let start = Instant::now();
+    let to_coordinator = connection.to_coordinator.clone();
     let render_loop = RenderLoop {
         connection,
         activity,
     };
-    match info_span!("scene_build").in_scope(|| builder.build()) {
-        Ok(scene) => {
+    let start = Instant::now();
+    let rendered = info_span!("scene_build")
+        .in_scope(|| builder.build())
+        .map_err(|error| Error::Scene(error).to_string())
+        .and_then(|scene| {
             loaded.build_time = start.elapsed();
             info!("Scene built in {:.3} s", loaded.build_time.as_secs_f64());
-            render_scene(device, &scene, &options, render_loop, loaded);
-        }
-        Err(error) => render_loop.fatal(&Error::Scene(error)),
+            render_scene(device, &scene, &options, render_loop, loaded)
+        });
+    if let Err(reason) = rendered {
+        let _ = to_coordinator.send(ToCoordinator::Fatal(reason));
     }
 }
 
@@ -358,58 +362,37 @@ struct RenderLoop<'a> {
     activity: &'a Activity,
 }
 
-impl RenderLoop<'_> {
-    /// Tells the Coordinator why the Worker cannot continue.
-    fn fatal(&self, error: &dyn std::error::Error) {
-        let _ = self
-            .connection
-            .to_coordinator
-            .send(ToCoordinator::Fatal(error.to_string()));
-    }
-}
-
 /// Builds the renderer of `device` for `scene` and runs `render_loop`; the
 /// Worker is ready, having loaded the Scene as `loaded` says, once the
-/// renderer is.
+/// renderer is. Why it cannot render, if it cannot.
 fn render_scene(
     device: &Device,
     scene: &Scene,
     options: &RenderJobOptions,
     render_loop: RenderLoop<'_>,
     loaded: Loaded,
-) {
+) -> Result<(), String> {
     let RenderLoop {
         connection,
         activity,
     } = render_loop;
+    let reason = |error: &dyn std::error::Error| error.to_string();
     match device {
-        Device::Cpu(pool) => match umbra_cpu::Renderer::new(scene, options) {
-            Ok(renderer) => {
-                activity.loaded(loaded);
-                cpu_worker::work(&renderer, pool, connection, activity);
+        Device::Cpu(pool) => {
+            let renderer = umbra_cpu::Renderer::new(scene, options).map_err(|e| reason(&e))?;
+            activity.loaded(loaded);
+            cpu_worker::work(&renderer, pool, connection, activity);
+            Ok(())
+        }
+        Device::Gpu(gpu) => {
+            let renderer = umbra_gpu::Renderer::new(usize::from(*gpu), scene, options)
+                .map_err(|e| reason(&e))?;
+            activity.loaded(loaded);
+            match gpu_worker::work(&renderer, connection, activity) {
+                gpu_worker::End::Done => Ok(()),
+                gpu_worker::End::Failed(error) => Err(reason(&error)),
             }
-            Err(error) => RenderLoop {
-                connection,
-                activity,
-            }
-            .fatal(&error),
-        },
-        Device::Gpu(gpu) => match umbra_gpu::Renderer::new(usize::from(*gpu), scene, options) {
-            Ok(renderer) => {
-                activity.loaded(loaded);
-                let to_coordinator = connection.to_coordinator.clone();
-                if let gpu_worker::End::Failed(error) =
-                    gpu_worker::work(&renderer, connection, activity)
-                {
-                    let _ = to_coordinator.send(ToCoordinator::Fatal(error.to_string()));
-                }
-            }
-            Err(error) => RenderLoop {
-                connection,
-                activity,
-            }
-            .fatal(&error),
-        },
+        }
     }
 }
 

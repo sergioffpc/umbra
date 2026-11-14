@@ -2,16 +2,17 @@
 //! the Coordinator admit or refuse it, streams it the Scene, watches its
 //! heartbeats, and turns its connection into [`Event`]s (arc42 §8.13).
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use quinn::{Endpoint, Incoming, RecvStream, SendStream};
+use quinn::{Endpoint, Incoming, RecvStream, SendStream, VarInt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time;
 use tracing::{debug, warn};
-use umbra_render::{Decomposition, WorkResult};
+use umbra_render::{Decomposition, WorkResult, WorkUnit};
 use umbra_scene::{RenderJobOptions, SceneBuilder};
 
 use crate::error::Error;
@@ -19,7 +20,7 @@ use crate::quic::{Closed, Closer};
 use crate::transport::{Departure, Event, ToCoordinator, ToWorker, Verdict, WorkerId};
 use crate::wire::{
     self, CloseCode, FromCoordinator, FromWorker, Heartbeat, WorkResultHeader, read_frame,
-    read_work_result, write_frame,
+    read_work_result_body, read_work_result_header, write_frame,
 };
 
 /// How long a refused Worker is given to close by itself, once it has read
@@ -171,6 +172,46 @@ async fn admit(
     }
 }
 
+/// An admitted Worker's connection, as its readers and its writer share it:
+/// the Work Units it was told to drop, whose Work Results are not read.
+struct Link {
+    closer: Arc<Closer>,
+    worker: WorkerId,
+    events: UnboundedSender<Event>,
+    cancelled: Mutex<BTreeSet<WorkUnit>>,
+}
+
+impl Link {
+    /// Whether the Worker was told to drop `unit`.
+    fn is_cancelled(&self, unit: WorkUnit) -> bool {
+        self.cancelled
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&unit)
+    }
+
+    /// The Worker is told to drop `unit`.
+    fn cancel(&self, unit: WorkUnit) {
+        self.cancelled
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(unit);
+    }
+
+    /// Passes `event` on to the Coordinator.
+    fn send(&self, event: Event) {
+        // The Coordinator's loop outlives every connection: a send fails
+        // only as it returns, when nothing is left to tell.
+        let _ = self.events.send(event);
+    }
+
+    /// Closes the connection for `error`, unless it is closed already,
+    /// which is what most read errors mean.
+    fn protocol_error(&self, error: &Error) {
+        protocol_error(&self.closer, self.worker, error);
+    }
+}
+
 /// Relays between the admitted `worker` and the Coordinator until its
 /// connection closes, then lets the Coordinator know it left, and why.
 async fn relay(
@@ -185,20 +226,16 @@ async fn relay(
         control_recv,
         from_coordinator,
     } = admitted;
+    let link = Arc::new(Link {
+        closer: Arc::clone(closer),
+        worker,
+        events: events.clone(),
+        cancelled: Mutex::new(BTreeSet::new()),
+    });
     let mut readers = JoinSet::new();
-    readers.spawn(read_control(
-        Arc::clone(closer),
-        control_recv,
-        worker,
-        events.clone(),
-    ));
-    readers.spawn(read_streams(
-        Arc::clone(closer),
-        worker,
-        serving,
-        events.clone(),
-    ));
-    let how = write(closer, control_send, from_coordinator).await;
+    readers.spawn(read_control(Arc::clone(&link), control_recv));
+    readers.spawn(read_streams(Arc::clone(&link), serving));
+    let how = write(&link, control_send, from_coordinator).await;
     readers.join_all().await;
     let departure = departure(how);
     match departure {
@@ -207,9 +244,7 @@ async fn relay(
             warn!("Worker {worker} lost: {departure} ({how:?})");
         }
     }
-    // The Coordinator's loop outlives every connection: a send fails only
-    // as it returns, when nothing is left to tell.
-    let _ = events.send(Event::Left { worker, departure });
+    link.send(Event::Left { worker, departure });
 }
 
 /// What a Worker's connection closing as `how` says means for its Worker
@@ -238,17 +273,21 @@ fn departure(how: Closed) -> Departure {
 /// Sends the Coordinator's messages on the control stream until the
 /// connection closes, closing it on a cancellation; returns how it closed.
 async fn write(
-    closer: &Closer,
+    link: &Link,
     mut send: SendStream,
     mut from_coordinator: UnboundedReceiver<ToWorker>,
 ) -> Closed {
+    let closer = &link.closer;
     loop {
         tokio::select! {
             how = closer.closed() => return how,
             message = from_coordinator.recv() => {
                 let frame = match message {
                     Some(ToWorker::Assign(work_unit)) => FromCoordinator::Assign { work_unit },
-                    Some(ToWorker::Cancel(work_unit)) => FromCoordinator::Cancel { work_unit },
+                    Some(ToWorker::Cancel(work_unit)) => {
+                        link.cancel(work_unit);
+                        FromCoordinator::Cancel { work_unit }
+                    }
                     Some(ToWorker::JobFinished) => FromCoordinator::JobFinished,
                     Some(ToWorker::Stop) => {
                         closer.close(CloseCode::JobCancelled, b"");
@@ -267,59 +306,40 @@ async fn write(
 }
 
 /// Forwards the Worker's control messages until the stream ends.
-async fn read_control(
-    closer: Arc<Closer>,
-    mut recv: RecvStream,
-    worker: WorkerId,
-    events: UnboundedSender<Event>,
-) {
+async fn read_control(link: Arc<Link>, mut recv: RecvStream) {
+    let worker = link.worker;
     loop {
         let message = match read_frame(&mut recv).await {
             Ok(Some(FromWorker::RequestWork { count })) => ToCoordinator::RequestWork(count),
             Ok(Some(FromWorker::Fatal { message })) => ToCoordinator::Fatal(message),
             Ok(Some(hello @ FromWorker::Hello(_))) => {
-                return protocol_error(&closer, worker, &Error::OutOfOrder(hello.name()));
+                return link.protocol_error(&Error::OutOfOrder(hello.name()));
             }
-            Ok(None) => {
-                return protocol_error(&closer, worker, &Error::StreamEnded("the control stream"));
-            }
-            Err(error) => return protocol_error(&closer, worker, &error),
+            Ok(None) => return link.protocol_error(&Error::StreamEnded("the control stream")),
+            Err(error) => return link.protocol_error(&error),
         };
-        let _ = events.send(Event::Message { worker, message });
+        link.send(Event::Message { worker, message });
     }
 }
 
 /// Reads the Worker's streams: its heartbeat stream, the first it opens,
 /// then each Work Result stream, concurrently.
-async fn read_streams(
-    closer: Arc<Closer>,
-    worker: WorkerId,
-    serving: Arc<Serving>,
-    events: UnboundedSender<Event>,
-) {
-    let connection = closer.connection().clone();
+async fn read_streams(link: Arc<Link>, serving: Arc<Serving>) {
+    let connection = link.closer.connection().clone();
     let mut streams = JoinSet::new();
     let death_time = serving.death_time;
     match time::timeout(death_time, connection.accept_uni()).await {
         Ok(Ok(heartbeats)) => {
-            streams.spawn(read_heartbeats(
-                Arc::clone(&closer),
-                heartbeats,
-                worker,
-                death_time,
-                events.clone(),
-            ));
+            streams.spawn(read_heartbeats(Arc::clone(&link), heartbeats, death_time));
         }
         Ok(Err(_)) => return,
-        Err(_) => return timed_out(&closer, worker),
+        Err(_) => return timed_out(&link),
     }
     while let Ok(recv) = connection.accept_uni().await {
         streams.spawn(read_work_result_stream(
             recv,
-            Arc::clone(&closer),
-            worker,
+            Arc::clone(&link),
             Arc::clone(&serving),
-            events.clone(),
         ));
     }
     streams.join_all().await;
@@ -327,73 +347,75 @@ async fn read_streams(
 
 /// Forwards each heartbeat on `recv`; after `death_time` without one, the
 /// Worker is dead, and its connection closes with `WORKER_TIMED_OUT`.
-async fn read_heartbeats(
-    closer: Arc<Closer>,
-    mut recv: RecvStream,
-    worker: WorkerId,
-    death_time: Duration,
-    events: UnboundedSender<Event>,
-) {
+async fn read_heartbeats(link: Arc<Link>, mut recv: RecvStream, death_time: Duration) {
+    let worker = link.worker;
     loop {
         match time::timeout(death_time, read_frame::<Heartbeat>(&mut recv)).await {
-            Ok(Ok(Some(heartbeat))) => {
-                let _ = events.send(Event::Heartbeat { worker, heartbeat });
-            }
+            Ok(Ok(Some(heartbeat))) => link.send(Event::Heartbeat { worker, heartbeat }),
             // The stream ends as the connection closes.
             Ok(Ok(None)) => return,
-            Ok(Err(error)) => return protocol_error(&closer, worker, &error),
-            Err(_) => return timed_out(&closer, worker),
+            Ok(Err(error)) => return link.protocol_error(&error),
+            Err(_) => return timed_out(&link),
         }
     }
 }
 
-/// Declares `worker` dead: no heartbeat for the death time.
-fn timed_out(closer: &Closer, worker: WorkerId) {
-    if closer.connection().close_reason().is_none() {
-        warn!("Worker {worker}: no heartbeat: declared dead");
-        closer.close(CloseCode::WorkerTimedOut, b"");
+/// Declares the Worker of `link` dead: no heartbeat for the death time.
+fn timed_out(link: &Link) {
+    if link.closer.connection().close_reason().is_none() {
+        warn!("Worker {}: no heartbeat: declared dead", link.worker);
+        link.closer.close(CloseCode::WorkerTimedOut, b"");
     }
 }
 
 /// Forwards the Work Result on `recv` once checked against the Render Job,
-/// or closes the connection of `worker` if it does not answer one of its
-/// Work Units.
-async fn read_work_result_stream(
-    recv: RecvStream,
-    closer: Arc<Closer>,
-    worker: WorkerId,
-    serving: Arc<Serving>,
-    events: UnboundedSender<Event>,
-) {
-    match read_checked(recv, &serving.replica.decomposition).await {
-        Ok((header, result)) => {
+/// or closes the connection if it does not answer one of its Work Units.
+/// One whose Work Unit the Worker was told to drop is not read: its stream
+/// is stopped (`stop_sending`), and nothing is forwarded.
+async fn read_work_result_stream(mut recv: RecvStream, link: Arc<Link>, serving: Arc<Serving>) {
+    let header = match read_work_result_header(&mut recv).await {
+        Ok(header) => header,
+        Err(error) => return link.protocol_error(&error),
+    };
+    if link.is_cancelled(header.work_unit) {
+        // The stream may have ended already: then there is nothing to stop.
+        let _ = recv.stop(VarInt::from_u32(0));
+        return;
+    }
+    match read_checked(recv, &header, &serving.replica.decomposition).await {
+        Ok(result) => {
             let message = ToCoordinator::WorkResult {
                 result,
                 render_time: header.render_time,
                 thread_time: header.thread_time,
             };
-            let _ = events.send(Event::Message { worker, message });
+            link.send(Event::Message {
+                worker: link.worker,
+                message,
+            });
         }
-        Err(error) => protocol_error(&closer, worker, &error),
+        Err(error) => link.protocol_error(&error),
     }
 }
 
-/// The Work Result on `recv`, if it answers a Work Unit of the Render Job
-/// with one sum per pixel of its Tile.
+/// The pixel sums on `recv` of the Work Result `header` heads, if it
+/// answers a Work Unit of the Render Job with one sum per pixel of its
+/// Tile.
 async fn read_checked(
     recv: RecvStream,
+    header: &WorkResultHeader,
     decomposition: &Decomposition,
-) -> Result<(WorkResultHeader, WorkResult), Error> {
-    let (header, result) = read_work_result(recv).await?;
-    let unit = result.unit();
+) -> Result<WorkResult, Error> {
+    let unit = header.work_unit;
     if !decomposition.contains(unit) {
         return Err(Error::UnknownWorkUnit(unit));
     }
+    let result = read_work_result_body(recv, header).await?;
     let pixels = result.pixels().len();
     if pixels != decomposition.tile_bounds(unit.tile).area() {
         return Err(Error::WrongSize { unit, pixels });
     }
-    Ok((header, result))
+    Ok(result)
 }
 
 /// Closes the connection of `worker` for `error`, unless it is closed
