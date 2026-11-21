@@ -16,11 +16,13 @@
 # from the commit alone, without checking out submodules.
 #
 # A layer's inputs are: its Dockerfile, .dockerignore and any other file
-# its Dockerfile reads (e.g. docker/python-tools.txt), the shared
-# superbuild files (third_party/CMakeLists.txt, third_party/cmake/), its layer
-# file, and for each of its dependencies the submodule, its config/ file and
-# its patches/ directory. To add a layer, add a case below with its paths and
-# its parent layer.
+# its Dockerfile reads (e.g. docker/python-tools.txt), the superbuild files
+# every layer uses (third_party/CMakeLists.txt, third_party/cmake/), its layer
+# file and its layer directory of helpers only it uses (layers/<layer>/, if
+# any), and for each of its dependencies the submodule, its config/ file and
+# its patches/ directory. Nothing only another layer uses may be an input, or
+# that layer's changes would rebuild this one. To add a layer, add a case
+# below with its paths and its parent layer.
 name: Layer image
 description: Compute the content-addressed image reference of an image layer.
 
@@ -78,6 +80,7 @@ runs:
                 docker/deps.Dockerfile.dockerignore \
                 "${superbuild[@]}" \
                 third_party/layers/deps.cmake \
+                third_party/layers/deps \
                 third_party/googletest \
                 third_party/config/googletest.cmake \
                 third_party/patches/googletest \

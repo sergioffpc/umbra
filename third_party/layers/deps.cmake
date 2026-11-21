@@ -58,7 +58,7 @@ add_custom_target(deps-clangd-index
           "-DDATABASES=${umbra_deps_databases}"
           "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/clangd-index"
           "-DOUTPUT=${umbra_deps_index}"
-          -P "${UMBRA_SUPERBUILD_DIR}/cmake/BuildClangdIndex.cmake"
+          -P "${UMBRA_SUPERBUILD_DIR}/layers/deps/BuildClangdIndex.cmake"
   COMMENT "Indexing the dependency sources for clangd"
   USES_TERMINAL
   VERBATIM)

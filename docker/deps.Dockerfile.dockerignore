@@ -5,6 +5,7 @@
 !third_party/CMakeLists.txt
 !third_party/cmake/
 !third_party/layers/deps.cmake
+!third_party/layers/deps/
 !third_party/config/googletest.cmake
 !third_party/patches/googletest/
 !third_party/googletest/
