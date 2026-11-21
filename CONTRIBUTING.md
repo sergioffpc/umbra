@@ -162,8 +162,8 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
 
-The hooks use LLVM's own tools (git-clang-format, run-clang-tidy /
-clang-tidy-diff, clang-query) rather than reimplementations.
+The hooks use LLVM's own tools (git-clang-format, run-clang-tidy,
+clang-query) rather than reimplementations.
 
 ## Safety rules
 
