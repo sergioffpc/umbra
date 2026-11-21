@@ -127,8 +127,8 @@ Every commit and release tag must be cryptographically signed.
 - CI requires every pull request commit to be reported as verified by GitHub,
   and the release job verifies that release tags are signed. Add your signing
   key to your GitHub account as a **signing key** so your commits verify.
-- Squash merges, Dependabot commits and automation commits (such as the
-  devcontainer image pin update) are signed by GitHub.
+- Squash merges, Dependabot commits and automation commits (the devcontainer
+  image pin update and the submodule bumps) are signed by GitHub.
 
 ## Git hooks
 
@@ -266,7 +266,9 @@ clang-tidy families and the function limits below), this document wins.
   verify it.
 
 - Third-party dependencies must use a license on the allow-list:
-  Apache-2.0, BSD-2-Clause, BSD-3-Clause, MIT, Zlib or BSL-1.0.
+  Apache-2.0 (including `Apache-2.0 WITH LLVM-exception`), BSD-2-Clause,
+  BSD-3-Clause, MIT, Zlib or BSL-1.0. CI checks the license expressions of
+  the versions manifest.
 
 ## Testing policy
 
@@ -294,8 +296,8 @@ clang-tidy families and the function limits below), this document wins.
    must be a Conventional Commit.
 
 Every pull request must pass the required CI jobs: conventions, format, lint,
-build-debug, build-release, sanitize-address, sanitize-thread, modules and,
-on release and hotfix branches, release.
+build-debug, build-release, sanitize-address, sanitize-thread, modules,
+third-party and, on release and hotfix branches, release.
 
 ## Versioning and releases
 
@@ -308,20 +310,34 @@ starting at 0.1.0. The version is declared in the CMake project.
 | `feat` | minor | minor |
 | `fix` | patch | patch |
 
-The move to 1.0.0 is a deliberate, manual decision by the maintainers.
+The move to 1.0.0 is a deliberate, manual decision by the maintainers
+(`git cliff --bump major`); git-cliff never makes it on its own.
+
+git-cliff (configured in `cliff.toml`, installed in the devcontainer) computes
+the next version from the Conventional Commits since the last `vX.Y.Z` tag and
+drafts the changelog. Only `feat`, `fix`, `perf`, `revert` and breaking
+commits reach the changelog, under ⚠ Breaking Changes, Added, Fixed,
+Performance and Reverted.
 
 To cut a release:
 
-1. Run `git cliff --bumped-version` to compute the next version.
+1. Run `git cliff --bumped-version` to compute the next version, `vX.Y.Z`.
+   The first release is 0.1.0.
 2. Create `release/X.Y.Z` from `develop`.
-3. Set the CMake project version to `X.Y.Z` and prepend the changelog section
-   drafted by git-cliff to [CHANGELOG.md](CHANGELOG.md), dated, in
-   [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
-4. Open a pull request into `main`. CI checks that the branch version equals
-   the CMake version and git-cliff's bumped version, and that the changelog
-   has a dated section for it.
-5. Merge with `--no-ff`, create the signed tag `vX.Y.Z` on `main`, and merge
-   `main` back into `develop`.
+3. Set the CMake project version to `X.Y.Z`
+   (`project(umbra VERSION X.Y.Z ...)`).
+4. Run `git cliff --bump --unreleased --strip all` and paste the dated
+   `## [X.Y.Z] - YYYY-MM-DD` section it drafts into
+   [CHANGELOG.md](CHANGELOG.md), right below `## [Unreleased]`, in
+   [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Edit the
+   entries if they need it.
+5. Open a pull request into `main`. The CI `release` job checks that the
+   branch version equals the CMake project version and git-cliff's bumped
+   version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
+   section for it, and that every existing release tag is signed.
+6. Merge with `--no-ff`, create the signed annotated tag `vX.Y.Z` on `main`
+   (`git tag -s`, or `git flow release finish` with signing enabled), and
+   merge `main` back into `develop`.
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 
@@ -330,9 +346,25 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 - Dependencies are git submodules under `third_party/`, pinned to official
   release tags, never patched in-tree. Patches live in a dedicated directory
   and are applied at build time.
-- The versions manifest lists the name, tag, commit and license of each
-  submodule; CI checks it against the actual submodule commits.
+- The versions manifest, `third_party/versions.md`, lists the name, path,
+  tag, commit and license of each submodule. Update its row in the same
+  commit that moves a submodule. The CI `third-party` job checks that every
+  submodule has a row, that the row's commit is the submodule commit and the
+  commit its upstream tag points to, and that the license is on the
+  allow-list.
 - A new dependency arrives in its own `build(deps): add <dep>` pull request.
+- Updates arrive as weekly pull requests titled `build(deps): bump ...` and
+  labelled `dependencies`, one per dependency:
+  - GitHub Actions are updated by Dependabot.
+  - Submodules are updated by the `submodules` workflow, which moves a
+    submodule to its newest upstream release tag (tags shaped like the pinned
+    one, so pre-releases are skipped) and updates its manifest row in the same
+    commit, on a `feature/bump-<dep>-<tag>` branch. Dependabot is not used
+    for submodules because it follows branch heads, not release tags.
+  - Pull requests opened by the workflow start no workflow runs. Run the
+    deps workflow on the branch, then close and reopen the pull request to
+    run CI. The workflow needs the repository setting "Allow GitHub Actions
+    to create and approve pull requests".
 - Dependency images are rebuilt by the deps workflow only when third-party,
   Docker or superbuild inputs change.
 - When the `umbra-deps` tag changes, the deps workflow commits the new pin in
