@@ -46,7 +46,7 @@
     },
     {
       "name": "tsan",
-      "displayName": "TSan",
+      "displayName": "TSan + UBSan integer checks",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",

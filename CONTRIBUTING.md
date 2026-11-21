@@ -56,7 +56,7 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make test` | Debug build and run the tests |
 | `make release` | Release build and tests |
 | `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
-| `make tsan` | ThreadSanitizer build and tests |
+| `make tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests |
 | `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
 | `make lint` | Run clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
 | `make checks` | Run the validators shared with the git hooks and CI: the file validators on every tracked file, the current branch name, and the commit messages since `develop` |

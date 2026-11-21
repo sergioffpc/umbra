@@ -436,9 +436,10 @@ jobs:
       - name: Build and test
         run: make asan
 
-  # TSan. The unconfined seccomp profile lets TSan re-execute itself with
-  # address space randomization disabled when the runner's randomization is
-  # too strong for its memory layout.
+  # TSan + the UBSan integer, conversion and nullability checks (with pattern
+  # auto-var-init). The unconfined seccomp profile lets TSan re-execute itself
+  # with address space randomization disabled when the runner's randomization
+  # is too strong for its memory layout.
   sanitize-thread:
     needs: image
     runs-on: ubuntu-24.04

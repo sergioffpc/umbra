@@ -20,7 +20,7 @@ release: ## Release build (LTO) and run the tests
 asan: ## ASan + UBSan build and run the tests
 	cmake --workflow --preset asan
 
-tsan: ## TSan build and run the tests
+tsan: ## TSan + UBSan integer checks build and run the tests
 	cmake --workflow --preset tsan
 
 format: ## Format the C++ and Python sources
