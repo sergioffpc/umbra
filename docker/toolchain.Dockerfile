@@ -4,7 +4,8 @@
 # umbra-toolchain: Ubuntu 26.04 with LLVM 23 built from the llvm-project
 # submodule by the third-party superbuild (layer "toolchain"), plus the C-ABI
 # libraries and build tools that come from Ubuntu, release tools (git-cliff,
-# git-flow-next, actionlint) and the Python lint and format tools.
+# git-flow-next) and the lint tools (actionlint, shellcheck and the Python lint
+# and format tools).
 #
 # Build from the repository root with the submodules checked out:
 #   docker buildx build -f docker/toolchain.Dockerfile .
@@ -43,9 +44,10 @@ RUN --mount=type=bind,source=third_party,target=/src/third_party,rw \
           -DUMBRA_BUILD_CACHE_DIR=/var/cache/umbra-build \
  && cmake --build /tmp/superbuild --target layer-toolchain
 
-# Release binaries of git-cliff, git-flow-next and actionlint, verified by
-# SHA256. All three are statically linked and need no GCC runtime (for
-# git-cliff that is the musl build).
+# Release binaries of git-cliff, git-flow-next, actionlint and shellcheck,
+# verified by SHA256. All four are statically linked and need no GCC runtime
+# (for git-cliff that is the musl build). actionlint runs shellcheck on the
+# workflows' scripts when it is on PATH.
 FROM ${UBUNTU} AS tools
 ARG DEBIAN_FRONTEND=noninteractive
 ARG GIT_CLIFF_VERSION=2.14.2
@@ -54,8 +56,10 @@ ARG GIT_FLOW_NEXT_VERSION=2.1.0
 ARG GIT_FLOW_NEXT_SHA256=e335b5818f2b2f820c17844c194030d0db78f3cdfa9bb999fcb9ce092ba9ecd2
 ARG ACTIONLINT_VERSION=1.7.12
 ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG SHELLCHECK_VERSION=0.11.0
+ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp/tools
 RUN curl -fsSLo git-cliff.tar.gz \
@@ -67,12 +71,17 @@ RUN curl -fsSLo git-cliff.tar.gz \
  && curl -fsSLo actionlint.tar.gz \
       "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
  && echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c - \
+ && curl -fsSLo shellcheck.tar.xz \
+      "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+ && echo "${SHELLCHECK_SHA256}  shellcheck.tar.xz" | sha256sum -c - \
  && tar -xzf git-cliff.tar.gz \
  && tar -xzf git-flow-next.tar.gz \
  && tar -xzf actionlint.tar.gz \
+ && tar -xJf shellcheck.tar.xz \
  && install -D -m 0755 "git-cliff-${GIT_CLIFF_VERSION}/git-cliff" /out/bin/git-cliff \
  && install -D -m 0755 git-flow /out/bin/git-flow \
- && install -D -m 0755 actionlint /out/bin/actionlint
+ && install -D -m 0755 actionlint /out/bin/actionlint \
+ && install -D -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /out/bin/shellcheck
 
 # Python lint and format tools, pinned with hashes in docker/python-tools.txt.
 FROM ${UBUNTU} AS python-tools
