@@ -81,6 +81,7 @@ jobs:
         run: |
           git submodule update --init --depth 1 --recursive
           # Single quotes: foreach expands the script in each submodule.
+          # shellcheck disable=SC2016
           git submodule foreach --quiet --recursive '
             ts=$(git log -1 --format=%ct)
             find . -path ./.git -prune -o -exec touch -h -d "@$ts" {} +
@@ -307,12 +308,13 @@ jobs:
             echo "exists=false" >>"$GITHUB_OUTPUT"
           fi
 
-      # $SUBMODULES is split into paths on purpose.
       - name: Check out submodules
         if: steps.published.outputs.exists == 'false'
         env:
           SUBMODULES: ${{ steps.image.outputs.submodules }}
-        run: git submodule update --init --depth 1 -- $SUBMODULES
+        run: |
+          read -ra paths <<<"$SUBMODULES"
+          git submodule update --init --depth 1 -- "${paths[@]}"
 
       - name: Set up Buildx
         id: buildx
@@ -479,6 +481,8 @@ jobs:
             exit 0
           fi
           sed -i -E "s|$image_line|\\1$REF\\3|" "$pin"
+          # The GraphQL query's $variables are not shell expansions.
+          # shellcheck disable=SC2016
           gh api graphql \
             -f repository="$GITHUB_REPOSITORY" \
             -f branch="$BRANCH" \
