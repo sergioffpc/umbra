@@ -7,7 +7,7 @@
   "name": "umbra",
   // Pinned by content hash: the deps workflow rewrites this line, and CI
   // fails when it differs from the hash of the current deps inputs.
-  "image": "ghcr.io/sergioffpc/umbra-deps:d4815b5260bd979a",
+  "image": "ghcr.io/sergioffpc/umbra-deps:3d440b38e7180332",
 
   // The host user becomes the image's dev user (uid/gid 1000), so files in
   // the workspace keep the host user's ownership. lldb and the sanitizers
