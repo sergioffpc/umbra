@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+"""Validate pushed branch names, reject unsigned commits, and build and test.
+
+git passes the remote name and URL as arguments and one line per pushed ref
+on stdin: ``<local ref> <local sha> <remote ref> <remote sha>``.
+
+Only the presence of a signature is checked: no allowed-signers file is
+committed, and GitHub verifies the signatures in CI.
+
+When the refs and commits are valid, a quick debug build runs the tests
+(``make test``) on the working tree. It needs the devcontainer toolchain: the
+devcontainer is the only supported environment.
+
+Usage (run by git): .githooks/pre-push REMOTE URL < REFS
+"""
+
+# git fixes the hook file name, which is not a valid module name.
+# pylint: disable=invalid-name
+
+from collections.abc import Iterable, Sequence
+import pathlib
+import shutil
+import subprocess
+import sys
+
+# The checks package lives at the repository root, which is not on the import
+# path of a hook; it is added before importing it.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+# pylint: disable=wrong-import-position
+from checks import branch_name
+from checks import git
+from checks import report
+
+# pylint: enable=wrong-import-position
+
+BRANCH_PREFIX = "refs/heads/"
+SIGNATURE_HEADERS = (b"gpgsig ", b"gpgsig-sha256 ")
+# The programs the debug build and test needs.
+BUILD_TOOLS = ("make", "cmake", "ninja", "clang++", "ctest")
+
+
+def is_null(sha: str) -> bool:
+    """Returns whether ``sha`` is git's all-zeros object name."""
+    return set(sha) == {"0"}
+
+
+def object_exists(sha: str) -> bool:
+    """Returns whether ``sha`` names a commit in the local repository."""
+    try:
+        git.run("cat-file", "-e", f"{sha}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def new_commits(remote: str, local_sha: str, remote_sha: str) -> list[str]:
+    """Returns the commits that the push sends to the remote.
+
+    Args:
+        remote: The name of the remote.
+        local_sha: The commit being pushed.
+        remote_sha: The commit the remote ref points to; all zeros when the
+            ref is new.
+
+    Returns:
+        The object names of the commits not yet on the remote.
+    """
+    if not is_null(remote_sha) and object_exists(remote_sha):
+        exclude = [remote_sha]
+    else:
+        exclude = [f"--remotes={remote}"]
+    return git.run("rev-list", local_sha, "--not", *exclude).split()
+
+
+def is_signed(sha: str) -> bool:
+    """Returns whether the commit object carries a signature header."""
+    raw = subprocess.run(
+        ["git", "cat-file", "commit", sha],
+        cwd=git.REPO_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+    headers = raw.split(b"\n\n", 1)[0]
+    return any(
+        line.startswith(SIGNATURE_HEADERS) for line in headers.split(b"\n")
+    )
+
+
+def subject(sha: str) -> str:
+    """Returns the abbreviated object name and subject of a commit."""
+    return git.run("log", "-1", "--format=%h %s", sha).strip()
+
+
+def build_and_test() -> int:
+    """Builds the working tree in the debug preset and runs the tests.
+
+    Returns:
+        The process exit status: 0 when the build and the tests pass, 1
+        otherwise.
+    """
+    missing = [tool for tool in BUILD_TOOLS if shutil.which(tool) is None]
+    if missing:
+        return report.fail(
+            "cannot build and test before pushing",
+            [
+                "not found on PATH: " + ", ".join(missing),
+                "push from the devcontainer, the only supported environment",
+            ],
+        )
+    print("pre-push: debug build and tests (make test)", file=sys.stderr)
+    status = git.call(["make", "test"]).returncode
+    return report.exit_status(
+        "debug build or tests failed", "make test", status
+    )
+
+
+def main(argv: Sequence[str], refs: Iterable[str]) -> int:
+    """Validates the refs and commits of a push.
+
+    Args:
+        argv: The hook arguments: the remote name and URL.
+        refs: The lines git writes to the hook's standard input.
+
+    Returns:
+        The process exit status: 0 when the push is valid, 1 otherwise.
+    """
+    remote = argv[0]
+    branch_errors: list[str] = []
+    unsigned: dict[str, str] = {}
+    pushes = 0
+    for line in refs:
+        _, local_sha, remote_ref, remote_sha = line.split()
+        if is_null(local_sha):
+            continue  # Deletion.
+        pushes += 1
+        if remote_ref.startswith(BRANCH_PREFIX):
+            branch_errors.extend(
+                branch_name.validate(remote_ref.removeprefix(BRANCH_PREFIX))
+            )
+        for sha in new_commits(remote, local_sha, remote_sha):
+            if sha not in unsigned and not is_signed(sha):
+                unsigned[sha] = subject(sha)
+    status = report.fail("invalid branch name", branch_errors)
+    signature_errors = [f"unsigned commit {line}" for line in unsigned.values()]
+    status = (
+        report.fail("push contains unsigned commits", signature_errors)
+        or status
+    )
+    if status or not pushes:
+        return status
+    return build_and_test()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:], sys.stdin))

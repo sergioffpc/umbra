@@ -1,0 +1,33 @@
+# Build trees
+/build/
+/out/
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# clangd
+.cache/
+
+# Coverage
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Claude Code: only the project settings are shared
+.claude/*
+!.claude/settings.json
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# clangd configuration for umbra inside the devcontainer.
+#
+# Code navigation reaches the third-party dependencies through the static
+# index the deps image ships at /opt/umbra/share/clangd/deps.idx, built over
+# the dependency sources in /opt/umbra/src (absolute paths), while the
+# background index covers umbra's own code. The external index is attached to
+# this repository (its MountPoint defaults to this directory): clangd picks the
+# external index from the configuration of the file a request comes from, so
+# a MountPoint on /opt/umbra/src would never apply to umbra's files.
+
+CompileFlags:
+  # Exported by the debug CMake preset, which the devcontainer configures
+  # when it is created.
+  CompilationDatabase: build/debug
+
+Index:
+  External:
+    File: /opt/umbra/share/clangd/deps.idx
+
+Diagnostics:
+  # Runs the checks of .clang-tidy while typing, except those known to be
+  # slow; the pre-commit hook and CI run all of them.
+  ClangTidy:
+    FastCheckFilter: Loose
+
+Completion:
+  HeaderInsertion: Never
+
+---
+# An external index turns the background index off for the files under its
+# mount point. This later fragment turns it back on for umbra's code.
+Index:
+  Background: Build

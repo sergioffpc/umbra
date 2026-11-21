@@ -1,0 +1,134 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Computes the image reference of a container image layer. Shared by every
+# workflow that builds or pins a layer image, so that they all agree on tags.
+#
+# Recipe (keep in sync with the layer list below):
+#   tag = first 16 hex digits of sha256 over
+#           "parent <parent image ref>\n"     (layers with a parent only)
+#           + `git ls-tree -r HEAD -- <layer input paths>`
+#   ref = ghcr.io/<owner>/umbra-<layer>:<tag>
+# `git ls-tree` lists mode, object id and path of every tracked file under the
+# input paths, and the commit of every submodule among them. The tag therefore
+# changes exactly when a submodule commit, a patch, a superbuild file or a
+# Dockerfile of the layer (or its parent's tag) changes, and it is computed
+# from the commit alone, without checking out submodules.
+#
+# A layer's inputs are: its Dockerfile, .dockerignore and any other file
+# its Dockerfile reads (e.g. docker/python-tools.txt), the superbuild files
+# every layer uses (third_party/CMakeLists.txt, third_party/cmake/), its layer
+# file and its layer directory of helpers only it uses (layers/<layer>/, if
+# any), and for each of its dependencies the submodule, its config/ file and
+# its patches/ directory. Nothing only another layer uses may be an input, or
+# that layer's changes would rebuild this one. To add a layer, add a case
+# below with its paths and its parent layer.
+name: Layer image
+description: Compute the content-addressed image reference of an image layer.
+
+inputs:
+  layer:
+    description: Layer name (toolchain, deps).
+    required: true
+
+outputs:
+  tag:
+    description: Content hash tag of the layer.
+    value: ${{ steps.compute.outputs.tag }}
+  image:
+    description: Image repository without tag.
+    value: ${{ steps.compute.outputs.image }}
+  ref:
+    description: Full image reference (image:tag).
+    value: ${{ steps.compute.outputs.ref }}
+  submodules:
+    description: >-
+      Space-separated paths of the submodules among the layer's inputs, to
+      check out before building it.
+    value: ${{ steps.compute.outputs.submodules }}
+
+runs:
+  using: composite
+  steps:
+    - id: compute
+      shell: bash
+      env:
+        LAYER: ${{ inputs.layer }}
+        OWNER: ${{ github.repository_owner }}
+      run: |
+        set -euo pipefail
+        shopt -s inherit_errexit
+        superbuild=(third_party/CMakeLists.txt third_party/cmake)
+
+        # Prints "<parent layer or ->" followed by the layer's input paths.
+        layer_inputs() {
+          case "$1" in
+            toolchain)
+              echo - \
+                docker/toolchain.Dockerfile \
+                docker/toolchain.Dockerfile.dockerignore \
+                docker/python-tools.txt \
+                "${superbuild[@]}" \
+                third_party/layers/toolchain.cmake \
+                third_party/llvm-project \
+                third_party/config/llvm-project.cmake \
+                third_party/patches/llvm-project
+              ;;
+            deps)
+              echo toolchain \
+                docker/deps.Dockerfile \
+                docker/deps.Dockerfile.dockerignore \
+                "${superbuild[@]}" \
+                third_party/layers/deps.cmake \
+                third_party/layers/deps \
+                third_party/googletest \
+                third_party/config/googletest.cmake \
+                third_party/patches/googletest \
+                third_party/benchmark \
+                third_party/config/benchmark.cmake \
+                third_party/patches/benchmark
+              ;;
+            *)
+              echo "::error::unknown image layer '$1'" >&2
+              return 1
+              ;;
+          esac
+        }
+
+        image_of() { echo "ghcr.io/${OWNER,,}/umbra-$1"; }
+
+        tag_of() {
+          local inputs parent path
+          inputs=$(layer_inputs "$1")
+          read -r parent inputs <<<"$inputs"
+          for path in $inputs; do
+            # patches/<dep> may be absent: a dependency without patches.
+            case "$path" in third_party/patches/*) continue ;; esac
+            if [[ -z "$(git ls-tree HEAD -- "$path")" ]]; then
+              echo "::error::input '$path' of layer '$1' is not tracked" >&2
+              return 1
+            fi
+          done
+          {
+            if [[ "$parent" != - ]]; then
+              echo "parent $(image_of "$parent"):$(tag_of "$parent")"
+            fi
+            # $inputs is split into paths on purpose.
+            git ls-tree -r HEAD -- $inputs
+          } | sha256sum | cut -c1-16
+        }
+
+        tag=$(tag_of "$LAYER")
+        image=$(image_of "$LAYER")
+        inputs=$(layer_inputs "$LAYER")
+        read -r _ inputs <<<"$inputs"
+        # $inputs is split into paths on purpose; mode 160000 is a submodule.
+        submodules=$(git ls-tree HEAD -- $inputs \
+          | awk '$1 == "160000" { print $4 }' | xargs)
+        {
+          echo "tag=$tag"
+          echo "image=$image"
+          echo "ref=$image:$tag"
+          echo "submodules=$submodules"
+        } >>"$GITHUB_OUTPUT"
+        echo "$LAYER image: $image:$tag"
