@@ -1,0 +1,261 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Builds the prebuilt container image layers when their inputs change, or on
+# manual dispatch (e.g. on a Dependabot branch, whose token is read-only).
+# Each layer is tagged with a hash of its inputs (see
+# .github/actions/layer-image) and skipped when that tag is already published.
+name: deps
+
+on:
+  push:
+    paths:
+      - .gitmodules
+      - third_party/**
+      - docker/**
+      - .github/actions/layer-image/**
+      - .github/workflows/deps.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a running layer build: its progress is only kept in the cache
+# when the build step ends on its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Cache mount of docker/toolchain.Dockerfile holding the LLVM build tree.
+  TOOLCHAIN_CACHE_ID: umbra-toolchain-build
+  TOOLCHAIN_CACHE_TARGET: /var/cache/umbra-build
+
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.image.outputs.ref }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compute image tag
+        id: image
+        uses: ./.github/actions/layer-image
+        with:
+          layer: toolchain
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check whether the image exists
+        id: published
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: |
+          if docker manifest inspect "$REF" >/dev/null 2>&1; then
+            echo "$REF is already published; nothing to build."
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # Source mtimes are set to each submodule's commit time so that a build
+      # tree restored from the cache is newer than the sources and ninja
+      # resumes instead of rebuilding everything.
+      - name: Check out submodules
+        if: steps.published.outputs.exists == 'false'
+        run: |
+          git submodule update --init --depth 1 --recursive
+          # Single quotes: foreach expands the script in each submodule.
+          git submodule foreach --quiet --recursive '
+            ts=$(git log -1 --format=%ct)
+            find . -path ./.git -prune -o -exec touch -h -d "@$ts" {} +
+          '
+
+      - name: Set up Buildx
+        id: buildx
+        if: steps.published.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Restore the LLVM build tree
+        id: cache
+        if: steps.published.outputs.exists == 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/toolchain-build
+          key: toolchain-build-${{ steps.image.outputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: toolchain-build-${{ steps.image.outputs.tag }}-
+
+      # Copies the restored tree into the BuildKit cache mount the Dockerfile
+      # builds in.
+      - name: Load the LLVM build tree into BuildKit
+        if: steps.cache.outputs.cache-matched-key != ''
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          CACHE_DIR: ${{ runner.temp }}/toolchain-build
+        run: |
+          docker buildx build --builder "$BUILDER" --file - "$CACHE_DIR" <<EOF
+          FROM ubuntu:26.04
+          RUN --mount=type=cache,id=${TOOLCHAIN_CACHE_ID},target=${TOOLCHAIN_CACHE_TARGET},sharing=locked \
+              --mount=type=bind,target=/restore \
+              cp -a /restore/. ${TOOLCHAIN_CACHE_TARGET}/
+          EOF
+          rm -rf "$CACHE_DIR"
+
+      # The step timeout leaves the job time to save the build tree: a step
+      # that times out fails, so the steps below still run.
+      - name: Build the image
+        id: build
+        if: steps.published.outputs.exists == 'false'
+        timeout-minutes: 300
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/toolchain.Dockerfile
+          target: toolchain
+          builder: ${{ steps.buildx.outputs.name }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ steps.image.outputs.ref }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Save the LLVM build tree from BuildKit
+        if: >-
+          always() && steps.published.outputs.exists == 'false'
+          && steps.buildx.outcome == 'success' && steps.build.outcome != 'success'
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          CACHE_DIR: ${{ runner.temp }}/toolchain-build
+        run: |
+          rm -rf "$CACHE_DIR"
+          empty=$(mktemp -d)
+          docker buildx build --builder "$BUILDER" --file - \
+            --output "type=local,dest=$CACHE_DIR" "$empty" <<EOF
+          FROM ubuntu:26.04 AS export
+          RUN --mount=type=cache,id=${TOOLCHAIN_CACHE_ID},target=${TOOLCHAIN_CACHE_TARGET},sharing=locked \
+              mkdir /export && cp -a ${TOOLCHAIN_CACHE_TARGET}/. /export/
+          FROM scratch
+          COPY --from=export /export/ /
+          EOF
+
+      # Saved only when the build did not finish: a published image makes the
+      # build tree useless.
+      - name: Cache the LLVM build tree
+        if: >-
+          always() && steps.published.outputs.exists == 'false'
+          && steps.buildx.outcome == 'success' && steps.build.outcome != 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/toolchain-build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Verify the toolchain
+        if: steps.published.outputs.exists == 'false'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: |
+          docker run --rm -i "$REF" bash -s <<'EOF'
+          set -euo pipefail
+          status=0
+          fail() { echo "::error::$*"; status=1; }
+
+          # No ELF file of the toolchain may need a GCC runtime, directly
+          # (NEEDED) or through its dependencies (ldd), and every dependency
+          # must resolve.
+          gcc_runtime='libstdc\+\+\.so|libgcc_s\.so|(^|[^_.[:alnum:]])libatomic\.so'
+          elf_count=0
+          while IFS= read -r -d '' file; do
+            magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
+            [[ "$magic" == 7f454c46 ]] || continue
+            elf_count=$((elf_count + 1))
+            if llvm-readelf --dynamic "$file" 2>/dev/null \
+                | grep '(NEEDED)' | grep -Eq "$gcc_runtime"; then
+              fail "$file needs a GCC runtime (NEEDED)"
+            fi
+            if deps=$(ldd "$file" 2>/dev/null); then
+              if grep -Eq "$gcc_runtime" <<<"$deps"; then
+                fail "$file loads a GCC runtime: $(grep -E "$gcc_runtime" <<<"$deps" | xargs)"
+              fi
+              if grep -q 'not found' <<<"$deps"; then
+                fail "$file has unresolved libraries: $(grep 'not found' <<<"$deps" | xargs)"
+              fi
+            fi
+          done < <(find /usr/local /opt/python-tools -type f -print0)
+          echo "Checked $elf_count ELF files."
+
+          # Tools of the built toolchain are on PATH, from /usr/local/bin.
+          for tool in clang clang++ cc c++ clang-tidy clang-format clang-query \
+              clangd clangd-indexer clang-apply-replacements git-clang-format \
+              run-clang-tidy lld ld.lld lldb lldb-dap llvm-bolt perf2bolt \
+              merge-fdata llvm-mca llvm-xray llvm-cov llvm-profdata \
+              llvm-symbolizer llvm-ar llvm-readelf llvm-objcopy llvm-config \
+              FileCheck git-cliff git-flow actionlint; do
+            path=$(command -v "$tool") || { fail "$tool is not on PATH"; continue; }
+            [[ "$path" == /usr/local/bin/* ]] || fail "$tool resolves to $path"
+          done
+          for tool in cmake ninja make python3 git pylint pyink isort; do
+            command -v "$tool" >/dev/null || fail "$tool is not on PATH"
+          done
+          clang --version | grep -q 'version 23\.1\.6' || fail "clang is not 23.1.6"
+          [[ -f /usr/local/share/opt-viewer/opt-viewer.py ]] || fail "opt-viewer is missing"
+          python3 /usr/local/share/opt-viewer/opt-viewer.py --help >/dev/null \
+            || fail "opt-viewer does not run"
+
+          # compiler-rt runtimes, and the BOLT runtime.
+          runtime_dir=$(clang -print-runtime-dir)
+          for lib in builtins atomic asan ubsan_standalone tsan msan lsan cfi \
+              cfi_diag xray fuzzer fuzzer_no_main profile; do
+            compgen -G "$runtime_dir/libclang_rt.$lib.*" >/dev/null \
+              || fail "compiler-rt runtime $lib is missing from $runtime_dir"
+          done
+          compgen -G '/usr/local/lib/libbolt_rt_instr.a' >/dev/null \
+            || fail "the BOLT instrumentation runtime is missing"
+
+          # No LLVM package from apt (the stage-1 compiler is discarded).
+          apt_llvm=$(dpkg-query -W -f '${Package}\n' \
+            | grep -E '^(clang|lld|lldb|llvm|libllvm|libclang|libc\+\+|libunwind|libomp|python3-lldb)' || true)
+          [[ -z "$apt_llvm" ]] || fail "apt LLVM packages installed: $(xargs <<<"$apt_llvm")"
+
+          # The default toolchain builds a program that uses only LLVM runtimes.
+          cd "$(mktemp -d)"
+          printf '%s\n' '#include <iostream>' \
+            'int main() { std::cout << "hello\n"; return 0; }' >hello.cpp
+          clang++ -std=c++23 -O2 hello.cpp -o hello
+          [[ "$(./hello)" == hello ]] || fail "the test program does not run"
+          ldd ./hello | grep -q 'libc++\.so\.1' || fail "the test program does not use libc++"
+          ! ldd ./hello | grep -Eq "$gcc_runtime" || fail "the test program loads a GCC runtime"
+          clang++ -std=c++23 -g -fsanitize=address,undefined hello.cpp -o hello-asan
+          [[ "$(./hello-asan)" == hello ]] || fail "the sanitized test program does not run"
+
+          exit "$status"
+          EOF
+
+      - name: Publish the image
+        if: steps.published.outputs.exists == 'false'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: docker push "$REF"
+
+      # A container image version is one manifest per tag here (no provenance
+      # or SBOM manifests), so this keeps the five most recent tags.
+      - name: Prune old images
+        if: steps.published.outputs.exists == 'false'
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: umbra-toolchain
+          package-type: container
+          min-versions-to-keep: 5
