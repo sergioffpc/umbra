@@ -5,6 +5,8 @@
 # manual dispatch (e.g. on a Dependabot branch, whose token is read-only).
 # Each layer is tagged with a hash of its inputs (see
 # .github/actions/layer-image) and skipped when that tag is already published.
+# The deps image is built on the toolchain image, and the devcontainer pins it:
+# when the pinned tag differs, this workflow commits the new pin to the branch.
 name: deps
 
 on:
@@ -259,3 +261,244 @@ jobs:
           package-name: umbra-toolchain
           package-type: container
           min-versions-to-keep: 5
+
+  deps:
+    needs: toolchain
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write # the devcontainer pin commit
+      packages: write
+    env:
+      # Dependabot's token is read-only: its runs build and verify the image
+      # but can neither publish nor pin it. Dispatch the workflow manually on
+      # such a branch instead.
+      CAN_WRITE: ${{ github.actor != 'dependabot[bot]' }}
+    outputs:
+      ref: ${{ steps.image.outputs.ref }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compute image tag
+        id: image
+        uses: ./.github/actions/layer-image
+        with:
+          layer: deps
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check whether the image exists
+        id: published
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: |
+          if docker manifest inspect "$REF" >/dev/null 2>&1; then
+            echo "$REF is already published; nothing to build."
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # $SUBMODULES is split into paths on purpose.
+      - name: Check out submodules
+        if: steps.published.outputs.exists == 'false'
+        env:
+          SUBMODULES: ${{ steps.image.outputs.submodules }}
+        run: git submodule update --init --depth 1 -- $SUBMODULES
+
+      - name: Set up Buildx
+        id: buildx
+        if: steps.published.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image
+        if: steps.published.outputs.exists == 'false'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/deps.Dockerfile
+          target: deps
+          build-args: TOOLCHAIN_IMAGE=${{ needs.toolchain.outputs.ref }}
+          builder: ${{ steps.buildx.outputs.name }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ steps.image.outputs.ref }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Verify the dependencies
+        if: steps.published.outputs.exists == 'false'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: |
+          docker run --rm -i "$REF" bash -s <<'EOF'
+          set -euo pipefail
+          status=0
+          fail() { echo "::error::$*"; status=1; }
+          prefix=/opt/umbra
+
+          # The toolchain's rule, extended to the dependencies: no ELF file
+          # under the prefix may need a GCC runtime, directly (NEEDED) or
+          # through its dependencies (ldd), and every dependency must resolve.
+          gcc_runtime='libstdc\+\+\.so|libgcc_s\.so|(^|[^_.[:alnum:]])libatomic\.so'
+          elf_count=0
+          while IFS= read -r -d '' file; do
+            magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
+            [[ "$magic" == 7f454c46 ]] || continue
+            elf_count=$((elf_count + 1))
+            if llvm-readelf --dynamic "$file" 2>/dev/null \
+                | grep '(NEEDED)' | grep -Eq "$gcc_runtime"; then
+              fail "$file needs a GCC runtime (NEEDED)"
+            fi
+            if deps=$(ldd "$file" 2>/dev/null); then
+              if grep -Eq "$gcc_runtime" <<<"$deps"; then
+                fail "$file loads a GCC runtime: $(grep -E "$gcc_runtime" <<<"$deps" | xargs)"
+              fi
+              if grep -q 'not found' <<<"$deps"; then
+                fail "$file has unresolved libraries: $(grep 'not found' <<<"$deps" | xargs)"
+              fi
+            fi
+          done < <(find "$prefix" -type f -print0)
+          echo "Checked $elf_count ELF files."
+
+          # Shared libraries against libc++, found through RUNPATH $ORIGIN.
+          for lib in gtest gtest_main gmock gmock_main benchmark benchmark_main; do
+            file="$prefix/lib/lib$lib.so"
+            [[ -e "$file" ]] || { fail "lib$lib.so is missing"; continue; }
+            dynamic=$(llvm-readelf --dynamic "$file")
+            grep -q '(NEEDED).*\[libc++\.so\.1\]' <<<"$dynamic" \
+              || fail "lib$lib.so does not link libc++"
+            grep -q '(RUNPATH).*\[\$ORIGIN\]' <<<"$dynamic" \
+              || fail "lib$lib.so has no RUNPATH \$ORIGIN"
+            ! grep -q '(RPATH)' <<<"$dynamic" || fail "lib$lib.so has an RPATH"
+          done
+
+          # The sources and the static clangd index over them.
+          for source in googletest/googletest/src/gtest.cc benchmark/src/benchmark.cc; do
+            [[ -f "$prefix/src/$source" ]] || fail "the source $source is missing"
+          done
+          index="$prefix/share/clangd/deps.idx"
+          [[ -s "$index" && "$(head -c 4 "$index")" == RIFF ]] \
+            || fail "the clangd index $index is missing or not a RIFF file"
+
+          # A consumer built without exceptions finds, links and runs both.
+          cd "$(mktemp -d)"
+          cat >CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 4.2)
+          project(smoke LANGUAGES CXX)
+          find_package(GTest CONFIG REQUIRED)
+          find_package(benchmark CONFIG REQUIRED)
+          add_executable(smoke_test smoke_test.cc)
+          target_link_libraries(smoke_test PRIVATE GTest::gmock_main)
+          add_executable(smoke_benchmark smoke_benchmark.cc)
+          target_link_libraries(smoke_benchmark PRIVATE benchmark::benchmark_main)
+          CMAKE
+          cat >smoke_test.cc <<'CXX'
+          #include <gmock/gmock.h>
+          #include <gtest/gtest.h>
+          TEST(Smoke, Matches) { EXPECT_THAT(2 + 2, ::testing::Eq(4)); }
+          CXX
+          cat >smoke_benchmark.cc <<'CXX'
+          #include <benchmark/benchmark.h>
+          static void BM_Smoke(benchmark::State& state) {
+            for (auto _ : state) benchmark::DoNotOptimize(state.iterations());
+          }
+          BENCHMARK(BM_Smoke);
+          CXX
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS='-march=x86-64-v3 -fno-exceptions' >/dev/null
+          cmake --build build >/dev/null
+          ./build/smoke_test >/dev/null || fail "the GoogleTest smoke test fails"
+          ./build/smoke_benchmark --benchmark_min_time=1x >/dev/null \
+            || fail "the Benchmark smoke test fails"
+          for program in build/smoke_test build/smoke_benchmark; do
+            ! ldd "$program" | grep -Eq "$gcc_runtime" \
+              || fail "$program loads a GCC runtime"
+          done
+
+          exit "$status"
+          EOF
+
+      - name: Report a read-only token
+        if: env.CAN_WRITE != 'true'
+        run: >-
+          echo "::warning::The token of this run is read-only, so the image is
+          neither published nor pinned. Run the deps workflow manually on this
+          branch."
+
+      - name: Publish the image
+        if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: docker push "$REF"
+
+      - name: Prune old images
+        if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: umbra-deps
+          package-type: container
+          min-versions-to-keep: 5
+
+      # The pin commit is created through the GraphQL API instead of pushed,
+      # so GitHub signs it. It goes on top of the branch's current head and
+      # edits the file as it is there; a deps run for a newer head re-pins
+      # after this one (the runs of a branch never overlap). Commits made with
+      # this token start no workflow runs.
+      - name: Pin the devcontainer image
+        if: github.ref_type == 'branch' && env.CAN_WRITE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ steps.image.outputs.ref }}
+          TAG: ${{ steps.image.outputs.tag }}
+          BRANCH: ${{ github.ref_name }}
+          PIN_FILE: .devcontainer/devcontainer.json
+        run: |
+          set -euo pipefail
+          image_line='^([[:space:]]*"image":[[:space:]]*")([^"]*)(".*)$'
+          pin="$RUNNER_TEMP/devcontainer.json"
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
+          gh api -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GITHUB_REPOSITORY/contents/$PIN_FILE?ref=$head" >"$pin"
+          pinned=$(sed -nE "s/$image_line/\\2/p" "$pin")
+          if [[ -z "$pinned" ]]; then
+            echo "::error file=$PIN_FILE::no \"image\" line to pin"
+            exit 1
+          fi
+          if [[ "$pinned" == "$REF" ]]; then
+            echo "$PIN_FILE already pins $REF."
+            exit 0
+          fi
+          sed -i -E "s|$image_line|\\1$REF\\3|" "$pin"
+          gh api graphql \
+            -f repository="$GITHUB_REPOSITORY" \
+            -f branch="$BRANCH" \
+            -f head="$head" \
+            -f path="$PIN_FILE" \
+            -f contents="$(base64 -w0 "$pin")" \
+            -f headline="build(devcontainer): pin umbra-deps image $TAG" \
+            -f body="Image $REF, built from $GITHUB_SHA." \
+            -f query='
+              mutation($repository: String!, $branch: String!,
+                       $head: GitObjectID!, $path: String!,
+                       $contents: Base64String!, $headline: String!,
+                       $body: String!) {
+                createCommitOnBranch(input: {
+                  branch: {repositoryNameWithOwner: $repository,
+                           branchName: $branch},
+                  expectedHeadOid: $head,
+                  message: {headline: $headline, body: $body},
+                  fileChanges: {additions: [{path: $path,
+                                             contents: $contents}]}
+                }) { commit { oid url } }
+              }' \
+            --jq '"Pinned \(.data.createCommitOnBranch.commit.url)"'

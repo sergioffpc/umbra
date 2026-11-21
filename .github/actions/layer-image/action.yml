@@ -26,7 +26,7 @@ description: Compute the content-addressed image reference of an image layer.
 
 inputs:
   layer:
-    description: Layer name (toolchain, ...).
+    description: Layer name (toolchain, deps).
     required: true
 
 outputs:
@@ -39,6 +39,11 @@ outputs:
   ref:
     description: Full image reference (image:tag).
     value: ${{ steps.compute.outputs.ref }}
+  submodules:
+    description: >-
+      Space-separated paths of the submodules among the layer's inputs, to
+      check out before building it.
+    value: ${{ steps.compute.outputs.submodules }}
 
 runs:
   using: composite
@@ -66,6 +71,19 @@ runs:
                 third_party/llvm-project \
                 third_party/config/llvm-project.cmake \
                 third_party/patches/llvm-project
+              ;;
+            deps)
+              echo toolchain \
+                docker/deps.Dockerfile \
+                docker/deps.Dockerfile.dockerignore \
+                "${superbuild[@]}" \
+                third_party/layers/deps.cmake \
+                third_party/googletest \
+                third_party/config/googletest.cmake \
+                third_party/patches/googletest \
+                third_party/benchmark \
+                third_party/config/benchmark.cmake \
+                third_party/patches/benchmark
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2
@@ -99,9 +117,15 @@ runs:
 
         tag=$(tag_of "$LAYER")
         image=$(image_of "$LAYER")
+        inputs=$(layer_inputs "$LAYER")
+        read -r _ inputs <<<"$inputs"
+        # $inputs is split into paths on purpose; mode 160000 is a submodule.
+        submodules=$(git ls-tree HEAD -- $inputs \
+          | awk '$1 == "160000" { print $4 }' | xargs)
         {
           echo "tag=$tag"
           echo "image=$image"
           echo "ref=$image:$tag"
+          echo "submodules=$submodules"
         } >>"$GITHUB_OUTPUT"
         echo "$LAYER image: $image:$tag"
