@@ -58,7 +58,7 @@ These rules apply whenever an agent works on an issue in this repo, whether or n
 
 Check the PR is actually merged first (`gh pr view <pr> --json state,mergedAt`). Then:
 
-1. **Close the issue.** PRs target `develop` (git flow), not the default branch `main`, so GitHub does not auto-close issues from `Closes #n`. Close it explicitly: `gh issue close <n> --comment "Resolved by #<pr>"`.
+1. **Close the issue.** PRs target `develop` (git flow), which is the repository's default branch, so `Closes #n` in the PR body closes the issue on merge. Check that it is closed, and if not, close it explicitly: `gh issue close <n> --comment "Resolved by #<pr>"`.
 2. **Unblock dependants.** List the issues this one was blocking (`gh api repos/<owner>/<repo>/issues/<n>/dependencies/blocking`). For each one:
    - remove the edge (`gh api --method DELETE repos/<owner>/<repo>/issues/<dependant>/dependencies/blocked_by/<blocker-db-id>`), or update the `Blocked by:` line when native dependencies aren't in use;
    - comment `Unblocked by #<n> (merged in #<pr>)`.
