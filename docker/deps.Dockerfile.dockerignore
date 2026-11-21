@@ -1,0 +1,14 @@
+# Build context of docker/deps.Dockerfile: the shared superbuild files and,
+# for each dependency of the deps layer, its submodule, config and patches.
+# Keep in sync with the deps inputs in .github/actions/layer-image.
+*
+!third_party/CMakeLists.txt
+!third_party/cmake/
+!third_party/layers/deps.cmake
+!third_party/config/googletest.cmake
+!third_party/patches/googletest/
+!third_party/googletest/
+!third_party/config/benchmark.cmake
+!third_party/patches/benchmark/
+!third_party/benchmark/
+**/.git
