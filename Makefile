@@ -31,6 +31,8 @@ lint: ## Run clang-tidy, clang-query rules, pylint, actionlint, embedded Python
 
 checks: ## Run the validators shared with the git hooks and CI
 	python3 -m checks.conventions
+	python3 -m checks.branch_name --current
+	python3 -m checks.commit_message --since develop
 
 clean: ## Remove the build trees
 	rm -rf build

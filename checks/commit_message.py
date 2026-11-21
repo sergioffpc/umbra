@@ -16,14 +16,20 @@
 - header: at most MAX_HEADER_LENGTH characters;
 - body: separated from the header by a blank line.
 
+With --since BASE, the commits of BASE..HEAD are validated instead, as CI
+validates those of a pull request: merge commits are skipped, and nothing is
+validated when BASE does not exist (a shallow clone, for example).
+
 Usage: python3 -m checks.commit_message [--allow-autosquash] FILE
        (FILE is ``-`` to read the message from stdin)
+       python3 -m checks.commit_message [--allow-autosquash] --since BASE
 """
 
 import argparse
 from collections.abc import Sequence
 import pathlib
 import re
+import subprocess
 import sys
 
 from checks import git
@@ -236,6 +242,41 @@ def validate(
     return errors
 
 
+def validate_history(
+    base: str, scopes: frozenset[str], *, allow_autosquash: bool = False
+) -> list[str]:
+    """Validates the messages of the commits of BASE..HEAD.
+
+    Args:
+        base: The revision the commits are based on, for example
+            ``develop``.
+        scopes: The scopes a header may use.
+        allow_autosquash: Whether to accept fixup!, squash! and amend!
+            commits.
+
+    Returns:
+        The human-readable errors, each prefixed with the commit; empty when
+        every message is valid or when ``base`` does not exist.
+    """
+    try:
+        git.run("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
+    except subprocess.CalledProcessError:
+        print(f"{base} does not exist: no commits to validate", file=sys.stderr)
+        return []
+    shas = git.run("rev-list", "--no-merges", f"{base}..HEAD").split()
+    errors = []
+    for sha in shas:
+        message = git.run("log", "-1", "--format=%B", sha).strip()
+        header = message.split("\n", 1)[0]
+        errors.extend(
+            f"{sha[:12]} {header!r}: {error}"
+            for error in validate(
+                message, scopes, allow_autosquash=allow_autosquash
+            )
+        )
+    return errors
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Validates the commit message in the file given on the command line.
 
@@ -247,13 +288,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         The process exit status: 0 when the message is valid, 1 otherwise.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("file", help="message file, or - for stdin")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("file", nargs="?", help="message file, or - for stdin")
+    source.add_argument(
+        "--since",
+        metavar="BASE",
+        help="validate the commits of BASE..HEAD instead",
+    )
     parser.add_argument(
         "--allow-autosquash",
         action="store_true",
         help="accept fixup!, squash! and amend! commits",
     )
     args = parser.parse_args(argv)
+    if args.since is not None:
+        errors = validate_history(
+            args.since,
+            allowed_scopes(),
+            allow_autosquash=args.allow_autosquash,
+        )
+        return report.fail("invalid commit messages", errors)
     if args.file == "-":
         raw = sys.stdin.read()
     else:

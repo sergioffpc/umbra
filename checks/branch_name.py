@@ -7,9 +7,11 @@
 - release/X.Y.Z and hotfix/X.Y.Z, where X.Y.Z is a SemVer core version.
 
 Disposable research/<name> and prototype/<name> branches may be pushed but
-never opened as pull requests; --pull-request rejects them.
+never opened as pull requests; --pull-request rejects them. With --current,
+the checked-out branch is validated; a detached HEAD has no branch name to
+validate.
 
-Usage: python3 -m checks.branch_name [--pull-request] NAME...
+Usage: python3 -m checks.branch_name [--pull-request] (--current | NAME...)
 """
 
 import argparse
@@ -17,6 +19,7 @@ from collections.abc import Sequence
 import re
 import sys
 
+from checks import git
 from checks import report
 
 KEBAB_CASE = r"[a-z0-9]+(?:-[a-z0-9]+)*"
@@ -73,8 +76,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="reject disposable research and prototype branches",
     )
-    parser.add_argument("names", nargs="+", metavar="NAME", help="branch name")
+    parser.add_argument(
+        "--current",
+        action="store_true",
+        help="validate the checked-out branch",
+    )
+    parser.add_argument("names", nargs="*", metavar="NAME", help="branch name")
     args = parser.parse_args(argv)
+    if args.current == bool(args.names):
+        parser.error("give either --current or branch names")
+    if args.current:
+        current = git.run("branch", "--show-current").strip()
+        if not current:
+            print("detached HEAD: no branch name to validate", file=sys.stderr)
+        args.names = [current] if current else []
     errors = [
         error
         for name in args.names
