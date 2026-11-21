@@ -30,6 +30,26 @@ jobs:
         with:
           persist-credentials: false
 
+      # The devcontainer must pin the deps image built from the current
+      # inputs. The deps workflow builds that image and commits the pin.
+      - name: Compute the deps image tag
+        id: deps-image
+        uses: ./.github/actions/layer-image
+        with:
+          layer: deps
+
+      - name: Devcontainer image pin
+        env:
+          REF: ${{ steps.deps-image.outputs.ref }}
+          PIN_FILE: .devcontainer/devcontainer.json
+        run: |
+          pinned=$(sed -nE 's/^[[:space:]]*"image":[[:space:]]*"([^"]*)".*$/\1/p' "$PIN_FILE")
+          if [[ "$pinned" != "$REF" ]]; then
+            echo "::error file=$PIN_FILE::the pinned image '${pinned:-none}' is stale; the deps inputs hash to $REF. Let the deps workflow publish and pin it (or run it: gh workflow run deps.yml --ref <branch>), then pull."
+            exit 1
+          fi
+          echo "$PIN_FILE pins $REF."
+
       # Dependabot names its branches dependabot/<ecosystem>/<dependency>.
       - name: Branch name
         if: github.event.pull_request.user.login != 'dependabot[bot]'
