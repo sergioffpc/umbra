@@ -35,8 +35,10 @@ class [[nodiscard]] Error {
  public:
   Error(ErrorCode code, std::string message);
 
-  ErrorCode code() const { return code_; }
-  std::string_view message() const UMBRA_LIFETIMEBOUND { return message_; }
+  [[nodiscard]] ErrorCode code() const { return code_; }
+  [[nodiscard]] std::string_view message() const UMBRA_LIFETIMEBOUND {
+    return message_;
+  }
 
  private:
   ErrorCode code_;
