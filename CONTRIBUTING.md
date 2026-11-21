@@ -15,6 +15,10 @@ CI run uses the same LLVM 23.1.6 toolchain (clang, libc++, compiler-rt,
 libunwind, lld, lldb) and the same third-party libraries. Problems that cannot
 be reproduced inside the devcontainer are not supported.
 
+Nothing depends on a GCC runtime: CI fails when any binary of the toolchain,
+of the dependencies or of an umbra build tree needs libstdc++, libgcc_s or
+GCC's libatomic (`.github/actions/no-gcc-runtime`).
+
 The devcontainer is set up for VS Code Dev Containers on rootless Podman
 (set `"dev.containers.dockerPath": "podman"` in your VS Code user settings).
 It maps your host user onto the container's non-root `dev` user (keep-id user

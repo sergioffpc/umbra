@@ -393,6 +393,11 @@ jobs:
       - name: Build and test
         run: make test
 
+      - name: No GCC runtime
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          paths: build/debug
+
   build-release:
     needs: image
     runs-on: ubuntu-24.04
@@ -412,6 +417,11 @@ jobs:
 
       - name: Build and test
         run: make release
+
+      - name: No GCC runtime
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          paths: build/release
 
   # ASan + UBSan (with pattern auto-var-init). As in the devcontainer, ptrace
   # and an unconfined seccomp profile let LeakSanitizer stop the process.
@@ -435,6 +445,11 @@ jobs:
 
       - name: Build and test
         run: make asan
+
+      - name: No GCC runtime
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          paths: build/asan
 
   # TSan + the UBSan integer, conversion and nullability checks (with pattern
   # auto-var-init). The unconfined seccomp profile lets TSan re-execute itself
@@ -460,6 +475,11 @@ jobs:
 
       - name: Build and test
         run: make tsan
+
+      - name: No GCC runtime
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          paths: build/tsan
 
   # Formats the sources with `make format` and fails when that changes any
   # file.

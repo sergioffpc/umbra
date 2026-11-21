@@ -16,6 +16,7 @@ on:
       - third_party/**
       - docker/**
       - .github/actions/layer-image/**
+      - .github/actions/no-gcc-runtime/**
       - .github/workflows/deps.yml
   workflow_dispatch:
 
@@ -166,39 +167,28 @@ jobs:
           path: ${{ runner.temp }}/toolchain-build
           key: ${{ steps.cache.outputs.cache-primary-key }}
 
+      # No ELF file of the toolchain may need a GCC runtime, and every
+      # dependency must resolve.
+      - name: No GCC runtime in the toolchain
+        if: steps.published.outputs.exists == 'false'
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          image: ${{ steps.image.outputs.ref }}
+          paths: /usr/local /opt/python-tools
+
+      # The GCC runtime rule of .github/actions/no-gcc-runtime is mounted for
+      # the test programs.
       - name: Verify the toolchain
         if: steps.published.outputs.exists == 'false'
         env:
           REF: ${{ steps.image.outputs.ref }}
+          RULE: ${{ github.workspace }}/.github/actions/no-gcc-runtime/check.sh
         run: |
-          docker run --rm -i "$REF" bash -s <<'EOF'
+          docker run --rm -i -v "$RULE:/no-gcc-runtime.sh:ro" "$REF" \
+            bash -s <<'EOF'
           set -euo pipefail
           status=0
           fail() { echo "::error::$*"; status=1; }
-
-          # No ELF file of the toolchain may need a GCC runtime, directly
-          # (NEEDED) or through its dependencies (ldd), and every dependency
-          # must resolve.
-          gcc_runtime='libstdc\+\+\.so|libgcc_s\.so|(^|[^_.[:alnum:]])libatomic\.so'
-          elf_count=0
-          while IFS= read -r -d '' file; do
-            magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
-            [[ "$magic" == 7f454c46 ]] || continue
-            elf_count=$((elf_count + 1))
-            if llvm-readelf --dynamic "$file" 2>/dev/null \
-                | grep '(NEEDED)' | grep -Eq "$gcc_runtime"; then
-              fail "$file needs a GCC runtime (NEEDED)"
-            fi
-            if deps=$(ldd "$file" 2>/dev/null); then
-              if grep -Eq "$gcc_runtime" <<<"$deps"; then
-                fail "$file loads a GCC runtime: $(grep -E "$gcc_runtime" <<<"$deps" | xargs)"
-              fi
-              if grep -q 'not found' <<<"$deps"; then
-                fail "$file has unresolved libraries: $(grep 'not found' <<<"$deps" | xargs)"
-              fi
-            fi
-          done < <(find /usr/local /opt/python-tools -type f -print0)
-          echo "Checked $elf_count ELF files."
 
           # Tools of the built toolchain are on PATH, from /usr/local/bin.
           for tool in clang clang++ cc c++ clang-tidy clang-format clang-query \
@@ -240,9 +230,10 @@ jobs:
           clang++ -std=c++23 -O2 hello.cpp -o hello
           [[ "$(./hello)" == hello ]] || fail "the test program does not run"
           ldd ./hello | grep -q 'libc++\.so\.1' || fail "the test program does not use libc++"
-          ! ldd ./hello | grep -Eq "$gcc_runtime" || fail "the test program loads a GCC runtime"
           clang++ -std=c++23 -g -fsanitize=address,undefined hello.cpp -o hello-asan
           [[ "$(./hello-asan)" == hello ]] || fail "the sanitized test program does not run"
+          bash /no-gcc-runtime.sh hello hello-asan \
+            || fail "a test program needs a GCC runtime"
 
           exit "$status"
           EOF
@@ -337,40 +328,29 @@ jobs:
           tags: ${{ steps.image.outputs.ref }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      # The toolchain's rule, extended to the dependencies: no ELF file under
+      # the prefix may need a GCC runtime, and every dependency must resolve.
+      - name: No GCC runtime in the dependencies
+        if: steps.published.outputs.exists == 'false'
+        uses: ./.github/actions/no-gcc-runtime
+        with:
+          image: ${{ steps.image.outputs.ref }}
+          paths: /opt/umbra
+
+      # The GCC runtime rule of .github/actions/no-gcc-runtime is mounted for
+      # the smoke test programs.
       - name: Verify the dependencies
         if: steps.published.outputs.exists == 'false'
         env:
           REF: ${{ steps.image.outputs.ref }}
+          RULE: ${{ github.workspace }}/.github/actions/no-gcc-runtime/check.sh
         run: |
-          docker run --rm -i "$REF" bash -s <<'EOF'
+          docker run --rm -i -v "$RULE:/no-gcc-runtime.sh:ro" "$REF" \
+            bash -s <<'EOF'
           set -euo pipefail
           status=0
           fail() { echo "::error::$*"; status=1; }
           prefix=/opt/umbra
-
-          # The toolchain's rule, extended to the dependencies: no ELF file
-          # under the prefix may need a GCC runtime, directly (NEEDED) or
-          # through its dependencies (ldd), and every dependency must resolve.
-          gcc_runtime='libstdc\+\+\.so|libgcc_s\.so|(^|[^_.[:alnum:]])libatomic\.so'
-          elf_count=0
-          while IFS= read -r -d '' file; do
-            magic=$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')
-            [[ "$magic" == 7f454c46 ]] || continue
-            elf_count=$((elf_count + 1))
-            if llvm-readelf --dynamic "$file" 2>/dev/null \
-                | grep '(NEEDED)' | grep -Eq "$gcc_runtime"; then
-              fail "$file needs a GCC runtime (NEEDED)"
-            fi
-            if deps=$(ldd "$file" 2>/dev/null); then
-              if grep -Eq "$gcc_runtime" <<<"$deps"; then
-                fail "$file loads a GCC runtime: $(grep -E "$gcc_runtime" <<<"$deps" | xargs)"
-              fi
-              if grep -q 'not found' <<<"$deps"; then
-                fail "$file has unresolved libraries: $(grep 'not found' <<<"$deps" | xargs)"
-              fi
-            fi
-          done < <(find "$prefix" -type f -print0)
-          echo "Checked $elf_count ELF files."
 
           # Shared libraries against libc++, found through RUNPATH $ORIGIN.
           for lib in gtest gtest_main gmock gmock_main benchmark benchmark_main; do
@@ -422,10 +402,8 @@ jobs:
           ./build/smoke_test >/dev/null || fail "the GoogleTest smoke test fails"
           ./build/smoke_benchmark --benchmark_min_time=1x >/dev/null \
             || fail "the Benchmark smoke test fails"
-          for program in build/smoke_test build/smoke_benchmark; do
-            ! ldd "$program" | grep -Eq "$gcc_runtime" \
-              || fail "$program loads a GCC runtime"
-          done
+          bash /no-gcc-runtime.sh build/smoke_test build/smoke_benchmark \
+            || fail "a smoke test program needs a GCC runtime"
 
           exit "$status"
           EOF
