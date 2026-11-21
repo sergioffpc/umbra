@@ -61,7 +61,8 @@ Umbra follows git flow:
 | `hotfix/X.Y.Z` | Urgent fixes for a release | `main` | `main` and `develop` (`--no-ff`) |
 
 - Branch names are kebab-case, for example `feature/wrapping-arithmetic`.
-  The pre-push hook and CI reject other names.
+  The pre-push hook and CI reject other names; only Dependabot's own
+  `dependabot/...` branches are exempt in CI.
 - Features and bugfixes are **squash-merged** into `develop`. The pull request
   title becomes the commit header, so it must be a valid Conventional Commit;
   CI checks it.
@@ -86,13 +87,20 @@ request.
 - **Types**: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
   `style`, `chore`, `revert`.
 - **Scope** is optional. When present it must be the name of an existing
-  module or one of `deps`, `ci`, `devcontainer`, `lint`.
-- **Description**: English, imperative mood, lowercase, no trailing period.
-- **Header** at most 72 characters.
+  module (a directory directly under `src/`) or one of `deps`, `ci`,
+  `devcontainer`, `lint`.
+- **Description**: English (ASCII only), imperative mood, starting in
+  lowercase, no trailing period.
+- **Header** at most 72 characters, followed by a blank line when there is a
+  body.
 - **Breaking changes** are marked with `!` after the type or scope, or with a
   `BREAKING CHANGE:` footer.
-- `fixup!` and `squash!` commits are rejected by CI; squash them locally
-  before pushing.
+- `fixup!`, `squash!` and `amend!` commits are accepted by the commit-msg
+  hook but rejected by CI; squash them locally (`git rebase --autosquash`)
+  before opening or updating a pull request.
+- Pull request history is linear: rebase instead of merging. Only release and
+  hotfix pull requests into `main` may contain merge commits (the git flow
+  back-merges), and those are not checked as Conventional Commits.
 
 Examples:
 
