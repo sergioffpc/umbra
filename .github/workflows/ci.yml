@@ -393,3 +393,50 @@ jobs:
 
       - name: Build and test
         run: make release
+
+  # ASan + UBSan (with pattern auto-var-init). As in the devcontainer, ptrace
+  # and an unconfined seccomp profile let LeakSanitizer stop the process.
+  sanitize-address:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test
+        run: make asan
+
+  # TSan. The unconfined seccomp profile lets TSan re-execute itself with
+  # address space randomization disabled when the runner's randomization is
+  # too strong for its memory layout.
+  sanitize-thread:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test
+        run: make tsan
