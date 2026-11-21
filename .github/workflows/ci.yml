@@ -223,10 +223,16 @@ jobs:
       github.event_name == 'pull_request'
       && (startsWith(github.head_ref, 'release/')
           || startsWith(github.head_ref, 'hotfix/'))
+    needs: image
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # The whole history and the tags: git-cliff bumps from the last tag.
       - name: Check out
@@ -236,32 +242,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Log in to GHCR
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # The job runs as root on a checkout owned by the runner's user, which
+      # git and git-cliff refuse unless it is trusted.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Pull the pinned image
-        id: image
-        run: |
-          ref=$(sed -nE 's/^[[:space:]]*"image":[[:space:]]*"([^"]*)".*$/\1/p' \
-            .devcontainer/devcontainer.json)
-          if [[ -z "$ref" ]] || ! docker pull --quiet "$ref" >/dev/null 2>&1; then
-            echo "::error title=Image missing::'$ref' is not published yet. Run the deps workflow on this branch, then re-run this job."
-            exit 1
-          fi
-          echo "ref=$ref" >>"$GITHUB_OUTPUT"
-
-      # Runs as the owner of the checkout, which git and git-cliff require.
       - name: Versions, changelog and tags
+        shell: bash
         env:
           HEAD_REF: ${{ github.head_ref }}
-          IMAGE: ${{ steps.image.outputs.ref }}
         run: |
-          docker run --rm -i --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            -e HEAD_REF -v "$PWD:/repo" -w /repo "$IMAGE" bash -s <<'EOF'
           set -euo pipefail
           status=0
           fail() { echo "::error::$*"; status=1; }
@@ -311,7 +301,6 @@ jobs:
           done < <(git tag --list 'v[0-9]*.[0-9]*.[0-9]*')
 
           exit "$status"
-          EOF
 
   # Resolves the deps image pinned in the devcontainer configuration, so that
   # the build jobs run in it, and fails clearly when it is not published yet.
