@@ -79,7 +79,7 @@ jobs:
           import sys
 
           from checks import commit_message
-          from checks.report import fail
+          from checks import report
 
           # The pull request commits endpoint lists at most 250 commits.
           MAX_COMMITS = 250
@@ -118,7 +118,7 @@ jobs:
               for error in commit_message.validate(message.strip(), scopes):
                   errors.append(f"{sha} {header!r}: {error}")
 
-          sys.exit(fail("invalid pull request commits", errors))
+          sys.exit(report.fail("invalid pull request commits", errors))
           EOF
 
   # Checks third_party/versions.md against the submodule commits recorded in
