@@ -41,6 +41,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Dependabot's token is read-only: its runs build and verify the image
+      # but cannot publish it. Dispatch the workflow manually on such a
+      # branch instead.
+      CAN_WRITE: ${{ github.actor != 'dependabot[bot]' }}
     outputs:
       ref: ${{ steps.image.outputs.ref }}
     steps:
@@ -238,8 +243,15 @@ jobs:
           exit "$status"
           EOF
 
+      - name: Report a read-only token
+        if: steps.published.outputs.exists == 'false' && env.CAN_WRITE != 'true'
+        run: >-
+          echo "::warning::The token of this run is read-only, so the toolchain
+          image is not published. Run the deps workflow manually on this
+          branch."
+
       - name: Publish the image
-        if: steps.published.outputs.exists == 'false'
+        if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
         env:
           REF: ${{ steps.image.outputs.ref }}
         run: docker push "$REF"
@@ -247,7 +259,7 @@ jobs:
       # A container image version is one manifest per tag here (no provenance
       # or SBOM manifests), so this keeps the five most recent tags.
       - name: Prune old images
-        if: steps.published.outputs.exists == 'false'
+        if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
         with:
           package-name: umbra-toolchain
