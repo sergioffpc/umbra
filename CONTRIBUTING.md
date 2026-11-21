@@ -413,8 +413,8 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
     commit, on a `feature/bump-<dep>-<tag>` branch. Dependabot is not used
     for submodules because it follows branch heads, not release tags.
   - Pull requests opened by the workflow start no workflow runs. Run the
-    deps workflow on the branch, then close and reopen the pull request to
-    run CI. The workflow needs the repository setting "Allow GitHub Actions
+    deps workflow on the branch: it builds and pins the image, then
+    dispatches CI on the branch (see below). The workflow needs the repository setting "Allow GitHub Actions
     to create and approve pull requests".
 - Dependency images are rebuilt by the deps workflow only when third-party,
   Docker or superbuild inputs change.
@@ -422,6 +422,14 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
   `.devcontainer/devcontainer.json` to the branch (GitHub signs that commit);
   pull it before pushing again. The CI `conventions` job fails while the pin
   is stale.
+- A commit made by a workflow starts no workflow run, so after committing the
+  pin the deps workflow dispatches the ci workflow on the branch
+  (`gh workflow run ci.yml --ref <branch>`). Its jobs, with the same names as
+  on a pull request, report on the pin commit, which heads the pull request.
+  The dispatched `conventions` job checks the branch's open pull request
+  (found with `gh pr list --head <branch>`), and only the image pin when
+  there is none. Dispatch CI the same way whenever a branch's head has no CI
+  run.
 - Runs with a read-only token (Dependabot branches) build and verify the
   images but neither publish nor pin them, and branches pushed by another
   workflow do not trigger the deps workflow at all. Run it manually on such a

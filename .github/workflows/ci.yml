@@ -7,6 +7,10 @@ on:
     types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, develop]
+  # The deps workflow dispatches CI on a branch after committing its image
+  # pin, since that commit starts no run. The pull request jobs then look up
+  # the open pull request of the branch.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,9 +21,12 @@ concurrency:
 
 jobs:
   # Runs directly on the runner: it needs only Python 3 and the GitHub API,
-  # not the toolchain image.
+  # not the toolchain image. On a dispatched run (after the deps workflow pins
+  # the image) it checks the open pull request of the branch, if any.
   conventions:
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request'
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -50,26 +57,60 @@ jobs:
           fi
           echo "$PIN_FILE pins $REF."
 
+      # The pull request of the event, or on a dispatched run the open pull
+      # request whose head is the branch. Without one, the pull request
+      # checks below are skipped.
+      - name: Pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          EVENT_PR: ${{ toJSON(github.event.pull_request) }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            pr=$(jq -c '{number, title, base: .base.ref, head: .head.ref,
+              author: .user.login}' <<<"$EVENT_PR")
+          else
+            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
+              --state open --limit 1 --json number,title,baseRefName,author \
+              --jq '.[] | {number, title, base: .baseRefName,
+                head: env.BRANCH, author: .author.login}')
+          fi
+          if [[ -z "$pr" ]]; then
+            echo "::notice title=No pull request::$BRANCH has no open pull" \
+              "request: the branch name, title and commit checks are skipped"
+            exit 0
+          fi
+          for key in number title base head author; do
+            echo "$key=$(jq -r ".$key" <<<"$pr")" >>"$GITHUB_OUTPUT"
+          done
+          echo "Pull request #$(jq -r .number <<<"$pr"): $(jq -r .title <<<"$pr")"
+
       # Dependabot names its branches dependabot/<ecosystem>/<dependency>.
       - name: Branch name
-        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        if: >-
+          steps.pr.outputs.number != ''
+          && steps.pr.outputs.author != 'dependabot[bot]'
         env:
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ steps.pr.outputs.head }}
         run: python3 -m checks.branch_name --pull-request "$HEAD_REF"
 
       # Features and bugfixes are squash-merged: the title becomes the commit
       # header on develop.
       - name: Pull request title
+        if: steps.pr.outputs.number != ''
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
         run: printf '%s\n' "$PR_TITLE" | python3 -m checks.commit_message -
 
       - name: Pull request commits
+        if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_REF: ${{ steps.pr.outputs.head }}
+          BASE_REF: ${{ steps.pr.outputs.base }}
         run: |
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" \
             --jq '.[] | @json' > "$RUNNER_TEMP/commits.jsonl"
@@ -250,9 +291,10 @@ jobs:
   # signed. git-cliff comes from the pinned deps image.
   release:
     if: >-
-      github.event_name == 'pull_request'
-      && (startsWith(github.head_ref, 'release/')
-          || startsWith(github.head_ref, 'hotfix/'))
+      (github.event_name == 'pull_request'
+       || github.event_name == 'workflow_dispatch')
+      && (startsWith(github.head_ref || github.ref_name, 'release/')
+          || startsWith(github.head_ref || github.ref_name, 'hotfix/'))
     needs: image
     runs-on: ubuntu-24.04
     permissions:
@@ -280,7 +322,7 @@ jobs:
       - name: Versions, changelog and tags
         shell: bash
         env:
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           status=0

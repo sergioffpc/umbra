@@ -6,7 +6,8 @@
 # Each layer is tagged with a hash of its inputs (see
 # .github/actions/layer-image) and skipped when that tag is already published.
 # The deps image is built on the toolchain image, and the devcontainer pins it:
-# when the pinned tag differs, this workflow commits the new pin to the branch.
+# when the pinned tag differs, this workflow commits the new pin to the branch
+# and dispatches CI on it.
 name: deps
 
 on:
@@ -271,6 +272,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
+      actions: write # dispatches CI on the pin commit
       contents: write # the devcontainer pin commit
       packages: write
     env:
@@ -445,7 +447,9 @@ jobs:
       # so GitHub signs it. It goes on top of the branch's current head and
       # edits the file as it is there; a deps run for a newer head re-pins
       # after this one (the runs of a branch never overlap). Commits made with
-      # this token start no workflow runs.
+      # this token start no workflow runs, except workflow_dispatch, so the
+      # step dispatches CI on the branch: its jobs then report on the pin
+      # commit, the head of the branch's pull request.
       - name: Pin the devcontainer image
         if: github.ref_type == 'branch' && env.CAN_WRITE == 'true'
         env:
@@ -496,3 +500,6 @@ jobs:
                 }) { commit { oid url } }
               }' \
             --jq '"Pinned \(.data.createCommitOnBranch.commit.url)"'
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          echo "Dispatched the ci workflow on $BRANCH."
+

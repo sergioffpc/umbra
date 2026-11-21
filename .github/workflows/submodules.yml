@@ -10,7 +10,7 @@
 # The commit is created through the REST Git database API, which can record a
 # submodule commit, so GitHub signs it. Branches and pull requests created
 # with this token start no workflow runs: dispatch the deps workflow on the
-# branch, then close and reopen the pull request to run CI.
+# branch, which builds and pins the image and then dispatches CI on it.
 name: submodules
 
 on:
@@ -145,6 +145,6 @@ jobs:
           Upstream: $url
 
           Pull requests opened by this workflow start no workflow runs: run the
-          deps workflow on \`$branch\` to build and pin the image, then close and
-          reopen this pull request to run CI."
+          deps workflow on \`$branch\` to build and pin the image; it then
+          dispatches CI on the branch."
           done 3< <(grep -E '^\|[^|]*\|[[:space:]]*`' "$MANIFEST")
