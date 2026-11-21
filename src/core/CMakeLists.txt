@@ -9,3 +9,5 @@ umbra_add_module(core
 # Only version.cc sees the version, so a version bump recompiles one file.
 set_source_files_properties(version.cc PROPERTIES
   COMPILE_DEFINITIONS UMBRA_PROJECT_VERSION="${PROJECT_VERSION}")
+
+umbra_add_build_info(umbra_core TEMPLATE build_info.cc.in)

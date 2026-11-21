@@ -19,6 +19,7 @@ include(UmbraWarnings)
 include(UmbraSafety)
 include(UmbraSanitizers)
 include(UmbraHardening)
+include(UmbraBuildInfo)
 include(UmbraModules)
 
 enable_testing()
