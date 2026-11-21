@@ -10,9 +10,9 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 max_line_length = 80
 
-[*.py]
+[{*.py,.githooks/*}]
 indent_size = 4
-max_line_length = 100
+max_line_length = 80
 
 [*.md]
 trim_trailing_whitespace = false
