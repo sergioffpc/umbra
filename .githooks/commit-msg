@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+"""Validate the commit message against Conventional Commits and project rules.
+
+fixup!, squash! and amend! commits are accepted here so that
+``git commit --fixup`` keeps working locally; CI rejects them.
+"""
+
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from checks import commit_message, git  # noqa: E402
+from checks.report import fail  # noqa: E402
+
+
+def comment_char() -> str:
+    value = git.config("core.commentString", git.config("core.commentChar", "#"))
+    return "#" if value == "auto" else value
+
+
+def main() -> int:
+    raw = Path(sys.argv[1]).read_text(encoding="utf-8")
+    message = commit_message.clean(raw, comment_char())
+    errors = commit_message.validate(
+        message, commit_message.allowed_scopes(), allow_autosquash=True
+    )
+    return fail("invalid commit message", errors)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
