@@ -5,7 +5,7 @@
 # CI. Run inside the devcontainer.
 
 .DEFAULT_GOAL := all
-.PHONY: all test release clean help
+.PHONY: all test release asan tsan clean help
 
 all: ## Debug build
 	cmake --preset debug
@@ -16,6 +16,12 @@ test: all ## Debug build and run the tests
 
 release: ## Release build (LTO) and run the tests
 	cmake --workflow --preset release
+
+asan: ## ASan + UBSan build and run the tests
+	cmake --workflow --preset asan
+
+tsan: ## TSan build and run the tests
+	cmake --workflow --preset tsan
 
 clean: ## Remove the build trees
 	rm -rf build
