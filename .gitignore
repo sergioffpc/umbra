@@ -21,6 +21,10 @@ compile_commands.json
 __pycache__/
 *.py[cod]
 
+# Claude Code: only the project settings are shared
+.claude/*
+!.claude/settings.json
+
 # Editors and OS
 .vscode/
 .idea/
