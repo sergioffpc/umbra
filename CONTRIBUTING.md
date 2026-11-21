@@ -57,6 +57,7 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make release` | Release build and tests |
 | `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
 | `make tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests |
+| `make coverage` | Coverage build and tests, then the coverage report (local only) |
 | `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
 | `make lint` | Run clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
 | `make checks` | Run the validators shared with the git hooks and CI: the file validators on every tracked file, the current branch name, and the commit messages since `develop` |
@@ -318,8 +319,11 @@ clang-tidy families and the function limits below), this document wins.
 - Tests use GoogleTest through CTest and exercise the **public interface** of
   a module only, never generated headers or internal plumbing.
 - Tests are added only to modules the maintainers explicitly request. There
-  is no one-test-per-source rule and no coverage gate; the coverage preset is
-  for local reports only.
+  is no one-test-per-source rule and no coverage gate. The coverage preset
+  (`make coverage`: clang source-based coverage, merged with llvm-profdata)
+  writes llvm-cov reports of umbra's sources, tests excluded, to
+  `build/coverage/report/` (`summary.txt` and `html/index.html`) for local
+  use only; CI does not run it.
 - A tested source file gets one test file under `tests/<module>/`, mirroring
   the module tree.
 - Test bodies follow the same lint rules, except the function-size limit and

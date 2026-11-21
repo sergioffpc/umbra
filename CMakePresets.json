@@ -52,6 +52,15 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "UMBRA_SANITIZER": "thread"
       }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage (local reports)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "UMBRA_COVERAGE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -70,6 +79,17 @@
     {
       "name": "tsan",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
+    },
+    {
+      "name": "coverage-report",
+      "configurePreset": "coverage",
+      "targets": [
+        "coverage-report"
+      ]
     }
   ],
   "testPresets": [
@@ -102,6 +122,14 @@
       "name": "tsan",
       "inherits": "base",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "coverage",
+      "inherits": "base",
+      "configurePreset": "coverage",
+      "environment": {
+        "LLVM_PROFILE_FILE": "${sourceDir}/build/coverage/profiles/%p-%m.profraw"
+      }
     }
   ],
   "workflowPresets": [
@@ -170,6 +198,27 @@
         {
           "type": "test",
           "name": "tsan"
+        }
+      ]
+    },
+    {
+      "name": "coverage",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "coverage"
+        },
+        {
+          "type": "build",
+          "name": "coverage"
+        },
+        {
+          "type": "test",
+          "name": "coverage"
+        },
+        {
+          "type": "build",
+          "name": "coverage-report"
         }
       ]
     }

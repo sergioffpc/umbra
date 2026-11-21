@@ -19,6 +19,7 @@ include(UmbraWarnings)
 include(UmbraSafety)
 include(UmbraSanitizers)
 include(UmbraHardening)
+include(UmbraCoverage)
 include(UmbraBuildInfo)
 include(UmbraModules)
 

@@ -5,7 +5,7 @@
 # CI. Run inside the devcontainer.
 
 .DEFAULT_GOAL := all
-.PHONY: all test release asan tsan format lint checks clean help
+.PHONY: all test release asan tsan coverage format lint checks clean help
 
 all: ## Debug build
 	cmake --preset debug
@@ -22,6 +22,9 @@ asan: ## ASan + UBSan build and run the tests
 
 tsan: ## TSan + UBSan integer checks build and run the tests
 	cmake --workflow --preset tsan
+
+coverage: ## Coverage build, tests and report (build/coverage/report)
+	cmake --workflow --preset coverage
 
 format: ## Format the C++ and Python sources
 	python3 -m checks.formatting

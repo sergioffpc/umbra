@@ -2,7 +2,7 @@
 # Copyright The Umbra Authors
 #
 # Helpers that define every umbra target with the project settings (compiler,
-# warnings, safety, sanitizers and hardening).
+# warnings, safety, sanitizers, hardening and coverage).
 #
 #   umbra_add_module(<module> SOURCES <file>... [DEPENDS <module>...]
 #                    [LINK <target>...])
@@ -45,6 +45,7 @@ function(umbra_apply_settings target)
   umbra_apply_safety(${target})
   umbra_apply_sanitizers(${target})
   umbra_apply_hardening(${target})
+  umbra_apply_coverage(${target})
 endfunction()
 
 # Converts module names to their targets.
@@ -111,6 +112,7 @@ function(umbra_add_test name)
   umbra_add_executable(${name} SOURCES ${arg_SOURCES} DEPENDS ${arg_DEPENDS})
   target_link_libraries(${name} PRIVATE umbra_test_main)
   gtest_discover_tests(${name} DISCOVERY_MODE PRE_TEST)
+  umbra_add_coverage_object(${name})
 endfunction()
 
 function(umbra_add_benchmark name)
