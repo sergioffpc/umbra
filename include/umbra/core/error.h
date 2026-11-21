@@ -5,7 +5,6 @@
 #define UMBRA_CORE_ERROR_H_
 
 #include <cstdint>
-#include <expected>
 #include <string>
 #include <string_view>
 
@@ -29,9 +28,9 @@ enum class ErrorCode : std::uint8_t {
   kInternal,
 };
 
-// The error of every fallible umbra operation, returned through
-// std::expected (see Result). Exceptions are disabled: errors are values, and
-// discarding one is a compile error.
+// The error of every fallible umbra operation, returned as
+// std::expected<T, Error>. Exceptions are disabled: errors are values, and
+// discarding one is an error.
 class [[nodiscard]] Error {
  public:
   Error(ErrorCode code, std::string message);
@@ -43,10 +42,6 @@ class [[nodiscard]] Error {
   ErrorCode code_;
   std::string message_;
 };
-
-// The result of a fallible operation: a T or an Error.
-template <typename T>
-using Result = std::expected<T, Error>;
 
 }  // namespace umbra::core
 
