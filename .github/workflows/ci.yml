@@ -429,3 +429,103 @@ jobs:
 
       - name: Build and test
         run: make tsan
+
+  # Formats the sources with `make format` and fails when that changes any
+  # file.
+  format:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The job runs as root on a checkout owned by the runner's user.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Format
+        run: make format
+
+      - name: Unformatted files
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error title=Unformatted files::run make format and commit the result"
+            exit 1
+          fi
+
+  # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
+  # then clang-tidy, the clang-query rules, pylint and actionlint.
+  lint:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The job runs as root on a checkout owned by the runner's user.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Validators
+        run: make checks
+
+      - name: Lint
+        run: make lint
+
+  # The target graph (modules, executables, tests) must be acyclic. CMake
+  # accepts cycles between static libraries, so tsort checks the graph that
+  # CMake writes.
+  modules:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Module graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          graph=build/graph
+          cmake --preset debug --graphviz="$graph/umbra.dot" >/dev/null
+          # Each dependency edge ends in a comment: // <target> -> <target>.
+          sed -nE 's|^[[:space:]]*"node[0-9]+" -> "node[0-9]+".*// (.+) -> (.+)$|\1 \2|p' \
+            "$graph/umbra.dot" >"$graph/edges"
+          echo "Dependencies:"
+          sed 's/^/  /' "$graph/edges"
+          if ! tsort "$graph/edges" >/dev/null 2>"$graph/cycle"; then
+            echo "::error title=Module cycle::the target graph has a cycle:" \
+              "$(sed -n 's/^tsort: //p' "$graph/cycle" | tail -n +2 | xargs)"
+            exit 1
+          fi
+          echo "The target graph is acyclic."
