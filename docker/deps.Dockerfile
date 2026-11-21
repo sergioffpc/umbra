@@ -30,3 +30,11 @@ RUN cmake -S /opt/umbra/src -B /tmp/superbuild -G Ninja \
 FROM ${TOOLCHAIN_IMAGE} AS deps
 COPY --from=build /opt/umbra/ /opt/umbra/
 ENV CMAKE_PREFIX_PATH=/opt/umbra
+
+# The devcontainer's non-root user. It takes uid/gid 1000 from Ubuntu's
+# default user, which the devcontainer maps the host user onto (podman
+# keep-id). The directories mounted as named volumes exist here, owned by dev,
+# so that a new volume starts out owned by dev too. CI keeps running as root.
+RUN userdel --remove ubuntu \
+ && useradd --create-home --uid 1000 --user-group --shell /bin/bash dev \
+ && install -d -o dev -g dev /home/dev/.claude /home/dev/.config /home/dev/.config/gh
