@@ -196,6 +196,8 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   pointer types use the gsl Owner/Pointer annotation macros. All safety
   macros live in the safety header and are prefixed `UMBRA_`.
 - `-Wdangling` and the experimental lifetime-safety analysis are errors.
+  The experimental and beta analyses sit behind the `UMBRA_EXPERIMENTAL_SAFETY`
+  CMake option (ON); turn it off only to work around a noisy compiler release.
 
 ### Thread safety
 
@@ -203,6 +205,10 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 - Clang Thread Safety Analysis is an error. Annotate locks and guarded data
   with the capability, guarded-by, requires, excludes and acquire/release
   macros. ThreadSanitizer in CI is the runtime backstop.
+- ThreadSanitizer targets umbra's own code. `sanitizers/tsan.supp` may only
+  suppress reports from uninstrumented dependencies proven to cause false
+  positives (`called_from_lib`), each entry preceded by a comment that
+  justifies it.
 - Call the core floating-point configuration function (FTZ/DAZ) first on
   every thread, tests included.
 
