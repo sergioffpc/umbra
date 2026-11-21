@@ -60,6 +60,11 @@ Umbra follows git flow:
 | `release/X.Y.Z` | Release preparation | `develop` | `main` and `develop` (`--no-ff`) |
 | `hotfix/X.Y.Z` | Urgent fixes for a release | `main` | `main` and `develop` (`--no-ff`) |
 
+- Disposable branches hold throwaway planning assets: `research/<name>` for
+  research findings and `prototype/<name>` for prototypes. They are pushed so
+  that issues can link to them, but they never get a pull request, are never
+  merged, and may be deleted at any time. Only the git flow branches in the
+  table above are opened as pull requests.
 - Branch names are kebab-case, for example `feature/wrapping-arithmetic`.
   The pre-push hook and CI reject other names; only Dependabot's own
   `dependabot/...` branches are exempt in CI.

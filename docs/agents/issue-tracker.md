@@ -44,6 +44,7 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Asset branches**: research findings go on `research/<name>` and prototypes on `prototype/<name>`, branched from `develop`. These branches are disposable: push them so the ticket can link to them, but never open a PR or merge them. Every branch that does get a PR uses a git flow prefix (`feature/`, `bugfix/`, `release/`, `hotfix/`; see `CONTRIBUTING.md`). Before pushing one, check that `main` and `develop` exist on the remote. On an empty remote the first pushed branch becomes the default branch.
 
 ## Issue lifecycle (mandatory for agents)
 
