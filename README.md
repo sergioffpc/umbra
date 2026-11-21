@@ -29,12 +29,13 @@ level is `x86-64-v3`.
 
 ## Getting started
 
-1. Install a container engine (Docker or rootless Podman) and an editor with
-   Dev Containers support, such as VS Code.
+1. Install rootless Podman and VS Code with the Dev Containers extension, and
+   set `"dev.containers.dockerPath": "podman"` in your VS Code user settings.
 2. Clone the repository and open it in the devcontainer
    ("Dev Containers: Reopen in Container").
-3. The container's create step installs the git hooks and configures the
-   debug CMake preset.
+3. The container's create step installs the git hooks, enables commit
+   signing, configures the debug CMake preset, and installs `gh` and Claude
+   Code. See [CONTRIBUTING.md](CONTRIBUTING.md#environment).
 4. Build and test:
 
    ```sh

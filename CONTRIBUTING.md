@@ -15,12 +15,30 @@ CI run uses the same LLVM 23.1.6 toolchain (clang, libc++, compiler-rt,
 libunwind, lld, lldb) and the same third-party libraries. Problems that cannot
 be reproduced inside the devcontainer are not supported.
 
-The devcontainer works with Docker and with rootless Podman. When it is
+The devcontainer is set up for VS Code Dev Containers on rootless Podman
+(set `"dev.containers.dockerPath": "podman"` in your VS Code user settings).
+It maps your host user onto the container's non-root `dev` user (keep-id user
+namespace), so workspace files keep your ownership, and allows ptrace with an
+unconfined seccomp profile so that lldb and the sanitizers work. When it is
 created it:
 
 - installs the git hooks (`git config core.hooksPath .githooks`);
-- enables commit and tag signing in the repository's local configuration;
-- configures the debug CMake preset.
+- enables SSH commit and tag signing in the repository's local configuration
+  (`gpg.format ssh`, `commit.gpgsign`, `tag.gpgsign`);
+- configures the debug CMake preset;
+- installs the GitHub CLI (`gh`, pinned devcontainer feature) and Claude Code
+  (Anthropic's native installer), with the `mattpocock-skills` plugin that
+  `.claude/settings.json` enables. These developer tools are never part of
+  the CI images.
+
+Your Claude Code and `gh` logins live in the named volumes `umbra-claude` and
+`umbra-gh`, so they survive rebuilds.
+
+VS Code gets clangd (live clang-tidy, background index, no header insertion,
+format on save), lldb-dap and CMake Tools; Microsoft's C/C++ extension is
+opted out and its IntelliSense disabled. `.clangd` also attaches the static
+index of the third-party sources shipped in the image, so Go to Definition and
+Find References reach into the dependencies' implementations.
 
 ## Compatibility policy
 
@@ -369,7 +387,8 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
   Docker or superbuild inputs change.
 - When the `umbra-deps` tag changes, the deps workflow commits the new pin in
   `.devcontainer/devcontainer.json` to the branch (GitHub signs that commit);
-  pull it before pushing again.
+  pull it before pushing again. The CI `conventions` job fails while the pin
+  is stale.
 - Runs with a read-only token (Dependabot branches) build and verify the
   images but neither publish nor pin them, and branches pushed by another
   workflow do not trigger the deps workflow at all. Run it manually on such a
