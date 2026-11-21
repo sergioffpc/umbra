@@ -25,4 +25,5 @@ include(UmbraModules)
 enable_testing()
 
 add_subdirectory(src/core)
+add_subdirectory(apps/umbra)
 add_subdirectory(tests)
