@@ -329,6 +329,14 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 - A new dependency arrives in its own `build(deps): add <dep>` pull request.
 - Dependency images are rebuilt by the deps workflow only when third-party,
   Docker or superbuild inputs change.
+- When the `umbra-deps` tag changes, the deps workflow commits the new pin in
+  `.devcontainer/devcontainer.json` to the branch (GitHub signs that commit);
+  pull it before pushing again.
+- Runs with a read-only token (Dependabot branches) build and verify the
+  images but neither publish nor pin them, and branches pushed by another
+  workflow do not trigger the deps workflow at all. Run it manually on such a
+  branch: `gh workflow run deps.yml --ref <branch>`, or Actions, deps, Run
+  workflow.
 
 ## Reporting issues
 
