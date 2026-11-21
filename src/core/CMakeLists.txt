@@ -3,6 +3,7 @@
 
 umbra_add_module(core
   SOURCES
+    error.cc
     floating_point.cc
     version.cc)
 
