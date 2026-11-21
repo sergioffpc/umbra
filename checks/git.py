@@ -2,16 +2,24 @@
 # Copyright The Umbra Authors
 """Thin helpers around the git command line."""
 
+import pathlib
 import subprocess
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def run(*args: str, stdin: str | None = None) -> str:
-    """Run ``git`` with ``args`` in the repository and return its stdout.
+    """Runs git in the repository and returns its standard output.
 
-    Raises ``subprocess.CalledProcessError`` when git fails.
+    Args:
+        *args: The git arguments, for example ``"config", "--get", key``.
+        stdin: Text written to git's standard input, if any.
+
+    Returns:
+        The standard output of git, decoded as text.
+
+    Raises:
+        subprocess.CalledProcessError: git exited with a non-zero status.
     """
     result = subprocess.run(
         ["git", *args],
@@ -25,7 +33,15 @@ def run(*args: str, stdin: str | None = None) -> str:
 
 
 def config(key: str, default: str) -> str:
-    """Return the value of git config ``key``, or ``default`` when unset."""
+    """Reads a git configuration value.
+
+    Args:
+        key: The configuration key, for example ``core.commentChar``.
+        default: The value returned when the key is unset or empty.
+
+    Returns:
+        The configured value, or ``default``.
+    """
     try:
         value = run("config", "--get", key).strip()
     except subprocess.CalledProcessError:
