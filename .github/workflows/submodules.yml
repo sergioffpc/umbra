@@ -1,0 +1,150 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Opens one pull request per submodule whose upstream has published a newer
+# release tag, moving the submodule and its third_party/versions.md row
+# together. Release tags are the tags shaped like the pinned one (same prefix,
+# then X.Y.Z), so pre-releases are ignored. Dependabot handles only GitHub
+# Actions: it would move submodules to branch heads, not release tags.
+#
+# The commit is created through the REST Git database API, which can record a
+# submodule commit, so GitHub signs it. Branches and pull requests created
+# with this token start no workflow runs: dispatch the deps workflow on the
+# branch, then close and reopen the pull request to run CI.
+name: submodules
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      BASE: develop
+      MANIFEST: third_party/versions.md
+      LABEL: dependencies
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE }}
+          persist-credentials: false
+
+      - name: Open bump pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cell() {
+            local value=${1//\`/}
+            value=${value#"${value%%[![:space:]]*}"}
+            printf '%s' "${value%"${value##*[![:space:]]}"}"
+          }
+          kebab() {
+            tr '[:upper:]' '[:lower:]' <<<"$1" | tr -cs 'a-z0-9\n' '-' | sed -E 's/^-+|-+$//g'
+          }
+          # The commit a tag points to, peeled when annotated.
+          tag_commit() {
+            git ls-remote --tags "$1" "refs/tags/$2" "refs/tags/$2^{}" \
+              | sort -k2 | awk 'END { print $1 }'
+          }
+
+          base_commit=$(git rev-parse HEAD)
+          base_tree=$(git rev-parse 'HEAD^{tree}')
+          if ! gh api "repos/$GITHUB_REPOSITORY/labels/$LABEL" >/dev/null 2>&1; then
+            gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" \
+              --color 0366d6 --description "Dependency updates"
+          fi
+
+          # Table rows whose Path cell is code: | Name | `path` | ... |, read on
+          # descriptor 3 so that no command in the loop consumes them.
+          while IFS='|' read -r -u 3 _ name path tag commit license _; do
+            name=$(cell "$name")
+            path=$(cell "$path")
+            tag=$(cell "$tag")
+            commit=$(cell "$commit")
+            license=$(cell "$license")
+            prefix=${tag%%[0-9]*}
+            if ! [[ "${tag#"$prefix"}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::warning file=$MANIFEST::$path: $tag is not shaped PREFIX X.Y.Z; skipped"
+              continue
+            fi
+            url=$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
+              | awk -v p="$path" '$2 == p { print $1 }' \
+              | sed -E 's/\.path$/.url/' | xargs -r git config -f .gitmodules --get)
+
+            latest=$(git ls-remote --tags --refs "$url" "refs/tags/$prefix*" \
+              | awk '{ sub("^refs/tags/", "", $2); print $2 }' \
+              | while read -r candidate; do
+                  if [[ "$candidate" == "$prefix"* \
+                      && "${candidate#"$prefix"}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "$candidate"
+                  fi
+                done | sort -V | tail -n1)
+            newest=$(printf '%s\n' "$tag" "$latest" | sort -V | tail -n1)
+            if [[ -z "$latest" || "$newest" == "$tag" ]]; then
+              echo "$name: $tag is the newest release tag."
+              continue
+            fi
+
+            dependency=${path##*/}
+            branch="feature/bump-$(kebab "$dependency")-$(kebab "$latest")"
+            if [[ -n "$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/$branch" \
+                --jq ".[] | select(.ref == \"refs/heads/$branch\") | .ref")" ]]; then
+              echo "$name: $branch already exists."
+              continue
+            fi
+            upstream=$(tag_commit "$url" "$latest")
+            echo "$name: $tag -> $latest ($upstream) on $branch"
+
+            row_start="| $name | \`$path\` |"
+            manifest_file="$RUNNER_TEMP/versions.md"
+            while IFS= read -r line; do
+              if [[ "$line" == "$row_start"* ]]; then
+                # The backticks are Markdown code spans.
+                # shellcheck disable=SC2016
+                printf '%s `%s` | `%s` | `%s` |\n' "$row_start" "$latest" "$upstream" "$license"
+              else
+                printf '%s\n' "$line"
+              fi
+            done <"$MANIFEST" >"$manifest_file"
+
+            header="build(deps): bump $dependency to $latest"
+            body="Moves $name from $tag ($commit) to the release tag $latest ($upstream)."
+            tree=$(jq -n --arg base "$base_tree" --arg path "$path" \
+                --arg commit "$upstream" --arg manifest "$MANIFEST" \
+                --rawfile content "$manifest_file" '{
+                  base_tree: $base,
+                  tree: [
+                    {path: $path, mode: "160000", type: "commit", sha: $commit},
+                    {path: $manifest, mode: "100644", type: "blob", content: $content}
+                  ]}' \
+              | gh api "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq .sha)
+            # No author or committer: GitHub then signs the commit.
+            bump=$(jq -n --arg message "$header"$'\n\n'"$body" --arg tree "$tree" \
+                --arg parent "$base_commit" \
+                '{message: $message, tree: $tree, parents: [$parent]}' \
+              | gh api "repos/$GITHUB_REPOSITORY/git/commits" --input - --jq .sha)
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/heads/$branch" -f sha="$bump" >/dev/null
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$branch" \
+              --title "$header" --label "$LABEL" --body "$body
+
+          Upstream: $url
+
+          Pull requests opened by this workflow start no workflow runs: run the
+          deps workflow on \`$branch\` to build and pin the image, then close and
+          reopen this pull request to run CI."
+          done 3< <(grep -E '^\|[^|]*\|[[:space:]]*`' "$MANIFEST")
