@@ -213,7 +213,15 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 
 ### Style and lint
 
-- Formatting is clang-format with Google style and left pointer alignment.
+C++ follows the
+[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)
+and Python follows the
+[Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
+Where this document is stricter (C++23, the safety rules above, the extra
+clang-tidy families and the function limits below), this document wins.
+
+- Formatting is clang-format with Google style; pointers bind to the type
+  (`int* p`), as in Google style.
 - clang-tidy runs the google, bugprone, cert, cppcoreguidelines,
   clang-analyzer, concurrency, misc, modernize, performance, portability and
   readability families, all as errors.
@@ -226,6 +234,17 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   rules honour `NOLINT(umbra-<rule>)` suppressions only when they carry a
   reason.
 - The namespace matches the directory.
+- Python (`checks/` and the extensionless scripts in `.githooks/`) is
+  enforced like C++: [Pyink](https://github.com/google/pyink) formats it
+  (80 columns, 4-space indent, configured in `pyproject.toml`), isort orders
+  the imports (`profile = "google"`), and pylint lints it with Google's
+  unmodified `pylintrc` (`.pylintrc`). The versions are pinned in the
+  devcontainer image.
+- Every pylint suppression names the message and gives a reason, for example
+  `# pylint: disable=invalid-name` after a comment explaining why. The git
+  hooks are the only standing exception to Google's naming and import rules:
+  git fixes their file names, and they add the repository root to the import
+  path before importing `checks`.
 
 ### Modules
 
