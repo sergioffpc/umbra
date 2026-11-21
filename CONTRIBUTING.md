@@ -57,8 +57,8 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make release` | Release build and tests |
 | `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
 | `make tsan` | ThreadSanitizer build and tests |
-| `make format` | Format the sources with clang-format |
-| `make lint` | Run clang-tidy and the clang-query rules |
+| `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
+| `make lint` | Run clang-tidy, the clang-query rules, pylint and actionlint |
 | `make checks` | Run the validators shared with the git hooks and CI |
 | `make clean` | Remove the build trees |
 | `make help` | List the targets |
@@ -153,9 +153,11 @@ Every commit and release tag must be cryptographically signed.
 The hooks in `.githooks/` are Python 3 standard-library executables that
 share their validators (in `checks/`) with CI, so local feedback matches CI:
 
-- **pre-commit** checks staged files only: formatting (git-clang-format),
-  clang-tidy in parallel on the affected translation units, the clang-query
-  rules and the shared validators.
+- **pre-commit** checks staged files only: formatting (git-clang-format,
+  pyink, isort), the shared validators, clang-tidy in parallel and the
+  clang-query rules on the affected translation units (those that include a
+  staged file), pylint on staged Python files and actionlint on staged
+  workflows.
 - **commit-msg** validates the Conventional Commit format.
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
@@ -171,8 +173,12 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 ### Errors and language features
 
 - C++23 with compiler extensions off.
-- Exceptions and RTTI are disabled. Errors are returned as `std::expected`
-  with the project's `[[nodiscard]]` error type.
+- Exceptions and RTTI are disabled. Errors are returned as
+  `std::expected<T, Error>` with the project's `[[nodiscard]]` error type
+  (or another error type where one fits).
+- Results are must-use, as in Rust: discarding any `std::expected` fails
+  lint (`bugprone-unused-return-value`), and a cast to `void` does not
+  silence it.
 - Only `umbra::ext::<dep>` bridge modules (under `src/ext/` and
   `include/umbra/ext/`) may enable RTTI or exceptions or include the headers
   of libraries that need them. They expose only umbra types and convert
@@ -261,15 +267,21 @@ clang-tidy families and the function limits below), this document wins.
   3, 5 parameters, 12 variables and cognitive complexity 15.
 - Every `NOLINT` names the check and gives a reason, for example
   `// NOLINT(bugprone-narrowing-conversions): <reason>`. The clang-query
-  rules honour `NOLINT(umbra-<rule>)` suppressions only when they carry a
+  rules (`checks/queries/`: `umbra-bool-parameter`, `umbra-bool-field`,
+  `umbra-predicate-name`) honour `NOLINT(umbra-<rule>)` on the line, or
+  `NOLINTNEXTLINE(umbra-<rule>)` on the line above, only when it carries a
   reason.
-- The namespace matches the directory.
+- The namespace matches the directory: `umbra::<module>` in
+  `include/umbra/<module>/`, `src/<module>/` and `tests/<module>/`
+  (`umbra::ext::<dep>` for bridges), or a namespace nested in it.
 - Python (`checks/` and the extensionless scripts in `.githooks/`) is
   enforced like C++: [Pyink](https://github.com/google/pyink) formats it
   (80 columns, 4-space indent, configured in `pyproject.toml`), isort orders
   the imports (`profile = "google"`), and pylint lints it with Google's
   unmodified `pylintrc` (`.pylintrc`). The versions are pinned in the
   devcontainer image.
+- Workflows are linted with actionlint, which runs shellcheck on their
+  scripts; both are pinned in the devcontainer image.
 - Every pylint suppression names the message and gives a reason, for example
   `# pylint: disable=invalid-name` after a comment explaining why. The git
   hooks are the only standing exception to Google's naming and import rules:
