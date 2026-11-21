@@ -1,4 +1,83 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// The only supported environment, for VS Code Dev Containers on rootless
+// podman (user setting "dev.containers.dockerPath": "podman").
 {
   "name": "umbra",
-  "image": "ghcr.io/sergioffpc/umbra-deps:50c80834039d5845"
+  // Pinned by content hash: the deps workflow rewrites this line, and CI
+  // fails when it differs from the hash of the current deps inputs.
+  "image": "ghcr.io/sergioffpc/umbra-deps:d4815b5260bd979a",
+
+  // The host user becomes the image's dev user (uid/gid 1000), so files in
+  // the workspace keep the host user's ownership. lldb and the sanitizers
+  // need ptrace and an unconfined seccomp profile.
+  "runArgs": [
+    "--userns=keep-id:uid=1000,gid=1000",
+    "--cap-add=SYS_PTRACE",
+    "--security-opt=seccomp=unconfined"
+  ],
+  "containerUser": "dev",
+  "remoteUser": "dev",
+  // keep-id already maps the host user onto dev.
+  "updateRemoteUserUID": false,
+  "containerEnv": {
+    "HOME": "/home/dev",
+    // Keeps .claude.json (account, trust) inside the persisted volume.
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude"
+  },
+  "remoteEnv": {
+    // Claude Code's native installer puts its launcher here.
+    "PATH": "/home/dev/.local/bin:${containerEnv:PATH}"
+  },
+  // Claude Code and gh logins survive a rebuild. The image creates both
+  // directories owned by dev, so new volumes are owned by dev too.
+  "mounts": [
+    "source=umbra-claude,target=/home/dev/.claude,type=volume",
+    "source=umbra-gh,target=/home/dev/.config/gh,type=volume"
+  ],
+
+  // Developer-only tools are installed when the container is created, never
+  // baked into the CI images.
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "2.103.3"
+    }
+  },
+  "postCreateCommand": "python3 .devcontainer/post_create.py",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "llvm-vs-code-extensions.lldb-dap",
+        "ms-vscode.cmake-tools",
+        // Unwanted: clangd provides the C++ language features.
+        "-ms-vscode.cpptools"
+      ],
+      "settings": {
+        // Language features come from clangd (configured in .clangd).
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "clangd.path": "/usr/local/bin/clangd",
+        "clangd.checkUpdates": false,
+        "clangd.arguments": [
+          "--background-index",
+          "--clang-tidy",
+          "--header-insertion=never"
+        ],
+        "[cpp]": {
+          "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+          "editor.formatOnSave": true
+        },
+        "[c]": {
+          "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+          "editor.formatOnSave": true
+        },
+        "lldb-dap.executable-path": "/usr/local/bin/lldb-dap",
+        "cmake.useCMakePresets": "always",
+        // The create step configures the debug preset.
+        "cmake.configureOnOpen": false
+      }
+    }
+  }
 }
