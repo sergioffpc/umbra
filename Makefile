@@ -5,7 +5,7 @@
 # CI. Run inside the devcontainer.
 
 .DEFAULT_GOAL := all
-.PHONY: all test release asan tsan clean help
+.PHONY: all test release asan tsan format lint checks clean help
 
 all: ## Debug build
 	cmake --preset debug
@@ -22,6 +22,16 @@ asan: ## ASan + UBSan build and run the tests
 
 tsan: ## TSan build and run the tests
 	cmake --workflow --preset tsan
+
+format: ## Format the C++ and Python sources
+	python3 -m checks.formatting
+
+lint: ## Run clang-tidy, the clang-query rules, pylint and actionlint
+	cmake --preset debug >/dev/null
+	python3 -m checks.lint
+
+checks: ## Run the validators shared with the git hooks and CI
+	python3 -m checks.conventions
 
 clean: ## Remove the build trees
 	rm -rf build
