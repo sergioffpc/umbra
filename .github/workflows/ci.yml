@@ -464,7 +464,8 @@ jobs:
           fi
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
-  # then clang-tidy, the clang-query rules, pylint and actionlint.
+  # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
+  # of the Python embedded in the workflows.
   lint:
     needs: image
     runs-on: ubuntu-24.04

@@ -26,7 +26,7 @@ tsan: ## TSan build and run the tests
 format: ## Format the C++ and Python sources
 	python3 -m checks.formatting
 
-lint: ## Run clang-tidy, the clang-query rules, pylint and actionlint
+lint: ## Run clang-tidy, clang-query rules, pylint, actionlint, embedded Python
 	python3 -m checks.lint
 
 checks: ## Run the validators shared with the git hooks and CI

@@ -5,7 +5,9 @@
 clang-tidy (through LLVM's run-clang-tidy, in parallel) and the clang-query
 rules analyse the translation units of the compilation database: all of them,
 or only those the given files affect. pylint lints the Python files and
-actionlint (with shellcheck) the workflows, all of them or those given.
+actionlint (with shellcheck) the workflows, all of them or those given. The
+Python embedded in the workflows (see ``checks.embedded``) is checked for
+formatting and linted with pylint too.
 
 The compilation database is this module's: it comes from the debug preset,
 which ``run`` configures (``cmake --preset debug``) so the database is
@@ -24,6 +26,8 @@ import sys
 
 from checks import affected
 from checks import clang_query
+from checks import embedded
+from checks import formatting
 from checks import git
 from checks import report
 from checks import sources
@@ -105,6 +109,45 @@ def pylint(paths: Sequence[str]) -> int:
     return report.exit_status("pylint found problems", "pylint", status)
 
 
+def embedded_python(scripts: Sequence[embedded.Script]) -> int:
+    """Checks the formatting of embedded Python scripts and runs pylint.
+
+    pylint reads each script from standard input under its workflow's name,
+    so its messages carry the workflow's path and line numbers.
+
+    Args:
+        scripts: The scripts.
+
+    Returns:
+        The process exit status: 0 when every script passes.
+    """
+    errors = [
+        error
+        for script in scripts
+        for error in formatting.check_python(
+            script.path,
+            script.code,
+            "format it as pyink and isort would",
+            script.name,
+        )
+    ]
+    status = report.fail("embedded Python is not formatted", errors)
+    for script in scripts:
+        result = git.call(
+            ["pylint", "--score=n", "--from-stdin", script.path],
+            stdin=script.aligned(),
+        )
+        status = (
+            report.exit_status(
+                f"pylint found problems in {script.name}",
+                "pylint",
+                result.returncode,
+            )
+            or status
+        )
+    return status
+
+
 def actionlint(paths: Sequence[str]) -> int:
     """Runs actionlint (and shellcheck through it) over workflows."""
     status = git.call(["actionlint", *paths]).returncode
@@ -149,6 +192,9 @@ def run(paths: Sequence[str] | None, build_dir: pathlib.Path) -> int:
     workflows = [path for path in files if sources.is_workflow(path)]
     if workflows:
         status = actionlint(workflows) or status
+        scripts = embedded.scripts_of(workflows)
+        if scripts:
+            status = embedded_python(scripts) or status
     return status
 
 

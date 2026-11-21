@@ -58,7 +58,7 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
 | `make tsan` | ThreadSanitizer build and tests |
 | `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
-| `make lint` | Run clang-tidy, the clang-query rules, pylint and actionlint |
+| `make lint` | Run clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
 | `make checks` | Run the validators shared with the git hooks and CI |
 | `make clean` | Remove the build trees |
 | `make help` | List the targets |
@@ -156,8 +156,8 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
 - **pre-commit** checks staged files only: formatting (git-clang-format,
   pyink, isort), the shared validators, clang-tidy in parallel and the
   clang-query rules on the affected translation units (those that include a
-  staged file), pylint on staged Python files and actionlint on staged
-  workflows.
+  staged file), pylint on staged Python files, and actionlint and the
+  embedded Python checks on staged workflows.
 - **commit-msg** validates the Conventional Commit format.
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
@@ -282,6 +282,13 @@ clang-tidy families and the function limits below), this document wins.
   devcontainer image.
 - Workflows are linted with actionlint, which runs shellcheck on their
   scripts; both are pinned in the devcontainer image.
+- CI-only logic stays inline in the workflows. Python there is written as a
+  quoted heredoc read by `python3 -` (`python3 - <<'EOF'`), follows the same
+  Google style (a `main()` and the `__main__` guard, no module-level logic)
+  and is checked like a Python file: `make lint` and the pre-commit hook
+  extract it (`python3 -m checks.embedded` prints what they find) and fail
+  when pyink or isort would change it or pylint reports anything. Format it
+  by hand.
 - Every pylint suppression names the message and gives a reason, for example
   `# pylint: disable=invalid-name` after a comment explaining why. The git
   hooks are the only standing exception to Google's naming and import rules:

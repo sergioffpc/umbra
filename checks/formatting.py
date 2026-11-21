@@ -59,15 +59,19 @@ def format_files(paths: Sequence[str]) -> int:
 
 
 def check_python(
-    path: str, text: str, remedy: str = "run make format"
+    path: str,
+    text: str,
+    remedy: str = "run make format",
+    label: str | None = None,
 ) -> list[str]:
     """Checks that Python source is formatted, without changing any file.
 
     Args:
-        path: The file, relative to the repository root; it selects the
-            configuration and appears in the messages.
+        path: An existing file, relative to the repository root; it selects
+            the configuration (isort skips files that do not exist).
         text: The content to check.
         remedy: How to fix the content, appended to each error.
+        label: What the messages call the content; ``path`` when None.
 
     Returns:
         The human-readable errors; empty when the content is formatted.
@@ -79,11 +83,19 @@ def check_python(
         ),
         (
             "not formatted",
-            ["pyink", "--check", "--diff", "--stdin-filename", path, "-"],
+            [
+                "pyink",
+                "--check",
+                "--diff",
+                "--quiet",
+                "--stdin-filename",
+                path,
+                "-",
+            ],
         ),
     )
     return [
-        f"{path}: {problem} ({remedy})"
+        f"{label or path}: {problem} ({remedy})"
         for problem, command in checks
         if git.call(command, stdin=text).returncode
     ]
