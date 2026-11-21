@@ -1,0 +1,6 @@
+# Build context of docker/toolchain.Dockerfile: the third-party tree and the
+# Python tools requirements.
+*
+!third_party/
+!docker/python-tools.txt
+**/.git
