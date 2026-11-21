@@ -100,3 +100,96 @@ jobs:
 
           sys.exit(fail("invalid pull request commits", errors))
           EOF
+
+  # Checks third_party/versions.md against the submodule commits recorded in
+  # the tree and against the upstream release tags, and every license against
+  # the allow-list. Runs directly on the runner: it needs only git.
+  third-party:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Licenses are SPDX expressions, compared whole.
+      - name: Versions manifest and licenses
+        env:
+          MANIFEST: third_party/versions.md
+          ALLOWED_LICENSES: |-
+            Apache-2.0
+            Apache-2.0 WITH LLVM-exception
+            BSD-2-Clause
+            BSD-3-Clause
+            MIT
+            Zlib
+            BSL-1.0
+        run: |
+          set -euo pipefail
+          status=0
+          fail() { echo "::error file=$MANIFEST::$*"; status=1; }
+          cell() {
+            local value=${1//\`/}
+            value=${value#"${value%%[![:space:]]*}"}
+            printf '%s' "${value%"${value##*[![:space:]]}"}"
+          }
+
+          # Table rows whose Path cell is code: | Name | `path` | ... |
+          declare -A tags=() commits=() licenses=()
+          while IFS='|' read -r _ name path tag commit license _; do
+            path=$(cell "$path")
+            if [[ -n "${tags[$path]+set}" ]]; then
+              fail "$path is listed more than once"
+            fi
+            tags[$path]=$(cell "$tag")
+            commits[$path]=$(cell "$commit")
+            licenses[$path]=$(cell "$license")
+            echo "Manifest: $(cell "$name") $path ${tags[$path]} ${commits[$path]} ${licenses[$path]}"
+          done < <(grep -E '^\|[^|]*\|[[:space:]]*`' "$MANIFEST")
+
+          # Every gitlink of the tree is a submodule listed in the manifest.
+          declare -A gitlinks=()
+          while read -r _ type sha path; do
+            if [[ "$type" == commit ]]; then
+              gitlinks[$path]=$sha
+            fi
+          done < <(git ls-tree -r HEAD)
+          for path in "${!gitlinks[@]}"; do
+            [[ -n "${tags[$path]+set}" ]] \
+              || fail "submodule $path is missing from the manifest"
+          done
+
+          for path in "${!tags[@]}"; do
+            tag=${tags[$path]}
+            commit=${commits[$path]}
+            license=${licenses[$path]}
+            if ! grep -Fxq -- "$license" <<<"$ALLOWED_LICENSES"; then
+              fail "$path: license '$license' is not on the allow-list"
+            fi
+            if [[ -z "${gitlinks[$path]+set}" ]]; then
+              fail "$path is listed but is not a submodule"
+              continue
+            fi
+            if [[ "$commit" != "${gitlinks[$path]}" ]]; then
+              fail "$path: the manifest says $commit, the submodule is at ${gitlinks[$path]}"
+            fi
+            # The tag must exist upstream and point to that commit (peeled
+            # when annotated).
+            url=$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
+              | awk -v p="$path" '$2 == p { print $1 }' \
+              | sed -E 's/\.path$/.url/' | xargs -r git config -f .gitmodules --get || true)
+            if [[ -z "$url" ]]; then
+              fail "$path has no URL in .gitmodules"
+              continue
+            fi
+            upstream=$(git ls-remote --tags "$url" "refs/tags/$tag" "refs/tags/$tag^{}" \
+              | sort -k2 | awk 'END { print $1 }')
+            if [[ -z "$upstream" ]]; then
+              fail "$path: tag $tag does not exist in $url"
+            elif [[ "$upstream" != "$commit" ]]; then
+              fail "$path: tag $tag points to $upstream, not $commit"
+            fi
+          done
+          exit "$status"
