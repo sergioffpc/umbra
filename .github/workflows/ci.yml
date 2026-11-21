@@ -35,7 +35,7 @@ jobs:
         if: github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           HEAD_REF: ${{ github.head_ref }}
-        run: python3 -m checks.branch_name "$HEAD_REF"
+        run: python3 -m checks.branch_name --pull-request "$HEAD_REF"
 
       # Features and bugfixes are squash-merged: the title becomes the commit
       # header on develop.

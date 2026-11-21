@@ -66,7 +66,8 @@ Umbra follows git flow:
   merged, and may be deleted at any time. Only the git flow branches in the
   table above are opened as pull requests.
 - Branch names are kebab-case, for example `feature/wrapping-arithmetic`.
-  The pre-push hook and CI reject other names; only Dependabot's own
+  The pre-push hook rejects other names, and CI also rejects `research/` and
+  `prototype/` as pull request branches; only Dependabot's own
   `dependabot/...` branches are exempt in CI.
 - Features and bugfixes are **squash-merged** into `develop`. The pull request
   title becomes the commit header, so it must be a valid Conventional Commit;
