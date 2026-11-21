@@ -112,12 +112,9 @@ def build_and_test() -> int:
             ],
         )
     print("pre-push: debug build and tests (make test)", file=sys.stderr)
-    result = subprocess.run(["make", "test"], cwd=git.REPO_ROOT, check=False)
-    return report.fail(
-        "debug build or tests failed",
-        [f"make test exited with status {result.returncode}"]
-        if result.returncode
-        else [],
+    status = git.call(["make", "test"]).returncode
+    return report.exit_status(
+        "debug build or tests failed", "make test", status
     )
 
 

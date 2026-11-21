@@ -17,7 +17,6 @@ import concurrent.futures
 import os
 import pathlib
 import re
-import subprocess
 import sys
 
 from checks import git
@@ -60,12 +59,9 @@ def query(translation_unit: str, build_dir: pathlib.Path) -> tuple[str, str]:
         (empty otherwise).
     """
     files = [arg for path in rule_files() for arg in ("-f", str(path))]
-    result = subprocess.run(
+    result = git.call(
         ["clang-query", "-p", str(build_dir), *files, translation_unit],
-        cwd=git.REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
+        capture=True,
     )
     error = ""
     if result.returncode:

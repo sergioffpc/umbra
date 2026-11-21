@@ -7,8 +7,9 @@ rules analyse the translation units of the compilation database: all of them,
 or only those the given files affect. pylint lints the Python files and
 actionlint (with shellcheck) the workflows, all of them or those given.
 
-The compilation database comes from the debug preset (``cmake --preset
-debug``).
+The compilation database is this module's: it comes from the debug preset,
+which ``run`` configures (``cmake --preset debug``) so the database is
+current. Another build tree given with -p must already have one.
 
 Usage: python3 -m checks.lint [-p BUILD_DIR] [PATH...]
 """
@@ -19,7 +20,6 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import sys
 
 from checks import affected
@@ -28,7 +28,14 @@ from checks import git
 from checks import report
 from checks import sources
 
-TOOLS = ("run-clang-tidy", "clang-tidy", "clang-query", "pylint", "actionlint")
+TOOLS = (
+    "cmake",
+    "run-clang-tidy",
+    "clang-tidy",
+    "clang-query",
+    "pylint",
+    "actionlint",
+)
 
 
 def missing_tools() -> list[str]:
@@ -36,9 +43,28 @@ def missing_tools() -> list[str]:
     return [tool for tool in TOOLS if shutil.which(tool) is None]
 
 
-def call(args: Sequence[str]) -> int:
-    """Runs a command from the repository root and returns its exit status."""
-    return subprocess.run(args, cwd=git.REPO_ROOT, check=False).returncode
+def ensure_compile_database(build_dir: pathlib.Path) -> int:
+    """Makes the compilation database of a build tree current.
+
+    Configures the debug preset when the build tree is its own; any other
+    build tree must already hold compile_commands.json.
+
+    Args:
+        build_dir: The build tree holding compile_commands.json.
+
+    Returns:
+        The process exit status: 0 when the database is ready.
+    """
+    if build_dir.resolve() == affected.DEFAULT_BUILD_DIR:
+        status = git.call(["cmake", "--preset", "debug"], quiet=True).returncode
+        return report.exit_status(
+            "cannot configure the debug preset", "cmake --preset debug", status
+        )
+    database = build_dir / "compile_commands.json"
+    return report.fail(
+        "cannot lint the C++ sources",
+        [] if database.is_file() else [f"{database} does not exist"],
+    )
 
 
 def clang_tidy(
@@ -58,39 +84,31 @@ def clang_tidy(
         f"^{re.escape(str(git.REPO_ROOT / path))}$"
         for path in translation_units
     ]
-    status = call(
-        [
-            "run-clang-tidy",
-            "-quiet",
-            "-p",
-            str(build_dir),
-            "-j",
-            str(os.cpu_count() or 1),
-            *patterns,
-        ]
-    )
-    return report.fail(
-        "clang-tidy found problems",
-        [f"run-clang-tidy exited with status {status}"] if status else [],
+    command = [
+        "run-clang-tidy",
+        "-quiet",
+        "-p",
+        str(build_dir),
+        "-j",
+        str(os.cpu_count() or 1),
+        *patterns,
+    ]
+    status = git.call(command).returncode
+    return report.exit_status(
+        "clang-tidy found problems", "run-clang-tidy", status
     )
 
 
 def pylint(paths: Sequence[str]) -> int:
     """Runs pylint (configured by .pylintrc) over Python files."""
-    status = call(["pylint", "--score=n", *paths])
-    return report.fail(
-        "pylint found problems",
-        [f"pylint exited with status {status}"] if status else [],
-    )
+    status = git.call(["pylint", "--score=n", *paths]).returncode
+    return report.exit_status("pylint found problems", "pylint", status)
 
 
 def actionlint(paths: Sequence[str]) -> int:
     """Runs actionlint (and shellcheck through it) over workflows."""
-    status = call(["actionlint", *paths])
-    return report.fail(
-        "actionlint found problems",
-        [f"actionlint exited with status {status}"] if status else [],
-    )
+    status = git.call(["actionlint", *paths]).returncode
+    return report.exit_status("actionlint found problems", "actionlint", status)
 
 
 def run(paths: Sequence[str] | None, build_dir: pathlib.Path) -> int:
@@ -113,6 +131,8 @@ def run(paths: Sequence[str] | None, build_dir: pathlib.Path) -> int:
                 "lint in the devcontainer, the only supported environment",
             ],
         )
+    if ensure_compile_database(build_dir):
+        return 1
     if paths is None:
         files = sources.tracked()
         units = affected.database_sources(build_dir)

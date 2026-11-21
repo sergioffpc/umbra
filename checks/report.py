@@ -26,3 +26,18 @@ def fail(subject: str, errors: Iterable[str]) -> int:
         print(f"  - {error}", file=sys.stderr)
     print("See CONTRIBUTING.md for the project conventions.", file=sys.stderr)
     return 1
+
+
+def exit_status(subject: str, command: str, status: int) -> int:
+    """Reports a tool that exited with a non-zero status.
+
+    Args:
+        subject: What failed, for example ``"clang-tidy found problems"``.
+        command: The command, as shown to the user, for example ``"pylint"``.
+        status: The tool's exit status.
+
+    Returns:
+        The process exit status: 0 when the tool succeeded, 1 otherwise.
+    """
+    errors = [f"{command} exited with status {status}"] if status else []
+    return fail(subject, errors)

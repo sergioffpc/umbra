@@ -3,25 +3,33 @@
 """Formats the sources: clang-format for C++, pyink and isort for Python.
 
 Formats the given files in place, or every tracked C++ and Python file when
-none is given. ``check_python`` checks a Python file's content without
-changing it (the pre-commit hook passes the staged content).
+none is given. The ``check_*`` functions check content without changing any
+file: the pre-commit hook checks the staged changes, and the linter checks
+the Python embedded in the workflows.
 
 Usage: python3 -m checks.formatting [PATH...]
 """
 
 from collections.abc import Sequence
-import subprocess
+import shutil
 import sys
 
 from checks import git
+from checks import report
 from checks import sources
 
+TOOLS = ("clang-format", "git-clang-format", "pyink", "isort")
+# What git-clang-format prints when the staged changes are formatted.
+CLEAN_OUTPUTS = (
+    "",
+    "no modified files to format",
+    "clang-format did not modify any files",
+)
 
-def call(args: Sequence[str], stdin: str | None = None) -> int:
-    """Runs a command from the repository root and returns its exit status."""
-    return subprocess.run(
-        args, cwd=git.REPO_ROOT, input=stdin, text=True, check=False
-    ).returncode
+
+def missing_tools() -> list[str]:
+    """Returns the formatting tools that are not on PATH."""
+    return [tool for tool in TOOLS if shutil.which(tool) is None]
 
 
 def format_files(paths: Sequence[str]) -> int:
@@ -35,35 +43,87 @@ def format_files(paths: Sequence[str]) -> int:
         The process exit status: 0 when every formatter succeeded.
     """
     status = 0
+    commands = []
     cpp = [path for path in paths if sources.is_cpp(path)]
     if cpp:
-        status = call(["clang-format", "-i", *cpp]) or status
+        commands = [["clang-format", "-i", *cpp]]
     python = [path for path in paths if sources.is_python(path)]
     if python:
-        status = call(["isort", "--quiet", *python]) or status
-        status = call(["pyink", "--quiet", *python]) or status
+        commands += [
+            ["isort", "--quiet", *python],
+            ["pyink", "--quiet", *python],
+        ]
+    for command in commands:
+        status = git.call(command).returncode or status
     return status
 
 
-def check_python(path: str, text: str) -> list[str]:
+def check_python(
+    path: str, text: str, remedy: str = "run make format"
+) -> list[str]:
     """Checks that Python source is formatted, without changing any file.
 
     Args:
         path: The file, relative to the repository root; it selects the
             configuration and appears in the messages.
         text: The content to check.
+        remedy: How to fix the content, appended to each error.
 
     Returns:
         The human-readable errors; empty when the content is formatted.
     """
-    errors = []
-    if call(["isort", "--check-only", "--diff", "--filename", path, "-"], text):
-        errors.append(f"{path}: imports not sorted (run make format)")
-    if call(
-        ["pyink", "--check", "--diff", "--stdin-filename", path, "-"], text
-    ):
-        errors.append(f"{path}: not formatted (run make format)")
-    return errors
+    checks = (
+        (
+            "imports not sorted",
+            ["isort", "--check-only", "--diff", "--filename", path, "-"],
+        ),
+        (
+            "not formatted",
+            ["pyink", "--check", "--diff", "--stdin-filename", path, "-"],
+        ),
+    )
+    return [
+        f"{path}: {problem} ({remedy})"
+        for problem, command in checks
+        if git.call(command, stdin=text).returncode
+    ]
+
+
+def check_staged_cpp() -> int:
+    """Checks the formatting of the staged C++ changes.
+
+    Returns:
+        The process exit status: 0 when git-clang-format changes nothing.
+    """
+    result = git.call(
+        ["git", "clang-format", "--staged", "--diff", "--quiet"], capture=True
+    )
+    output = result.stdout.strip()
+    if output in CLEAN_OUTPUTS and not result.returncode:
+        return 0
+    print(output, file=sys.stderr)
+    return report.fail(
+        "staged C++ changes are not formatted",
+        ["run make format (or git clang-format) and stage the result"],
+    )
+
+
+def check_staged_python(paths: Sequence[str]) -> int:
+    """Checks the formatting of the staged content of Python files.
+
+    Args:
+        paths: The staged files; other kinds of files are skipped.
+
+    Returns:
+        The process exit status: 0 when every Python file is formatted.
+    """
+    errors = [
+        error
+        for path in paths
+        if sources.is_python(path)
+        for error in check_python(path, sources.read_staged(path))
+    ]
+    return report.fail("staged Python files are not formatted", errors)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

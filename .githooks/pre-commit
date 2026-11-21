@@ -10,11 +10,12 @@ Only staged files, and the translation units they affect, are analysed:
 - the shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces)
   on the staged content;
 - clang-tidy (in parallel, through run-clang-tidy) and the clang-query rules
-  on the affected translation units, pylint on the staged Python files and
-  actionlint on the staged workflows. These read the working tree.
+  on the affected translation units, pylint on the staged Python files,
+  actionlint and the embedded Python checks on the staged workflows. These
+  read the working tree.
 
-It needs the devcontainer toolchain and the debug preset's compilation
-database, which it configures when it is missing.
+It needs the devcontainer toolchain; the linter configures the debug preset
+for its compilation database.
 
 Usage (run by git): .githooks/pre-commit
 """
@@ -23,8 +24,6 @@ Usage (run by git): .githooks/pre-commit
 # pylint: disable=invalid-name
 
 import pathlib
-import shutil
-import subprocess
 import sys
 
 # The checks package lives at the repository root, which is not on the import
@@ -36,75 +35,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from checks import affected
 from checks import conventions
 from checks import formatting
-from checks import git
 from checks import lint
 from checks import report
 from checks import sources
 
 # pylint: enable=wrong-import-position
-
-FORMAT_TOOLS = ("git-clang-format", "clang-format", "pyink", "isort", "cmake")
-CLEAN_OUTPUTS = (
-    "",
-    "no modified files to format",
-    "clang-format did not modify any files",
-)
-
-
-def check_cpp_format() -> int:
-    """Checks the formatting of the staged C++ changes.
-
-    Returns:
-        The process exit status: 0 when git-clang-format changes nothing.
-    """
-    result = subprocess.run(
-        ["git", "clang-format", "--staged", "--diff", "--quiet"],
-        cwd=git.REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = result.stdout.strip()
-    if output in CLEAN_OUTPUTS and not result.returncode:
-        return 0
-    print(output, file=sys.stderr)
-    return report.fail(
-        "staged C++ changes are not formatted",
-        ["run make format (or git clang-format) and stage the result"],
-    )
-
-
-def check_python_format(paths: list[str]) -> int:
-    """Checks the formatting of the staged content of Python files."""
-    errors = [
-        error
-        for path in paths
-        if sources.is_python(path)
-        for error in formatting.check_python(path, sources.read_staged(path))
-    ]
-    return report.fail("staged Python files are not formatted", errors)
-
-
-def ensure_compile_database() -> int:
-    """Configures the debug preset when its compilation database is missing.
-
-    Returns:
-        The process exit status: 0 when the database exists.
-    """
-    if (affected.DEFAULT_BUILD_DIR / "compile_commands.json").is_file():
-        return 0
-    result = subprocess.run(
-        ["cmake", "--preset", "debug"],
-        cwd=git.REPO_ROOT,
-        stdout=subprocess.DEVNULL,
-        check=False,
-    )
-    return report.fail(
-        "cannot configure the debug preset for clang-tidy",
-        [f"cmake --preset debug exited with status {result.returncode}"]
-        if result.returncode
-        else [],
-    )
 
 
 def main() -> int:
@@ -116,8 +51,7 @@ def main() -> int:
     staged = sources.staged()
     if not staged:
         return 0
-    missing = [tool for tool in FORMAT_TOOLS if shutil.which(tool) is None]
-    missing += lint.missing_tools()
+    missing = formatting.missing_tools() + lint.missing_tools()
     if missing:
         return report.fail(
             "cannot check the staged files",
@@ -126,11 +60,9 @@ def main() -> int:
                 "commit from the devcontainer, the only supported environment",
             ],
         )
-    status = check_cpp_format()
-    status = check_python_format(staged) or status
+    status = formatting.check_staged_cpp()
+    status = formatting.check_staged_python(staged) or status
     status = conventions.run(staged, sources.read_staged) or status
-    if ensure_compile_database():
-        return 1
     return lint.run(staged, affected.DEFAULT_BUILD_DIR) or status
 
 
