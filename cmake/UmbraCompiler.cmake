@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Compiler, language and code generation settings shared by every umbra
+# target:
+#
+#   - C++23 without compiler extensions, built with clang against libc++,
+#     compiler-rt and libunwind, linked with lld: no GCC runtime library;
+#   - the LLVM binary tools (llvm-ar, llvm-ranlib, llvm-nm), required to
+#     archive the LTO bitcode of the static modules;
+#   - no exceptions and no RTTI (umbra_add_ext_module re-enables both);
+#   - every build type targets UMBRA_ARCH and uses the same floating-point
+#     flags, so Debug and Release compute identical results;
+#   - Release adds -O3 (CMake's default), full LTO, whole-program vtables,
+#     hidden visibility, no semantic interposition and no PLT;
+#   - UMBRA_TIME_TRACE writes a -ftime-trace JSON file per translation unit
+#     next to its object file.
+#
+# The settings apply through umbra_apply_compiler_settings(<target>), called
+# by the helpers in UmbraModules.cmake.
+
+include_guard(GLOBAL)
+
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  message(FATAL_ERROR
+          "umbra builds with clang only (found ${CMAKE_CXX_COMPILER_ID}); "
+          "build inside the devcontainer")
+endif()
+
+set(UMBRA_ARCH "x86-64-v3" CACHE STRING
+    "Target architecture (-march) of every build type")
+option(UMBRA_TIME_TRACE "Write a -ftime-trace file per translation unit" OFF)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+# umbra uses no C++20 modules; skip the dependency scan they need.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# The LLVM binary tools that sit next to the compiler.
+cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH umbra_compiler_dir)
+file(REAL_PATH "${CMAKE_CXX_COMPILER}" umbra_compiler_real)
+cmake_path(GET umbra_compiler_real PARENT_PATH umbra_compiler_real_dir)
+foreach(umbra_tool IN ITEMS ar ranlib nm)
+  string(TOUPPER "${umbra_tool}" umbra_tool_var)
+  find_program(UMBRA_LLVM_${umbra_tool_var} NAMES llvm-${umbra_tool}
+               HINTS "${umbra_compiler_dir}" "${umbra_compiler_real_dir}"
+               REQUIRED)
+  set(CMAKE_${umbra_tool_var} "${UMBRA_LLVM_${umbra_tool_var}}"
+      CACHE FILEPATH "" FORCE)
+endforeach()
+
+function(umbra_apply_compiler_settings target)
+  target_compile_options(${target} PRIVATE
+    -stdlib=libc++
+    -fno-exceptions
+    -fno-rtti
+    -march=${UMBRA_ARCH}
+    -fno-math-errno
+    -ffp-contract=on
+    -fno-trapping-math
+    $<$<BOOL:${UMBRA_TIME_TRACE}>:-ftime-trace>
+    $<$<CONFIG:Release>:-flto=full -fwhole-program-vtables
+      -fvisibility=hidden -fvisibility-inlines-hidden
+      -fno-semantic-interposition -fno-plt>)
+  target_link_options(${target} PRIVATE
+    -stdlib=libc++
+    -rtlib=compiler-rt
+    -unwindlib=libunwind
+    -fuse-ld=lld
+    $<$<CONFIG:Release>:-flto=full -fwhole-program-vtables>)
+endfunction()
