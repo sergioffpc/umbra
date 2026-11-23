@@ -90,7 +90,6 @@ ExternalProject_Add_Step(oneTBB tsan
           "-DCMAKE_CXX_FLAGS=-march=${umbra_deps_arch} -stdlib=libc++ -fsanitize=thread"
           "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--enable-new-dtags -fsanitize=thread"
           -DCMAKE_EXPORT_COMPILE_COMMANDS=OFF
-          -DTBBMALLOC_BUILD=OFF
           ${umbra_deps_hwloc_args}
           -C "${CMAKE_CURRENT_LIST_DIR}/../config/oneTBB.cmake"
   COMMAND ${CMAKE_COMMAND} --build "${umbra_tbb_tsan_dir}"

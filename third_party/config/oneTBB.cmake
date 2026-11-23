@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
 #
-# Initial cache for oneTBB (cmake -C): libtbb, the scalable allocator
-# libtbbmalloc and libtbbbind_2_5 (NUMA and hybrid-core aware task arenas, on
-# the system hwloc), without tests, examples, Python bindings or LTO. The
-# common settings of the layer and the hwloc paths come from
-# layers/deps.cmake.
+# Initial cache for oneTBB (cmake -C): libtbb and libtbbbind_2_5 (NUMA and
+# hybrid-core aware task arenas, on the system hwloc), without the scalable
+# allocator, tests, examples, Python bindings or LTO. The common settings of
+# the layer and the hwloc paths come from layers/deps.cmake.
 #
 # libtbb is built with exceptions and RTTI whatever the flags (it propagates
 # exceptions out of tasks); code built with -fno-exceptions uses its headers
@@ -18,10 +17,11 @@ set(TBB_STRICT OFF CACHE BOOL "")
 set(TBB_ENABLE_IPO OFF CACHE BOOL "")
 set(TBB_INSTALL ON CACHE BOOL "")
 
-# The scalable allocator is installed for code that asks for it; the proxy
-# that replaces malloc in the whole process is not.
-set(TBBMALLOC_BUILD ON CACHE BOOL "")
-set(TBBMALLOC_PROXY_BUILD OFF CACHE BOOL "")
+# No scalable allocator: libtbb loads libtbbmalloc whenever it finds it and
+# then allocates its containers' memory there, out of sight of the address
+# and thread sanitizers, which only intercept the C library's allocator.
+# Without it, libtbb falls back to malloc.
+set(TBBMALLOC_BUILD OFF CACHE BOOL "")
 
 # libtbbbind is built against the hwloc that layers/deps.cmake finds and
 # passes in CMAKE_HWLOC_2_5_*: oneTBB's own pkg-config search is disabled so
@@ -32,7 +32,7 @@ set(TBBMALLOC_PROXY_BUILD OFF CACHE BOOL "")
 set(TBB_DISABLE_HWLOC_AUTOMATIC_SEARCH ON CACHE BOOL "")
 set(TCM_BUILD OFF CACHE BOOL "")
 
-# The version scripts of libtbb and libtbbmalloc name symbols that a Linux
+# The version scripts of oneTBB's libraries name symbols that a Linux
 # build does not define, which lld rejects by default. The layer's linker
 # flags are set before this file is loaded, so they are extended here.
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--undefined-version"
