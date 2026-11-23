@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Python lint and format tools of the toolchain image (Google Python style):
+# pylint, pyink (Google's fork of black) and isort. Installed with
+# `pip install --require-hashes --only-binary :all:` into /opt/python-tools.
+# Every transitive dependency is pinned. Only the pure-Python wheel of each
+# package is listed, so no compiled extension module is installed.
+# To update: bump a version and replace its hash with the sha256 of its
+# *-py3-none-any.whl from https://pypi.org/pypi/<name>/<version>/json.
+
+# Top-level tools.
+pylint==4.1.3 \
+    --hash=sha256:a85357cae24f33ad8d86c8f3daaa92c600ae4012b54a57299cee76000e9364cf
+pyink==26.5.1 \
+    --hash=sha256:f9fcf06b0f9392a5c034e750676b59df26779e09500bd03db0af12e4639f471a
+isort==9.0.2 \
+    --hash=sha256:6c29deeb39698a8717823b7f75b2ac58c5e8ab8dcf6cf31205a72a6617fb454e
+
+# Dependencies.
+astroid==4.3.4 \
+    --hash=sha256:2bcd0d02648a443a4b818c952c3550091989daefac3c12d3b83b2289482e0818
+black==26.5.1 \
+    --hash=sha256:4ed7f7da04046d2e488437170797d3b4a4ad83906683bcb7dfc68b673bbce5e2
+click==8.5.1 \
+    --hash=sha256:8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37
+dill==0.4.1 \
+    --hash=sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d
+mccabe==0.7.0 \
+    --hash=sha256:6c2d30ab6be0e4a46919781807b4f0d834ebdd6c6e3dca0bda5a15f863427b6e
+mypy_extensions==1.2.0 \
+    --hash=sha256:993e7a20aa5671eb41a7132cf555af30062da99729601601b9a8382b11cae768
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pathspec==1.1.1 \
+    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+platformdirs==4.14.5 \
+    --hash=sha256:8e778c6fa421516f4d3369449f8df3b0e1b72c0e0005fe88e3ec772d0a14e750
+pytokens==0.4.1 \
+    --hash=sha256:26cef14744a8385f35d0e095dc8b3a7583f6c953c2e3d269c7f82484bf5ad2de
+tomlkit==0.15.2 \
+    --hash=sha256:05562412163a3037b94497385fb7f9204c637bc605af7a48199e41cf2272f437

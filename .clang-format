@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Google C++ style. Pointer and reference alignment is fixed (left) instead of
+# derived from the existing code, so formatting is deterministic.
+BasedOnStyle: Google
+Language: Cpp
+DerivePointerAlignment: false
+PointerAlignment: Left

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# umbra-bool-field: no bool data members, nor std::optional<bool>,
+# std::vector<bool> or std::bitset flags. Use an enum class with an explicit
+# underlying type; std::atomic<bool> stays allowed for inter-thread signalling.
+set traversal IgnoreUnlessSpelledInSource
+set bind-root false
+set output diag
+let flag qualType(hasCanonicalType(anyOf(qualType(booleanType()), hasDeclaration(classTemplateSpecializationDecl(anyOf(hasName("::std::bitset"), allOf(hasAnyName("::std::optional", "::std::vector"), hasTemplateArgument(0, refersToType(booleanType())))))))))
+match fieldDecl(hasType(qualType(anyOf(flag, references(flag)))), unless(isExpansionInSystemHeader())).bind("umbra-bool-field")

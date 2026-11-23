@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Python formatting for the Google Python Style Guide. Linting uses Google's
+# pylintrc in .pylintrc.
+
+[tool.pyink]
+line-length = 80
+pyink-indentation = 4
+
+[tool.isort]
+profile = "google"

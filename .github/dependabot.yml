@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Dependabot keeps the GitHub Actions up to date. Submodules are bumped by the
+# submodules workflow instead: Dependabot moves a submodule to the head of a
+# branch, while Umbra pins release tags.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Dependabot appends the colon: "build(deps): bump ...".
+    commit-message:
+      prefix: build(deps)
+    labels:
+      - dependencies

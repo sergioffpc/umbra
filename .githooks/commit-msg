@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+"""Validate the commit message against Conventional Commits and project rules.
+
+fixup!, squash! and amend! commits are accepted here so that
+``git commit --fixup`` keeps working locally; CI rejects them.
+
+Usage (run by git): .githooks/commit-msg MESSAGE_FILE
+"""
+
+# git fixes the hook file name, which is not a valid module name.
+# pylint: disable=invalid-name
+
+from collections.abc import Sequence
+import pathlib
+import sys
+
+# The checks package lives at the repository root, which is not on the import
+# path of a hook; it is added before importing it.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+# pylint: disable=wrong-import-position
+from checks import commit_message
+from checks import git
+from checks import report
+
+# pylint: enable=wrong-import-position
+
+
+def comment_char() -> str:
+    """Returns the comment prefix git uses in message files."""
+    value = git.config(
+        "core.commentString", git.config("core.commentChar", "#")
+    )
+    return "#" if value == "auto" else value
+
+
+def main(argv: Sequence[str]) -> int:
+    """Validates the commit message file that git passes to the hook.
+
+    Args:
+        argv: The hook arguments: the path of the message file.
+
+    Returns:
+        The process exit status: 0 when the message is valid, 1 otherwise.
+    """
+    raw = pathlib.Path(argv[0]).read_text(encoding="utf-8")
+    message = commit_message.clean(raw, comment_char())
+    errors = commit_message.validate(
+        message, commit_message.allowed_scopes(), allow_autosquash=True
+    )
+    return report.fail("invalid commit message", errors)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

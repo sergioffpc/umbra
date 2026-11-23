@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Fails when an ELF file under the given paths has libcuda.so.1 in its NEEDED
+# entries, except the modules loaded at run time (libumbra-gpu.so, OIDN's GPU
+# devices): umbra never links the CUDA driver. The rule lives in check.sh,
+# next to this file.
+name: No libcuda
+description: Check that no ELF file under some paths links the CUDA driver.
+
+inputs:
+  paths:
+    description: Space-separated files or directories to check.
+    required: true
+  image:
+    description: >-
+      Container image to run the check in, the paths being paths inside it;
+      empty to check the job's own file system (its container, if any).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TARGETS: ${{ inputs.paths }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        read -ra paths <<<"$TARGETS"
+        check="$GITHUB_ACTION_PATH/check.sh"
+        if [[ -n "$IMAGE" ]]; then
+          docker run --rm -i "$IMAGE" bash -s -- "${paths[@]}" <"$check"
+        else
+          bash "$check" "${paths[@]}"
+        fi

@@ -1,0 +1,18 @@
+Install clangd-indexer with the other clangd tools.
+
+Upstream builds clangd-indexer but does not install it. The deps image uses it
+to build a static clangd index of the dependency sources.
+
+diff --git a/clang-tools-extra/clangd/indexer/CMakeLists.txt b/clang-tools-extra/clangd/indexer/CMakeLists.txt
+index a9438008e..c82bcba8a 100644
+--- a/clang-tools-extra/clangd/indexer/CMakeLists.txt
++++ b/clang-tools-extra/clangd/indexer/CMakeLists.txt
+@@ -2,7 +2,7 @@ set(LLVM_LINK_COMPONENTS
+     Support
+     )
+ 
+-add_clang_executable(clangd-indexer
++add_clang_tool(clangd-indexer
+   IndexerMain.cpp
+   )
+ 

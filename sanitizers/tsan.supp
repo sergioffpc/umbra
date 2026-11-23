@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# ThreadSanitizer suppressions, read by every executable of the tsan preset
+# (see sanitizers/default_options.cc).
+#
+# ThreadSanitizer targets umbra's own code. The dependencies are not
+# instrumented, so a race inside one of them is not umbra's to chase: when a
+# library is proven to report false positives (typically through
+# synchronization TSan cannot see, such as oneTBB's), suppress the reports
+# that originate in it with a called_from_lib entry, never with a pattern
+# matching umbra's code.
+#
+# Keep this file minimal. Every entry is preceded by a comment that names the
+# library, the report it causes and why that report is not a bug in umbra:
+#
+#   # <library>: <report and why it is a false positive>.
+#   called_from_lib:<library file name>
+#
+# There are no entries yet.

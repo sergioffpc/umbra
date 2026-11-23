@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# actionlint configuration. ubuntu-26.04 is a GitHub-hosted runner that
+# actionlint 1.7.12 does not know yet; drop it from here once the pinned
+# actionlint lists it.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
