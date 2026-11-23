@@ -2,7 +2,10 @@
 # Copyright The Umbra Authors
 #
 # Helpers that define every umbra target with the project settings (compiler,
-# warnings, safety, sanitizers, hardening and coverage).
+# warnings, safety, sanitizers, hardening and coverage). Every module and
+# loadable module links oneTBB (TBB::tbb), the thread pool of the process, and
+# may include its headers directly (docs/adr/0001-onetbb-thread-pool.md);
+# executables get it through their modules.
 #
 #   umbra_add_module(<module> SOURCES <file>... [DEPENDS <module>...]
 #                    [LINK <target>...])
@@ -50,6 +53,8 @@
 
 include_guard(GLOBAL)
 
+find_package(TBB 2023 CONFIG REQUIRED COMPONENTS tbb)
+
 set(UMBRA_MODULE_INCLUDE_ROOT "${PROJECT_BINARY_DIR}/module-include")
 
 # Applies the project settings to a target.
@@ -84,7 +89,7 @@ function(umbra_define_module target alias header_dir)
   add_library(${alias} ALIAS ${target})
   target_include_directories(${target} PUBLIC "${include_root}")
   umbra_module_targets(dependencies ${arg_DEPENDS})
-  target_link_libraries(${target} PUBLIC ${dependencies} ${arg_LINK})
+  target_link_libraries(${target} PUBLIC ${dependencies} TBB::tbb ${arg_LINK})
   umbra_apply_settings(${target})
 endfunction()
 
@@ -113,7 +118,7 @@ function(umbra_add_loadable_module target)
     target_include_directories(${target} PRIVATE
                                "${UMBRA_MODULE_INCLUDE_ROOT}/umbra_${module}")
   endforeach()
-  target_link_libraries(${target} PRIVATE ${arg_LINK})
+  target_link_libraries(${target} PRIVATE TBB::tbb ${arg_LINK})
   set_target_properties(${target} PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
