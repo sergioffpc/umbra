@@ -119,8 +119,10 @@ jobs:
 
           Each line is a commit object of the GitHub pull request commits endpoint.
           Every commit must have a signature that GitHub verified, and be a
-          Conventional Commit; merge commits are allowed only in release and hotfix
-          pull requests into main (the git flow back-merges), and are not checked.
+          Conventional Commit carrying its author's Developer Certificate of Origin
+          sign-off; bots (Dependabot, the submodules workflow) are exempt from the
+          sign-off. Merge commits are allowed only in release and hotfix pull
+          requests into main (the git flow back-merges), and are not checked.
 
           Usage: python3 - COMMITS_JSONL (with BASE_REF and HEAD_REF set)
           """
@@ -161,7 +163,13 @@ jobs:
                   if not merges_allowed:
                       errors.append("merge commits are not allowed; rebase instead")
               else:
-                  errors.extend(commit_message.validate(message.strip(), scopes))
+                  login = (commit.get("author") or {}).get("login") or ""
+                  author = None
+                  if not login.endswith("[bot]"):
+                      author = commit["commit"]["author"]["email"]
+                  errors.extend(
+                      commit_message.validate(message.strip(), scopes, author=author)
+                  )
               return [f"{sha} {header!r}: {error}" for error in errors]
 
 

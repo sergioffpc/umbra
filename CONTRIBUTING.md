@@ -207,6 +207,29 @@ Every commit and release tag must be cryptographically signed.
 - Squash merges, Dependabot commits and automation commits (the devcontainer
   image pin update and the submodule bumps) are signed by GitHub.
 
+## Developer Certificate of Origin
+
+Every commit must be signed off under the
+[Developer Certificate of Origin 1.1](DCO): by adding a
+`Signed-off-by: Name <email>` trailer, you certify that you wrote the change,
+or otherwise have the right to submit it under the project's license, and
+that the record of your contribution, sign-off included, is public. The
+sign-off is a statement, not a cryptographic signature; commits need both.
+
+- Commit with `git commit -s`, which adds the trailer from your `user.name`
+  and `user.email`. The sign-off must carry the email of the commit author.
+  Commits from VS Code's Source Control view are signed off automatically
+  (`git.alwaysSignOff` in `.vscode/settings.json`).
+- Sign off with your real name. A sign-off cannot be made on someone else's
+  behalf: when you submit work written by others, keep their sign-off and add
+  yours.
+- To add a forgotten sign-off, amend the last commit
+  (`git commit --amend --no-edit -s`) or rebase the branch
+  (`git rebase --signoff develop`), then force-push it.
+- The commit-msg hook and CI reject commits without a sign-off matching the
+  author. Merge commits and commits authored by bots (Dependabot and the
+  automation workflows) are exempt.
+
 ## Git hooks
 
 The hooks in `.githooks/` are Python 3 standard-library executables that
@@ -217,7 +240,8 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
   clang-query rules on the affected translation units (those that include a
   staged file), pylint on staged Python files, and actionlint and the
   embedded Python checks on staged workflows.
-- **commit-msg** validates the Conventional Commit format.
+- **commit-msg** validates the Conventional Commit format and the
+  Developer Certificate of Origin sign-off.
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
 
