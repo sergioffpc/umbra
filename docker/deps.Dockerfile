@@ -6,6 +6,8 @@
 # clangd index of those sources. Everything lives under /opt/umbra:
 #
 #   include/, lib/, lib/cmake/  the libraries; CMAKE_PREFIX_PATH points here
+#   tsan/                       oneTBB instrumented with ThreadSanitizer, for
+#                               the tsan preset
 #   src/                        the dependency build and, in src/<dependency>/,
 #                               the (patched) sources, kept for navigation
 #   share/clangd/deps.idx       clangd index of src/, with absolute paths
@@ -89,7 +91,14 @@ ENV PATH=/opt/cuda/bin:${PATH} \
 
 # The dependency build runs from its copy under the prefix, so the compile
 # databases and the clangd index point at the sources that stay in the image.
+# The dependencies of the dependencies are Ubuntu packages, not submodules:
+# their -dev packages are installed here, their runtime packages in the final
+# stage (see third_party/versions.md).
 FROM nvidia AS build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libhwloc-dev \
+ && rm -rf /var/lib/apt/lists/*
 COPY third_party/ /opt/umbra/src/
 RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
           -DUMBRA_LAYER=deps \
@@ -97,6 +106,11 @@ RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
  && cmake --build /tmp/dependency-build --target layer-deps
 
 FROM nvidia AS deps
+ARG DEBIAN_FRONTEND=noninteractive
+# hwloc: oneTBB's libtbbbind, for NUMA-aware task arenas.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libhwloc15 \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/umbra/ /opt/umbra/
 ENV CMAKE_PREFIX_PATH=/opt/umbra
 

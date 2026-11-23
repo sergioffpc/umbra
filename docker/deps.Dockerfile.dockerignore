@@ -13,4 +13,7 @@
 !third_party/config/benchmark.cmake
 !third_party/patches/benchmark/
 !third_party/benchmark/
+!third_party/config/oneTBB.cmake
+!third_party/patches/oneTBB/
+!third_party/oneTBB/
 **/.git
