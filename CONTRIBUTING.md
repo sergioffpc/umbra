@@ -85,10 +85,9 @@ the host is set up:
 
    This applies to every container of your user on the host. Never add
    `--device` to the devcontainer's `runArgs`: hosts without a CDI
-   specification then fail to start it. Docker hosts with the NVIDIA
-   container runtime need none of this: the devcontainer asks for an
-   optional GPU, and its `NVIDIA_DRIVER_CAPABILITIES` include `graphics`,
-   which mounts the driver's OptiX runtime.
+   specification then fail to start it. The devcontainer's
+   `NVIDIA_DRIVER_CAPABILITIES` include `graphics`, which mounts the
+   driver's OptiX runtime.
 
 4. Rebuild the devcontainer and check: `nvidia-smi -L` lists the GPU,
    and `build/debug/bin/umbra` reports the GPU executors.
