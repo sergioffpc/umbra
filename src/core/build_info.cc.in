@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// Generated on every build by cmake/GenerateBuildInfo.cmake; do not edit.
+
+#include "umbra/core/build_info.h"
+
+namespace umbra::core {
+
+BuildInfo GetBuildInfo() {
+  return {
+      .commit = "@UMBRA_COMMIT@",
+      .build_type = "@UMBRA_BUILD_TYPE@",
+      .arch = "@UMBRA_ARCH@",
+      .compiler = "@UMBRA_COMPILER@",
+  };
+}
+
+}  // namespace umbra::core

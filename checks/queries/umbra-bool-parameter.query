@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# umbra-bool-parameter: no bool parameters, nor std::optional<bool>,
+# std::vector<bool> or std::bitset flags (or references to them). Call sites
+# must say what they mean: use an enum class with an explicit underlying type.
+set traversal IgnoreUnlessSpelledInSource
+set bind-root false
+set output diag
+let flag qualType(hasCanonicalType(anyOf(qualType(booleanType()), hasDeclaration(classTemplateSpecializationDecl(anyOf(hasName("::std::bitset"), allOf(hasAnyName("::std::optional", "::std::vector"), hasTemplateArgument(0, refersToType(booleanType())))))))))
+match parmVarDecl(hasType(qualType(anyOf(flag, references(flag)))), unless(isExpansionInSystemHeader())).bind("umbra-bool-parameter")

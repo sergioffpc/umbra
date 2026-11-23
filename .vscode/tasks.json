@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// Builds the CMake presets (CMakePresets.json); the launch configurations
+// build their preset before starting. Run inside the devcontainer.
+//
+// The problem matchers spell out the clang diagnostic pattern: the built-in
+// $gcc matcher comes from ms-vscode.cpptools, which the devcontainer leaves out.
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build: debug",
+      "type": "shell",
+      "command": "cmake --preset debug && cmake --build --preset debug",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "owner": "clang",
+        "source": "clang",
+        "fileLocation": ["autoDetect", "${workspaceFolder}/build/debug"],
+        "pattern": {
+          "regexp": "^(.*?):(\\d+):(\\d*):?\\s+(?:fatal\\s+)?(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    },
+    {
+      "label": "build: release",
+      "type": "shell",
+      "command": "cmake --preset release && cmake --build --preset release",
+      "group": "build",
+      "problemMatcher": {
+        "owner": "clang",
+        "source": "clang",
+        "fileLocation": ["autoDetect", "${workspaceFolder}/build/release"],
+        "pattern": {
+          "regexp": "^(.*?):(\\d+):(\\d*):?\\s+(?:fatal\\s+)?(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// Workspace settings for the devcontainer, the only supported environment:
+// the tool paths point inside the umbra-deps image.
+{
+  // Saves one second after the last edit. These saves skip formatOnSave
+  // (VS Code formats only explicit and focus-change saves), so formatting
+  // happens on Ctrl+S, or with make format before committing.
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "[markdown]": {
+    // Two trailing spaces are a line break in Markdown.
+    "files.trimTrailingWhitespace": false
+  },
+  "editor.rulers": [80],
+
+  "files.associations": {
+    ".clangd": "yaml",
+    "*.cc.in": "cpp",
+    "*.Dockerfile": "dockerfile",
+    ".githooks/*": "python"
+  },
+  // The dependency sources are only changed through
+  // third_party/patches; the build trees and the clangd index are
+  // generated. None of them is watched or searched.
+  "files.readonlyInclude": {
+    "third_party/llvm-project/**": true,
+    "third_party/googletest/**": true,
+    "third_party/benchmark/**": true,
+    "/opt/umbra/src/**": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/.cache/**": true,
+    "third_party/llvm-project/**": true,
+    "third_party/googletest/**": true,
+    "third_party/benchmark/**": true
+  },
+  "search.exclude": {
+    "**/build": true,
+    "**/.cache": true,
+    "third_party/llvm-project": true,
+    "third_party/googletest": true,
+    "third_party/benchmark": true
+  },
+  // llvm-project alone is a 2.6 GB checkout.
+  "git.detectSubmodules": false,
+
+  // Language features come from clangd (configured in .clangd): its
+  // background index covers umbra's code, merged with the static index
+  // of the dependencies the deps image ships.
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.path": "/usr/local/bin/clangd",
+  "clangd.checkUpdates": false,
+  "clangd.onConfigChanged": "restart",
+  "clangd.arguments": [
+    "--background-index",
+    "--clang-tidy",
+    "--header-insertion=never",
+    "--completion-style=detailed",
+    "--pch-storage=memory"
+  ],
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+  },
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+  },
+
+  "lldb-dap.executable-path": "/usr/local/bin/lldb-dap",
+  "cmake.useCMakePresets": "always",
+  // The create step configures the debug preset.
+  "cmake.configureOnOpen": false,
+
+  // Python follows the Google style: pyink (through the Black
+  // formatter extension, which it is compatible with), isort and
+  // pylint, all from the toolchain's /opt/python-tools.
+  "python.defaultInterpreterPath": "/usr/bin/python3",
+  "black-formatter.path": ["/opt/python-tools/bin/pyink"],
+  "isort.path": ["/opt/python-tools/bin/isort"],
+  "pylint.path": ["/opt/python-tools/bin/pylint"],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  }
+}

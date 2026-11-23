@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Test bodies follow the project rules except the function size limit and
+# cognitive complexity.
+InheritParentConfig: true
+Checks:
+  - -readability-function-size
+  - -readability-function-cognitive-complexity

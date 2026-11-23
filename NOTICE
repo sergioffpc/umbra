@@ -1,0 +1,16 @@
+Umbra
+Copyright The Umbra Authors
+
+This product includes software developed by The Umbra Authors
+(https://github.com/sergioffpc/umbra).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+Third-party components are distributed under their own licenses, which are
+listed in third_party/ together with each component's version.
+
+The GPU module, libumbra-gpu.so, contains NVIDIA CUDA Runtime object code
+(libcudart_static.a), distributed under the NVIDIA CUDA Toolkit End User
+License Agreement, which forbids reverse engineering it and redistributing it
+on its own. The NVIDIA driver and OptiX runtime it uses are not distributed
+with Umbra.

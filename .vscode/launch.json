@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// Runs the umbra executable under lldb-dap, after building its preset (see
+// tasks.json). Breakpoints need the debug preset: release builds carry no
+// debug information, and are for running and profiling optimized code.
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "umbra (debug)",
+      "type": "lldb-dap",
+      "request": "launch",
+      "preLaunchTask": "build: debug",
+      "program": "${workspaceFolder}/build/debug/apps/umbra/umbra",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "umbra (release)",
+      "type": "lldb-dap",
+      "request": "launch",
+      "preLaunchTask": "build: release",
+      "program": "${workspaceFolder}/build/release/apps/umbra/umbra",
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

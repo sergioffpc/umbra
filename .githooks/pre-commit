@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+"""Check the staged files: formatting, validators and lint.
+
+Only staged files, and the translation units they affect, are analysed:
+
+- formatting of the staged changes: git-clang-format for C++, pyink and
+  isort for Python;
+- the shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces)
+  on the staged content;
+- clang-tidy (in parallel, through run-clang-tidy) and the clang-query rules
+  on the affected translation units, pylint on the staged Python files,
+  actionlint and the embedded Python checks on the staged workflows. These
+  read the working tree.
+
+It needs the devcontainer toolchain; the linter configures the debug preset
+for its compilation database.
+
+Usage (run by git): .githooks/pre-commit
+"""
+
+# git fixes the hook file name, which is not a valid module name.
+# pylint: disable=invalid-name
+
+import pathlib
+import sys
+
+# The checks package lives at the repository root, which is not on the import
+# path of a hook; it is added before importing it.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+# pylint: disable=wrong-import-position
+from checks import affected
+from checks import conventions
+from checks import formatting
+from checks import lint
+from checks import report
+from checks import sources
+
+# pylint: enable=wrong-import-position
+
+
+def main() -> int:
+    """Checks the staged files.
+
+    Returns:
+        The process exit status: 0 when the commit may proceed, 1 otherwise.
+    """
+    staged = sources.staged()
+    if not staged:
+        return 0
+    missing = formatting.missing_tools() + lint.missing_tools()
+    if missing:
+        return report.fail(
+            "cannot check the staged files",
+            [
+                "not found on PATH: " + ", ".join(missing),
+                "commit from the devcontainer, the only supported environment",
+            ],
+        )
+    status = formatting.check_staged_cpp()
+    status = formatting.check_staged_python(staged) or status
+    status = conventions.run(staged, sources.read_staged) or status
+    return lint.run(staged, affected.DEFAULT_BUILD_DIR) or status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

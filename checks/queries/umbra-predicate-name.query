@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# umbra-predicate-name: a function that returns bool is a predicate named
+# Is..., Has..., Can..., Should..., Contains... or Equals.... Operators,
+# conversions and overrides (named by their base) are exempt.
+set traversal IgnoreUnlessSpelledInSource
+set bind-root false
+set output diag
+match functionDecl(returns(qualType(hasCanonicalType(booleanType()))), unless(isImplicit()), unless(cxxConversionDecl()), unless(cxxMethodDecl(isOverride())), unless(matchesName("::operator")), unless(matchesName("::(Is|Has|Can|Should|Contains|Equals)([A-Z0-9][A-Za-z0-9]*)?$")), unless(isExpansionInSystemHeader())).bind("umbra-predicate-name")
