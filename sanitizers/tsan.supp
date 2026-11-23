@@ -7,7 +7,7 @@
 # ThreadSanitizer targets umbra's own code. The dependencies are not
 # instrumented, so a race inside one of them is not umbra's to chase: when a
 # library is proven to report false positives (typically through
-# synchronization TSan cannot see, such as oneTBB's), suppress the reports
+# synchronization TSan cannot see), suppress the reports
 # that originate in it with a called_from_lib entry, never with a pattern
 # matching umbra's code.
 #
@@ -16,5 +16,10 @@
 #
 #   # <library>: <report and why it is a false positive>.
 #   called_from_lib:<library file name>
+#
+# oneTBB is the exception: its synchronization is in libtbb while the code
+# that relies on it is inlined into umbra, so the tsan preset links a libtbb
+# instrumented with ThreadSanitizer (see cmake/UmbraSanitizers.cmake) instead
+# of suppressing anything.
 #
 # There are no entries yet.
