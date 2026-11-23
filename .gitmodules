@@ -10,6 +10,10 @@
 	path = third_party/benchmark
 	url = https://github.com/google/benchmark.git
 	shallow = true
+[submodule "third_party/embree"]
+	path = third_party/embree
+	url = https://github.com/RenderKit/embree.git
+	shallow = true
 [submodule "third_party/oneTBB"]
 	path = third_party/oneTBB
 	url = https://github.com/uxlfoundation/oneTBB.git

@@ -89,7 +89,10 @@ runs:
                 third_party/patches/benchmark \
                 third_party/oneTBB \
                 third_party/config/oneTBB.cmake \
-                third_party/patches/oneTBB
+                third_party/patches/oneTBB \
+                third_party/embree \
+                third_party/config/embree.cmake \
+                third_party/patches/embree
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

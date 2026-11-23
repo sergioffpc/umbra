@@ -1,0 +1,20 @@
+Find llvm-objdump for the check of global variables.
+
+Upstream runs objdump from GNU binutils, which the LLVM-only toolchain image
+does not have; without it the check fails with an empty symbol table. A failing
+objdump is now an error instead.
+
+diff --git a/common/cmake/check_globals.cmake b/common/cmake/check_globals.cmake
+index 103a7e331..e8fe8b503 100644
+--- a/common/cmake/check_globals.cmake
++++ b/common/cmake/check_globals.cmake
+@@ -5,7 +5,8 @@ IF (WIN32 OR APPLE)
+    return()
+ ENDIF()
+ 
+-execute_process(COMMAND objdump -C -t ${file} OUTPUT_VARIABLE output)
++find_program(OBJDUMP NAMES llvm-objdump objdump REQUIRED)
++execute_process(COMMAND ${OBJDUMP} -C -t ${file} OUTPUT_VARIABLE output COMMAND_ERROR_IS_FATAL ANY)
+ string(REPLACE "\n" ";" output ${output})
+ 
+ foreach (line ${output})

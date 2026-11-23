@@ -1,0 +1,20 @@
+Keep a CMAKE_INSTALL_RPATH given on the command line.
+
+Upstream replaces it with <prefix>/lib (or $ORIGIN/../lib in zip mode). The
+deps layer installs every library with RUNPATH $ORIGIN.
+
+diff --git a/common/cmake/package.cmake b/common/cmake/package.cmake
+index baefb11db..7cd47e440 100644
+--- a/common/cmake/package.cmake
++++ b/common/cmake/package.cmake
+@@ -9,7 +9,9 @@ IF (NOT EMBREE_ZIP_MODE AND NOT WIN32 AND NOT APPLE)
+ ENDIF()
+ 
+ # use full absolute path as install name
+-IF (NOT EMBREE_ZIP_MODE)
++IF (DEFINED CACHE{CMAKE_INSTALL_RPATH})
++  # keep the RUNPATH the build was configured with
++ELSEIF (NOT EMBREE_ZIP_MODE)
+   SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_FULL_LIBDIR}")
+ ELSE()
+   IF(APPLE)
