@@ -9,8 +9,8 @@
 # through its dependencies (ldd), or has a dependency that does not resolve,
 # and when there is no ELF file at all (a wrong path). Needs llvm-readelf and
 # ldd. This is the single definition of the rule: the no-gcc-runtime action
-# runs it on the build trees and in the images, and the image verification
-# steps of the deps workflow run it on their test programs.
+# runs it on the build trees and in the images, and the toolchain
+# verification step of the deps workflow runs it on its test programs.
 set -euo pipefail
 
 # compiler-rt's own atomics library is libclang_rt.atomic.so, which this does
