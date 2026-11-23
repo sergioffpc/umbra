@@ -23,9 +23,9 @@ packages of the image's release, installed by `docker/deps.Dockerfile`, the
 `-dev` package in the stage that builds the submodules and the runtime package
 in the image. Only the libraries umbra itself builds against are submodules.
 
-| Name | Packages | Needed by | License |
+| Name | Needed by | Packages | License |
 |---|---|---|---|
-| hwloc | `libhwloc-dev`, `libhwloc15` | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `BSD-3-Clause` |
+| hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
 
 ## Proprietary build-time downloads
 
