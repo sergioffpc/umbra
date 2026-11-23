@@ -92,7 +92,10 @@ runs:
                 third_party/patches/oneTBB \
                 third_party/embree \
                 third_party/config/embree.cmake \
-                third_party/patches/embree
+                third_party/patches/embree \
+                third_party/openqmc \
+                third_party/config/openqmc.cmake \
+                third_party/patches/openqmc
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

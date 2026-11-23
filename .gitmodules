@@ -18,3 +18,7 @@
 	path = third_party/oneTBB
 	url = https://github.com/uxlfoundation/oneTBB.git
 	shallow = true
+[submodule "third_party/openqmc"]
+	path = third_party/openqmc
+	url = https://github.com/AcademySoftwareFoundation/openqmc.git
+	shallow = true

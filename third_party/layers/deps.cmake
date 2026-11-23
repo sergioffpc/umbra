@@ -2,7 +2,8 @@
 # Copyright The Umbra Authors
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
-# Benchmark, oneTBB and Embree), built with the toolchain image's clang.
+# Benchmark, oneTBB, Embree and OpenQMC), built with the toolchain image's
+# clang.
 # Every dependency is a Release shared library without LTO, against libc++,
 # for x86-64-v3, without exceptions where the project allows it, and finds
 # the libraries next to it through RUNPATH ($ORIGIN).
@@ -44,7 +45,7 @@ set(umbra_deps_cmake_args
 
 # Dependencies that build against another dependency of the layer find it in
 # the install prefix (under the staging directory when there is one).
-set(umbra_deps googletest benchmark oneTBB embree)
+set(umbra_deps googletest benchmark oneTBB embree openqmc)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_args_oneTBB ${umbra_deps_hwloc_args})
 foreach(dependency IN LISTS umbra_deps)
@@ -99,10 +100,16 @@ ExternalProject_Add_Step(oneTBB tsan
   USES_TERMINAL TRUE)
 
 # The static clangd index over all dependency sources. It is rebuilt whenever
-# the layer is.
+# the layer is. A header-only dependency compiles nothing and so writes no
+# compile database: its headers are indexed through the umbra sources that
+# include them.
 set(umbra_deps_index "${UMBRA_STAGING_DIR}${CMAKE_INSTALL_PREFIX}/share/clangd/deps.idx")
+set(umbra_deps_header_only openqmc)
 set(umbra_deps_databases "")
 foreach(dependency IN LISTS umbra_deps)
+  if(dependency IN_LIST umbra_deps_header_only)
+    continue()
+  endif()
   ExternalProject_Get_Property(${dependency} BINARY_DIR)
   list(APPEND umbra_deps_databases "${BINARY_DIR}/compile_commands.json")
 endforeach()
