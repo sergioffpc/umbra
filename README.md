@@ -33,8 +33,9 @@ optional (RTX 5070 Ti class or newer); see
 
 1. Install rootless Podman and VS Code with the Dev Containers extension, and
    set `"dev.containers.dockerPath": "podman"` in your VS Code user settings.
-   The image is a private package: log in with `podman login ghcr.io` (a
-   personal access token with `read:packages`).
+   The image is a private package: log in with
+   `podman login ghcr.io --compat-auth-file ~/.docker/config.json` (a personal
+   access token with `read:packages`).
 2. Clone the repository and open it in the devcontainer
    ("Dev Containers: Reopen in Container").
 3. The container's create step installs the git hooks, enables commit

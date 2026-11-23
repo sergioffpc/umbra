@@ -5,10 +5,12 @@
 // podman (user setting "dev.containers.dockerPath": "podman").
 //
 // The image is a private package (it carries the non-redistributable CUDA
-// and OptiX build tools): log in first with `podman login ghcr.io`. The GPU
-// is optional: on rootless podman it comes from the host's own CDI
-// configuration (see "GPU hosts" in CONTRIBUTING.md), never from runArgs,
-// so the same configuration starts unchanged on a host without a GPU.
+// and OptiX build tools): log in first with `podman login ghcr.io
+// --compat-auth-file ~/.docker/config.json`, the only login file the Dev
+// Containers extension reads. The GPU is optional: on rootless podman it
+// comes from the host's own CDI configuration (see "GPU hosts" in
+// CONTRIBUTING.md), never from runArgs, so the same configuration starts
+// unchanged on a host without a GPU.
 {
   "name": "umbra",
   // Pinned by content hash: the deps workflow rewrites this line, and CI
@@ -44,9 +46,18 @@
   },
   // Claude Code and gh logins survive a rebuild. The image creates both
   // directories owned by dev, so new volumes are owned by dev too.
+  //
+  // The host's ~/.ssh is mounted read-only, so ssh in the container uses the
+  // host's configuration, known hosts and keys as they are. The private keys
+  // are therefore readable inside the container. New known hosts cannot be
+  // recorded from here: connect from the host first. A bind mount of a
+  // missing directory stops the container from starting, so
+  // initializeCommand, which runs on the host, creates it when there is none.
+  "initializeCommand": "mkdir -p -m 700 \"$HOME/.ssh\"",
   "mounts": [
     "source=umbra-claude,target=/home/dev/.claude,type=volume",
-    "source=umbra-gh,target=/home/dev/.config/gh,type=volume"
+    "source=umbra-gh,target=/home/dev/.config/gh,type=volume",
+    "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,readonly"
   ],
 
   // Developer-only tools are installed when the container is created, never
