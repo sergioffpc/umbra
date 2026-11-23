@@ -15,6 +15,12 @@ set(EMBREE_SYCL_SUPPORT OFF CACHE BOOL "")
 set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "")
 set(EMBREE_INSTALL_DEPENDENCIES OFF CACHE BOOL "")
 
+# Embree's compiler settings would otherwise replace CMAKE_CXX_FLAGS, so the
+# layer's flags (the target CPU among them) would never reach Embree's code.
+# Embree adds its own ISA flags after them: those of the lowest ISA (AVX2) to
+# every file, and -march=skx to the AVX-512 kernels, which overrides -march.
+set(EMBREE_IGNORE_CMAKE_CXX_FLAGS OFF CACHE BOOL "")
+
 # The standard Linux install layout: lib/libembree4.so.<version>,
 # include/embree4/ and lib/cmake/embree-<version>/. Zip mode would install
 # embree-vars.sh into the prefix root. patches/embree keeps the layer's
