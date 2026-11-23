@@ -218,6 +218,8 @@ sign-off is a statement, not a cryptographic signature; commits need both.
 
 - Commit with `git commit -s`, which adds the trailer from your `user.name`
   and `user.email`. The sign-off must carry the email of the commit author.
+  Commits from VS Code's Source Control view are signed off automatically
+  (`git.alwaysSignOff` in `.vscode/settings.json`).
 - Sign off with your real name. A sign-off cannot be made on someone else's
   behalf: when you submit work written by others, keep their sign-off and add
   yours.

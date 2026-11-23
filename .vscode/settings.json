@@ -49,6 +49,9 @@
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
+  // Commits from the Source Control view carry the Developer Certificate of
+  // Origin sign-off (see CONTRIBUTING.md), as with git commit -s.
+  "git.alwaysSignOff": true,
 
   // Language features come from clangd (configured in .clangd): its
   // background index covers umbra's code, merged with the static index
