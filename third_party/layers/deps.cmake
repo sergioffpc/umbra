@@ -100,18 +100,41 @@ ExternalProject_Add_Step(oneTBB tsan
   USES_TERMINAL TRUE)
 
 # The static clangd index over all dependency sources. It is rebuilt whenever
-# the layer is. A header-only dependency compiles nothing and so writes no
-# compile database: its headers are indexed through the umbra sources that
-# include them.
+# the layer is.
+#
+# A header-only dependency compiles nothing and so writes no compile database.
+# The layer writes one for it instead, with an entry per header under the
+# directory named by umbra_deps_headers_<name>, each parsed as a C++ header
+# with the flags umbra compiles it with.
 set(umbra_deps_index "${UMBRA_STAGING_DIR}${CMAKE_INSTALL_PREFIX}/share/clangd/deps.idx")
 set(umbra_deps_header_only openqmc)
+set(umbra_deps_headers_openqmc include)
 set(umbra_deps_databases "")
 foreach(dependency IN LISTS umbra_deps)
-  if(dependency IN_LIST umbra_deps_header_only)
+  if(NOT dependency IN_LIST umbra_deps_header_only)
+    ExternalProject_Get_Property(${dependency} BINARY_DIR)
+    list(APPEND umbra_deps_databases "${BINARY_DIR}/compile_commands.json")
     continue()
   endif()
-  ExternalProject_Get_Property(${dependency} BINARY_DIR)
-  list(APPEND umbra_deps_databases "${BINARY_DIR}/compile_commands.json")
+  ExternalProject_Get_Property(${dependency} SOURCE_DIR)
+  set(include_dir "${SOURCE_DIR}/${umbra_deps_headers_${dependency}}")
+  file(GLOB_RECURSE headers LIST_DIRECTORIES false "${include_dir}/*.h")
+  list(SORT headers)
+  set(entries "")
+  foreach(header IN LISTS headers)
+    if(NOT entries STREQUAL "")
+      string(APPEND entries ",\n")
+    endif()
+    string(APPEND entries
+      "  {\"directory\": \"${include_dir}\", \"file\": \"${header}\", "
+      "\"arguments\": [\"${CMAKE_CXX_COMPILER}\", \"-std=c++23\", "
+      "\"-march=${umbra_deps_arch}\", \"-stdlib=libc++\", "
+      "\"-I${include_dir}\", \"-x\", \"c++-header\", "
+      "\"-fsyntax-only\", \"${header}\"]}")
+  endforeach()
+  set(database "${CMAKE_CURRENT_BINARY_DIR}/clangd-headers/${dependency}/compile_commands.json")
+  file(WRITE "${database}" "[\n${entries}\n]\n")
+  list(APPEND umbra_deps_databases "${database}")
 endforeach()
 list(JOIN umbra_deps_databases "|" umbra_deps_databases)
 add_custom_target(deps-clangd-index
