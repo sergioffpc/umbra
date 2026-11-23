@@ -15,11 +15,8 @@
   // fails when it differs from the hash of the current deps inputs.
   "image": "ghcr.io/sergioffpc/umbra-deps:ab06d18de1f2da13",
 
-  // Docker hosts with the NVIDIA container runtime get --gpus all from this;
-  // other hosts get nothing.
-  "hostRequirements": {
-    "gpu": "optional"
-  },
+  // No "hostRequirements.gpu": its probe runs `podman info -f
+  // {{.Runtimes.nvidia}}`, a Docker-only field, and podman fails the start.
 
   // The host user becomes the image's dev user (uid/gid 1000), so files in
   // the workspace keep the host user's ownership. lldb and the sanitizers
