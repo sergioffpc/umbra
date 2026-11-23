@@ -15,6 +15,7 @@ expression.
 | GoogleTest | `third_party/googletest` | `v1.18.0` | `063de7e9578f82b369302001269680b4b1553359` | `BSD-3-Clause` |
 | Google Benchmark | `third_party/benchmark` | `v1.10.0` | `a6b4a9f00b36c19af9997d68a1cf6e0b5b3d032c` | `Apache-2.0` |
 | oneTBB | `third_party/oneTBB` | `v2023.2.0` | `41158a44ab3fb7ac5df7f99ef82626c87607447f` | `Apache-2.0` |
+| Embree | `third_party/embree` | `v4.5.0` | `3b7e4ee746ce8ed25b206fb2f4d2709e9f8109ce` | `Apache-2.0` |
 
 ## Ubuntu packages
 

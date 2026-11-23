@@ -2,10 +2,10 @@
 # Copyright The Umbra Authors
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
-# Benchmark and oneTBB), built with the toolchain image's clang. Every
-# dependency is a Release shared library without LTO, against libc++, for
-# x86-64-v3, without exceptions where the project allows it, and finds the
-# libraries next to it through RUNPATH ($ORIGIN).
+# Benchmark, oneTBB and Embree), built with the toolchain image's clang.
+# Every dependency is a Release shared library without LTO, against libc++,
+# for x86-64-v3, without exceptions where the project allows it, and finds
+# the libraries next to it through RUNPATH ($ORIGIN).
 #
 # Every dependency also exports its compile database. The last step of the
 # layer runs clangd-indexer over all of them and writes one static clangd
@@ -42,12 +42,17 @@ set(umbra_deps_cmake_args
   "-DCMAKE_INSTALL_RPATH=$ORIGIN"
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
 
-set(umbra_deps googletest benchmark oneTBB)
+# Dependencies that build against another dependency of the layer find it in
+# the install prefix (under the staging directory when there is one).
+set(umbra_deps googletest benchmark oneTBB embree)
+set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_args_oneTBB ${umbra_deps_hwloc_args})
 foreach(dependency IN LISTS umbra_deps)
   umbra_add_dependency(${dependency}
+    DEPENDS ${umbra_deps_depends_${dependency}}
     CMAKE_ARGS
       ${umbra_deps_cmake_args}
+      "-DCMAKE_PREFIX_PATH=${UMBRA_STAGING_DIR}${CMAKE_INSTALL_PREFIX}"
       ${umbra_deps_args_${dependency}}
       -C "${CMAKE_CURRENT_LIST_DIR}/../config/${dependency}.cmake")
 endforeach()

@@ -16,4 +16,7 @@
 !third_party/config/oneTBB.cmake
 !third_party/patches/oneTBB/
 !third_party/oneTBB/
+!third_party/config/embree.cmake
+!third_party/patches/embree/
+!third_party/embree/
 **/.git
