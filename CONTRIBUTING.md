@@ -141,11 +141,16 @@ Umbra follows git flow:
   The pre-push hook rejects other names, and CI also rejects `research/` and
   `prototype/` as pull request branches; only Dependabot's own
   `dependabot/...` branches are exempt in CI.
-- Features and bugfixes are **squash-merged** into `develop`. The pull request
-  title becomes the commit header, so it must be a valid Conventional Commit;
-  CI checks it.
+- Features and bugfixes are **squash-merged** into `develop`. Squash is the
+  only merge method the repository allows on GitHub: merge commits and
+  rebase merging are disabled.
+- The squash commit takes the pull request title as its header, so the title
+  must be a valid Conventional Commit; CI checks it. The commit body joins
+  the messages of the branch's commits.
 - Releases and hotfixes are merged with `--no-ff` and tagged `vX.Y.Z` on
-  `main`.
+  `main`. GitHub cannot create those merge commits, so they are made
+  locally and pushed; see
+  [Versioning and releases](#versioning-and-releases).
 - git-flow-next is available in the devcontainer as an optional helper.
 
 ## Commit messages
@@ -439,9 +444,12 @@ To cut a release:
    branch version equals the CMake project version and git-cliff's bumped
    version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
    section for it, and that every existing release tag is signed.
-6. Merge with `--no-ff`, create the signed annotated tag `vX.Y.Z` on `main`
-   (`git tag -s`, or `git flow release finish` with signing enabled), and
-   merge `main` back into `develop`.
+6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
+   merge button (the repository allows only squash merges), create the
+   signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
+   `git flow release finish` with signing enabled), merge `main` back into
+   `develop`, and push both branches and the tag. GitHub marks the pull
+   request as merged when `main` receives its commits.
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 
