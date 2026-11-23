@@ -5,10 +5,12 @@
 // podman (user setting "dev.containers.dockerPath": "podman").
 //
 // The image is a private package (it carries the non-redistributable CUDA
-// and OptiX build tools): log in first with `podman login ghcr.io`. The GPU
-// is optional: on rootless podman it comes from the host's own CDI
-// configuration (see "GPU hosts" in CONTRIBUTING.md), never from runArgs,
-// so the same configuration starts unchanged on a host without a GPU.
+// and OptiX build tools): log in first with `podman login ghcr.io
+// --compat-auth-file ~/.docker/config.json`, the only login file the Dev
+// Containers extension reads. The GPU is optional: on rootless podman it
+// comes from the host's own CDI configuration (see "GPU hosts" in
+// CONTRIBUTING.md), never from runArgs, so the same configuration starts
+// unchanged on a host without a GPU.
 {
   "name": "umbra",
   // Pinned by content hash: the deps workflow rewrites this line, and CI

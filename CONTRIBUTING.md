@@ -30,8 +30,20 @@ Container Registry before opening the devcontainer, with a personal access
 token that has `read:packages`:
 
 ```sh
-podman login ghcr.io
+podman login ghcr.io --compat-auth-file ~/.docker/config.json
 ```
+
+If the host's `gh` is logged in with the `read:packages` (or `write:packages`)
+scope, its token works too:
+
+```sh
+gh auth token | podman login ghcr.io --username "$(gh api user --jq .login)" \
+    --password-stdin --compat-auth-file ~/.docker/config.json
+```
+
+The Dev Containers extension reads only `~/.docker/config.json`, never
+Podman's own login file, which lives in `$XDG_RUNTIME_DIR` and is gone after a
+reboot; Podman reads `~/.docker/config.json` too.
 
 The devcontainer is set up for VS Code Dev Containers on rootless Podman
 (set `"dev.containers.dockerPath": "podman"` in your VS Code user settings).
@@ -68,11 +80,16 @@ the host is set up:
 1. Install the NVIDIA driver, R590 or newer; OptiX 9.1 needs it. (An R580
    driver loads CUDA but not OptiX 9.1; whether R590 reads the OptiX-IR of
    nvcc 13.5 or R620 is needed is still to be confirmed.)
-2. Install the NVIDIA Container Toolkit and generate the CDI specification
-   of your GPUs (again after every driver update):
+2. Install the NVIDIA Container Toolkit, 1.18 or newer. Its
+   `nvidia-cdi-refresh` service writes the CDI specification of your GPUs to
+   `/var/run/cdi/nvidia.yaml` and rewrites it after every driver update. Do
+   not also generate one in `/etc/cdi`: that copy goes stale on the next
+   driver update, and the container then fails to mount the driver's
+   libraries. After a driver update, reboot before rebuilding the container,
+   so that the loaded kernel module matches the driver's libraries:
 
    ```sh
-   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+   nvidia-smi    # fails with "Driver/library version mismatch" until then
    ```
 
 3. Give your rootless Podman containers the GPUs, in
