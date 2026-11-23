@@ -14,6 +14,18 @@ expression.
 | LLVM | `third_party/llvm-project` | `llvmorg-23.1.6` | `5b10d2d74929eae78912771222c9855af97496f4` | `Apache-2.0 WITH LLVM-exception` |
 | GoogleTest | `third_party/googletest` | `v1.18.0` | `063de7e9578f82b369302001269680b4b1553359` | `BSD-3-Clause` |
 | Google Benchmark | `third_party/benchmark` | `v1.10.0` | `a6b4a9f00b36c19af9997d68a1cf6e0b5b3d032c` | `Apache-2.0` |
+| oneTBB | `third_party/oneTBB` | `v2023.2.0` | `41158a44ab3fb7ac5df7f99ef82626c87607447f` | `Apache-2.0` |
+
+## Ubuntu packages
+
+The dependencies of the submodules are not submodules: they are Ubuntu
+packages of the image's release, installed by `docker/deps.Dockerfile`, the
+`-dev` package in the stage that builds the submodules and the runtime package
+in the image. Only the libraries umbra itself builds against are submodules.
+
+| Name | Packages | Needed by | License |
+|---|---|---|---|
+| hwloc | `libhwloc-dev`, `libhwloc15` | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `BSD-3-Clause` |
 
 ## Proprietary build-time downloads
 

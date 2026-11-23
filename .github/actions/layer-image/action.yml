@@ -86,7 +86,10 @@ runs:
                 third_party/patches/googletest \
                 third_party/benchmark \
                 third_party/config/benchmark.cmake \
-                third_party/patches/benchmark
+                third_party/patches/benchmark \
+                third_party/oneTBB \
+                third_party/config/oneTBB.cmake \
+                third_party/patches/oneTBB
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

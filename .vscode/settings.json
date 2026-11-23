@@ -31,6 +31,7 @@
     "third_party/llvm-project/**": true,
     "third_party/googletest/**": true,
     "third_party/benchmark/**": true,
+    "third_party/oneTBB/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -38,14 +39,16 @@
     "**/.cache/**": true,
     "third_party/llvm-project/**": true,
     "third_party/googletest/**": true,
-    "third_party/benchmark/**": true
+    "third_party/benchmark/**": true,
+    "third_party/oneTBB/**": true
   },
   "search.exclude": {
     "**/build": true,
     "**/.cache": true,
     "third_party/llvm-project": true,
     "third_party/googletest": true,
-    "third_party/benchmark": true
+    "third_party/benchmark": true,
+    "third_party/oneTBB": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
