@@ -251,6 +251,12 @@ std::expected<void, Error> Parser::Add(const OptionSpec& option,
   return {};
 }
 
+Error NotACommand(const CommandSpec& program, std::string_view name) {
+  return {ErrorCode::kInvalidArgument,
+          std::format("'{}' is not an {} command; see '{} --help'", name,
+                      program.name, program.name)};
+}
+
 std::expected<ParsedCommandLine, Error> Parse(
     const CommandSpec& program, std::span<const CommandSpec> commands,
     std::span<const char* const> args) {
@@ -270,8 +276,7 @@ std::expected<ParsedCommandLine, Error> Parse(
   const std::string_view name = views.at(*consumed);
   const auto command = std::ranges::find(commands, name, &CommandSpec::name);
   if (command == commands.end()) {
-    return std::unexpected(Error(ErrorCode::kInvalidArgument,
-                                 std::format("unknown command '{}'", name)));
+    return std::unexpected(NotACommand(program, name));
   }
   Parser parser(
       *command,
@@ -287,41 +292,122 @@ std::expected<ParsedCommandLine, Error> Parse(
 
 namespace {
 
-// One option's line in the help: "  -q, --quiet         show errors only".
+// The width of a usage line before it wraps.
+constexpr std::size_t kUsageWidth = 80;
+// The column an option's help starts at.
+constexpr std::size_t kOptionsWidth = 26;
+constexpr std::size_t kOptionsGap = 2;
+constexpr std::string_view kOptionsIndent = "    ";
+
+bool IsHelp(const OptionSpec& option) { return option.long_name == "help"; }
+
+// An option in a usage line: "[-q | --quiet]", "[--devices=<list>]".
+std::string UsageToken(const OptionSpec& option) {
+  const std::string long_form =
+      option.kind == OptionKind::kValue
+          ? std::format("--{}=<{}>", option.long_name, option.value_name)
+          : std::format("--{}", option.long_name);
+  if (option.short_name == '\0') {
+    return std::format("[{}]", long_form);
+  }
+  const std::string short_form =
+      option.kind == OptionKind::kValue
+          ? std::format("-{} <{}>", option.short_name, option.value_name)
+          : std::format("-{}", option.short_name);
+  return std::format("[{} | {}]", short_form, long_form);
+}
+
+// "usage: <prefix> <tokens>", wrapped under the first token.
+std::string UsageLines(std::string_view prefix,
+                       std::span<const std::string> tokens) {
+  std::string text = std::format("usage: {}", prefix);
+  const std::size_t indent = text.size() + 1;
+  std::size_t column = text.size();
+  for (const std::string& token : tokens) {
+    if (column > indent && column + 1 + token.size() > kUsageWidth) {
+      text += '\n' + std::string(indent, ' ') + token;
+      column = indent + token.size();
+    } else {
+      text += ' ' + token;
+      column += 1 + token.size();
+    }
+  }
+  return text + '\n';
+}
+
+// The usage tokens of a command's options, and of its arguments; the help
+// option named `help_name`, if any, is left out.
+std::vector<std::string> OptionTokens(const CommandSpec& spec,
+                                      std::string_view help_name) {
+  std::vector<std::string> tokens;
+  for (const OptionSpec& option : spec.options) {
+    if (option.long_name != help_name) {
+      tokens.push_back(UsageToken(option));
+    }
+  }
+  if (!spec.arguments.empty()) {
+    tokens.emplace_back(spec.arguments);
+  }
+  return tokens;
+}
+
+// One option's line in a command's help:
+// "    --devices=<list>      render on these devices".
 std::string OptionHelpLine(const OptionSpec& option) {
-  std::string names = option.short_name == '\0'
-                          ? std::string("    ")
-                          : std::format("-{}{}", option.short_name,
-                                        option.long_name.empty() ? "  " : ", ");
-  if (!option.long_name.empty()) {
-    names += std::format("--{}", option.long_name);
+  std::string names(kOptionsIndent);
+  if (option.short_name != '\0') {
+    std::format_to(std::back_inserter(names), "-{}, ", option.short_name);
   }
+  std::format_to(std::back_inserter(names), "--{}", option.long_name);
   if (option.kind == OptionKind::kValue) {
-    names += std::format("=<{}>", option.value_name);
+    std::format_to(std::back_inserter(names), "=<{}>", option.value_name);
   }
-  return std::format("  {:<24} {}\n", names, option.help);
+  if (names.size() <= kOptionsWidth) {
+    return std::format("{:<{}}{}\n", names, kOptionsWidth + kOptionsGap,
+                       option.help);
+  }
+  return std::format("{}\n{:<{}}{}\n", names, "", kOptionsWidth + kOptionsGap,
+                     option.help);
 }
 
 }  // namespace
 
 std::string FormatHelp(const CommandSpec& program,
                        std::span<const CommandSpec> commands) {
-  std::string help = std::format("usage: {} [options]", program.name);
-  if (!commands.empty()) {
-    help += " <command> [<args>]";
-  } else if (!program.arguments.empty()) {
-    help += std::format(" {}", program.arguments);
+  std::string help = UsageLines(program.name, OptionTokens(program, {}));
+  const std::size_t indent =
+      std::string_view("usage: ").size() + program.name.size() + 1;
+  std::format_to(std::back_inserter(help), "{:<{}}<command> [<args>]\n\n", "",
+                 indent);
+  std::format_to(std::back_inserter(help), "These are the {} commands:\n",
+                 program.name);
+  const std::size_t width = std::ranges::max(
+      commands | std::views::transform([](const CommandSpec& command) {
+        return command.name.size();
+      }));
+  for (const CommandSpec& command : commands) {
+    std::format_to(std::back_inserter(help), "   {:<{}}   {}\n", command.name,
+                   width, command.summary);
   }
-  std::format_to(std::back_inserter(help), "\n\n{}\n\noptions:\n",
-                 program.summary);
-  for (const OptionSpec& option : program.options) {
-    help += OptionHelpLine(option);
+  std::format_to(std::back_inserter(help),
+                 "\nSee '{} help <command>' to read about a specific "
+                 "command.\n",
+                 program.name);
+  return help;
+}
+
+std::string FormatCommandHelp(const CommandSpec& program,
+                              const CommandSpec& command) {
+  std::string help =
+      UsageLines(std::format("{} {}", program.name, command.name),
+                 OptionTokens(command, "help"));
+  if (std::ranges::all_of(command.options, IsHelp)) {
+    return help;
   }
-  if (!commands.empty()) {
-    help += "\ncommands:\n";
-    for (const CommandSpec& command : commands) {
-      std::format_to(std::back_inserter(help), "  {:<24} {}\n", command.name,
-                     command.summary);
+  help += '\n';
+  for (const OptionSpec& option : command.options) {
+    if (!IsHelp(option)) {
+      help += OptionHelpLine(option);
     }
   }
   return help;

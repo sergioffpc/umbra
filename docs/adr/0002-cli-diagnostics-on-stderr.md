@@ -1,43 +1,54 @@
-# Diagnostics go to stderr, in the style of a CLI
+# Diagnostics go to stderr, one line each; debug and trace on demand
 
-umbra is a command-line program, and it reports what happens the way
-compilers and Unix tools do. Results go to stdout, and only results, so that
-they can be piped. Diagnostics go to stderr, one line each, prefixed with the
-program name and the level:
+umbra is a command-line program. Results go to stdout, and only results, so
+that they can be piped. Diagnostics go to stderr, one line each, as plain
+text:
 
 ```
-umbra: error: cannot open 'scene.usda': No such file or directory
-umbra: warning: /World/Lamp: unsupported light type 'PortalLight', ignored
-umbra: info: [gpu] OptiX 9.1, device 0: RTX 5090 (sm_120)
-umbra: debug: [usd] stage opened in 120 ms (3 layers)
-umbra: trace: [gpu] frame 12: 4096 spp, 38.2 ms
+fatal: cannot open 'scene.usda': No such file or directory
+error: unknown device 'gpu3'; run umbra devices to list them
+warning: /World/Lamp: unsupported light type 'PortalLight', ignored
+Rendering 1920x1080 on cpu0, gpu0
+debug: usd: stage opened in 120 ms (3 layers)
+12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 4096 spp, 38.2 ms
 ```
 
-The levels are error, warning, info, debug and trace, and by default umbra
-shows errors and warnings. The flags `-q` (errors only), `-v` (info), `-vv`
-(debug) and `-vvv` (trace) set the level. `UMBRA_LOG` sets it too, per
-component: `UMBRA_LOG=warn,gpu=trace` shows warnings and everything from
-`gpu`. The flags take precedence over the variable. The component is shown
-from info down, where it helps to tell sources apart; errors and warnings are
-for the user and stay plain. The level word is colored only when stderr is a
-terminal, unless `NO_COLOR` is set or `--color=always|never` says otherwise.
+The levels are fatal, error, warning, info, debug and trace. Fatal is the
+error umbra gives up on, after which it exits. Fatal errors, errors and
+warnings are prefixed with their level. Info is what umbra tells the user
+about its work, without a prefix. All four are always shown, but `-q` shows
+errors only.
+
+Debug and trace are the details of umbra's work and of its libraries (their
+versions, the devices they found), for someone diagnosing a problem. They
+are prefixed with their level and their component, and shown only when the
+`UMBRA_LOG` variable asks for them, for every component or per component:
+`UMBRA_LOG=debug,gpu=trace` shows debug messages from everything and trace
+messages from `gpu`. `umbra -h` says so. A trace line starts with the local
+time, to the microsecond, and the source line it comes from, relative to the
+repository, with its message from column 40.
+
+An entry of `UMBRA_LOG` can end with a destination for the debug and trace
+messages it enables: a file descriptor from 2 to 9 (`UMBRA_LOG=debug:3`), or
+the absolute path of a file they are appended to
+(`UMBRA_LOG=gpu=trace:/tmp/gpu.log`). A destination that cannot be opened
+stops umbra before any work starts.
 
 The logger is umbra's own, in `core`, on `std::format`: the format above
-needs none of what logging libraries add (sinks, files, rotation,
-asynchronous queues), and their default formats are those of servers, with
-timestamps and thread ids. umbra writes no log file: a user who wants one
-redirects stderr. A message is formatted in full and written with a single
-`write`, so that lines from parallel tasks do not interleave. A disabled level
+needs none of what logging libraries add (sinks, rotation, asynchronous
+queues), and their default formats are those of servers, with timestamps and
+thread ids on every line. A message is formatted in full and written with a
+single `write`, so that lines from parallel tasks do not interleave. A disabled level
 costs one comparison, and its arguments are not formatted.
 
-Info and debug are compiled into release builds, so that a user can be asked
-to run with `-vv` and send the output, as with `ssh -vvv`. Trace, meant for
-hot loops (per frame, per kernel), exists only in debug builds; `-vvv` on a
+Debug is compiled into release builds, so that a user can be asked to run
+with `UMBRA_LOG=debug` and send the output. Trace, meant for hot loops
+(per frame, per kernel), exists only in debug builds; asking for it on a
 release build says so.
 
 Errors stay values (`std::expected<T, Error>`): an operation that fails
 returns its `Error` and does not log it, and the caller that gives up reports
-it once, as `umbra: error:`. umbra exits with 0 on success, 1 on failure and 2
+it once, as `fatal:`. umbra exits with 0 on success, 1 on failure and 2
 on a usage error.
 
 When a render starts, umbra shows on stderr the devices it renders on
@@ -45,14 +56,14 @@ When a render starts, umbra shows on stderr the devices it renders on
 rather than as log lines, as `ffmpeg` shows its banner:
 
 ```
-umbra 0.1.0 (Release, x86-64-v3)
+umbra version 0.1.0 (Release, x86-64-v3)
   cpu0  AMD Ryzen Threadripper PRO 3975WX, 64 threads
   gpu0  NVIDIA GeForce RTX 5070 Ti, 16 GiB
 ```
 
 It is shown by default, since what a render runs on explains its speed and
-its output, and `-q` hides it. It is not a diagnostic: it has no level and no
-`umbra:` prefix, and `UMBRA_LOG` does not filter it. It goes to stderr, so
+its output, and `-q` hides it. It is not a diagnostic: it has no level, and
+`UMBRA_LOG` does not filter it. It goes to stderr, so
 stdout keeps only results. The details of the hardware are the output of
 `umbra devices`.
 
@@ -68,7 +79,8 @@ stdout keeps only results. The details of the hardware are the output of
   (`embree`), and OptiX through the log callback of its device context
   (`gpu`). Otherwise they print to the terminal in their own formats, and
   `-q` cannot silence them. A library that fails to initialize stops umbra
-  with an error before any work starts, and `-v` lists the version of each.
+  with an error before any work starts, and `UMBRA_LOG=debug` lists the
+  version of each.
 - The GPU module, loaded with `dlopen`, keeps no logging state of its own: the
   loader passes it a log callback and the current level through `ModuleApi`.
 - Progress (a render's progress bar) is not a log message. It goes to stderr

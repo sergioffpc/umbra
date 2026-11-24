@@ -3,6 +3,7 @@
 
 umbra_add_module(core
   SOURCES
+    cpu_topology.cc
     error.cc
     floating_point.cc
     log.cc

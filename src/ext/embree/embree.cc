@@ -76,9 +76,21 @@ std::expected<void, Error> Initialize() {
   device.reset(created);
   const auto version =
       rtcGetDeviceProperty(created, RTC_DEVICE_PROPERTY_VERSION);
-  UMBRA_LOG_INFO(kEmbree, "Embree {}.{}.{}", version / 10000,
-                 version / 100 % 100, version % 100);
+  UMBRA_LOG_DEBUG(kEmbree, "Embree {}.{}.{}", version / 10000,
+                  version / 100 % 100, version % 100);
   return {};
+}
+
+std::string_view NativeIsa() {
+  RTCDevice device = ProcessDevice().get();
+  if (device == nullptr) {
+    return "none";
+  }
+  if (rtcGetDeviceProperty(device,
+                           RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED) != 0) {
+    return "AVX-512";
+  }
+  return "AVX2";
 }
 
 }  // namespace umbra::ext::embree

@@ -41,8 +41,8 @@ std::expected<void, Error> Initialize() {
     return configured;
   }
   const int version = OIIO::openimageio_version();
-  UMBRA_LOG_INFO(kOiio, "OpenImageIO {}.{}.{}", version / 10000,
-                 version / 100 % 100, version % 100);
+  UMBRA_LOG_DEBUG(kOiio, "OpenImageIO {}.{}.{}", version / 10000,
+                  version / 100 % 100, version % 100);
   return {};
 }
 

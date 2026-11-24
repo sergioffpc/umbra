@@ -54,14 +54,13 @@ class LogDelegate final : public pxr::TfDiagnosticMgr::Delegate {
 
   void IssueFatalError(const pxr::TfCallContext& context,
                        const std::string& message) override {
-    core::Log(
-        LogLevel::kError, LogComponent::kUsd,
-        std::format("fatal error in {}: {}", context.GetFunction(), message));
+    core::Log(LogLevel::kFatal, LogComponent::kUsd,
+              std::format("in {}: {}", context.GetFunction(), message));
   }
 
   void IssueStatus(const pxr::TfStatus& status) override {
     if (!status.GetQuiet()) {
-      core::Log(LogLevel::kInfo, LogComponent::kUsd, status.GetCommentary());
+      core::Log(LogLevel::kDebug, LogComponent::kUsd, status.GetCommentary());
     }
   }
 
@@ -117,8 +116,8 @@ std::expected<void, Error> Initialize() {
   // OpenUSD runs on the process's oneTBB pool. umbra sets no limit of its
   // own; PXR_WORK_THREAD_LIMIT still applies.
   UMBRA_LOG_DEBUG(kUsd, "{} threads", pxr::WorkGetConcurrencyLimit());
-  UMBRA_LOG_INFO(kUsd, "OpenUSD {}.{:02}", PXR_MINOR_VERSION,
-                 PXR_PATCH_VERSION);
+  UMBRA_LOG_DEBUG(kUsd, "OpenUSD {}.{:02}", PXR_MINOR_VERSION,
+                  PXR_PATCH_VERSION);
   return {};
 }
 

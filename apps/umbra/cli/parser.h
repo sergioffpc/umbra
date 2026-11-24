@@ -2,7 +2,7 @@
 // Copyright The Umbra Authors
 //
 // The command-line parser of the umbra executable, with GNU conventions:
-// short flags bundle and repeat (-qv, -vvv), long options take their value
+// short flags bundle and repeat (-qh, -qq), long options take their value
 // after '=' or as the next argument, and "--" ends the options. Global
 // options come before a command; each command parses its own options and
 // arguments:
@@ -32,9 +32,10 @@ namespace umbra::cli {
 
 // What an option takes.
 enum class OptionKind : std::uint8_t {
-  // Nothing; it may repeat, and its count is how often it was given (-vvv).
+  // Nothing; it may repeat, and its count is how often it was given (-qq).
   kFlag,
-  // A value, after '=' or as the next argument (--color=auto, --color auto).
+  // A value, after '=' or as the next argument (--devices=gpu0, --devices
+  // gpu0).
   kValue,
 };
 
@@ -139,9 +140,20 @@ struct ParsedCommandLine {
     const CommandSpec& program, std::span<const CommandSpec> commands,
     std::span<const char* const> args UMBRA_LIFETIMEBOUND);
 
-// The help of the program: its usage, its global options and its commands.
+// The error for `name` where a command of `program` is expected:
+// "'foo' is not an umbra command; see 'umbra --help'".
+[[nodiscard]] core::Error NotACommand(const CommandSpec& program,
+                                      std::string_view name);
+
+// The help of the program: the usage line with the
+// global options, then the commands with their summaries.
 [[nodiscard]] std::string FormatHelp(const CommandSpec& program,
                                      std::span<const CommandSpec> commands);
+
+// The help of one command, as `<program> <command> -h` shows it: the usage
+// line, then its options, but for -h itself.
+[[nodiscard]] std::string FormatCommandHelp(const CommandSpec& program,
+                                            const CommandSpec& command);
 
 }  // namespace umbra::cli
 

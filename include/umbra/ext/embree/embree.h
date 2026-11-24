@@ -9,6 +9,7 @@
 #define UMBRA_EXT_EMBREE_EMBREE_H_
 
 #include <expected>
+#include <string_view>
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
@@ -22,6 +23,11 @@ namespace umbra::ext::embree {
 // startup, after core::ConfigureLogging. Fails with kUnavailable when the
 // device cannot be created (an unsupported CPU, say).
 [[nodiscard]] std::expected<void, core::Error> Initialize();
+
+// The ISA Embree chose for the process's device, from the widest ray packet
+// it handles natively: "AVX-512" or "AVX2" (the ISAs umbra builds Embree
+// for), or "none" before Initialize.
+[[nodiscard]] std::string_view NativeIsa();
 
 }  // namespace umbra::ext::embree
 

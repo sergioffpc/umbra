@@ -2,14 +2,18 @@
 // Copyright The Umbra Authors
 //
 // umbra's diagnostics (docs/adr/0002-cli-diagnostics-on-stderr.md): one line
-// per message on stderr, as a command-line tool reports,
+// per message on stderr,
 //
-//   umbra: error: cannot open 'scene.usda': No such file or directory
-//   umbra: info: [gpu] OptiX 9.1, device 0: RTX 5090 (sm_120)
+//   fatal: cannot open 'scene.usda': No such file or directory
+//   Rendering 1920x1080 on cpu0, gpu0
+//   debug: gpu: device 0: RTX 5090 (sm_120)
+//   12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 38.2 ms
 //
-// filtered by level, per component. Results go to stdout and are not
-// diagnostics. The UMBRA_LOG_* macros format their message only when its
-// level is enabled for its component.
+// Fatal errors, errors, warnings and info, which is for the user and has no
+// prefix, are shown unless -q hides warnings and info; debug and trace are
+// enabled per component by UMBRA_LOG, which can send them to a file. Results
+// go to stdout and are not diagnostics. The UMBRA_LOG_* macros format their
+// message only when its level is enabled for its component.
 
 #ifndef UMBRA_CORE_LOG_H_
 #define UMBRA_CORE_LOG_H_
@@ -19,6 +23,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <source_location>
 #include <string>
 #include <string_view>
 
@@ -32,6 +37,8 @@ namespace umbra::core {
 // The level of a message, from the most to the least severe. A threshold
 // enables its level and the more severe ones.
 enum class LogLevel : std::uint8_t {
+  // The error umbra gives up on, before it exits: always shown.
+  kFatal,
   kError,
   kWarning,
   kInfo,
@@ -63,56 +70,81 @@ inline constexpr std::size_t kLogComponentCount = 9;
 // Whether trace messages exist in this build: only debug builds have them.
 [[nodiscard]] bool IsTraceCompiled();
 
-// The threshold of every component.
+// The threshold of every component, and where its debug and trace messages
+// go: a destination is empty for stderr, a file descriptor from 2 to 9 ("3"),
+// or the absolute path of a file the messages are appended to.
 class LogFilter {
  public:
-  // Every component at `threshold`.
-  explicit LogFilter(LogLevel threshold = LogLevel::kWarning);
+  // Every component at `threshold`, to stderr.
+  explicit LogFilter(LogLevel threshold = LogLevel::kInfo);
 
   [[nodiscard]] LogLevel threshold(LogComponent component) const;
+  [[nodiscard]] std::string_view destination(LogComponent component) const;
 
   // Sets the threshold of every component.
   void SetThreshold(LogLevel threshold);
   // Sets the threshold of one component.
   void SetThreshold(LogComponent component, LogLevel threshold);
+  // Sets the destination of every component.
+  void SetDestination(std::string_view destination);
+  // Sets the destination of one component.
+  void SetDestination(LogComponent component, std::string_view destination);
 
  private:
   std::array<LogLevel, kLogComponentCount> thresholds_{};
+  std::array<std::string, kLogComponentCount> destinations_{};
 };
 
 // Parses a filter in UMBRA_LOG's syntax: comma-separated entries, each a level
 // for every component ("debug") or a component and its level ("gpu=trace"),
-// applied in order onto `base`; empty entries are ignored. Levels are error,
-// warning (or warn), info, debug and trace. Fails with kInvalidArgument,
-// naming the bad entry.
+// optionally followed by a destination ("gpu=trace:/tmp/gpu.log",
+// "debug:3"), applied in order onto `base`; empty entries are ignored. Levels
+// are debug and trace: the others are always shown. Fails with
+// kInvalidArgument, naming the bad entry.
 [[nodiscard]] std::expected<LogFilter, Error> ParseLogFilter(
     std::string_view spec, const LogFilter& base = LogFilter());
 
-// Whether lines color their level word.
-enum class LogColor : std::uint8_t {
-  kOff,
-  kOn,
+// Where a message comes from: a source file, relative to the repository, and
+// a line in it.
+struct LogOrigin {
+  std::string_view file;
+  std::uint32_t line = 0;
 };
 
 // Formats `message` as diagnostics lines: each line of the message gets the
-// "umbra: <level>: " prefix, and "[component] " from info down, and ends with
-// a newline. A trailing newline of the message adds no empty line.
+// "<level>: " prefix, but for info, and "<component>: " for debug and trace,
+// and ends with a newline. A trace line starts with `time` ("12:34:56.789012")
+// and the origin, padded to column 40. A trailing newline of the message adds
+// no empty line.
 [[nodiscard]] std::string FormatLogLines(LogLevel level, LogComponent component,
                                          std::string_view message,
-                                         LogColor color);
+                                         std::string_view time,
+                                         LogOrigin origin);
 
-// Configures the process's diagnostics: the filter, and whether lines are
-// colored. Call it once, at startup, before other threads log.
-void ConfigureLogging(const LogFilter& filter, LogColor color);
+// Configures the process's diagnostics, opening the files the filter names.
+// Call it once, at startup, before other threads log. Fails with
+// kUnavailable when a file cannot be opened.
+[[nodiscard]] std::expected<void, Error> ConfigureLogging(
+    const LogFilter& filter);
 
 // Whether a message of `level` from `component` is shown.
 [[nodiscard]] bool IsLogEnabled(LogComponent component, LogLevel level);
 
-// Writes `message` to stderr, when its level is enabled, with one write so
-// that lines of concurrent messages do not interleave. For callers that
-// already have the message, such as the libraries' log callbacks; code that
-// formats one uses the UMBRA_LOG_* macros.
-void Log(LogLevel level, LogComponent component, std::string_view message);
+// Writes `message` to stderr, or a debug or trace message to its component's
+// destination, when its level is enabled, with one write so that lines of
+// concurrent messages do not interleave; a trace line names `origin`. For
+// callers that already have the message, such as the libraries' log callbacks
+// and the GPU module; code that formats one uses the UMBRA_LOG_* macros.
+void LogAt(LogLevel level, LogComponent component, std::string_view message,
+           LogOrigin origin);
+
+// LogAt, from the caller's line.
+inline void Log(
+    LogLevel level, LogComponent component, std::string_view message,
+    std::source_location location = std::source_location::current()) {
+  LogAt(level, component, message,
+        {.file = location.file_name(), .line = location.line()});
+}
 
 }  // namespace umbra::core
 

@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Umbra Authors
+//
+// The devices umbra renders on (docs/adr/0004-render-devices.md): one per
+// NUMA node with CPUs (cpu0, cpu1, …) and one per usable GPU, by CUDA ordinal
+// (gpu0, gpu1, …). `umbra devices` lists them with the hardware behind them;
+// a render picks them with --devices.
+
+#ifndef UMBRA_APPS_UMBRA_DEVICES_H_
+#define UMBRA_APPS_UMBRA_DEVICES_H_
+
+#include <cstdint>
+#include <expected>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "umbra/core/cpu_topology.h"
+#include "umbra/core/error.h"
+#include "umbra/core/safety.h"
+#include "umbra/gpu/module.h"
+
+UMBRA_ASSUME_NONNULL_BEGIN
+
+namespace umbra::devices {
+
+// The hardware of the machine, as umbra sees it.
+struct Hardware {
+  std::vector<core::CpuNode> cpus;
+  // The GPUs, or why there are none (no module, no driver).
+  std::expected<gpu::GpuDevices, core::Error> gpus;
+  // The CPU's widest vector ISA ("AVX2").
+  std::string_view cpu_isa;
+  // The ISA Embree chose ("AVX2").
+  std::string_view embree_isa;
+  // The widest batch OSL shades, or 0.
+  int osl_batch_width = 0;
+};
+
+// Reads the hardware: the CPU topology from sysfs, the GPUs from the GPU
+// module, and what Embree and OSL chose. The libraries must be initialized.
+// Fails when no CPU is described.
+[[nodiscard]] std::expected<Hardware, core::Error> ReadHardware();
+
+// What a render device is.
+enum class DeviceKind : std::uint8_t {
+  kCpu,
+  kGpu,
+};
+
+// A device a render can use.
+struct Device {
+  DeviceKind kind = DeviceKind::kCpu;
+  // The NUMA node for a CPU, the CUDA ordinal for a GPU.
+  int index = 0;
+  // "cpu0", "gpu0".
+  std::string name;
+};
+
+// The devices of `hardware` a render can use: the CPU nodes, then the usable
+// GPUs.
+[[nodiscard]] std::vector<Device> RenderDevices(const Hardware& hardware);
+
+// The output of `umbra devices`: every device and the hardware behind it,
+// and the GPUs umbra cannot use, with the reason.
+[[nodiscard]] std::string FormatHardware(const Hardware& hardware);
+
+// The lines of the block a render starts with
+// (docs/adr/0002-cli-diagnostics-on-stderr.md), one per device in `chosen`:
+// "  cpu0  AMD Ryzen Threadripper PRO 3975WX, 64 threads",
+// "  gpu0  NVIDIA GeForce RTX 5070 Ti, 16 GiB".
+[[nodiscard]] std::string FormatRenderDevices(const Hardware& hardware,
+                                              std::span<const Device> chosen);
+
+// The devices a --devices value names ("cpu0,gpu0"), in its order, among
+// `devices`; every device when `spec` is empty. Fails with kInvalidArgument on
+// an empty, unknown or repeated name.
+[[nodiscard]] std::expected<std::vector<Device>, core::Error> ResolveDevices(
+    std::string_view spec, std::span<const Device> devices);
+
+}  // namespace umbra::devices
+
+UMBRA_ASSUME_NONNULL_END
+
+#endif  // UMBRA_APPS_UMBRA_DEVICES_H_

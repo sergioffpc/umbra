@@ -107,7 +107,7 @@ the host is set up:
    driver's OptiX runtime.
 
 4. Rebuild the devcontainer and check: `nvidia-smi -L` lists the GPU,
-   and `build/debug/bin/umbra` reports the GPU executors.
+   and `build/debug/bin/umbra devices` lists the GPU as `gpu0`.
 
 ## Compatibility policy
 

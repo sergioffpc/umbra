@@ -26,8 +26,8 @@ std::expected<void, Error> Initialize() {
         Error(ErrorCode::kUnavailable,
               std::format("OpenVDB: cannot initialize: {}", error.what())));
   }
-  UMBRA_LOG_INFO(kVdb, "OpenVDB {}",
-                 ::openvdb::OPENVDB_VERSION_NAME::getLibraryVersionString());
+  UMBRA_LOG_DEBUG(kVdb, "OpenVDB {}",
+                  ::openvdb::OPENVDB_VERSION_NAME::getLibraryVersionString());
   return {};
 }
 

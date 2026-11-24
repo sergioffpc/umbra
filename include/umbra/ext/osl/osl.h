@@ -21,6 +21,11 @@ namespace umbra::ext::osl {
 // info. Call it once at startup, after core::ConfigureLogging.
 [[nodiscard]] std::expected<void, core::Error> Initialize();
 
+// The widest batch OSL can shade on this CPU: 16 (AVX-512) or 8 (AVX2) lanes,
+// with fused multiply-add, or 0 when it can only shade one point at a time.
+// Measured once, by configuring a shading system, and remembered.
+[[nodiscard]] int BatchWidth();
+
 }  // namespace umbra::ext::osl
 
 UMBRA_ASSUME_NONNULL_END

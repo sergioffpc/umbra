@@ -35,8 +35,8 @@ void LogWarning(const char* message) {
 std::expected<void, core::Error> Initialize() {
   far::SetErrorCallback(LogError);
   far::SetWarningCallback(LogWarning);
-  UMBRA_LOG_INFO(kOsd, "OpenSubdiv {}.{}.{}", OPENSUBDIV_VERSION_MAJOR,
-                 OPENSUBDIV_VERSION_MINOR, OPENSUBDIV_VERSION_PATCH);
+  UMBRA_LOG_DEBUG(kOsd, "OpenSubdiv {}.{}.{}", OPENSUBDIV_VERSION_MAJOR,
+                  OPENSUBDIV_VERSION_MINOR, OPENSUBDIV_VERSION_PATCH);
   return {};
 }
 
