@@ -15,10 +15,11 @@ debug: usd: stage opened in 120 ms (3 layers)
 
 The levels are fatal, error, warning, info, debug and trace, and by default
 umbra shows fatal errors, errors and warnings. Fatal is the error umbra gives
-up on, after which it exits. The flags `-q` (errors only), `-v` (info), `-vv`
-(debug) and `-vvv` (trace) set the level. `UMBRA_LOG` sets it too, per
-component: `UMBRA_LOG=warn,gpu=trace` shows warnings and everything from
-`gpu`. The flags take precedence over the levels of the variable. The
+up on, after which it exits. The `UMBRA_LOG` variable sets the level, for
+every component or per component: `UMBRA_LOG=warn,gpu=trace` shows warnings
+and everything from `gpu`. It is the only way to see more; `umbra -h` says
+so. `-q` shows errors only: it sets the level of every component that
+`UMBRA_LOG` does not name. The
 component is shown from info down, where it helps to tell sources apart;
 errors and warnings are for the user and stay plain. A trace line starts with
 the local time, to the microsecond, and the source line it comes from,
@@ -38,8 +39,8 @@ thread ids on every line. A message is formatted in full and written with a sing
 costs one comparison, and its arguments are not formatted.
 
 Info and debug are compiled into release builds, so that a user can be asked
-to run with `-vv` and send the output, as with `ssh -vvv`. Trace, meant for
-hot loops (per frame, per kernel), exists only in debug builds; `-vvv` on a
+to run with `UMBRA_LOG=debug` and send the output. Trace, meant for hot loops
+(per frame, per kernel), exists only in debug builds; asking for it on a
 release build says so.
 
 Errors stay values (`std::expected<T, Error>`): an operation that fails
@@ -75,7 +76,8 @@ stdout keeps only results. The details of the hardware are the output of
   (`embree`), and OptiX through the log callback of its device context
   (`gpu`). Otherwise they print to the terminal in their own formats, and
   `-q` cannot silence them. A library that fails to initialize stops umbra
-  with an error before any work starts, and `-v` lists the version of each.
+  with an error before any work starts, and `UMBRA_LOG=info` lists the version
+  of each.
 - The GPU module, loaded with `dlopen`, keeps no logging state of its own: the
   loader passes it a log callback and the current level through `ModuleApi`.
 - Progress (a render's progress bar) is not a log message. It goes to stderr

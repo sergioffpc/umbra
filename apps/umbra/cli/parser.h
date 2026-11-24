@@ -2,7 +2,7 @@
 // Copyright The Umbra Authors
 //
 // The command-line parser of the umbra executable, with GNU conventions:
-// short flags bundle and repeat (-qv, -vvv), long options take their value
+// short flags bundle and repeat (-qh, -qq), long options take their value
 // after '=' or as the next argument, and "--" ends the options. Global
 // options come before a command; each command parses its own options and
 // arguments:
@@ -32,7 +32,7 @@ namespace umbra::cli {
 
 // What an option takes.
 enum class OptionKind : std::uint8_t {
-  // Nothing; it may repeat, and its count is how often it was given (-vvv).
+  // Nothing; it may repeat, and its count is how often it was given (-qq).
   kFlag,
   // A value, after '=' or as the next argument (--devices=gpu0, --devices
   // gpu0).

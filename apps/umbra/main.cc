@@ -3,8 +3,7 @@
 //
 // The umbra executable:
 //
-//   umbra [--version] [-h | --help] [-q | --quiet] [-v | --verbose]
-//         <command> [<args>]
+//   umbra [--version] [-h | --help] [-q | --quiet] <command> [<args>]
 //
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0]` chooses among them
@@ -14,7 +13,8 @@
 // Without a command, umbra shows its help and fails; -q silences it.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
-// -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level. umbra
+// the UMBRA_LOG variable sets their level and destination, and -q shows
+// errors only. umbra
 // exits with 0 on success, 1 on failure and 2 on a usage error.
 
 #include <algorithm>
@@ -23,7 +23,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <expected>
-#include <optional>
 #include <print>
 #include <span>
 #include <string>
@@ -63,12 +62,10 @@ constexpr int kExitUsage = 2;
 constexpr OptionSpec kHelpOption =
     umbra::cli::FlagOption('h', "help", "show this help");
 
-constexpr std::array<OptionSpec, 4> kGlobalOptions = {
+constexpr std::array<OptionSpec, 3> kGlobalOptions = {
     umbra::cli::FlagOption('\0', "version", "show the version"),
     kHelpOption,
     umbra::cli::FlagOption('q', "quiet", "show errors only"),
-    umbra::cli::FlagOption('v', "verbose",
-                           "show more: -v info, -vv debug, -vvv trace"),
 };
 
 constexpr CommandSpec kProgram = {
@@ -118,6 +115,16 @@ constexpr std::array<CommandSpec, 4> kCommands = {
     },
 };
 
+// The help of umbra: its usage and commands, then how to choose its
+// diagnostics.
+std::string ProgramHelp() {
+  return umbra::cli::FormatHelp(kProgram, kCommands) +
+         "\nUMBRA_LOG chooses the diagnostics: a level (error, warning, "
+         "info, debug\nor trace), for every component or one (gpu=trace), "
+         "and where they go,\nstderr by default (gpu=trace:/tmp/gpu.log). "
+         "-q shows errors only.\n";
+}
+
 // The value of an environment variable, or empty when it is unset.
 std::string_view Environment(const char* name) {
   // NOLINTNEXTLINE(concurrency-mt-unsafe): read at startup, before threads.
@@ -126,7 +133,7 @@ std::string_view Environment(const char* name) {
 }
 
 // The entries of a UMBRA_LOG spec that name a component ("gpu=trace"), which
-// the -q and -v flags do not override.
+// -q does not override.
 std::string ComponentEntries(std::string_view spec) {
   std::string entries;
   while (!spec.empty()) {
@@ -140,40 +147,28 @@ std::string ComponentEntries(std::string_view spec) {
   return entries;
 }
 
-// The global threshold the flags ask for, if they ask for one.
-std::expected<std::optional<LogLevel>, Error> FlagThreshold(
-    const ParsedCommand& global) {
-  const int quiet = global.Count("quiet");
-  const int verbose = global.Count("verbose");
-  if (quiet > 0 && verbose > 0) {
-    return std::unexpected(Error(ErrorCode::kInvalidArgument,
-                                 "-q and -v cannot be used together"));
+// The filter of UMBRA_LOG; -q sets the level of its global part to errors.
+std::expected<LogFilter, Error> LoggingFilter(const ParsedCommand& global) {
+  const std::string_view spec = Environment("UMBRA_LOG");
+  auto filter = umbra::core::ParseLogFilter(spec);
+  if (!filter.has_value() || global.Count("quiet") == 0) {
+    return filter;
   }
-  if (quiet > 0) {
-    return LogLevel::kError;
-  }
-  if (verbose == 0) {
-    return std::nullopt;
-  }
-  if (verbose == 1) {
-    return LogLevel::kInfo;
-  }
-  return verbose == 2 ? LogLevel::kDebug : LogLevel::kTrace;
+  // The level of every component; the destinations stay.
+  filter->SetThreshold(LogLevel::kError);
+  return umbra::core::ParseLogFilter(ComponentEntries(spec), *filter);
 }
 
-// The filter of the flags and UMBRA_LOG, the flags winning over the levels
-// of its global part.
-std::expected<LogFilter, Error> LoggingFilter(const ParsedCommand& global) {
-  return FlagThreshold(global).and_then([](std::optional<LogLevel> threshold) {
-    const std::string_view spec = Environment("UMBRA_LOG");
-    auto filter = umbra::core::ParseLogFilter(spec);
-    if (!filter.has_value() || !threshold.has_value()) {
-      return filter;
+// Whether `filter` asks for trace messages from any component.
+bool HasTraceThreshold(const LogFilter& filter) {
+  for (std::size_t index = 0; index < umbra::core::kLogComponentCount;
+       ++index) {
+    if (filter.threshold(static_cast<umbra::core::LogComponent>(index)) ==
+        LogLevel::kTrace) {
+      return true;
     }
-    // The flags set the level of every component; the destinations stay.
-    filter->SetThreshold(*threshold);
-    return umbra::core::ParseLogFilter(ComponentEntries(spec), *filter);
-  });
+  }
+  return false;
 }
 
 // Configures diagnostics from the global options.
@@ -186,7 +181,7 @@ std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
       !configured.has_value()) {
     return configured;
   }
-  if (global.Count("verbose") > 2 && !umbra::core::IsTraceCompiled()) {
+  if (HasTraceThreshold(*filter) && !umbra::core::IsTraceCompiled()) {
     UMBRA_LOG_WARNING(kCore,
                       "trace messages exist in debug builds only; this is a "
                       "release build");
@@ -297,7 +292,7 @@ int Render(const ParsedCommand& global, const ParsedCommand& render) {
 // `umbra help [<command>]`: the help of umbra, or of a command.
 int Help(const ParsedCommand& help) {
   if (help.arguments().empty()) {
-    std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
+    std::print("{}", ProgramHelp());
     return kExitSuccess;
   }
   const std::string_view name = help.arguments().front();
@@ -363,7 +358,7 @@ int main(int argc, char** argv) {
                : Failure(configured.error());
   }
   if (global.Count("help") > 0) {
-    std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
+    std::print("{}", ProgramHelp());
     return kExitSuccess;
   }
   if (global.Count("version") > 0) {
@@ -373,7 +368,7 @@ int main(int argc, char** argv) {
   if (!command_line->command.has_value()) {
     // The help, and a failure, since there was nothing to do.
     if (global.Count("quiet") == 0) {
-      std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
+      std::print("{}", ProgramHelp());
     }
     return kExitFailure;
   }
