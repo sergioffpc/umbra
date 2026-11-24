@@ -4,7 +4,7 @@
 
 Formats the given files in place, or every tracked C++ and Python file when
 none is given. With --check it changes no file and fails when formatting
-would change one (``make checks`` and CI). The ``check_*`` functions check
+would change one (``make lint`` and CI). The ``check_*`` functions check
 content without changing any file: the pre-commit hook checks the staged
 changes, and the linter checks the Python embedded in the workflows.
 

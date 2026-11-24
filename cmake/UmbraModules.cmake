@@ -43,7 +43,7 @@
 # Adds a GoogleTest executable registered with CTest, its tests carrying the
 # given CTest labels. Its main() configures the floating-point state of the
 # thread before running the tests. Tests that need a GPU carry the label
-# "gpu": the test presets leave them out, and `make test LABEL=gpu` runs only
+# "gpu": the test presets leave them out, and `make check LABEL=gpu` runs only
 # them (see CMakePresets.json).
 #
 #   umbra_add_benchmark(<name> SOURCES <file>... [DEPENDS <module>...])

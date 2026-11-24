@@ -488,7 +488,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make test
+        run: make check
 
       # The image carries nvcc and the OptiX headers, so UMBRA_GPU (AUTO)
       # builds the GPU module; its tests need a GPU and run on GPU hosts only.
@@ -617,7 +617,7 @@ jobs:
           paths: build/tsan
 
   # Fails when `make format` would change any file (the formatting step of
-  # `make checks`).
+  # `make lint`).
   format:
     needs: image
     runs-on: ubuntu-26.04

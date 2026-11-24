@@ -10,7 +10,7 @@ Only the presence of a signature is checked: no allowed-signers file is
 committed, and GitHub verifies the signatures in CI.
 
 When the refs and commits are valid, a quick debug build runs the tests
-(``make test``) on the working tree. It needs the devcontainer toolchain: the
+(``make check``) on the working tree. It needs the devcontainer toolchain: the
 devcontainer is the only supported environment.
 
 Usage (run by git): .githooks/pre-push REMOTE URL < REFS
@@ -111,10 +111,10 @@ def build_and_test() -> int:
                 "push from the devcontainer, the only supported environment",
             ],
         )
-    print("pre-push: debug build and tests (make test)", file=sys.stderr)
-    status = git.call(["make", "test"]).returncode
+    print("pre-push: debug build and tests (make check)", file=sys.stderr)
+    status = git.call(["make", "check"]).returncode
     return report.exit_status(
-        "debug build or tests failed", "make test", status
+        "debug build or tests failed", "make check", status
     )
 
 
