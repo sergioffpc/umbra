@@ -131,7 +131,10 @@ runs:
                 third_party/patches/pugixml \
                 third_party/OpenImageIO \
                 third_party/config/OpenImageIO.cmake \
-                third_party/patches/OpenImageIO
+                third_party/patches/OpenImageIO \
+                third_party/openvdb \
+                third_party/config/openvdb.cmake \
+                third_party/patches/openvdb
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

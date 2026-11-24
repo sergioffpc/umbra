@@ -1,0 +1,33 @@
+Find CCCL in the CUDA toolkit.
+
+With NANOVDB_USE_CUDA, NanoVDB downloads CPM.cmake and then clones CCCL
+from GitHub at configure time. The image builds offline from its
+submodules, and the CUDA toolkit ships CCCL 3: the build now finds that
+one, where NanoVDBConfig.cmake already looks for it.
+
+diff --git a/nanovdb/nanovdb/CMakeLists.txt b/nanovdb/nanovdb/CMakeLists.txt
+index b15ed1d8a..aa118af2b 100644
+--- a/nanovdb/nanovdb/CMakeLists.txt
++++ b/nanovdb/nanovdb/CMakeLists.txt
+@@ -181,17 +181,10 @@ if(NANOVDB_USE_CUDA)
+   find_package(CUDAToolkit)
+ 
+ 
+-  include(../../cmake/CPM.cmake)
+-
+-  # Clones CCCL from GitHub and makes the exported cmake targets available.
+-  # Pinned to a release so an upstream commit cannot change what CI builds;
+-  # bump it deliberately.
+-  set(NANOVDB_CCCL_TAG "v3.4.2" CACHE STRING "Git tag of the CCCL release to build against")
+-  CPMAddPackage(
+-      NAME CCCL
+-      GITHUB_REPOSITORY nvidia/cccl
+-      GIT_TAG ${NANOVDB_CCCL_TAG}
+-  )
++  # The CCCL of the CUDA toolkit, as NanoVDBConfig.cmake finds it.
++  set(NANOVDB_CCCL_TAG "v3" CACHE STRING "Major version of the toolkit's CCCL")
++  find_package(CCCL 3 CONFIG REQUIRED
++    HINTS "${CUDAToolkit_TARGET_DIR}/lib/cmake" "${CUDAToolkit_LIBRARY_DIR}/cmake")
+ 
+   # Installed consumers need a CCCL with the same major version
+   string(REGEX MATCH "^v?([0-9]+)" _nanovdb_cccl_major "${NANOVDB_CCCL_TAG}")

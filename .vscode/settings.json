@@ -46,6 +46,7 @@
     "third_party/libtiff/**": true,
     "third_party/pugixml/**": true,
     "third_party/OpenImageIO/**": true,
+    "third_party/openvdb/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -68,7 +69,8 @@
     "third_party/robin-map/**": true,
     "third_party/libtiff/**": true,
     "third_party/pugixml/**": true,
-    "third_party/OpenImageIO/**": true
+    "third_party/OpenImageIO/**": true,
+    "third_party/openvdb/**": true
   },
   "search.exclude": {
     "**/build": true,
@@ -90,7 +92,8 @@
     "third_party/robin-map": true,
     "third_party/libtiff": true,
     "third_party/pugixml": true,
-    "third_party/OpenImageIO": true
+    "third_party/OpenImageIO": true,
+    "third_party/openvdb": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,

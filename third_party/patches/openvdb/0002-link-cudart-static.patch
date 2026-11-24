@@ -1,0 +1,19 @@
+Link the static CUDA runtime.
+
+libcudart.so needs libstdc++, which the deps layer keeps out of every
+process. NanoVDB's CUDA support links CUDA::cudart_static instead, the
+runtime umbra's GPU module links.
+
+diff --git a/nanovdb/nanovdb/CMakeLists.txt b/nanovdb/nanovdb/CMakeLists.txt
+index b15ed1d8a..0877238e5 100644
+--- a/nanovdb/nanovdb/CMakeLists.txt
++++ b/nanovdb/nanovdb/CMakeLists.txt
+@@ -433,7 +433,7 @@ if(NANOVDB_USE_CUDA)
+   endif()
+ 
+   # Add CUDA includes to any C++ units which use NanoVDB
+-  target_link_libraries(nanovdb INTERFACE CCCL::CCCL CUDA::cudart)
++  target_link_libraries(nanovdb INTERFACE CCCL::CCCL CUDA::cudart_static)
+ 
+   if(NCCL_FOUND)
+     target_compile_definitions(nanovdb INTERFACE -DNANOVDB_USE_NCCL)

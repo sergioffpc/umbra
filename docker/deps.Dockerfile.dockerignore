@@ -58,4 +58,7 @@
 !third_party/config/OpenImageIO.cmake
 !third_party/patches/OpenImageIO/
 !third_party/OpenImageIO/
+!third_party/config/openvdb.cmake
+!third_party/patches/openvdb/
+!third_party/openvdb/
 **/.git

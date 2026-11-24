@@ -70,3 +70,7 @@
 	path = third_party/pugixml
 	url = https://github.com/zeux/pugixml.git
 	shallow = true
+[submodule "third_party/openvdb"]
+	path = third_party/openvdb
+	url = https://github.com/AcademySoftwareFoundation/openvdb.git
+	shallow = true
