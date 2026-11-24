@@ -523,7 +523,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make asan
+        run: make __asan
 
       - name: No GCC runtime
         uses: ./.github/actions/no-gcc-runtime
@@ -558,7 +558,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make tsan
+        run: make __tsan
 
       - name: No GCC runtime
         uses: ./.github/actions/no-gcc-runtime
@@ -570,8 +570,8 @@ jobs:
         with:
           paths: build/tsan
 
-  # Formats the sources with `make format` and fails when that changes any
-  # file.
+  # Fails when `make format` would change any file (the formatting step of
+  # `make checks`).
   format:
     needs: image
     runs-on: ubuntu-26.04
@@ -593,15 +593,8 @@ jobs:
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Format
-        run: make format
-
-      - name: Unformatted files
-        run: |
-          if ! git diff --exit-code; then
-            echo "::error title=Unformatted files::run make format and commit the result"
-            exit 1
-          fi
+      - name: Formatting
+        run: make __format-check
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
   # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
@@ -628,10 +621,10 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Validators
-        run: make checks
+        run: make __validators
 
       - name: Lint
-        run: make lint
+        run: make __lint
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
   # accepts cycles between static libraries, so tsort checks the graph that
