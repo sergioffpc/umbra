@@ -40,6 +40,26 @@ returns its `Error` and does not log it, and the caller that gives up reports
 it once, as `umbra: error:`. umbra exits with 0 on success, 1 on failure and 2
 on a usage error.
 
+When a render starts, umbra shows on stderr the hardware it runs on, in a
+block of its own rather than as log lines, as `ffmpeg` shows its banner:
+
+```
+umbra 0.1.0 (Release, x86-64-v3)
+  CPU   AMD Ryzen Threadripper PRO 3975WX
+        32 cores, 64 threads, 1 NUMA node
+        AVX2, Embree AVX2, OSL batched 8
+  RAM   125 GiB
+  GPU 0 NVIDIA GeForce RTX 5070 Ti (sm_120)
+        16 GiB, driver 615.71, CUDA 13.4
+        OptiX 9.1.0
+  Rendering on: GPU 0
+```
+
+It is shown by default, since what a render runs on explains its speed and
+its output, and `-q` hides it. It is not a diagnostic: it has no level and no
+`umbra:` prefix, and `UMBRA_LOG` does not filter it. It goes to stderr, so
+stdout keeps only results.
+
 ## Consequences
 
 - The libraries umbra uses report through their own channels. umbra
@@ -55,5 +75,9 @@ on a usage error.
   with an error before any work starts, and `-v` lists the version of each.
 - The GPU module, loaded with `dlopen`, keeps no logging state of its own: the
   loader passes it a log callback and the current level through `ModuleApi`.
+- The hardware block needs what each part knows about the hardware: core
+  reads the CPU and the memory, the GPU module reports its devices through
+  `ModuleApi`, and the Embree and OSL bridges report the ISA and the batch
+  width they chose.
 - Progress (a render's progress bar) is not a log message. It goes to stderr
   too, and only when stderr is a terminal.
