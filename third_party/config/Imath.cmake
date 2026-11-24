@@ -6,8 +6,9 @@
 # (the half-to-float table), without Python bindings, tests or website. The
 # common settings of the layer come from layers/deps.cmake.
 #
-# A few templates throw (Frustum, and Matrix inversion when asked to report a
-# singular matrix); code built with -fno-exceptions cannot instantiate them.
+# The *Exc methods of Frustum and the matrix inversions that take singExc
+# throw, so code built with -fno-exceptions cannot call them; their
+# counterparts without the suffix or the flag are noexcept.
 # Half conversion uses F16C under x86-64-v3, the table only without it.
 
 set(BUILD_TESTING OFF CACHE BOOL "")
