@@ -39,6 +39,10 @@ ARG TOOLCHAIN_IMAGE
 #                              initcheck, racecheck and synccheck tools;
 #                              cuda-gdb is GPL-3.0-or-later, and its source
 #                              stays in extras/, as NVIDIA ships it
+#   /opt/cuda/include          also the cuRAND headers alone, without its
+#                              libraries: clang's CUDA runtime wrapper includes
+#                              curand_mtgp32_kernel.h, so OSL's shadeops, which
+#                              clang compiles to NVPTX, need them
 #   /opt/cuda/optix/include    the OptiX headers; OptiX_INSTALL_DIR
 #
 # The debugger and the sanitizer need a GPU, so only a GPU host uses them. The
@@ -66,6 +70,8 @@ ARG CUDA_SANITIZER_API_VERSION=13.5.25
 ARG CUDA_SANITIZER_API_SHA256=483451f82bc238002cd569f8595305d3fc023cd9d36398d033a40edb96b5bcbf
 ARG CUDA_GDB_VERSION=13.5.25
 ARG CUDA_GDB_SHA256=65d86e2c81dd4d2afcdeef6c839d433aa23f48a4431ccaf5700928853b51855e
+ARG LIBCURAND_VERSION=10.4.5.25
+ARG LIBCURAND_SHA256=b58397cff0012cf2d143fca148aa7a58831b758cfaf2d4433f35cf267ea9b19b
 ARG CCCL_VERSION=13.3.5.0.6
 ARG CCCL_SHA256=5139f641e72df6b0c64ee9e68cabaeafa9a5e36a4b1f7d370a1dc0dac62dd72f
 ARG OPTIX_VERSION=9.1.0
@@ -92,6 +98,7 @@ RUN set -eu; \
     fetch cuda_sanitizer_api "$CUDA_SANITIZER_API_VERSION" \
       "$CUDA_SANITIZER_API_SHA256"; \
     fetch cuda_gdb "$CUDA_GDB_VERSION" "$CUDA_GDB_SHA256"; \
+    fetch libcurand "$LIBCURAND_VERSION" "$LIBCURAND_SHA256"; \
     curl -fsSLo optix.tar.gz \
       "https://github.com/NVIDIA/optix-dev/archive/refs/tags/v${OPTIX_VERSION}.tar.gz"; \
     echo "$OPTIX_SHA256  optix.tar.gz" | sha256sum -c -; \
@@ -100,6 +107,8 @@ RUN set -eu; \
                      cuda_cuobjdump cuda_nvdisasm cuda_sanitizer_api cuda_gdb; do \
       tar -xJf "$component.tar.xz" -C /opt/cuda --strip-components=1; \
     done; \
+    tar -xJf libcurand.tar.xz -C /opt/cuda --strip-components=1 \
+      --wildcards '*/include/*'; \
     tar -xzf optix.tar.gz -C /opt/cuda/optix --strip-components=1; \
     rm -rf /tmp/nvidia
 WORKDIR /
@@ -132,7 +141,7 @@ RUN apt-get update \
       libhwloc-dev libdeflate-dev libzstd-dev ccache \
       libexpat1-dev zlib1g-dev libminizip-ng-dev \
       libjpeg-turbo8-dev libpng-dev libwebp-dev libgif-dev libopenjp2-7-dev \
-      libfreetype-dev \
+      libfreetype-dev flex bison \
  && rm -rf /var/lib/apt/lists/*
 ENV CCACHE_DIR=/var/cache/ccache \
     CCACHE_MAXSIZE=5G \

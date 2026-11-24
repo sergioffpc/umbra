@@ -1,0 +1,20 @@
+Find X11 only for the render platforms.
+
+On Linux, MaterialXConfig.cmake finds X11 with Xt for every consumer, so
+a consumer without X11 cannot find MaterialX at all. Only the render
+platform modules (MaterialXRenderHw, MaterialXRenderGlsl) link X11; the
+package now looks for it only when they were built.
+
+diff --git a/cmake/modules/MaterialXConfig.cmake.in b/cmake/modules/MaterialXConfig.cmake.in
+index 6731afb8..d1e76833 100644
+--- a/cmake/modules/MaterialXConfig.cmake.in
++++ b/cmake/modules/MaterialXConfig.cmake.in
+@@ -39,7 +39,7 @@ if(@MATERIALX_BUILD_RENDER@ AND @MATERIALX_INSTALL_RESOURCES@)
+     set_and_check(MATERIALX_RESOURCES_DIR "@PACKAGE_CMAKE_INSTALL_PREFIX@/resources")
+ endif()
+ 
+-if(UNIX AND NOT APPLE)
++if(UNIX AND NOT APPLE AND @MATERIALX_BUILD_RENDER_PLATFORMS@)
+     find_dependency(X11 REQUIRED COMPONENTS Xt)
+     if("RenderGlsl" IN_LIST MaterialX_FIND_COMPONENTS)
+         find_dependency(OpenGL REQUIRED)

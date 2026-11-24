@@ -74,3 +74,7 @@
 	path = third_party/openvdb
 	url = https://github.com/AcademySoftwareFoundation/openvdb.git
 	shallow = true
+[submodule "third_party/OpenShadingLanguage"]
+	path = third_party/OpenShadingLanguage
+	url = https://github.com/AcademySoftwareFoundation/OpenShadingLanguage.git
+	shallow = true

@@ -1,0 +1,22 @@
+Give each shadeops module its own device statics.
+
+The CUDA shadeops are compiled one file at a time to LLVM bitcode, then
+linked into one module. Clang gives external linkage to the __device__
+variables of an unnamed namespace that host code references, such as
+OSL::Hashes, so every file defines the same symbols and the link fails:
+"Linking globals named ...Hashes3endE: symbol multiply defined". With
+-fgpu-rdc, clang appends a suffix unique to each file to those names.
+
+diff --git a/src/cmake/cuda_macros.cmake b/src/cmake/cuda_macros.cmake
+index e87b359f..651ca969 100644
+--- a/src/cmake/cuda_macros.cmake
++++ b/src/cmake/cuda_macros.cmake
+@@ -169,7 +169,7 @@ function ( MAKE_CUDA_BITCODE src suffix generated_bc extra_clang_args )
+             ${ALL_OPENEXR_INCLUDES}
+             ${LLVM_COMPILE_FLAGS} ${CUDA_LIB_FLAGS} ${CLANG_MSVC_FIX} ${CUDA_TEXREF_FIX}
+             -D__CUDACC__ -DOSL_COMPILING_TO_BITCODE=1 -DNDEBUG -DOIIO_NO_SSE -D__CUDADEVRT_INTERNAL__
+-            --language=cuda --cuda-device-only --cuda-gpu-arch=${CUDA_TARGET_ARCH}
++            --language=cuda --cuda-device-only --cuda-gpu-arch=${CUDA_TARGET_ARCH} -fgpu-rdc
+             -Wno-deprecated-register -Wno-format-security
+             -fno-math-errno -ffast-math ${CUDA_OPT_FLAG_CLANG} ${CLANG_FTZ_FLAG} -S -emit-llvm ${extra_clang_args}
+             ${src} -o ${asm_cuda}

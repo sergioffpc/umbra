@@ -61,4 +61,7 @@
 !third_party/config/openvdb.cmake
 !third_party/patches/openvdb/
 !third_party/openvdb/
+!third_party/config/OpenShadingLanguage.cmake
+!third_party/patches/OpenShadingLanguage/
+!third_party/OpenShadingLanguage/
 **/.git

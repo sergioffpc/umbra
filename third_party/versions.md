@@ -34,6 +34,7 @@ different section 6 (Trademarks).
 | pugixml | `third_party/pugixml` | `v1.16` | `c8033ce9d039e7f9d134877c363397b3cfe20816` | `MIT` |
 | OpenImageIO | `third_party/OpenImageIO` | `v3.2.2.0` | `96377f681cc9e6650c8534671f4fc36b3c8acbc1` | `Apache-2.0` |
 | OpenVDB | `third_party/openvdb` | `v14.0.0` | `ecae2bda85744412b0cd47e1b8e1e4e76beb7b88` | `Apache-2.0` |
+| OSL | `third_party/OpenShadingLanguage` | `v1.15.8.0` | `b64c29cc2540c398265942edc44650aea3a8c103` | `BSD-3-Clause` |
 
 ## Ubuntu packages
 
@@ -58,6 +59,8 @@ C library: Ubuntu's `libtiff6` links the C++ `liblerc4`.
 | giflib | OpenImageIO (GIF) | `libgif-dev`, `libgif7` | `MIT` |
 | OpenJPEG | OpenImageIO (JPEG 2000) | `libopenjp2-7-dev`, `libopenjp2-7` | `BSD-2-Clause` |
 | FreeType | OpenImageIO (text rendering) | `libfreetype-dev`, `libfreetype6` | `FTL OR GPL-2.0-or-later` |
+| flex | OSL (the lexers of oslc and the .oso reader), build only | `flex` | `BSD-3-Clause` |
+| GNU Bison | OSL (their parsers), build only | `bison` | `GPL-3.0-or-later WITH Bison-exception-2.2` |
 
 ## Proprietary build-time downloads
 
@@ -76,4 +79,5 @@ inside an application under the CUDA EULA (Attachment A). The shared
 | CUDA developer tools (cuobjdump, nvdisasm) | 13.5.37 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA |
 | CUDA developer tools (compute-sanitizer, cuda-gdb) | 13.5.25 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA (cuda-gdb: GPL-3.0-or-later, with its source in `/opt/cuda/extras/`) |
 | CCCL | 13.3.5.0.6 | NVIDIA CUDA redist archives | CCCL EULA |
+| cuRAND headers (no libraries) | 10.4.5.25 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA |
 | OptiX headers | 9.1.0 | `NVIDIA/optix-dev` release archive | NVIDIA DesignWorks SDK license (BSD-3-Clause for some headers) |
