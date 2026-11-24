@@ -38,3 +38,11 @@
 	path = third_party/MaterialX
 	url = https://github.com/AcademySoftwareFoundation/MaterialX.git
 	shallow = true
+[submodule "third_party/yaml-cpp"]
+	path = third_party/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
+	shallow = true
+[submodule "third_party/pystring"]
+	path = third_party/pystring
+	url = https://github.com/imageworks/pystring.git
+	shallow = true

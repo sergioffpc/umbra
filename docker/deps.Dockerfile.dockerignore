@@ -34,4 +34,10 @@
 !third_party/config/MaterialX.cmake
 !third_party/patches/MaterialX/
 !third_party/MaterialX/
+!third_party/config/yaml-cpp.cmake
+!third_party/patches/yaml-cpp/
+!third_party/yaml-cpp/
+!third_party/config/pystring.cmake
+!third_party/patches/pystring/
+!third_party/pystring/
 **/.git

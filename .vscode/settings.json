@@ -38,6 +38,8 @@
     "third_party/openexr/**": true,
     "third_party/OpenSubdiv/**": true,
     "third_party/MaterialX/**": true,
+    "third_party/yaml-cpp/**": true,
+    "third_party/pystring/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -52,7 +54,9 @@
     "third_party/Imath/**": true,
     "third_party/openexr/**": true,
     "third_party/OpenSubdiv/**": true,
-    "third_party/MaterialX/**": true
+    "third_party/MaterialX/**": true,
+    "third_party/yaml-cpp/**": true,
+    "third_party/pystring/**": true
   },
   "search.exclude": {
     "**/build": true,
@@ -66,7 +70,9 @@
     "third_party/Imath": true,
     "third_party/openexr": true,
     "third_party/OpenSubdiv": true,
-    "third_party/MaterialX": true
+    "third_party/MaterialX": true,
+    "third_party/yaml-cpp": true,
+    "third_party/pystring": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
