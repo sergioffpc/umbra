@@ -43,4 +43,10 @@
 !third_party/config/OpenColorIO.cmake
 !third_party/patches/OpenColorIO/
 !third_party/OpenColorIO/
+!third_party/config/fmt.cmake
+!third_party/patches/fmt/
+!third_party/fmt/
+!third_party/config/robin-map.cmake
+!third_party/patches/robin-map/
+!third_party/robin-map/
 **/.git

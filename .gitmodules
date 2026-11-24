@@ -50,3 +50,11 @@
 	path = third_party/OpenColorIO
 	url = https://github.com/AcademySoftwareFoundation/OpenColorIO.git
 	shallow = true
+[submodule "third_party/fmt"]
+	path = third_party/fmt
+	url = https://github.com/fmtlib/fmt.git
+	shallow = true
+[submodule "third_party/robin-map"]
+	path = third_party/robin-map
+	url = https://github.com/Tessil/robin-map.git
+	shallow = true
