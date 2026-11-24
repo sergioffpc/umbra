@@ -45,7 +45,7 @@ When a render starts, umbra shows on stderr the devices it renders on
 rather than as log lines, as `ffmpeg` shows its banner:
 
 ```
-umbra 0.1.0 (Release, x86-64-v3)
+umbra version 0.1.0 (Release, x86-64-v3)
   cpu0  AMD Ryzen Threadripper PRO 3975WX, 64 threads
   gpu0  NVIDIA GeForce RTX 5070 Ti, 16 GiB
 ```
