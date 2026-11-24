@@ -25,6 +25,8 @@ different section 6 (Trademarks).
 | OpenEXR | `third_party/openexr` | `v3.5.5` | `486e238dd28ba6fed22528005b05f9f15bef0cc0` | `BSD-3-Clause` |
 | OpenSubdiv | `third_party/OpenSubdiv` | `v3_8_0` | `1d90921ea32b9dcae31d30b907cbacefc0c616bf` | `LicenseRef-TOST-1.0` |
 | MaterialX | `third_party/MaterialX` | `v1.39.5` | `7b64921ef1d42f2d57871e9d2c43dc11f041f26b` | `Apache-2.0` |
+| yaml-cpp | `third_party/yaml-cpp` | `yaml-cpp-0.9.0` | `56e3bb550c91fd7005566f19c079cb7a503223cf` | `MIT` |
+| pystring | `third_party/pystring` | `v1.2.0` | `1922c8f2b48e3beb6831c27b4811b58995e986cf` | `BSD-3-Clause` |
 
 ## Ubuntu packages
 

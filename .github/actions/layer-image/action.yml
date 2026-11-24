@@ -107,7 +107,13 @@ runs:
                 third_party/patches/OpenSubdiv \
                 third_party/MaterialX \
                 third_party/config/MaterialX.cmake \
-                third_party/patches/MaterialX
+                third_party/patches/MaterialX \
+                third_party/yaml-cpp \
+                third_party/config/yaml-cpp.cmake \
+                third_party/patches/yaml-cpp \
+                third_party/pystring \
+                third_party/config/pystring.cmake \
+                third_party/patches/pystring
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2
