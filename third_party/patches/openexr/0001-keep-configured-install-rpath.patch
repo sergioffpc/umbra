@@ -1,0 +1,24 @@
+Keep a CMAKE_INSTALL_RPATH given on the command line as the whole RUNPATH.
+
+Upstream also appends every link directory outside the build tree (the
+prefix the layer's oneTBB and Imath come from). The deps layer installs
+every library with RUNPATH $ORIGIN.
+
+diff --git a/cmake/OpenEXRSetup.cmake b/cmake/OpenEXRSetup.cmake
+index da6ec5f0..5ab0bb63 100644
+--- a/cmake/OpenEXRSetup.cmake
++++ b/cmake/OpenEXRSetup.cmake
+@@ -134,8 +134,11 @@ set(OPENEXR_STATIC_LIB_SUFFIX "_static" CACHE STRING "When building both static
+ set(CMAKE_SKIP_BUILD_RPATH FALSE)
+ set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+ # adds the automatically determined parts of the rpath
+-# which point to directories outside the build tree to the install RPATH
+-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
++# which point to directories outside the build tree to the install RPATH,
++# unless the build was configured with an install rpath of its own
++if(NOT DEFINED CACHE{CMAKE_INSTALL_RPATH})
++  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
++endif()
+ if(APPLE)
+   set(CMAKE_MACOSX_RPATH ON)
+ endif()

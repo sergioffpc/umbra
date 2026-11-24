@@ -97,7 +97,8 @@ ENV PATH=/opt/cuda/bin:${PATH} \
 FROM nvidia AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libhwloc-dev \
+ && apt-get install -y --no-install-recommends \
+      libhwloc-dev libdeflate-dev libzstd-dev pkgconf \
  && rm -rf /var/lib/apt/lists/*
 COPY third_party/ /opt/umbra/src/
 RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
@@ -107,9 +108,10 @@ RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
 
 FROM nvidia AS deps
 ARG DEBIAN_FRONTEND=noninteractive
-# hwloc: oneTBB's libtbbbind, for NUMA-aware task arenas.
+# hwloc: oneTBB's libtbbbind, for NUMA-aware task arenas. libdeflate and
+# zstd: OpenEXR's ZIP and ZSTD compression.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libhwloc15 \
+ && apt-get install -y --no-install-recommends libhwloc15 libdeflate0 libzstd1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/umbra/ /opt/umbra/
 ENV CMAKE_PREFIX_PATH=/opt/umbra
