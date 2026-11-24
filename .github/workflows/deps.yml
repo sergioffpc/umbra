@@ -413,6 +413,7 @@ jobs:
         run: |
           empty=$(mktemp -d)
           docker buildx build --builder "$BUILDER" --file - \
+            --provenance=false --sbom=false \
             --output "type=image,name=$CCACHE_REF,push=true" "$empty" <<EOF
           FROM ubuntu:26.04 AS export
           RUN --mount=type=cache,id=${DEPS_CCACHE_ID},target=${DEPS_CCACHE_TARGET},sharing=locked \
@@ -422,6 +423,9 @@ jobs:
           COPY --from=export /export/ /
           EOF
 
+      # One manifest per version, without provenance or SBOM manifests: those
+      # would be untagged versions that the tagged image needs, and this step
+      # would delete them.
       - name: Prune old compiler caches
         if: >-
           always() && steps.published.outputs.exists == 'false'
