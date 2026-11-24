@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <string_view>
 
+#include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -23,7 +24,7 @@ namespace umbra::gpu {
 
 // The version of ModuleApi. Bump it whenever ModuleApi or ModuleStatus
 // changes.
-inline constexpr std::uint32_t kModuleAbiVersion = 1;
+inline constexpr std::uint32_t kModuleAbiVersion = 2;
 
 // The name of the exported entry point, of type ModuleEntryPoint.
 inline constexpr const char* kModuleEntryPoint = "umbra_gpu_module";
@@ -49,10 +50,21 @@ inline ModuleStatus FailedStatus(std::string_view message) {
   return status;
 }
 
+// umbra's diagnostics, as the loader hands them to the module: the module
+// keeps no logging state of its own and logs through this function, as the
+// gpu component.
+using ModuleLogFunction = void (*)(core::LogLevel level,
+                                   std::string_view message);
+
 // The functions of the module.
 struct ModuleApi {
   // kModuleAbiVersion of the build that produced the module.
   std::uint32_t abi_version;
+
+  // Hands the module umbra's log function and the gpu component's threshold,
+  // so that it formats only the messages that will be shown. The loader
+  // calls it once, before any other function.
+  void (*set_log)(ModuleLogFunction log, core::LogLevel threshold);
 
   // Writes the number of usable GPUs (sm_120 or newer, with a driver whose
   // OptiX runtime the module can use) to *count. Fails when the driver or

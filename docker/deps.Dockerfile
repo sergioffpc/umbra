@@ -162,10 +162,13 @@ ARG DEBIAN_FRONTEND=noninteractive
 # OpenColorIO's CLF/CTF files and .ocioz archives. libjpeg-turbo, libpng,
 # libwebp, giflib, OpenJPEG and FreeType: OpenImageIO's JPEG, PNG, WebP, GIF
 # and JPEG 2000 formats and its text rendering; libjpeg, libwebp and zstd
-# also libtiff's codecs. zlib and zstd: OpenVDB's grid compression.
+# also libtiff's codecs. zlib and zstd: OpenVDB's grid compression; their
+# -dev packages too, since FindOpenVDB.cmake, through which umbra finds
+# OpenVDB, finds them for its own targets.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libhwloc15 libdeflate0 libzstd1 libexpat1 zlib1g libminizip-ng4t64 \
+      zlib1g-dev libzstd-dev \
       libjpeg-turbo8 libpng16-16t64 libwebp7 libwebpdemux2 libwebpmux3 \
       libgif7 libopenjp2-7 libfreetype6 \
  && rm -rf /var/lib/apt/lists/*
