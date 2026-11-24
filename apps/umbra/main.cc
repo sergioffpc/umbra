@@ -41,6 +41,8 @@
 #include "umbra/ext/oiio/oiio.h"
 #include "umbra/ext/opensubdiv/opensubdiv.h"
 #include "umbra/ext/openvdb/openvdb.h"
+#include "umbra/ext/osl/osl.h"
+#include "umbra/ext/usd/usd.h"
 #include "umbra/gpu/module.h"
 
 namespace {
@@ -198,7 +200,9 @@ std::expected<void, Error> InitializeLibraries() {
       .and_then(umbra::ext::oiio::Initialize)
       .and_then(umbra::ext::openvdb::Initialize)
       .and_then(umbra::ext::opensubdiv::Initialize)
-      .and_then(umbra::ext::embree::Initialize);
+      .and_then(umbra::ext::embree::Initialize)
+      .and_then(umbra::ext::usd::Initialize)
+      .and_then(umbra::ext::osl::Initialize);
 }
 
 // Reports a usage error and returns its exit code.
