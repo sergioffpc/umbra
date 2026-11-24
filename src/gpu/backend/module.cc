@@ -13,13 +13,18 @@
 #include <optix_stubs.h>
 #include <optix_types.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include "umbra/core/log.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu::backend {
@@ -27,6 +32,35 @@ namespace {
 
 // The oldest GPU architecture the module is built for: sm_120.
 constexpr int kMinComputeCapabilityMajor = 12;
+
+// umbra's log function and the gpu component's threshold, handed over by the
+// loader before any other call (ModuleApi::set_log).
+struct LogState {
+  std::atomic<ModuleLogFunction> log{nullptr};
+  std::atomic<core::LogLevel> threshold{core::LogLevel::kError};
+};
+
+LogState& Logging() {
+  static LogState state;
+  return state;
+}
+
+void SetLog(ModuleLogFunction log, core::LogLevel threshold) {
+  Logging().log.store(log, std::memory_order_relaxed);
+  Logging().threshold.store(threshold, std::memory_order_relaxed);
+}
+
+// Logs a message through umbra, formatting it only when it will be shown.
+template <typename... Args>
+void Log(core::LogLevel level, std::format_string<Args...> format,
+         Args&&... args) {
+  const ModuleLogFunction log = Logging().log.load(std::memory_order_relaxed);
+  if (log == nullptr ||
+      level > Logging().threshold.load(std::memory_order_relaxed)) {
+    return;
+  }
+  log(level, std::format(format, std::forward<Args>(args)...));
+}
 
 // Errors inside the module are messages; the entry points turn them into a
 // ModuleStatus.
@@ -63,6 +97,37 @@ Result<void> InitOptix() {
   }
 }
 
+// Whether the GPU at `ordinal`, of compute capability `major`, is one the
+// module runs on; logs it either way.
+bool IsUsable(int ordinal, int major) {
+  cudaDeviceProp properties{};
+  const std::string name =
+      cudaGetDeviceProperties(&properties, ordinal) == cudaSuccess
+          ? std::string(std::ranges::begin(properties.name),
+                        std::ranges::find(properties.name, '\0'))
+          : std::string("unknown");
+  if (major < kMinComputeCapabilityMajor) {
+    Log(core::LogLevel::kDebug,
+        "device {}: {} (sm_{}{}), skipped: older than sm_{}0", ordinal, name,
+        properties.major, properties.minor, kMinComputeCapabilityMajor);
+    return false;
+  }
+  Log(core::LogLevel::kInfo, "device {}: {} (sm_{}{})", ordinal, name,
+      properties.major, properties.minor);
+  return true;
+}
+
+// Logs the versions of the driver and OptiX the module runs on.
+void LogVersions() {
+  int driver = 0;
+  if (cudaDriverGetVersion(&driver) != cudaSuccess) {
+    driver = 0;
+  }
+  Log(core::LogLevel::kInfo, "CUDA driver {}.{}, OptiX {}.{}.{}", driver / 1000,
+      driver % 1000 / 10, OPTIX_VERSION / 10000, OPTIX_VERSION / 100 % 100,
+      OPTIX_VERSION % 100);
+}
+
 // The CUDA ordinals of the usable GPUs, in CUDA order.
 Result<std::vector<int>> UsableDevices() {
   int count = 0;
@@ -80,16 +145,17 @@ Result<std::vector<int>> UsableDevices() {
         !checked) {
       return std::unexpected(checked.error());
     }
-    if (major >= kMinComputeCapabilityMajor) {
+    if (IsUsable(ordinal, major)) {
       usable.push_back(ordinal);
     }
   }
-  if (!usable.empty()) {
-    if (auto initialized = InitOptix(); !initialized) {
-      return std::unexpected(initialized.error());
-    }
+  if (usable.empty()) {
+    return usable;
   }
-  return usable;
+  return InitOptix().transform([&] {
+    LogVersions();
+    return usable;
+  });
 }
 
 ModuleStatus CountDevices(std::int32_t* count) {
@@ -103,6 +169,7 @@ ModuleStatus CountDevices(std::int32_t* count) {
 
 constexpr ModuleApi kApi{
     .abi_version = kModuleAbiVersion,
+    .set_log = SetLog,
     .count_devices = CountDevices,
 };
 

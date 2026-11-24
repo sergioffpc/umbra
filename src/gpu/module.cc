@@ -6,15 +6,18 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 #include "umbra/core/error.h"
+#include "umbra/core/log.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu {
@@ -28,6 +31,25 @@ std::string DlError() {
   // NOLINTNEXTLINE(concurrency-mt-unsafe): glibc keeps it per thread.
   const char* error = dlerror();
   return error == nullptr ? std::string("unknown error") : std::string(error);
+}
+
+// The module's diagnostics, under the gpu component.
+void LogFromModule(core::LogLevel level, std::string_view message) {
+  core::Log(level, core::LogComponent::kGpu, message);
+}
+
+// The lowest level of the gpu component that is shown.
+core::LogLevel GpuThreshold() {
+  constexpr std::array kLevels = {
+      core::LogLevel::kTrace,
+      core::LogLevel::kDebug,
+      core::LogLevel::kInfo,
+      core::LogLevel::kWarning,
+  };
+  const auto* const shown = std::ranges::find_if(kLevels, [](auto level) {
+    return core::IsLogEnabled(core::LogComponent::kGpu, level);
+  });
+  return shown == kLevels.end() ? core::LogLevel::kError : *shown;
 }
 
 // A module status as the result of a loader call: ok, or kUnavailable with
@@ -88,6 +110,7 @@ std::expected<Module, Error> Module::Load(const std::filesystem::path& path) {
               std::format("{} has ABI version {}, umbra needs {}",
                           path.string(), abi_version, kModuleAbiVersion)));
   }
+  api->set_log(LogFromModule, GpuThreshold());
   return Module(handle, *api);
 }
 

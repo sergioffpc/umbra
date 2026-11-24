@@ -4,7 +4,8 @@
 # umbra goes to bin/ of the build tree, so that it finds the GPU module in
 # lib/ as it does when installed.
 
-umbra_add_executable(umbra SOURCES main.cc DEPENDS core gpu)
+umbra_add_executable(umbra SOURCES main.cc cli/parser.cc DEPENDS core gpu)
+target_include_directories(umbra PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(umbra PRIVATE
                            UMBRA_HOMEPAGE_URL="${PROJECT_HOMEPAGE_URL}")
 set_target_properties(umbra PROPERTIES

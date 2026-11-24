@@ -10,7 +10,9 @@ Public headers (`include/umbra/gpu/`):
   it; `CountGpuExecutors` is what umbra reports. The module is looked up in
   `lib/` next to the `bin/` directory of the executable.
 - `module_abi.h`: the table of functions the module exports through its one C
-  symbol, `umbra_gpu_module`, with its ABI version.
+  symbol, `umbra_gpu_module`, with its ABI version. The loader hands the
+  module umbra's log function through it, so the module logs as the `gpu`
+  component without logging state of its own.
 
 `backend/` is the module itself, built with `UMBRA_GPU` (see
 `cmake/UmbraCuda.cmake`): host code compiled by clang that calls the CUDA
