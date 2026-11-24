@@ -186,12 +186,6 @@ Module::~Module() {
   }
 }
 
-std::expected<std::int32_t, Error> Module::CountDevices() const {
-  std::int32_t count = 0;
-  return ResultOf(api_->count_devices(&count)).transform([count] {
-    return count;
-  });
-}
 
 std::expected<GpuDevices, Error> Module::DescribeDevices() const {
   const auto inventory = std::make_unique<GpuInventory>();
@@ -220,10 +214,5 @@ std::expected<GpuDevices, Error> DescribeGpus(
       [](const Module& module) { return module.DescribeDevices(); });
 }
 
-std::expected<std::int32_t, Error> CountGpuExecutors(
-    const std::filesystem::path& path) {
-  return Module::Load(path).and_then(
-      [](const Module& module) { return module.CountDevices(); });
-}
 
 }  // namespace umbra::gpu

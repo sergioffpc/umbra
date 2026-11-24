@@ -17,11 +17,9 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <cstdint>
 #include <expected>
 #include <format>
 #include <iterator>
-#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -227,25 +225,9 @@ ModuleStatus DescribeDevices(GpuInventory* inventory) {
   return {};
 }
 
-ModuleStatus CountDevices(std::int32_t* count) {
-  const auto inventory = std::make_unique<GpuInventory>();
-  const ModuleStatus status = DescribeDevices(inventory.get());
-  if (status.outcome != ModuleOutcome::kOk) {
-    return status;
-  }
-  if (inventory->optix_error.front() != '\0') {
-    return FailedStatus(TextOf(inventory->optix_error));
-  }
-  *count = static_cast<std::int32_t>(
-      std::ranges::count(DescribedGpus(*inventory), GpuUsability::kUsable,
-                         &GpuDescription::usability));
-  return {};
-}
-
 constexpr ModuleApi kApi{
     .abi_version = kModuleAbiVersion,
     .set_log = SetLog,
-    .count_devices = CountDevices,
     .describe_devices = DescribeDevices,
 };
 

@@ -72,10 +72,6 @@ class UMBRA_OWNER Module {
   Module& operator=(Module&& other) noexcept;
   ~Module();
 
-  // The number of usable GPUs. Fails with kUnavailable when the driver or
-  // OptiX cannot be initialized.
-  [[nodiscard]] std::expected<std::int32_t, core::Error> CountDevices() const;
-
   // Every GPU, usable or not. Fails with kUnavailable when the CUDA runtime
   // cannot be initialized.
   [[nodiscard]] std::expected<GpuDevices, core::Error> DescribeDevices() const;
@@ -86,12 +82,6 @@ class UMBRA_OWNER Module {
   void* UMBRA_NULLABLE handle_;
   const ModuleApi* UMBRA_NULLABLE api_;
 };
-
-// The number of GPU executors umbra can run: the usable GPUs of the module at
-// `path`. Fails, with the reason, when there are none because the module is
-// missing or the driver or OptiX cannot be initialized.
-[[nodiscard]] std::expected<std::int32_t, core::Error> CountGpuExecutors(
-    const std::filesystem::path& path);
 
 // The GPUs of the module at `path`. Fails, with the reason, when the module
 // is missing or the CUDA runtime cannot be initialized.

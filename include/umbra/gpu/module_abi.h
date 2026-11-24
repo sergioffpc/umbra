@@ -122,11 +122,9 @@ struct ModuleApi {
   // calls it once, before any other function.
   void (*set_log)(ModuleLogFunction log, core::LogLevel threshold);
 
-  // Writes the number of usable GPUs (sm_120 or newer, with a driver whose
-  // OptiX runtime the module can use) to *count. Fails when the driver or
-  // OptiX cannot be initialized.
-  ModuleStatus (*count_devices)(std::int32_t* count);
-  // Describes every GPU the CUDA runtime sees in *inventory, usable or not.
+  // Describes every GPU the CUDA runtime sees in *inventory, usable or not:
+  // a GPU is usable when it is sm_120 or newer and the module can use the
+  // driver's OptiX runtime.
   // Fails when the CUDA runtime cannot be initialized.
   ModuleStatus (*describe_devices)(GpuInventory* inventory);
 };

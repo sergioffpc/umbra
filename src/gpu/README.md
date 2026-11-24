@@ -7,7 +7,7 @@ when it is installed and a usable GPU exists.
 Public headers (`include/umbra/gpu/`):
 
 - `module.h`: the loader. `Module` loads the module with `dlopen` and calls
-  it; `CountGpuExecutors` is what umbra reports. The module is looked up in
+  it; `DescribeGpus` is what `umbra devices` lists. The module is looked up in
   `lib/` next to the `bin/` directory of the executable.
 - `module_abi.h`: the table of functions the module exports through its one C
   symbol, `umbra_gpu_module`, with its ABI version. The loader hands the

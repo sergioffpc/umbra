@@ -8,8 +8,6 @@ umbra_add_executable(umbra SOURCES main.cc cli/parser.cc devices.cc DEPENDS core
                      ext::ocio ext::oiio ext::openvdb ext::opensubdiv
                      ext::embree ext::usd ext::osl)
 target_include_directories(umbra PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_definitions(umbra PRIVATE
-                           UMBRA_HOMEPAGE_URL="${PROJECT_HOMEPAGE_URL}")
 set_target_properties(umbra PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
 if(UMBRA_GPU_ENABLED)

@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// The umbra executable. It prints its version block, in the style of LLVM's
-// tools, and the GPU executors it can run (see include/umbra/gpu/module.h):
+// The umbra executable. Its commands and options follow git's:
 //
-//   umbra version 0.1.0 (https://github.com/sergioffpc/umbra <commit>)
-//   Build: Release, x86-64-v3, clang 23.1.6
-//   License: Apache-2.0 — provided "AS IS", WITHOUT WARRANTIES OR ...
-//   GPU executors: 1
+//   umbra [--version] [-h | --help] [-q | --quiet] [-v | --verbose]
+//         [--color=<when>] <command> [<args>]
 //
-// or, without a usable GPU, "GPU executors: none (<reason>)". `umbra devices`
-// lists the devices it can render on, with their hardware (see devices.h);
-// `umbra render [--devices=cpu0,gpu0]` chooses among them and shows them on
-// stderr, and renders nothing yet.
+// `umbra devices` lists the devices it can render on, with their hardware
+// (see devices.h); `umbra render [--devices=cpu0,gpu0]` chooses among them
+// and shows them on stderr, and renders nothing yet. `umbra version
+// [--build-options]` (or `umbra --version`) and `umbra help [<command>]`
+// (or -h, before or after a command) answer as git's do. Without a command,
+// umbra shows its help and fails, as git does; -q silences it.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
 // -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level, and
@@ -49,7 +48,6 @@
 #include "umbra/ext/openvdb/openvdb.h"
 #include "umbra/ext/osl/osl.h"
 #include "umbra/ext/usd/usd.h"
-#include "umbra/gpu/module.h"
 
 namespace {
 
@@ -72,15 +70,17 @@ constexpr std::array<std::string_view, 3> kColorChoices = {
     "never",
 };
 
+constexpr OptionSpec kHelpOption =
+    umbra::cli::FlagOption('h', "help", "show this help");
+
 constexpr std::array<OptionSpec, 5> kGlobalOptions = {
+    umbra::cli::FlagOption('\0', "version", "show the version"),
+    kHelpOption,
     umbra::cli::FlagOption('q', "quiet", "show errors only"),
     umbra::cli::FlagOption('v', "verbose",
                            "show more: -v info, -vv debug, -vvv trace"),
     umbra::cli::ValueOption('\0', "color", "when", kColorChoices,
                             "color diagnostics: auto, always or never"),
-    umbra::cli::FlagOption('h', "help", "show this help"),
-    umbra::cli::FlagOption('\0', "version",
-                           "show the version and the GPU executors"),
 };
 
 constexpr CommandSpec kProgram = {
@@ -90,24 +90,43 @@ constexpr CommandSpec kProgram = {
     .arguments = {},
 };
 
-constexpr std::array<OptionSpec, 1> kRenderOptions = {
+constexpr std::array<OptionSpec, 1> kHelpOnly = {kHelpOption};
+
+constexpr std::array<OptionSpec, 2> kRenderOptions = {
     umbra::cli::ValueOption('\0', "devices", "list", {},
-                            "render on these devices (cpu0,gpu0); all of "
-                            "them by default"),
+                            "the devices to render on (default: all)"),
+    kHelpOption,
 };
 
-constexpr std::array<CommandSpec, 2> kCommands = {
+constexpr std::array<OptionSpec, 2> kVersionOptions = {
+    umbra::cli::FlagOption('\0', "build-options", "also show build options"),
+    kHelpOption,
+};
+
+constexpr std::array<CommandSpec, 4> kCommands = {
     CommandSpec{
         .name = "devices",
-        .summary = "list the devices umbra can render on",
-        .options = {},
+        .summary = "List the devices umbra can render on",
+        .options = kHelpOnly,
         .arguments = {},
     },
     CommandSpec{
         .name = "render",
-        .summary = "render on the chosen devices",
+        .summary = "Render on the chosen devices",
         .options = kRenderOptions,
         .arguments = {},
+    },
+    CommandSpec{
+        .name = "version",
+        .summary = "Display version information",
+        .options = kVersionOptions,
+        .arguments = {},
+    },
+    CommandSpec{
+        .name = "help",
+        .summary = "Display help information about umbra",
+        .options = kHelpOnly,
+        .arguments = "[<command>]",
     },
 };
 
@@ -196,27 +215,36 @@ std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
   return {};
 }
 
-void PrintVersion() {
-  const umbra::core::BuildInfo build = umbra::core::GetBuildInfo();
-  // UMBRA_HOMEPAGE_URL is the homepage of the CMake project, defined by
-  // apps/umbra/CMakeLists.txt.
-  std::println("umbra version {} ({} {})", umbra::core::Version(),
-               UMBRA_HOMEPAGE_URL, build.commit);
-  std::println("Build: {}, {}, {}", build.build_type, build.arch,
-               build.compiler);
-  std::println(
-      "License: Apache-2.0 — provided \"AS IS\", WITHOUT WARRANTIES OR "
-      "CONDITIONS OF ANY KIND.");
-
-  const auto gpus = umbra::gpu::DefaultModulePath().and_then(
-      [](const auto& path) { return umbra::gpu::CountGpuExecutors(path); });
-  if (gpus.has_value() && *gpus > 0) {
-    std::println("GPU executors: {}", *gpus);
-  } else if (gpus.has_value()) {
-    std::println("GPU executors: none (no usable GPU)");
-  } else {
-    std::println("GPU executors: none ({})", gpus.error().message());
+// The commit umbra was built from, short as git abbreviates it, with
+// "-dirty" kept; empty when unknown.
+std::string ShortCommit(std::string_view commit) {
+  constexpr std::size_t kShortLength = 12;
+  constexpr std::string_view kDirty = "-dirty";
+  if (commit == "unknown" || commit.empty()) {
+    return {};
   }
+  const std::string_view suffix =
+      commit.ends_with(kDirty) ? kDirty : std::string_view();
+  return std::string(commit.substr(0, kShortLength)) + std::string(suffix);
+}
+
+// `umbra --version` and `umbra version`, as git's: the version, and with
+// --build-options how umbra was built.
+void PrintVersion(const ParsedCommand& version) {
+  std::println("umbra version {}", umbra::core::Version());
+  if (version.Count("build-options") == 0) {
+    return;
+  }
+  const umbra::core::BuildInfo build = umbra::core::GetBuildInfo();
+  std::println("cpu: {}", build.arch);
+  const std::string commit = ShortCommit(build.commit);
+  if (commit.empty()) {
+    std::println("no commit associated with this build");
+  } else {
+    std::println("built from commit: {}", commit);
+  }
+  std::println("build type: {}", build.build_type);
+  std::println("compiler: {}", build.compiler);
 }
 
 // Initializes the libraries umbra uses, in order, once diagnostics are
@@ -261,7 +289,7 @@ int ListDevices() {
 void PrintRenderBlock(const umbra::devices::Hardware& hardware,
                       std::span<const umbra::devices::Device> chosen) {
   const umbra::core::BuildInfo build = umbra::core::GetBuildInfo();
-  std::print(stderr, "umbra {} ({}, {})\n{}", umbra::core::Version(),
+  std::print(stderr, "umbra version {} ({}, {})\n{}", umbra::core::Version(),
              build.build_type, build.arch,
              umbra::devices::FormatRenderDevices(hardware, chosen));
 }
@@ -286,20 +314,50 @@ int Render(const ParsedCommand& global, const ParsedCommand& render) {
   return kExitSuccess;
 }
 
-// Runs the command, or prints the version block when there is none.
-int Run(const ParsedCommand& global,
-        const std::optional<ParsedCommand>& command) {
+// `umbra help [<command>]`: the help of umbra, or of a command.
+int Help(const ParsedCommand& help) {
+  if (help.arguments().empty()) {
+    std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
+    return kExitSuccess;
+  }
+  const std::string_view name = help.arguments().front();
+  const auto* const command =
+      std::ranges::find(kCommands, name, &CommandSpec::name);
+  if (command == kCommands.end()) {
+    return UsageError(umbra::cli::NotACommand(kProgram, name));
+  }
+  std::print("{}", umbra::cli::FormatCommandHelp(kProgram, *command));
+  return kExitSuccess;
+}
+
+// Runs a command that works on the hardware, once the libraries are
+// initialized.
+int RunOnHardware(const ParsedCommand& global, const ParsedCommand& command) {
   if (auto initialized = InitializeLibraries(); !initialized.has_value()) {
     return Failure(initialized.error());
   }
-  if (!command.has_value()) {
-    PrintVersion();
-    return kExitSuccess;
-  }
-  if (command->name() == "render") {
-    return Render(global, *command);
+  if (command.name() == "render") {
+    return Render(global, command);
   }
   return ListDevices();
+}
+
+// Runs the command, or shows its help when -h is given.
+int Run(const ParsedCommand& global, const ParsedCommand& command) {
+  if (command.Count("help") > 0) {
+    const auto* const spec =
+        std::ranges::find(kCommands, command.name(), &CommandSpec::name);
+    std::print("{}", umbra::cli::FormatCommandHelp(kProgram, *spec));
+    return kExitSuccess;
+  }
+  if (command.name() == "help") {
+    return Help(command);
+  }
+  if (command.name() == "version") {
+    PrintVersion(command);
+    return kExitSuccess;
+  }
+  return RunOnHardware(global, command);
 }
 
 }  // namespace
@@ -324,5 +382,16 @@ int main(int argc, char** argv) {
     std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
     return kExitSuccess;
   }
-  return Run(global, command_line->command);
+  if (global.Count("version") > 0) {
+    PrintVersion(global);
+    return kExitSuccess;
+  }
+  if (!command_line->command.has_value()) {
+    // As git does: the help, and a failure, since there was nothing to do.
+    if (global.Count("quiet") == 0) {
+      std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
+    }
+    return kExitFailure;
+  }
+  return Run(global, *command_line->command);
 }
