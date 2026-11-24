@@ -42,13 +42,17 @@ on a usage error.
 
 ## Consequences
 
-- The libraries umbra uses report through their own channels, and each one is
-  routed into the logger under its component when umbra starts using it:
-  OpenUSD through a `TfDiagnosticMgr::Delegate` (`usd`), OSL and OpenImageIO
-  through an `OIIO::ErrorHandler` (`osl`, `oiio`), OpenColorIO through
-  `OCIO::SetLoggingFunction` (`ocio`), and OptiX through the log callback of
-  its device context (`gpu`). Otherwise they print to the terminal in their
-  own formats, and `-q` cannot silence them.
+- The libraries umbra uses report through their own channels. umbra
+  initializes each one explicitly at startup, in its bridge in `src/ext/`,
+  right after the logger, and routes its diagnostics into the logger under
+  its component. OpenUSD goes through a `TfDiagnosticMgr::Delegate` (`usd`),
+  OSL through an `OIIO::ErrorHandler` (`osl`), OpenColorIO through
+  `OCIO::SetLoggingFunction` (`ocio`), OpenSubdiv through its error and
+  warning callbacks (`osd`), Embree through its device error function
+  (`embree`), and OptiX through the log callback of its device context
+  (`gpu`). Otherwise they print to the terminal in their own formats, and
+  `-q` cannot silence them. A library that fails to initialize stops umbra
+  with an error before any work starts, and `-v` lists the version of each.
 - The GPU module, loaded with `dlopen`, keeps no logging state of its own: the
   loader passes it a log callback and the current level through `ModuleApi`.
 - Progress (a render's progress bar) is not a log message. It goes to stderr
