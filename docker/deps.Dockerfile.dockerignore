@@ -64,4 +64,7 @@
 !third_party/config/OpenShadingLanguage.cmake
 !third_party/patches/OpenShadingLanguage/
 !third_party/OpenShadingLanguage/
+!third_party/config/OpenUSD.cmake
+!third_party/patches/OpenUSD/
+!third_party/OpenUSD/
 **/.git
