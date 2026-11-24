@@ -384,9 +384,54 @@ jobs:
 
           exit "$status"
 
+  # Whether a pull request changes more than documentation: Markdown files and
+  # docs/. One that does not skips the image job and so every job that runs in
+  # the image (build, sanitizers, format, lint, modules); GitHub counts a
+  # skipped required check as passed. The files are those of the whole pull
+  # request, renames counted by both names. Pushes and dispatched runs always
+  # build.
+  changes:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - name: Changed files
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$NUMBER" ]]; then
+            echo "code=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/$REPO/pulls/$NUMBER/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          code=false
+          while IFS= read -r path; do
+            case "$path" in
+              docs/* | *.md) ;;
+              *)
+                echo "Not documentation: $path"
+                code=true
+                ;;
+            esac
+          done <<<"$files"
+          if [[ "$code" == false ]]; then
+            echo "Documentation only: the image and the build jobs are skipped."
+          fi
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
   # Resolves the deps image pinned in the devcontainer configuration, so that
   # the build jobs run in it, and fails clearly when it is not published yet.
   image:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     permissions:
       contents: read
