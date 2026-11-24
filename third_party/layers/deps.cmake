@@ -3,7 +3,8 @@
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
 # Benchmark, oneTBB, Embree, OpenQMC, Imath, OpenEXR, OpenSubdiv, yaml-cpp,
-# pystring, OpenColorIO and MaterialX), built with the toolchain image's clang.
+# pystring, OpenColorIO, MaterialX, {fmt} and robin-map), built with the
+# toolchain image's clang.
 # Every dependency is a Release shared library without LTO, against libc++,
 # for x86-64-v3, without exceptions where the project allows it, and finds
 # the libraries next to it through RUNPATH ($ORIGIN).
@@ -76,7 +77,7 @@ endif()
 # Dependencies that build against another dependency of the layer find it in
 # the install prefix (under the staging directory when there is one).
 set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
-  yaml-cpp pystring OpenColorIO MaterialX)
+  yaml-cpp pystring OpenColorIO MaterialX fmt robin-map)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_depends_openexr oneTBB Imath)
 set(umbra_deps_depends_OpenColorIO yaml-cpp pystring Imath)
@@ -143,8 +144,9 @@ ExternalProject_Add_Step(oneTBB tsan
 # directory named by umbra_deps_headers_<name>, each parsed as a C++ header
 # with the flags umbra compiles it with.
 set(umbra_deps_index "${UMBRA_STAGING_DIR}${CMAKE_INSTALL_PREFIX}/share/clangd/deps.idx")
-set(umbra_deps_header_only openqmc)
+set(umbra_deps_header_only openqmc robin-map)
 set(umbra_deps_headers_openqmc include)
+set(umbra_deps_headers_robin-map include)
 set(umbra_deps_databases "")
 foreach(dependency IN LISTS umbra_deps)
   if(NOT dependency IN_LIST umbra_deps_header_only)

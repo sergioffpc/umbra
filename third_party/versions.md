@@ -28,6 +28,8 @@ different section 6 (Trademarks).
 | yaml-cpp | `third_party/yaml-cpp` | `yaml-cpp-0.9.0` | `56e3bb550c91fd7005566f19c079cb7a503223cf` | `MIT` |
 | pystring | `third_party/pystring` | `v1.2.0` | `1922c8f2b48e3beb6831c27b4811b58995e986cf` | `BSD-3-Clause` |
 | OpenColorIO | `third_party/OpenColorIO` | `v2.6.0` | `10a43ec1df03d072ca9a9e2fb3f26e454b0900d8` | `BSD-3-Clause` |
+| {fmt} | `third_party/fmt` | `12.2.1` | `208219daff58f2a7438f6931cc2ddc358acf33ef` | `MIT` |
+| robin-map | `third_party/robin-map` | `v1.4.1` | `bd14e6830a1474fed9d2d03f5c3b0683d818d540` | `MIT` |
 
 ## Ubuntu packages
 

@@ -41,6 +41,8 @@
     "third_party/yaml-cpp/**": true,
     "third_party/pystring/**": true,
     "third_party/OpenColorIO/**": true,
+    "third_party/fmt/**": true,
+    "third_party/robin-map/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -58,7 +60,9 @@
     "third_party/MaterialX/**": true,
     "third_party/yaml-cpp/**": true,
     "third_party/pystring/**": true,
-    "third_party/OpenColorIO/**": true
+    "third_party/OpenColorIO/**": true,
+    "third_party/fmt/**": true,
+    "third_party/robin-map/**": true
   },
   "search.exclude": {
     "**/build": true,
@@ -75,7 +79,9 @@
     "third_party/MaterialX": true,
     "third_party/yaml-cpp": true,
     "third_party/pystring": true,
-    "third_party/OpenColorIO": true
+    "third_party/OpenColorIO": true,
+    "third_party/fmt": true,
+    "third_party/robin-map": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
