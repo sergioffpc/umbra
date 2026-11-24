@@ -17,6 +17,7 @@ expression.
 | oneTBB | `third_party/oneTBB` | `v2023.2.0` | `41158a44ab3fb7ac5df7f99ef82626c87607447f` | `Apache-2.0` |
 | Embree | `third_party/embree` | `v4.5.0` | `3b7e4ee746ce8ed25b206fb2f4d2709e9f8109ce` | `Apache-2.0` |
 | OpenQMC | `third_party/openqmc` | `v0.7.1` | `72617f52751d53a4ca49f60fd0cb4f5946236f2f` | `Apache-2.0` |
+| Imath | `third_party/Imath` | `v3.2.3` | `5f27ba266d3ea1565e912570c30b5eafc89959f1` | `BSD-3-Clause` |
 
 ## Ubuntu packages
 

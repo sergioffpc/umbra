@@ -34,6 +34,7 @@
     "third_party/oneTBB/**": true,
     "third_party/embree/**": true,
     "third_party/openqmc/**": true,
+    "third_party/Imath/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -44,7 +45,8 @@
     "third_party/benchmark/**": true,
     "third_party/oneTBB/**": true,
     "third_party/embree/**": true,
-    "third_party/openqmc/**": true
+    "third_party/openqmc/**": true,
+    "third_party/Imath/**": true
   },
   "search.exclude": {
     "**/build": true,
@@ -54,7 +56,8 @@
     "third_party/benchmark": true,
     "third_party/oneTBB": true,
     "third_party/embree": true,
-    "third_party/openqmc": true
+    "third_party/openqmc": true,
+    "third_party/Imath": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
