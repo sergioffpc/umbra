@@ -78,3 +78,7 @@
 	path = third_party/OpenShadingLanguage
 	url = https://github.com/AcademySoftwareFoundation/OpenShadingLanguage.git
 	shallow = true
+[submodule "third_party/OpenUSD"]
+	shallow = true
+	path = third_party/OpenUSD
+	url = https://github.com/PixarAnimationStudios/OpenUSD.git

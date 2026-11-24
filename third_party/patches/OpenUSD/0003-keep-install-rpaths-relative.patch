@@ -1,0 +1,19 @@
+Keep install RPATHs relative.
+
+OpenUSD added to the install RPATH of every library, plugin and tool each
+directory it linked from outside the build tree. Its own $ORIGIN-relative
+entries are enough inside the layer.
+
+diff --git a/cmake/macros/Private.cmake b/cmake/macros/Private.cmake
+index cddb4e095..86e9836fb 100644
+--- a/cmake/macros/Private.cmake
++++ b/cmake/macros/Private.cmake
+@@ -751,7 +751,7 @@ function(_pxr_install_rpath rpathRef NAME)
+ 
+     set_target_properties(${NAME}
+         PROPERTIES
+-            INSTALL_RPATH_USE_LINK_PATH TRUE
++            INSTALL_RPATH_USE_LINK_PATH FALSE
+             INSTALL_RPATH "${final}"
+     )
+ endfunction()

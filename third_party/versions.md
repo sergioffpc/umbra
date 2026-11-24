@@ -35,6 +35,7 @@ different section 6 (Trademarks).
 | OpenImageIO | `third_party/OpenImageIO` | `v3.2.2.0` | `96377f681cc9e6650c8534671f4fc36b3c8acbc1` | `Apache-2.0` |
 | OpenVDB | `third_party/openvdb` | `v14.0.0` | `ecae2bda85744412b0cd47e1b8e1e4e76beb7b88` | `Apache-2.0` |
 | OSL | `third_party/OpenShadingLanguage` | `v1.15.8.0` | `b64c29cc2540c398265942edc44650aea3a8c103` | `BSD-3-Clause` |
+| OpenUSD | `third_party/OpenUSD` | `v26.11.1` | `96c1989167d2aaab5bd34627f32a321a6b79866b` | `LicenseRef-TOST-1.0` |
 
 ## Ubuntu packages
 
