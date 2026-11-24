@@ -36,30 +36,10 @@ constexpr std::size_t Index(LogComponent component) {
   return static_cast<std::size_t>(component);
 }
 
-// The SGR sequence that colors a level word, as clang colors its
-// diagnostics.
-constexpr std::string_view LevelColor(LogLevel level) {
-  switch (level) {
-    case LogLevel::kError:
-      return "\x1b[1;31m";
-    case LogLevel::kWarning:
-      return "\x1b[1;35m";
-    case LogLevel::kInfo:
-      return "\x1b[1;36m";
-    case LogLevel::kDebug:
-    case LogLevel::kTrace:
-      return "\x1b[1;34m";
-  }
-  return "";
-}
-
-constexpr std::string_view kColorReset = "\x1b[0m";
-
-// The configuration of the process's diagnostics. Each value is read on every
-// log call and written only by ConfigureLogging, so relaxed atomics suffice.
+// The thresholds of the process's diagnostics. Each is read on every log call
+// and written only by ConfigureLogging, so relaxed atomics suffice.
 struct LoggingState {
   std::array<std::atomic<LogLevel>, kLogComponentCount> thresholds{};
-  std::atomic<LogColor> color{LogColor::kOff};
 
   LoggingState() {
     for (auto& threshold : thresholds) {
@@ -128,20 +108,13 @@ std::expected<void, Error> ApplyEntry(std::string_view entry,
   return {};
 }
 
-// The prefix of every line of a message.
-std::string LinePrefix(LogLevel level, LogComponent component, LogColor color) {
-  std::string prefix = "umbra: ";
-  if (color == LogColor::kOn) {
-    std::format_to(std::back_inserter(prefix), "{}{}:{} ", LevelColor(level),
-                   LogLevelName(level), kColorReset);
-  } else {
-    std::format_to(std::back_inserter(prefix), "{}: ", LogLevelName(level));
-  }
+// The prefix of every line of a message: "error: ", "info: gpu: ".
+std::string LinePrefix(LogLevel level, LogComponent component) {
   if (level >= LogLevel::kInfo) {
-    std::format_to(std::back_inserter(prefix), "[{}] ",
-                   LogComponentName(component));
+    return std::format("{}: {}: ", LogLevelName(level),
+                       LogComponentName(component));
   }
-  return prefix;
+  return std::format("{}: ", LogLevelName(level));
 }
 
 // Writes all of `text` to stderr. A diagnostic that cannot be written is
@@ -163,6 +136,8 @@ void WriteToStderr(std::string_view text) {
 
 std::string_view LogLevelName(LogLevel level) {
   switch (level) {
+    case LogLevel::kFatal:
+      return "fatal";
     case LogLevel::kError:
       return "error";
     case LogLevel::kWarning:
@@ -219,8 +194,8 @@ std::expected<LogFilter, Error> ParseLogFilter(std::string_view spec,
 }
 
 std::string FormatLogLines(LogLevel level, LogComponent component,
-                           std::string_view message, LogColor color) {
-  const std::string prefix = LinePrefix(level, component, color);
+                           std::string_view message) {
+  const std::string prefix = LinePrefix(level, component);
   if (message.ends_with('\n')) {
     message.remove_suffix(1);
   }
@@ -236,14 +211,13 @@ std::string FormatLogLines(LogLevel level, LogComponent component,
   }
 }
 
-void ConfigureLogging(const LogFilter& filter, LogColor color) {
+void ConfigureLogging(const LogFilter& filter) {
   LoggingState& state = State();
   for (std::size_t index = 0; index < kLogComponentCount; ++index) {
     state.thresholds.at(index).store(
         filter.threshold(static_cast<LogComponent>(index)),
         std::memory_order_relaxed);
   }
-  state.color.store(color, std::memory_order_relaxed);
 }
 
 bool IsLogEnabled(LogComponent component, LogLevel level) {
@@ -256,8 +230,7 @@ void Log(LogLevel level, LogComponent component, std::string_view message) {
   if (!IsLogEnabled(component, level)) {
     return;
   }
-  WriteToStderr(FormatLogLines(level, component, message,
-                               State().color.load(std::memory_order_relaxed)));
+  WriteToStderr(FormatLogLines(level, component, message));
 }
 
 }  // namespace umbra::core

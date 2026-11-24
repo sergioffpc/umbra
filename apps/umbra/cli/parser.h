@@ -34,7 +34,8 @@ namespace umbra::cli {
 enum class OptionKind : std::uint8_t {
   // Nothing; it may repeat, and its count is how often it was given (-vvv).
   kFlag,
-  // A value, after '=' or as the next argument (--color=auto, --color auto).
+  // A value, after '=' or as the next argument (--devices=gpu0, --devices
+  // gpu0).
   kValue,
 };
 

@@ -2,10 +2,10 @@
 // Copyright The Umbra Authors
 //
 // umbra's diagnostics (docs/adr/0002-cli-diagnostics-on-stderr.md): one line
-// per message on stderr, as a command-line tool reports,
+// per message on stderr, as git reports,
 //
-//   umbra: error: cannot open 'scene.usda': No such file or directory
-//   umbra: info: [gpu] OptiX 9.1, device 0: RTX 5090 (sm_120)
+//   fatal: cannot open 'scene.usda': No such file or directory
+//   info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
 //
 // filtered by level, per component. Results go to stdout and are not
 // diagnostics. The UMBRA_LOG_* macros format their message only when its
@@ -32,6 +32,8 @@ namespace umbra::core {
 // The level of a message, from the most to the least severe. A threshold
 // enables its level and the more severe ones.
 enum class LogLevel : std::uint8_t {
+  // The error umbra gives up on, as git's die(): always shown.
+  kFatal,
   kError,
   kWarning,
   kInfo,
@@ -88,22 +90,15 @@ class LogFilter {
 [[nodiscard]] std::expected<LogFilter, Error> ParseLogFilter(
     std::string_view spec, const LogFilter& base = LogFilter());
 
-// Whether lines color their level word.
-enum class LogColor : std::uint8_t {
-  kOff,
-  kOn,
-};
-
 // Formats `message` as diagnostics lines: each line of the message gets the
-// "umbra: <level>: " prefix, and "[component] " from info down, and ends with
-// a newline. A trailing newline of the message adds no empty line.
+// "<level>: " prefix, and "<component>: " from info down, and ends with a
+// newline. A trailing newline of the message adds no empty line.
 [[nodiscard]] std::string FormatLogLines(LogLevel level, LogComponent component,
-                                         std::string_view message,
-                                         LogColor color);
+                                         std::string_view message);
 
-// Configures the process's diagnostics: the filter, and whether lines are
-// colored. Call it once, at startup, before other threads log.
-void ConfigureLogging(const LogFilter& filter, LogColor color);
+// Configures the process's diagnostics. Call it once, at startup, before
+// other threads log.
+void ConfigureLogging(const LogFilter& filter);
 
 // Whether a message of `level` from `component` is shown.
 [[nodiscard]] bool IsLogEnabled(LogComponent component, LogLevel level);

@@ -4,7 +4,7 @@
 // The umbra executable. Its commands and options follow git's:
 //
 //   umbra [--version] [-h | --help] [-q | --quiet] [-v | --verbose]
-//         [--color=<when>] <command> [<args>]
+//         <command> [<args>]
 //
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0]` chooses among them
@@ -14,11 +14,8 @@
 // umbra shows its help and fails, as git does; -q silences it.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
-// -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level, and
-// --color whether they are colored. umbra exits with 0 on success, 1 on
-// failure and 2 on a usage error.
-
-#include <unistd.h>
+// -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level. umbra
+// exits with 0 on success, 1 on failure and 2 on a usage error.
 
 #include <algorithm>
 #include <array>
@@ -56,7 +53,6 @@ using ::umbra::cli::OptionSpec;
 using ::umbra::cli::ParsedCommand;
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
-using ::umbra::core::LogColor;
 using ::umbra::core::LogFilter;
 using ::umbra::core::LogLevel;
 
@@ -64,23 +60,15 @@ constexpr int kExitSuccess = 0;
 constexpr int kExitFailure = 1;
 constexpr int kExitUsage = 2;
 
-constexpr std::array<std::string_view, 3> kColorChoices = {
-    "auto",
-    "always",
-    "never",
-};
-
 constexpr OptionSpec kHelpOption =
     umbra::cli::FlagOption('h', "help", "show this help");
 
-constexpr std::array<OptionSpec, 5> kGlobalOptions = {
+constexpr std::array<OptionSpec, 4> kGlobalOptions = {
     umbra::cli::FlagOption('\0', "version", "show the version"),
     kHelpOption,
     umbra::cli::FlagOption('q', "quiet", "show errors only"),
     umbra::cli::FlagOption('v', "verbose",
                            "show more: -v info, -vv debug, -vvv trace"),
-    umbra::cli::ValueOption('\0', "color", "when", kColorChoices,
-                            "color diagnostics: auto, always or never"),
 };
 
 constexpr CommandSpec kProgram = {
@@ -186,27 +174,13 @@ std::expected<LogFilter, Error> LoggingFilter(const ParsedCommand& global) {
   });
 }
 
-// Whether diagnostics are colored: --color, else when stderr is a terminal
-// and NO_COLOR is unset or empty.
-LogColor LoggingColor(const ParsedCommand& global) {
-  const std::string_view when = global.Value("color");
-  if (when == "always") {
-    return LogColor::kOn;
-  }
-  if (when == "never" || isatty(STDERR_FILENO) == 0 ||
-      !Environment("NO_COLOR").empty()) {
-    return LogColor::kOff;
-  }
-  return LogColor::kOn;
-}
-
 // Configures diagnostics from the global options.
 std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
   const auto filter = LoggingFilter(global);
   if (!filter.has_value()) {
     return std::unexpected(filter.error());
   }
-  umbra::core::ConfigureLogging(*filter, LoggingColor(global));
+  umbra::core::ConfigureLogging(*filter);
   if (global.Count("verbose") > 2 && !umbra::core::IsTraceCompiled()) {
     UMBRA_LOG_WARNING(kCore,
                       "trace messages exist in debug builds only; this is a "
@@ -267,9 +241,10 @@ int UsageError(const Error& error) {
   return kExitUsage;
 }
 
-// Reports a failure and returns its exit code.
+// Reports the failure umbra gives up on, as git's "fatal:", and returns its
+// exit code.
 int Failure(const Error& error) {
-  umbra::core::Log(LogLevel::kError, umbra::core::LogComponent::kCore,
+  umbra::core::Log(LogLevel::kFatal, umbra::core::LogComponent::kCore,
                    error.message());
   return kExitFailure;
 }

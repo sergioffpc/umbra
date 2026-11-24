@@ -1,26 +1,28 @@
-# Diagnostics go to stderr, in the style of a CLI
+# Diagnostics go to stderr, in the style of git
 
-umbra is a command-line program, and it reports what happens the way
-compilers and Unix tools do. Results go to stdout, and only results, so that
-they can be piped. Diagnostics go to stderr, one line each, prefixed with the
-program name and the level:
+umbra is a command-line program, and its commands, help and diagnostics
+follow git's. Results go to stdout, and only results, so that they can be
+piped. Diagnostics go to stderr, one line each, prefixed with the level, as
+git prefixes its own:
 
 ```
-umbra: error: cannot open 'scene.usda': No such file or directory
-umbra: warning: /World/Lamp: unsupported light type 'PortalLight', ignored
-umbra: info: [gpu] OptiX 9.1, device 0: RTX 5090 (sm_120)
-umbra: debug: [usd] stage opened in 120 ms (3 layers)
-umbra: trace: [gpu] frame 12: 4096 spp, 38.2 ms
+fatal: cannot open 'scene.usda': No such file or directory
+error: unknown device 'gpu3'; run umbra devices to list them
+warning: /World/Lamp: unsupported light type 'PortalLight', ignored
+info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
+debug: usd: stage opened in 120 ms (3 layers)
+trace: gpu: frame 12: 4096 spp, 38.2 ms
 ```
 
-The levels are error, warning, info, debug and trace, and by default umbra
-shows errors and warnings. The flags `-q` (errors only), `-v` (info), `-vv`
+The levels are fatal, error, warning, info, debug and trace, and by default
+umbra shows fatal errors, errors and warnings. Fatal is the error umbra gives
+up on, as git's `die()` reports it. The flags `-q` (errors only), `-v` (info), `-vv`
 (debug) and `-vvv` (trace) set the level. `UMBRA_LOG` sets it too, per
 component: `UMBRA_LOG=warn,gpu=trace` shows warnings and everything from
 `gpu`. The flags take precedence over the variable. The component is shown
 from info down, where it helps to tell sources apart; errors and warnings are
-for the user and stay plain. The level word is colored only when stderr is a
-terminal, unless `NO_COLOR` is set or `--color=always|never` says otherwise.
+for the user and stay plain. Lines are not colored, as git's are not, and
+umbra has no `--color`.
 
 The logger is umbra's own, in `core`, on `std::format`: the format above
 needs none of what logging libraries add (sinks, files, rotation,
@@ -37,7 +39,7 @@ release build says so.
 
 Errors stay values (`std::expected<T, Error>`): an operation that fails
 returns its `Error` and does not log it, and the caller that gives up reports
-it once, as `umbra: error:`. umbra exits with 0 on success, 1 on failure and 2
+it once, as `fatal:`. umbra exits with 0 on success, 1 on failure and 2
 on a usage error.
 
 When a render starts, umbra shows on stderr the devices it renders on
@@ -51,8 +53,8 @@ umbra version 0.1.0 (Release, x86-64-v3)
 ```
 
 It is shown by default, since what a render runs on explains its speed and
-its output, and `-q` hides it. It is not a diagnostic: it has no level and no
-`umbra:` prefix, and `UMBRA_LOG` does not filter it. It goes to stderr, so
+its output, and `-q` hides it. It is not a diagnostic: it has no level, and
+`UMBRA_LOG` does not filter it. It goes to stderr, so
 stdout keeps only results. The details of the hardware are the output of
 `umbra devices`.
 

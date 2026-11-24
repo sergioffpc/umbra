@@ -301,7 +301,7 @@ constexpr std::string_view kOptionsIndent = "    ";
 
 bool IsHelp(const OptionSpec& option) { return option.long_name == "help"; }
 
-// An option in a usage line: "[-q | --quiet]", "[--color=<when>]".
+// An option in a usage line: "[-q | --quiet]", "[--devices=<list>]".
 std::string UsageToken(const OptionSpec& option) {
   const std::string long_form =
       option.kind == OptionKind::kValue

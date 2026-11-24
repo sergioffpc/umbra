@@ -54,9 +54,8 @@ class LogDelegate final : public pxr::TfDiagnosticMgr::Delegate {
 
   void IssueFatalError(const pxr::TfCallContext& context,
                        const std::string& message) override {
-    core::Log(
-        LogLevel::kError, LogComponent::kUsd,
-        std::format("fatal error in {}: {}", context.GetFunction(), message));
+    core::Log(LogLevel::kFatal, LogComponent::kUsd,
+              std::format("in {}: {}", context.GetFunction(), message));
   }
 
   void IssueStatus(const pxr::TfStatus& status) override {
