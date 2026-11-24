@@ -132,7 +132,8 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make distclean` | Remove the build trees, with their configuration |
 | `make help` | List the targets |
 
-CI uses the same targets where they exist.
+CI does not use the Makefile: it runs the CMake workflow presets and the
+checks directly.
 
 ## Git flow
 

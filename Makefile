@@ -1,11 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
 #
-# Thin wrapper over the CMake presets (CMakePresets.json) for daily use and
-# CI. Run inside the devcontainer.
-#
-# Targets prefixed with __ are the steps of a public target that CI runs as
-# separate, parallel jobs; `make help` leaves them out.
+# A convenience for developers over the CMake presets (CMakePresets.json) and
+# the shared checks. Run inside the devcontainer. CI does not use it: it runs
+# the presets and the checks directly.
 #
 # The programs it runs are variables, which the command line overrides, e.g.
 # `make CMAKE=/opt/cmake/bin/cmake`.
@@ -20,7 +18,7 @@ PYTHON = python3
 
 .DEFAULT_GOAL := all
 .PHONY: all check release sanitizers coverage format lint clean distclean \
-	help __asan __tsan
+	help
 
 all: ## Debug build
 	$(CMAKE) --preset debug
@@ -38,8 +36,6 @@ endif
 release: ## Release build (LTO) and run the tests
 	$(CMAKE) --workflow --preset release
 
-sanitizers: __asan __tsan ## ASan + UBSan, then TSan + UBSan integer checks: build and run the tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
-
 # LABEL=<regex> also selects the tests of the sanitizer builds, and runs them
 # under NVIDIA's compute-sanitizer too, which checks the kernels they launch:
 # memcheck (out-of-bounds and misaligned device accesses, device memory
@@ -53,9 +49,10 @@ sanitizers: __asan __tsan ## ASan + UBSan, then TSan + UBSan integer checks: bui
 GPU_SANITIZER = compute-sanitizer --error-exitcode 1 --target-processes all
 ASAN_GPU_OPTIONS = protect_shadow_gap=0
 
-__asan:
+sanitizers: ## ASan + UBSan, then TSan + UBSan integer checks: build and run the tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
 ifeq ($(LABEL),)
 	$(CMAKE) --workflow --preset asan
+	$(CMAKE) --workflow --preset tsan
 else
 	$(CMAKE) --preset asan
 	$(CMAKE) --build --preset asan
@@ -63,12 +60,6 @@ else
 	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
 	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool initcheck \
 	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
-endif
-
-__tsan:
-ifeq ($(LABEL),)
-	$(CMAKE) --workflow --preset tsan
-else
 	$(CMAKE) --preset tsan
 	$(CMAKE) --build --preset tsan
 	$(GPU_SANITIZER) --tool racecheck $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)'
