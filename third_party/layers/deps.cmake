@@ -75,10 +75,11 @@ if(UMBRA_CCACHE)
 endif()
 
 # Dependencies that build against another dependency of the layer find it in
-# the install prefix (under the staging directory when there is one).
+# the install prefix (under the staging directory when there is one). Each
+# comes after the ones it depends on, which ExternalProject must already know.
 set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
-  yaml-cpp pystring OpenColorIO MaterialX fmt robin-map libtiff pugixml OpenImageIO
-  openvdb OpenShadingLanguage)
+  yaml-cpp pystring OpenColorIO fmt robin-map libtiff pugixml OpenImageIO
+  openvdb OpenShadingLanguage MaterialX)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_depends_openexr oneTBB Imath)
 set(umbra_deps_depends_OpenColorIO yaml-cpp pystring Imath)
