@@ -670,7 +670,7 @@ jobs:
         run: make __validators
 
       - name: Lint
-        run: make __lint
+        run: make __tidy
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
   # accepts cycles between static libraries, so tsort checks the graph that
