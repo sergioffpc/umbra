@@ -130,6 +130,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libhwloc-dev libdeflate-dev libzstd-dev ccache \
+      libexpat1-dev zlib1g-dev libminizip-ng-dev \
  && rm -rf /var/lib/apt/lists/*
 ENV CCACHE_DIR=/var/cache/ccache \
     CCACHE_MAXSIZE=5G \
@@ -146,9 +147,11 @@ RUN --mount=type=cache,id=umbra-deps-ccache,target=/var/cache/ccache,sharing=loc
 FROM nvidia AS deps
 ARG DEBIAN_FRONTEND=noninteractive
 # hwloc: oneTBB's libtbbbind, for NUMA-aware task arenas. libdeflate and
-# zstd: OpenEXR's ZIP and ZSTD compression.
+# zstd: OpenEXR's ZIP and ZSTD compression. expat, zlib and minizip-ng:
+# OpenColorIO's CLF/CTF files and .ocioz archives.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libhwloc15 libdeflate0 libzstd1 \
+ && apt-get install -y --no-install-recommends \
+      libhwloc15 libdeflate0 libzstd1 libexpat1 zlib1g libminizip-ng4t64 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/umbra/ /opt/umbra/
 ENV CMAKE_PREFIX_PATH=/opt/umbra

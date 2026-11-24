@@ -46,3 +46,7 @@
 	path = third_party/pystring
 	url = https://github.com/imageworks/pystring.git
 	shallow = true
+[submodule "third_party/OpenColorIO"]
+	path = third_party/OpenColorIO
+	url = https://github.com/AcademySoftwareFoundation/OpenColorIO.git
+	shallow = true

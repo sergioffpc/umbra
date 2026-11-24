@@ -14,6 +14,11 @@
 set(MATERIALX_BUILD_SHARED_LIBS ON CACHE BOOL "")
 set(MATERIALX_BUILD_MONOLITHIC OFF CACHE BOOL "")
 set(MATERIALX_BUILD_GEN_OSL ON CACHE BOOL "")
+# The color spaces of a material (a texture's colorspace attribute, say) come
+# from the OpenColorIO config, whose transforms OpenColorIO writes as OSL code
+# into the generated shaders. Without it only the fixed color spaces of
+# MaterialX's own cmlib would exist.
+set(MATERIALX_BUILD_OCIO ON CACHE BOOL "")
 set(MATERIALX_BUILD_GEN_GLSL OFF CACHE BOOL "")
 set(MATERIALX_BUILD_GEN_MSL OFF CACHE BOOL "")
 set(MATERIALX_BUILD_GEN_SLANG OFF CACHE BOOL "")
@@ -21,7 +26,6 @@ set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "")
 set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "")
 set(MATERIALX_BUILD_RENDER_PLATFORMS OFF CACHE BOOL "")
 set(MATERIALX_BUILD_OIIO OFF CACHE BOOL "")
-set(MATERIALX_BUILD_OCIO OFF CACHE BOOL "")
 set(MATERIALX_BUILD_OSOS OFF CACHE BOOL "")
 set(MATERIALX_BUILD_DATA_LIBRARY OFF CACHE BOOL "")
 

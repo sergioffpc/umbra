@@ -40,4 +40,7 @@
 !third_party/config/pystring.cmake
 !third_party/patches/pystring/
 !third_party/pystring/
+!third_party/config/OpenColorIO.cmake
+!third_party/patches/OpenColorIO/
+!third_party/OpenColorIO/
 **/.git

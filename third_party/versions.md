@@ -27,6 +27,7 @@ different section 6 (Trademarks).
 | MaterialX | `third_party/MaterialX` | `v1.39.5` | `7b64921ef1d42f2d57871e9d2c43dc11f041f26b` | `Apache-2.0` |
 | yaml-cpp | `third_party/yaml-cpp` | `yaml-cpp-0.9.0` | `56e3bb550c91fd7005566f19c079cb7a503223cf` | `MIT` |
 | pystring | `third_party/pystring` | `v1.2.0` | `1922c8f2b48e3beb6831c27b4811b58995e986cf` | `BSD-3-Clause` |
+| OpenColorIO | `third_party/OpenColorIO` | `v2.6.0` | `10a43ec1df03d072ca9a9e2fb3f26e454b0900d8` | `BSD-3-Clause` |
 
 ## Ubuntu packages
 
@@ -40,6 +41,9 @@ in the image. Only the libraries umbra itself builds against are submodules.
 | hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
 | libdeflate | OpenEXR (ZIP compression) | `libdeflate-dev`, `libdeflate0` | `MIT` |
 | zstd | OpenEXR (ZSTD compression) | `libzstd-dev`, `libzstd1` | `BSD-3-Clause OR GPL-2.0-only` |
+| expat | OpenColorIO (CLF and CTF transform files) | `libexpat1-dev`, `libexpat1` | `MIT` |
+| zlib | OpenColorIO, through minizip-ng | `zlib1g-dev`, `zlib1g` | `Zlib` |
+| minizip-ng | OpenColorIO (`.ocioz` config archives) | `libminizip-ng-dev`, `libminizip-ng4t64` | `Zlib` |
 
 ## Proprietary build-time downloads
 
