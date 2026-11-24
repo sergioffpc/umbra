@@ -95,7 +95,10 @@ runs:
                 third_party/patches/embree \
                 third_party/openqmc \
                 third_party/config/openqmc.cmake \
-                third_party/patches/openqmc
+                third_party/patches/openqmc \
+                third_party/Imath \
+                third_party/config/Imath.cmake \
+                third_party/patches/Imath
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

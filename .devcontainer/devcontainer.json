@@ -15,7 +15,7 @@
   "name": "umbra",
   // Pinned by content hash: the deps workflow rewrites this line, and CI
   // fails when it differs from the hash of the current deps inputs.
-  "image": "ghcr.io/sergioffpc/umbra-deps:e1d95670eab95f65",
+  "image": "ghcr.io/sergioffpc/umbra-deps:83c5b8c3a43aaba7",
 
   // No "hostRequirements.gpu": its probe runs `podman info -f
   // {{.Runtimes.nvidia}}`, a Docker-only field, and podman fails the start.

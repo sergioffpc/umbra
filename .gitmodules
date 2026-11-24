@@ -22,3 +22,7 @@
 	path = third_party/openqmc
 	url = https://github.com/AcademySoftwareFoundation/openqmc.git
 	shallow = true
+[submodule "third_party/Imath"]
+	path = third_party/Imath
+	url = https://github.com/AcademySoftwareFoundation/Imath.git
+	shallow = true
