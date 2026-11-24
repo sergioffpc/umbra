@@ -9,6 +9,10 @@ Columns: `Path` is the submodule path, `Tag` the upstream release tag,
 `Commit` the full commit the tag points to, and `License` an SPDX license
 expression.
 
+`LicenseRef-TOST-1.0` is the Tomorrow Open Source Technology License 1.0 of
+Pixar's projects, which has no SPDX identifier: the Apache License 2.0 with a
+different section 6 (Trademarks).
+
 | Name | Path | Tag | Commit | License |
 |---|---|---|---|---|
 | LLVM | `third_party/llvm-project` | `llvmorg-23.1.6` | `5b10d2d74929eae78912771222c9855af97496f4` | `Apache-2.0 WITH LLVM-exception` |
@@ -19,6 +23,7 @@ expression.
 | OpenQMC | `third_party/openqmc` | `v0.7.1` | `72617f52751d53a4ca49f60fd0cb4f5946236f2f` | `Apache-2.0` |
 | Imath | `third_party/Imath` | `v3.2.3` | `5f27ba266d3ea1565e912570c30b5eafc89959f1` | `BSD-3-Clause` |
 | OpenEXR | `third_party/openexr` | `v3.5.5` | `486e238dd28ba6fed22528005b05f9f15bef0cc0` | `BSD-3-Clause` |
+| OpenSubdiv | `third_party/OpenSubdiv` | `v3_8_0` | `1d90921ea32b9dcae31d30b907cbacefc0c616bf` | `LicenseRef-TOST-1.0` |
 
 ## Ubuntu packages
 
@@ -40,8 +45,9 @@ stack of the GPU module, downloaded by the `nvidia` stage of
 `docker/deps.Dockerfile`, which pins each archive by version and SHA-256.
 They are not redistributable, which is why the `umbra-deps` image is a private
 package. Only the CUDA runtime ends up in what umbra ships: `libcudart_static.a`,
-linked into `libumbra-gpu.so`, is redistributable inside an application under
-the CUDA EULA (Attachment A).
+linked into `libumbra-gpu.so` and into OpenSubdiv's osdGPU, is redistributable
+inside an application under the CUDA EULA (Attachment A). The shared
+`libcudart.so` is never used: it needs libstdc++ and libgcc_s.
 
 | Name | Version | Source | License |
 |---|---|---|---|

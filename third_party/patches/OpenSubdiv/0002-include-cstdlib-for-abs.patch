@@ -1,0 +1,17 @@
+Include <cstdlib> for std::abs.
+
+tessellation.cpp calls std::abs(int) and relies on another header to bring
+in <cstdlib>, which libstdc++ does and libc++ does not.
+
+diff --git a/opensubdiv/bfr/tessellation.cpp b/opensubdiv/bfr/tessellation.cpp
+index 4bbdfc9a..89897657 100644
+--- a/opensubdiv/bfr/tessellation.cpp
++++ b/opensubdiv/bfr/tessellation.cpp
+@@ -8,6 +8,7 @@
+ #include "../bfr/tessellation.h"
+ #include "../vtr/stackBuffer.h"
+ 
++#include <cstdlib>
+ #include <cstring>
+ #include <cstdio>
+ #include <cassert>

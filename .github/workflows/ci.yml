@@ -225,6 +225,7 @@ jobs:
             MIT
             Zlib
             BSL-1.0
+            LicenseRef-TOST-1.0
         run: |
           set -euo pipefail
           status=0
