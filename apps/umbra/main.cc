@@ -13,9 +13,9 @@
 // Without a command, umbra shows its help and fails; -q silences it.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
-// the UMBRA_LOG variable sets their level and destination, and -q shows
-// errors only. umbra
-// exits with 0 on success, 1 on failure and 2 on a usage error.
+// errors, warnings and info are shown, -q shows errors only, and the
+// UMBRA_LOG variable shows debug and trace messages, on stderr or in a file.
+// umbra exits with 0 on success, 1 on failure and 2 on a usage error.
 
 #include <algorithm>
 #include <array>
@@ -119,10 +119,9 @@ constexpr std::array<CommandSpec, 4> kCommands = {
 // diagnostics.
 std::string ProgramHelp() {
   return umbra::cli::FormatHelp(kProgram, kCommands) +
-         "\nUMBRA_LOG chooses the diagnostics: a level (error, warning, "
-         "info, debug\nor trace), for every component or one (gpu=trace), "
-         "and where they go,\nstderr by default (gpu=trace:/tmp/gpu.log). "
-         "-q shows errors only.\n";
+         "\nUMBRA_LOG shows debug or trace messages, of every component "
+         "(debug) or one\n(gpu=trace), on stderr or in a file "
+         "(gpu=trace:/tmp/gpu.log). -q shows\nerrors only.\n";
 }
 
 // The value of an environment variable, or empty when it is unset.
@@ -132,31 +131,12 @@ std::string_view Environment(const char* name) {
   return value == nullptr ? std::string_view() : std::string_view(value);
 }
 
-// The entries of a UMBRA_LOG spec that name a component ("gpu=trace"), which
-// -q does not override.
-std::string ComponentEntries(std::string_view spec) {
-  std::string entries;
-  while (!spec.empty()) {
-    const std::string_view entry = spec.substr(0, spec.find(','));
-    spec.remove_prefix(std::min(spec.size(), entry.size() + 1));
-    if (entry.contains('=')) {
-      entries += entries.empty() ? "" : ",";
-      entries += entry;
-    }
-  }
-  return entries;
-}
-
-// The filter of UMBRA_LOG; -q sets the level of its global part to errors.
+// The filter of -q and UMBRA_LOG: info and warnings, unless -q hides them,
+// and the debug and trace messages UMBRA_LOG enables.
 std::expected<LogFilter, Error> LoggingFilter(const ParsedCommand& global) {
-  const std::string_view spec = Environment("UMBRA_LOG");
-  auto filter = umbra::core::ParseLogFilter(spec);
-  if (!filter.has_value() || global.Count("quiet") == 0) {
-    return filter;
-  }
-  // The level of every component; the destinations stay.
-  filter->SetThreshold(LogLevel::kError);
-  return umbra::core::ParseLogFilter(ComponentEntries(spec), *filter);
+  const LogFilter base(global.Count("quiet") > 0 ? LogLevel::kError
+                                                 : LogLevel::kInfo);
+  return umbra::core::ParseLogFilter(Environment("UMBRA_LOG"), base);
 }
 
 // Whether `filter` asks for trace messages from any component.

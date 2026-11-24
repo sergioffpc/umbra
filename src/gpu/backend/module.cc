@@ -129,12 +129,12 @@ void CopyText(std::string_view text, std::array<char, N>& out) {
   std::ranges::copy(text.substr(0, N - 1), out.begin());
 }
 
-// Logs a GPU: at info when the module runs on it, at debug otherwise.
+// Logs a GPU: at debug, or at warning when the runtime cannot describe it.
 void LogDevice(const GpuDescription& gpu) {
   const std::string_view name = TextOf(gpu.name);
   switch (gpu.usability) {
     case GpuUsability::kUsable:
-      Log(core::LogLevel::kInfo, "device {}: {} (sm_{}{})", gpu.ordinal, name,
+      Log(core::LogLevel::kDebug, "device {}: {} (sm_{}{})", gpu.ordinal, name,
           gpu.sm_major, gpu.sm_minor);
       return;
     case GpuUsability::kTooOld:
@@ -190,9 +190,9 @@ void LogVersions() {
   if (cudaDriverGetVersion(&driver) != cudaSuccess) {
     driver = 0;
   }
-  Log(core::LogLevel::kInfo, "CUDA driver {}.{}, OptiX {}.{}.{}", driver / 1000,
-      driver % 1000 / 10, OPTIX_VERSION / 10000, OPTIX_VERSION / 100 % 100,
-      OPTIX_VERSION % 100);
+  Log(core::LogLevel::kDebug, "CUDA driver {}.{}, OptiX {}.{}.{}",
+      driver / 1000, driver % 1000 / 10, OPTIX_VERSION / 10000,
+      OPTIX_VERSION / 100 % 100, OPTIX_VERSION % 100);
 }
 
 // The described GPUs of `inventory`, to change.

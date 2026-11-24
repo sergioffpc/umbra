@@ -36,10 +36,9 @@ LogLevel LevelOf(int code) {
       return LogLevel::kError;
     case OIIO::ErrorHandler::EH_WARNING:
       return LogLevel::kWarning;
-    case OIIO::ErrorHandler::EH_DEBUG:
-      return LogLevel::kDebug;
     default:
-      return LogLevel::kInfo;
+      // OSL's info messages are details of its work, like its debug ones.
+      return LogLevel::kDebug;
   }
 }
 
@@ -102,7 +101,7 @@ std::expected<void, core::Error> Initialize() {
   handler.verbosity(core::IsLogEnabled(LogComponent::kOsl, LogLevel::kDebug)
                         ? OIIO::ErrorHandler::VERBOSE
                         : OIIO::ErrorHandler::NORMAL);
-  UMBRA_LOG_INFO(kOsl, "OSL {}", OSL_LIBRARY_VERSION_STRING);
+  UMBRA_LOG_DEBUG(kOsl, "OSL {}", OSL_LIBRARY_VERSION_STRING);
   return {};
 }
 

@@ -1,45 +1,48 @@
-# Diagnostics go to stderr, one line each, prefixed with the level
+# Diagnostics go to stderr, one line each; debug and trace on demand
 
 umbra is a command-line program. Results go to stdout, and only results, so
 that they can be piped. Diagnostics go to stderr, one line each, as plain
-text prefixed with the level:
+text:
 
 ```
 fatal: cannot open 'scene.usda': No such file or directory
 error: unknown device 'gpu3'; run umbra devices to list them
 warning: /World/Lamp: unsupported light type 'PortalLight', ignored
-info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
+Rendering 1920x1080 on cpu0, gpu0
 debug: usd: stage opened in 120 ms (3 layers)
 12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 4096 spp, 38.2 ms
 ```
 
-The levels are fatal, error, warning, info, debug and trace, and by default
-umbra shows fatal errors, errors and warnings. Fatal is the error umbra gives
-up on, after which it exits. The `UMBRA_LOG` variable sets the level, for
-every component or per component: `UMBRA_LOG=warn,gpu=trace` shows warnings
-and everything from `gpu`. It is the only way to see more; `umbra -h` says
-so. `-q` shows errors only: it sets the level of every component that
-`UMBRA_LOG` does not name. The
-component is shown from info down, where it helps to tell sources apart;
-errors and warnings are for the user and stay plain. A trace line starts with
-the local time, to the microsecond, and the source line it comes from,
-relative to the repository, with its message from column 40.
+The levels are fatal, error, warning, info, debug and trace. Fatal is the
+error umbra gives up on, after which it exits. Fatal errors, errors and
+warnings are prefixed with their level. Info is what umbra tells the user
+about its work, without a prefix. All four are always shown, but `-q` shows
+errors only.
 
-An entry of `UMBRA_LOG` can end with a destination for the messages it
-enables: a file descriptor from 2 to 9 (`UMBRA_LOG=debug:3`), or the absolute
-path of a file they are appended to (`UMBRA_LOG=warn,gpu=trace:/tmp/gpu.log`
-keeps warnings on stderr and sends `gpu` to the file). A destination that
-cannot be opened stops umbra before any work starts.
+Debug and trace are the details of umbra's work and of its libraries (their
+versions, the devices they found), for someone diagnosing a problem. They
+are prefixed with their level and their component, and shown only when the
+`UMBRA_LOG` variable asks for them, for every component or per component:
+`UMBRA_LOG=debug,gpu=trace` shows debug messages from everything and trace
+messages from `gpu`. `umbra -h` says so. A trace line starts with the local
+time, to the microsecond, and the source line it comes from, relative to the
+repository, with its message from column 40.
+
+An entry of `UMBRA_LOG` can end with a destination for the debug and trace
+messages it enables: a file descriptor from 2 to 9 (`UMBRA_LOG=debug:3`), or
+the absolute path of a file they are appended to
+(`UMBRA_LOG=gpu=trace:/tmp/gpu.log`). A destination that cannot be opened
+stops umbra before any work starts.
 
 The logger is umbra's own, in `core`, on `std::format`: the format above
 needs none of what logging libraries add (sinks, rotation, asynchronous
 queues), and their default formats are those of servers, with timestamps and
-thread ids on every line. A message is formatted in full and written with a single
-`write`, so that lines from parallel tasks do not interleave. A disabled level
+thread ids on every line. A message is formatted in full and written with a
+single `write`, so that lines from parallel tasks do not interleave. A disabled level
 costs one comparison, and its arguments are not formatted.
 
-Info and debug are compiled into release builds, so that a user can be asked
-to run with `UMBRA_LOG=debug` and send the output. Trace, meant for hot loops
+Debug is compiled into release builds, so that a user can be asked to run
+with `UMBRA_LOG=debug` and send the output. Trace, meant for hot loops
 (per frame, per kernel), exists only in debug builds; asking for it on a
 release build says so.
 
@@ -76,8 +79,8 @@ stdout keeps only results. The details of the hardware are the output of
   (`embree`), and OptiX through the log callback of its device context
   (`gpu`). Otherwise they print to the terminal in their own formats, and
   `-q` cannot silence them. A library that fails to initialize stops umbra
-  with an error before any work starts, and `UMBRA_LOG=info` lists the version
-  of each.
+  with an error before any work starts, and `UMBRA_LOG=debug` lists the
+  version of each.
 - The GPU module, loaded with `dlopen`, keeps no logging state of its own: the
   loader passes it a log callback and the current level through `ModuleApi`.
 - Progress (a render's progress bar) is not a log message. It goes to stderr

@@ -33,9 +33,10 @@ constexpr std::array<std::string_view, kLogComponentCount> kComponentNames = {
     "core", "gpu", "usd", "osl", "oiio", "ocio", "vdb", "osd", "embree",
 };
 
-constexpr std::array<LogLevel, 5> kLevels = {
-    LogLevel::kError, LogLevel::kWarning, LogLevel::kInfo,
-    LogLevel::kDebug, LogLevel::kTrace,
+// The levels UMBRA_LOG enables; the others are always shown.
+constexpr std::array<LogLevel, 2> kLevels = {
+    LogLevel::kDebug,
+    LogLevel::kTrace,
 };
 
 // The column the message of a trace line starts at, after its time and
@@ -56,7 +57,7 @@ struct LoggingState {
 
   LoggingState() {
     for (auto& threshold : thresholds) {
-      threshold.store(LogLevel::kWarning, std::memory_order_relaxed);
+      threshold.store(LogLevel::kInfo, std::memory_order_relaxed);
     }
     for (auto& output : outputs) {
       output.store(STDERR_FILENO, std::memory_order_relaxed);
@@ -70,9 +71,6 @@ LoggingState& State() {
 }
 
 std::optional<LogLevel> ParseLevel(std::string_view name) {
-  if (name == "warn") {
-    return LogLevel::kWarning;
-  }
   const auto* const found = std::ranges::find(kLevels, name, LogLevelName);
   if (found == kLevels.end()) {
     return std::nullopt;
@@ -154,8 +152,7 @@ std::expected<void, Error> ApplyEntry(std::string_view entry,
   const Entry split = SplitEntry(entry);
   const std::optional<LogLevel> level = ParseLevel(split.level);
   if (!level.has_value()) {
-    return std::unexpected(
-        BadEntry(entry, "levels are error, warning, info, debug and trace"));
+    return std::unexpected(BadEntry(entry, "levels are debug and trace"));
   }
   if (split.destination.has_value() && !IsDestination(*split.destination)) {
     return std::unexpected(
@@ -198,10 +195,14 @@ std::expected<int, Error> OpenDestination(std::string_view destination) {
   return file;
 }
 
-// The prefix of every line of a message: "error: ", "info: gpu: ", and for
-// a trace line "12:34:56.789012 src/gpu/module.cc:161   trace: gpu: ".
+// The prefix of every line of a message: none for info, which is for the
+// user; "error: " for fatal errors, errors and warnings; "debug: gpu: "; and
+// for a trace line "12:34:56.789012 src/gpu/module.cc:161   trace: gpu: ".
 std::string LinePrefix(LogLevel level, LogComponent component,
                        std::string_view time, LogOrigin origin) {
+  if (level == LogLevel::kInfo) {
+    return {};
+  }
   if (level < LogLevel::kInfo) {
     return std::format("{}: ", LogLevelName(level));
   }
@@ -372,8 +373,12 @@ void LogAt(LogLevel level, LogComponent component, std::string_view message,
   }
   const std::string time =
       level == LogLevel::kTrace ? TimeOfDay() : std::string();
-  WriteAll(State().outputs.at(Index(component)).load(std::memory_order_relaxed),
-           FormatLogLines(level, component, message, time, origin));
+  // Only debug and trace lines go where UMBRA_LOG sends them.
+  const int output =
+      level >= LogLevel::kDebug
+          ? State().outputs.at(Index(component)).load(std::memory_order_relaxed)
+          : STDERR_FILENO;
+  WriteAll(output, FormatLogLines(level, component, message, time, origin));
 }
 
 }  // namespace umbra::core

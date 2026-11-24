@@ -76,8 +76,8 @@ std::expected<void, Error> Initialize() {
   device.reset(created);
   const auto version =
       rtcGetDeviceProperty(created, RTC_DEVICE_PROPERTY_VERSION);
-  UMBRA_LOG_INFO(kEmbree, "Embree {}.{}.{}", version / 10000,
-                 version / 100 % 100, version % 100);
+  UMBRA_LOG_DEBUG(kEmbree, "Embree {}.{}.{}", version / 10000,
+                  version / 100 % 100, version % 100);
   return {};
 }
 

@@ -38,7 +38,7 @@ struct Prefix {
 constexpr auto kPrefixes = std::to_array<Prefix>({
     {.text = "[OpenColorIO Error]: ", .level = LogLevel::kError},
     {.text = "[OpenColorIO Warning]: ", .level = LogLevel::kWarning},
-    {.text = "[OpenColorIO Info]: ", .level = LogLevel::kInfo},
+    {.text = "[OpenColorIO Info]: ", .level = LogLevel::kDebug},
     {.text = "[OpenColorIO Debug]: ", .level = LogLevel::kDebug},
 });
 
@@ -46,7 +46,7 @@ constexpr auto kPrefixes = std::to_array<Prefix>({
 // prefix, which umbra's own line replaces.
 void LogFromOcio(const char* message) {
   std::string_view text(message);
-  LogLevel level = LogLevel::kInfo;
+  LogLevel level = LogLevel::kDebug;
   for (const Prefix& prefix : kPrefixes) {
     if (text.starts_with(prefix.text)) {
       text.remove_prefix(prefix.text.size());
@@ -62,9 +62,6 @@ void LogFromOcio(const char* message) {
 colorio::LoggingLevel OcioLoggingLevel() {
   if (core::IsLogEnabled(LogComponent::kOcio, LogLevel::kDebug)) {
     return colorio::LOGGING_LEVEL_DEBUG;
-  }
-  if (core::IsLogEnabled(LogComponent::kOcio, LogLevel::kInfo)) {
-    return colorio::LOGGING_LEVEL_INFO;
   }
   return colorio::LOGGING_LEVEL_WARNING;
 }
@@ -87,8 +84,8 @@ std::expected<void, Error> Initialize() {
     const colorio::ConstConfigRcPtr config = LoadConfig();
     config->validate();
     colorio::SetCurrentConfig(config);
-    UMBRA_LOG_INFO(kOcio, "OpenColorIO {}, config '{}'", colorio::GetVersion(),
-                   config->getName());
+    UMBRA_LOG_DEBUG(kOcio, "OpenColorIO {}, config '{}'", colorio::GetVersion(),
+                    config->getName());
   } catch (const std::exception& error) {
     return std::unexpected(Error(
         ErrorCode::kUnavailable,
