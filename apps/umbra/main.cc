@@ -9,7 +9,10 @@
 //   License: Apache-2.0 — provided "AS IS", WITHOUT WARRANTIES OR ...
 //   GPU executors: 1
 //
-// or, without a usable GPU, "GPU executors: none (<reason>)".
+// or, without a usable GPU, "GPU executors: none (<reason>)". `umbra devices`
+// lists the devices it can render on, with their hardware (see devices.h);
+// `umbra render [--devices=cpu0,gpu0]` chooses among them and shows them on
+// stderr, and renders nothing yet.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
 // -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level, and
@@ -21,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <expected>
 #include <optional>
@@ -28,8 +32,10 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "cli/parser.h"
+#include "devices.h"
 #include "umbra/core/build_info.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
@@ -82,6 +88,27 @@ constexpr CommandSpec kProgram = {
     .summary = "umbra, a physically based path tracer.",
     .options = kGlobalOptions,
     .arguments = {},
+};
+
+constexpr std::array<OptionSpec, 1> kRenderOptions = {
+    umbra::cli::ValueOption('\0', "devices", "list", {},
+                            "render on these devices (cpu0,gpu0); all of "
+                            "them by default"),
+};
+
+constexpr std::array<CommandSpec, 2> kCommands = {
+    CommandSpec{
+        .name = "devices",
+        .summary = "list the devices umbra can render on",
+        .options = {},
+        .arguments = {},
+    },
+    CommandSpec{
+        .name = "render",
+        .summary = "render on the chosen devices",
+        .options = kRenderOptions,
+        .arguments = {},
+    },
 };
 
 // The value of an environment variable, or empty when it is unset.
@@ -212,6 +239,69 @@ int UsageError(const Error& error) {
   return kExitUsage;
 }
 
+// Reports a failure and returns its exit code.
+int Failure(const Error& error) {
+  umbra::core::Log(LogLevel::kError, umbra::core::LogComponent::kCore,
+                   error.message());
+  return kExitFailure;
+}
+
+// `umbra devices`: the devices and their hardware, on stdout.
+int ListDevices() {
+  const auto hardware = umbra::devices::ReadHardware();
+  if (!hardware.has_value()) {
+    return Failure(hardware.error());
+  }
+  std::print("{}", umbra::devices::FormatHardware(*hardware));
+  return kExitSuccess;
+}
+
+// The block a render starts with, on stderr: umbra's version and build, and
+// the devices it renders on. -q hides it.
+void PrintRenderBlock(const umbra::devices::Hardware& hardware,
+                      std::span<const umbra::devices::Device> chosen) {
+  const umbra::core::BuildInfo build = umbra::core::GetBuildInfo();
+  std::print(stderr, "umbra {} ({}, {})\n{}", umbra::core::Version(),
+             build.build_type, build.arch,
+             umbra::devices::FormatRenderDevices(hardware, chosen));
+}
+
+// `umbra render`: resolves the devices and shows them. It renders nothing
+// yet.
+int Render(const ParsedCommand& global, const ParsedCommand& render) {
+  const auto hardware = umbra::devices::ReadHardware();
+  if (!hardware.has_value()) {
+    return Failure(hardware.error());
+  }
+  const std::vector<umbra::devices::Device> devices =
+      umbra::devices::RenderDevices(*hardware);
+  const auto chosen =
+      umbra::devices::ResolveDevices(render.Value("devices"), devices);
+  if (!chosen.has_value()) {
+    return UsageError(chosen.error());
+  }
+  if (global.Count("quiet") == 0) {
+    PrintRenderBlock(*hardware, *chosen);
+  }
+  return kExitSuccess;
+}
+
+// Runs the command, or prints the version block when there is none.
+int Run(const ParsedCommand& global,
+        const std::optional<ParsedCommand>& command) {
+  if (auto initialized = InitializeLibraries(); !initialized.has_value()) {
+    return Failure(initialized.error());
+  }
+  if (!command.has_value()) {
+    PrintVersion();
+    return kExitSuccess;
+  }
+  if (command->name() == "render") {
+    return Render(global, *command);
+  }
+  return ListDevices();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -221,7 +311,8 @@ int main(int argc, char** argv) {
   UMBRA_UNSAFE_BUFFER_BEGIN
   const std::span<const char* const> args(argv, static_cast<std::size_t>(argc));
   UMBRA_UNSAFE_BUFFER_END
-  const auto command_line = umbra::cli::Parse(kProgram, {}, args.subspan(1));
+  const auto command_line =
+      umbra::cli::Parse(kProgram, kCommands, args.subspan(1));
   if (!command_line.has_value()) {
     return UsageError(command_line.error());
   }
@@ -230,14 +321,8 @@ int main(int argc, char** argv) {
     return UsageError(configured.error());
   }
   if (global.Count("help") > 0) {
-    std::print("{}", umbra::cli::FormatHelp(kProgram, {}));
+    std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
     return kExitSuccess;
   }
-  if (auto initialized = InitializeLibraries(); !initialized.has_value()) {
-    umbra::core::Log(LogLevel::kError, umbra::core::LogComponent::kCore,
-                     initialized.error().message());
-    return kExitFailure;
-  }
-  PrintVersion();
-  return kExitSuccess;
+  return Run(global, command_line->command);
 }

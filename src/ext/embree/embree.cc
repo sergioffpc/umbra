@@ -81,4 +81,16 @@ std::expected<void, Error> Initialize() {
   return {};
 }
 
+std::string_view NativeIsa() {
+  RTCDevice device = ProcessDevice().get();
+  if (device == nullptr) {
+    return "none";
+  }
+  if (rtcGetDeviceProperty(device,
+                           RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED) != 0) {
+    return "AVX-512";
+  }
+  return "AVX2";
+}
+
 }  // namespace umbra::ext::embree

@@ -12,7 +12,9 @@ Public headers (`include/umbra/gpu/`):
 - `module_abi.h`: the table of functions the module exports through its one C
   symbol, `umbra_gpu_module`, with its ABI version. The loader hands the
   module umbra's log function through it, so the module logs as the `gpu`
-  component without logging state of its own.
+  component without logging state of its own, and the module describes every
+  GPU through it, usable or not. `DescribeGpus` adds what the loader reads
+  from sysfs: each GPU's NUMA node and the kernel driver's version.
 
 `backend/` is the module itself, built with `UMBRA_GPU` (see
 `cmake/UmbraCuda.cmake`): host code compiled by clang that calls the CUDA
