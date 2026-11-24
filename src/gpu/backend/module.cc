@@ -2,8 +2,8 @@
 // Copyright The Umbra Authors
 //
 // The GPU module, libumbra-gpu.so: the entry point umbra loads (see
-// include/umbra/gpu/module_abi.h) over the CUDA runtime and OptiX. For now it
-// finds the usable GPUs; the GPU executors will live here.
+// include/umbra/gpu/module_abi.h) over the CUDA runtime and OptiX. It
+// describes the GPUs and which of them are usable.
 
 #include <cuda_runtime_api.h>
 #include <driver_types.h>

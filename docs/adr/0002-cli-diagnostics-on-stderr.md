@@ -1,9 +1,8 @@
-# Diagnostics go to stderr, in the style of git
+# Diagnostics go to stderr, one line each, prefixed with the level
 
-umbra is a command-line program, and its commands, help and diagnostics
-follow git's. Results go to stdout, and only results, so that they can be
-piped. Diagnostics go to stderr, one line each, prefixed with the level, as
-git prefixes its own:
+umbra is a command-line program. Results go to stdout, and only results, so
+that they can be piped. Diagnostics go to stderr, one line each, as plain
+text prefixed with the level:
 
 ```
 fatal: cannot open 'scene.usda': No such file or directory
@@ -16,13 +15,12 @@ trace: gpu: frame 12: 4096 spp, 38.2 ms
 
 The levels are fatal, error, warning, info, debug and trace, and by default
 umbra shows fatal errors, errors and warnings. Fatal is the error umbra gives
-up on, as git's `die()` reports it. The flags `-q` (errors only), `-v` (info), `-vv`
+up on, after which it exits. The flags `-q` (errors only), `-v` (info), `-vv`
 (debug) and `-vvv` (trace) set the level. `UMBRA_LOG` sets it too, per
 component: `UMBRA_LOG=warn,gpu=trace` shows warnings and everything from
 `gpu`. The flags take precedence over the variable. The component is shown
 from info down, where it helps to tell sources apart; errors and warnings are
-for the user and stay plain. Lines are not colored, as git's are not, and
-umbra has no `--color`.
+for the user and stay plain.
 
 The logger is umbra's own, in `core`, on `std::format`: the format above
 needs none of what logging libraries add (sinks, files, rotation,

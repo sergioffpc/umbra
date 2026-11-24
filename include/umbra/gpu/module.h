@@ -3,7 +3,7 @@
 //
 // Loads the GPU module, libumbra-gpu.so, at run time. umbra never links CUDA:
 // the GPU backend lives in that module, which is loaded only when it is
-// installed, and which registers GPU executors only when a usable GPU exists.
+// installed, and which describes the GPUs the CUDA runtime sees.
 
 #ifndef UMBRA_GPU_MODULE_H_
 #define UMBRA_GPU_MODULE_H_

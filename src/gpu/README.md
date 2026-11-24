@@ -19,6 +19,6 @@ Public headers (`include/umbra/gpu/`):
 `backend/` is the module itself, built with `UMBRA_GPU` (see
 `cmake/UmbraCuda.cmake`): host code compiled by clang that calls the CUDA
 runtime (linked statically, `cudart_static`) and OptiX, and device code
-(`.cu`) compiled by nvcc to OptiX-IR and embedded into the module. For now it
-finds the usable GPUs (`sm_120` or newer, with a driver whose OptiX it can
-use); the GPU executors will live there.
+(`.cu`) compiled by nvcc to OptiX-IR and embedded into the module. It
+describes the GPUs and which of them are usable (`sm_120` or newer, with a
+driver whose OptiX it can use).

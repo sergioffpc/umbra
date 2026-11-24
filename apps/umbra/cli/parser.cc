@@ -294,7 +294,7 @@ namespace {
 
 // The width of a usage line before it wraps.
 constexpr std::size_t kUsageWidth = 80;
-// The column an option's help starts at, as in git's parse-options.
+// The column an option's help starts at.
 constexpr std::size_t kOptionsWidth = 26;
 constexpr std::size_t kOptionsGap = 2;
 constexpr std::string_view kOptionsIndent = "    ";
@@ -351,7 +351,7 @@ std::vector<std::string> OptionTokens(const CommandSpec& spec,
   return tokens;
 }
 
-// One option's line in a command's help, as git writes it:
+// One option's line in a command's help:
 // "    --devices=<list>      render on these devices".
 std::string OptionHelpLine(const OptionSpec& option) {
   std::string names(kOptionsIndent);

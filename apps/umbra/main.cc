@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// The umbra executable. Its commands and options follow git's:
+// The umbra executable:
 //
 //   umbra [--version] [-h | --help] [-q | --quiet] [-v | --verbose]
 //         <command> [<args>]
@@ -9,9 +9,9 @@
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0]` chooses among them
 // and shows them on stderr, and renders nothing yet. `umbra version
-// [--build-options]` (or `umbra --version`) and `umbra help [<command>]`
-// (or -h, before or after a command) answer as git's do. Without a command,
-// umbra shows its help and fails, as git does; -q silences it.
+// [--build-options]` (or `umbra --version`) shows the version, and
+// `umbra help [<command>]` (or -h, before or after a command) the help.
+// Without a command, umbra shows its help and fails; -q silences it.
 //
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
 // -q, -v, -vv and -vvv and the UMBRA_LOG variable set their level. umbra
@@ -189,7 +189,7 @@ std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
   return {};
 }
 
-// The commit umbra was built from, short as git abbreviates it, with
+// The commit umbra was built from, abbreviated to 12 hex digits, with
 // "-dirty" kept; empty when unknown.
 std::string ShortCommit(std::string_view commit) {
   constexpr std::size_t kShortLength = 12;
@@ -202,7 +202,7 @@ std::string ShortCommit(std::string_view commit) {
   return std::string(commit.substr(0, kShortLength)) + std::string(suffix);
 }
 
-// `umbra --version` and `umbra version`, as git's: the version, and with
+// `umbra --version` and `umbra version`: the version, and with
 // --build-options how umbra was built.
 void PrintVersion(const ParsedCommand& version) {
   std::println("umbra version {}", umbra::core::Version());
@@ -241,7 +241,7 @@ int UsageError(const Error& error) {
   return kExitUsage;
 }
 
-// Reports the failure umbra gives up on, as git's "fatal:", and returns its
+// Reports the failure umbra gives up on, as "fatal:", and returns its
 // exit code.
 int Failure(const Error& error) {
   umbra::core::Log(LogLevel::kFatal, umbra::core::LogComponent::kCore,
@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
     return kExitSuccess;
   }
   if (!command_line->command.has_value()) {
-    // As git does: the help, and a failure, since there was nothing to do.
+    // The help, and a failure, since there was nothing to do.
     if (global.Count("quiet") == 0) {
       std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));
     }

@@ -2,7 +2,7 @@
 // Copyright The Umbra Authors
 //
 // umbra's diagnostics (docs/adr/0002-cli-diagnostics-on-stderr.md): one line
-// per message on stderr, as git reports,
+// per message on stderr, prefixed with its level,
 //
 //   fatal: cannot open 'scene.usda': No such file or directory
 //   info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
@@ -32,7 +32,7 @@ namespace umbra::core {
 // The level of a message, from the most to the least severe. A threshold
 // enables its level and the more severe ones.
 enum class LogLevel : std::uint8_t {
-  // The error umbra gives up on, as git's die(): always shown.
+  // The error umbra gives up on, before it exits: always shown.
   kFatal,
   kError,
   kWarning,
