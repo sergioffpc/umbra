@@ -45,11 +45,11 @@ optional (RTX 5070 Ti class or newer); see
 
    ```sh
    make          # debug build
-   make test     # build and run the tests
+   make check    # build and run the tests
    ```
 
-Run `make help` for the full list of targets: `all`, `test`, `release`,
-`asan`, `tsan`, `format`, `lint`, `checks`, `clean` and `help`.
+Run `make help` for the full list of targets: `all`, `check`, `release`,
+`sanitizers`, `coverage`, `format`, `lint`, `clean`, `distclean` and `help`.
 
 ## Repository layout
 
