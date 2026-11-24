@@ -21,5 +21,9 @@
 # that relies on it is inlined into umbra, so the tsan preset links a libtbb
 # instrumented with ThreadSanitizer (see cmake/UmbraSanitizers.cmake) instead
 # of suppressing anything.
-#
-# There are no entries yet.
+
+# compute-sanitizer: `make tsan LABEL=<regex>` runs the tests under NVIDIA's
+# compute-sanitizer, which injects this library into every process. Its own
+# threads synchronize in code TSan does not instrument, so TSan reports races
+# inside it that do not involve umbra's memory.
+called_from_lib:libsanitizer-collection.so

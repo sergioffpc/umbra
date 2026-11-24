@@ -23,11 +23,40 @@ endif
 release: ## Release build (LTO) and run the tests
 	cmake --workflow --preset release
 
-asan: ## ASan + UBSan build and run the tests
-	cmake --workflow --preset asan
+# LABEL=<regex> also selects the tests of the sanitizer builds, and runs them
+# under NVIDIA's compute-sanitizer too, which checks the kernels they launch:
+# memcheck (out-of-bounds and misaligned device accesses, device memory
+# leaks) and initcheck (reads of uninitialized device memory) with asan,
+# racecheck (shared-memory races) and synccheck (misused barriers) with tsan.
+# For example `make asan LABEL=gpu` on a GPU host.
+#
+# AddressSanitizer keeps the shadow gap of the address space unmapped, where
+# the CUDA driver maps device memory, so that cudaMalloc would fail with out
+# of memory: protect_shadow_gap=0 lets the driver map it.
+GPU_SANITIZER = compute-sanitizer --error-exitcode 1 --target-processes all
+ASAN_GPU_OPTIONS = protect_shadow_gap=0
 
-tsan: ## TSan + UBSan integer checks build and run the tests
+asan: ## ASan + UBSan build and run the tests (LABEL=gpu: the GPU tests, also under memcheck and initcheck)
+ifeq ($(LABEL),)
+	cmake --workflow --preset asan
+else
+	cmake --preset asan
+	cmake --build --preset asan
+	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool memcheck --leak-check full \
+	  ctest --test-dir build/asan --output-on-failure -L '$(LABEL)'
+	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool initcheck \
+	  ctest --test-dir build/asan --output-on-failure -L '$(LABEL)'
+endif
+
+tsan: ## TSan + UBSan integer checks build and run the tests (LABEL=gpu: the GPU tests, also under racecheck and synccheck)
+ifeq ($(LABEL),)
 	cmake --workflow --preset tsan
+else
+	cmake --preset tsan
+	cmake --build --preset tsan
+	$(GPU_SANITIZER) --tool racecheck ctest --test-dir build/tsan --output-on-failure -L '$(LABEL)'
+	$(GPU_SANITIZER) --tool synccheck ctest --test-dir build/tsan --output-on-failure -L '$(LABEL)'
+endif
 
 coverage: ## Coverage build, tests and report (build/coverage/report)
 	cmake --workflow --preset coverage
