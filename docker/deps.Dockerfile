@@ -98,7 +98,7 @@ FROM nvidia AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      libhwloc-dev libdeflate-dev libzstd-dev pkgconf \
+      libhwloc-dev libdeflate-dev libzstd-dev \
  && rm -rf /var/lib/apt/lists/*
 COPY third_party/ /opt/umbra/src/
 RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \

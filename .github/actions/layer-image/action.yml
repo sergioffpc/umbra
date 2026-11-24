@@ -101,7 +101,10 @@ runs:
                 third_party/patches/Imath \
                 third_party/openexr \
                 third_party/config/openexr.cmake \
-                third_party/patches/openexr
+                third_party/patches/openexr \
+                third_party/OpenSubdiv \
+                third_party/config/OpenSubdiv.cmake \
+                third_party/patches/OpenSubdiv
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

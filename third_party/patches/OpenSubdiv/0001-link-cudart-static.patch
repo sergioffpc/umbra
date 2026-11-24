@@ -1,0 +1,20 @@
+Link the CUDA runtime statically.
+
+Upstream links osdGPU against the shared libcudart.so, which needs
+libstdc++ and libgcc_s. With cudart_static, libosdGPU.so carries its own
+runtime and libosdGPU.a lets the umbra GPU module, which links
+cudart_static too, hold the only CUDA runtime of the process.
+
+diff --git a/opensubdiv/CMakeLists.txt b/opensubdiv/CMakeLists.txt
+index 57d57758..db24e4cf 100644
+--- a/opensubdiv/CMakeLists.txt
++++ b/opensubdiv/CMakeLists.txt
+@@ -74,7 +74,7 @@ if (NOT NO_LIB)
+     if( CUDAToolkit_FOUND )
+         include_directories( "${CUDAToolkit_INCLUDE_DIRS}" )
+         list(APPEND PLATFORM_GPU_LIBRARIES
+-            CUDA::cudart
++            CUDA::cudart_static
+         )
+     endif()
+ 

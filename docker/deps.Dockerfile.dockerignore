@@ -28,4 +28,7 @@
 !third_party/config/openexr.cmake
 !third_party/patches/openexr/
 !third_party/openexr/
+!third_party/config/OpenSubdiv.cmake
+!third_party/patches/OpenSubdiv/
+!third_party/OpenSubdiv/
 **/.git

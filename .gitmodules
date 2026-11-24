@@ -30,3 +30,7 @@
 	path = third_party/openexr
 	url = https://github.com/AcademySoftwareFoundation/openexr.git
 	shallow = true
+[submodule "third_party/OpenSubdiv"]
+	path = third_party/OpenSubdiv
+	url = https://github.com/PixarAnimationStudios/OpenSubdiv.git
+	shallow = true
