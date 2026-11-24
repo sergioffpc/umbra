@@ -58,3 +58,15 @@
 	path = third_party/robin-map
 	url = https://github.com/Tessil/robin-map.git
 	shallow = true
+[submodule "third_party/OpenImageIO"]
+	path = third_party/OpenImageIO
+	url = https://github.com/AcademySoftwareFoundation/OpenImageIO.git
+	shallow = true
+[submodule "third_party/libtiff"]
+	path = third_party/libtiff
+	url = https://gitlab.com/libtiff/libtiff.git
+	shallow = true
+[submodule "third_party/pugixml"]
+	path = third_party/pugixml
+	url = https://github.com/zeux/pugixml.git
+	shallow = true

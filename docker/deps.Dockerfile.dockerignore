@@ -49,4 +49,13 @@
 !third_party/config/robin-map.cmake
 !third_party/patches/robin-map/
 !third_party/robin-map/
+!third_party/config/libtiff.cmake
+!third_party/patches/libtiff/
+!third_party/libtiff/
+!third_party/config/pugixml.cmake
+!third_party/patches/pugixml/
+!third_party/pugixml/
+!third_party/config/OpenImageIO.cmake
+!third_party/patches/OpenImageIO/
+!third_party/OpenImageIO/
 **/.git
