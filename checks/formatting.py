@@ -3,11 +3,12 @@
 """Formats the sources: clang-format for C++, pyink and isort for Python.
 
 Formats the given files in place, or every tracked C++ and Python file when
-none is given. The ``check_*`` functions check content without changing any
-file: the pre-commit hook checks the staged changes, and the linter checks
-the Python embedded in the workflows.
+none is given. With --check it changes no file and fails when formatting
+would change one (``make checks`` and CI). The ``check_*`` functions check
+content without changing any file: the pre-commit hook checks the staged
+changes, and the linter checks the Python embedded in the workflows.
 
-Usage: python3 -m checks.formatting [PATH...]
+Usage: python3 -m checks.formatting [--check] [PATH...]
 """
 
 from collections.abc import Sequence
@@ -62,6 +63,34 @@ def format_files(paths: Sequence[str]) -> int:
     for command in commands:
         status = git.call(command).returncode or status
     return status
+
+
+def check_files(paths: Sequence[str]) -> int:
+    """Checks that C++ and Python files are formatted, without changing them.
+
+    Args:
+        paths: The files, relative to the repository root; other kinds of
+            files are skipped.
+
+    Returns:
+        The process exit status: 0 when no formatter would change a file.
+    """
+    checks = []
+    cpp = [path for path in paths if sources.is_cpp(path)]
+    if cpp:
+        checks = [("C++", ["clang-format", "--dry-run", "-Werror", *cpp])]
+    python = [path for path in paths if sources.is_python(path)]
+    if python:
+        checks += [
+            ("Python imports", ["isort", "--check-only", "--diff", *python]),
+            ("Python", ["pyink", "--check", "--diff", "--quiet", *python]),
+        ]
+    errors = [
+        f"{kind} sources are not formatted (run make format)"
+        for kind, command in checks
+        if git.call(command).returncode
+    ]
+    return report.fail("sources are not formatted", errors)
 
 
 def check_python(
@@ -154,17 +183,20 @@ def check_staged_python(paths: Sequence[str]) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Formats the files given on the command line, or every tracked file.
+    """Formats, or with --check checks, the given files or every tracked file.
 
     Args:
-        argv: The file paths without the program name; ``sys.argv[1:]`` when
+        argv: The arguments without the program name; ``sys.argv[1:]`` when
             None.
 
     Returns:
-        The process exit status: 0 when every formatter succeeded.
+        The process exit status: 0 when every formatter succeeded, or with
+        --check when every file is formatted.
     """
     paths = list(sys.argv[1:] if argv is None else argv)
-    return format_files(paths or sources.tracked())
+    check = "--check" in paths
+    paths = [path for path in paths if path != "--check"] or sources.tracked()
+    return check_files(paths) if check else format_files(paths)
 
 
 if __name__ == "__main__":

@@ -124,12 +124,10 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make` / `make all` | Debug build |
 | `make test` | Debug build and run the tests, except those that need a GPU; `make test LABEL=gpu` runs only the tests with that CTest label |
 | `make release` | Release build and tests |
-| `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
-| `make tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests |
+| `make sanitizers` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests, then ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `make sanitizers LABEL=gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck with ASan, racecheck and synccheck with TSan), on a GPU host |
 | `make coverage` | Coverage build and tests, then the coverage report (local only) |
 | `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
-| `make lint` | Run clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
-| `make checks` | Run the validators shared with the git hooks and CI: the file validators on every tracked file, the current branch name, and the commit messages since `develop` |
+| `make checks` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
 | `make clean` | Remove the build trees |
 | `make help` | List the targets |
 
@@ -385,7 +383,7 @@ clang-tidy families and the function limits below), this document wins.
 - CI-only logic stays inline in the workflows. Python there is written as a
   quoted heredoc read by `python3 -` (`python3 - <<'EOF'`), follows the same
   Google style (a `main()` and the `__main__` guard, no module-level logic)
-  and is checked like a Python file: `make lint` and the pre-commit hook
+  and is checked like a Python file: `make checks` and the pre-commit hook
   extract it (`python3 -m checks.embedded` prints what they find) and fail
   when pyink or isort would change it or pylint reports anything. Format it
   by hand.
@@ -441,7 +439,7 @@ clang-tidy families and the function limits below), this document wins.
 1. Open an issue first for anything beyond a small fix.
 2. Branch from `develop` following the git flow naming rules.
 3. Keep commits small, themed and signed.
-4. Run `make checks`, `make lint` and `make test` inside the devcontainer.
+4. Run `make checks` and `make test` inside the devcontainer.
 5. Open the pull request against `develop` and fill in the template. Its title
    must be a Conventional Commit.
 
