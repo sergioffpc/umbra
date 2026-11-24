@@ -6,7 +6,9 @@
 //
 //   fatal: cannot open 'scene.usda': No such file or directory
 //   info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
+//   12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 38.2 ms
 //
+// with the local time and the source line in front of trace lines,
 // filtered by level, per component. Results go to stdout and are not
 // diagnostics. The UMBRA_LOG_* macros format their message only when its
 // level is enabled for its component.
@@ -19,6 +21,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <source_location>
 #include <string>
 #include <string_view>
 
@@ -65,49 +68,81 @@ inline constexpr std::size_t kLogComponentCount = 9;
 // Whether trace messages exist in this build: only debug builds have them.
 [[nodiscard]] bool IsTraceCompiled();
 
-// The threshold of every component.
+// The threshold of every component, and where its messages go: a
+// destination is empty for stderr, a file descriptor from 2 to 9 ("3"), or
+// the absolute path of a file the messages are appended to.
 class LogFilter {
  public:
-  // Every component at `threshold`.
+  // Every component at `threshold`, to stderr.
   explicit LogFilter(LogLevel threshold = LogLevel::kWarning);
 
   [[nodiscard]] LogLevel threshold(LogComponent component) const;
+  [[nodiscard]] std::string_view destination(LogComponent component) const;
 
   // Sets the threshold of every component.
   void SetThreshold(LogLevel threshold);
   // Sets the threshold of one component.
   void SetThreshold(LogComponent component, LogLevel threshold);
+  // Sets the destination of every component.
+  void SetDestination(std::string_view destination);
+  // Sets the destination of one component.
+  void SetDestination(LogComponent component, std::string_view destination);
 
  private:
   std::array<LogLevel, kLogComponentCount> thresholds_{};
+  std::array<std::string, kLogComponentCount> destinations_{};
 };
 
 // Parses a filter in UMBRA_LOG's syntax: comma-separated entries, each a level
 // for every component ("debug") or a component and its level ("gpu=trace"),
-// applied in order onto `base`; empty entries are ignored. Levels are error,
-// warning (or warn), info, debug and trace. Fails with kInvalidArgument,
-// naming the bad entry.
+// optionally followed by a destination ("gpu=trace:/tmp/gpu.log",
+// "debug:3"), applied in order onto `base`; empty entries are ignored. Levels
+// are error, warning (or warn), info, debug and trace. Fails with
+// kInvalidArgument, naming the bad entry.
 [[nodiscard]] std::expected<LogFilter, Error> ParseLogFilter(
     std::string_view spec, const LogFilter& base = LogFilter());
 
+// Where a message comes from: a source file, relative to the repository, and
+// a line in it.
+struct LogOrigin {
+  std::string_view file;
+  std::uint32_t line = 0;
+};
+
 // Formats `message` as diagnostics lines: each line of the message gets the
 // "<level>: " prefix, and "<component>: " from info down, and ends with a
-// newline. A trailing newline of the message adds no empty line.
+// newline. A trace line starts with `time` ("12:34:56.789012") and the
+// origin, padded to column 40. A trailing newline of the message adds no
+// empty line.
 [[nodiscard]] std::string FormatLogLines(LogLevel level, LogComponent component,
-                                         std::string_view message);
+                                         std::string_view message,
+                                         std::string_view time,
+                                         LogOrigin origin);
 
-// Configures the process's diagnostics. Call it once, at startup, before
-// other threads log.
-void ConfigureLogging(const LogFilter& filter);
+// Configures the process's diagnostics, opening the files the filter names.
+// Call it once, at startup, before other threads log. Fails with
+// kUnavailable when a file cannot be opened.
+[[nodiscard]] std::expected<void, Error> ConfigureLogging(
+    const LogFilter& filter);
 
 // Whether a message of `level` from `component` is shown.
 [[nodiscard]] bool IsLogEnabled(LogComponent component, LogLevel level);
 
 // Writes `message` to stderr, when its level is enabled, with one write so
-// that lines of concurrent messages do not interleave. For callers that
-// already have the message, such as the libraries' log callbacks; code that
-// formats one uses the UMBRA_LOG_* macros.
-void Log(LogLevel level, LogComponent component, std::string_view message);
+// that lines of concurrent messages do not interleave; a trace line names
+// `origin`. For callers that already have the message, such as the
+// libraries' log callbacks and the GPU module; code that formats one uses the
+// UMBRA_LOG_* macros.
+void LogAt(LogLevel level, LogComponent component, std::string_view message,
+           LogOrigin origin);
+
+// LogAt, from the caller's line.
+inline void Log(
+    LogLevel level, LogComponent component, std::string_view message,
+    std::source_location location = std::source_location::current()) {
+  LogAt(level, component, message,
+        {.file = location.file_name(), .line = location.line()});
+}
 
 }  // namespace umbra::core
 

@@ -161,16 +161,18 @@ std::expected<std::optional<LogLevel>, Error> FlagThreshold(
   return verbose == 2 ? LogLevel::kDebug : LogLevel::kTrace;
 }
 
-// The filter of the flags and UMBRA_LOG, the flags winning over its global
-// part.
+// The filter of the flags and UMBRA_LOG, the flags winning over the levels
+// of its global part.
 std::expected<LogFilter, Error> LoggingFilter(const ParsedCommand& global) {
   return FlagThreshold(global).and_then([](std::optional<LogLevel> threshold) {
     const std::string_view spec = Environment("UMBRA_LOG");
-    if (!threshold.has_value()) {
-      return umbra::core::ParseLogFilter(spec);
+    auto filter = umbra::core::ParseLogFilter(spec);
+    if (!filter.has_value() || !threshold.has_value()) {
+      return filter;
     }
-    return umbra::core::ParseLogFilter(ComponentEntries(spec),
-                                       LogFilter(*threshold));
+    // The flags set the level of every component; the destinations stay.
+    filter->SetThreshold(*threshold);
+    return umbra::core::ParseLogFilter(ComponentEntries(spec), *filter);
   });
 }
 
@@ -180,7 +182,10 @@ std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
   if (!filter.has_value()) {
     return std::unexpected(filter.error());
   }
-  umbra::core::ConfigureLogging(*filter);
+  if (auto configured = umbra::core::ConfigureLogging(*filter);
+      !configured.has_value()) {
+    return configured;
+  }
   if (global.Count("verbose") > 2 && !umbra::core::IsTraceCompiled()) {
     UMBRA_LOG_WARNING(kCore,
                       "trace messages exist in debug builds only; this is a "
@@ -351,7 +356,11 @@ int main(int argc, char** argv) {
   }
   const ParsedCommand& global = command_line->global;
   if (auto configured = ConfigureLogging(global); !configured.has_value()) {
-    return UsageError(configured.error());
+    // A bad UMBRA_LOG or flag is a usage error; a log file that cannot be
+    // opened is a failure.
+    return configured.error().code() == ErrorCode::kInvalidArgument
+               ? UsageError(configured.error())
+               : Failure(configured.error());
   }
   if (global.Count("help") > 0) {
     std::print("{}", umbra::cli::FormatHelp(kProgram, kCommands));

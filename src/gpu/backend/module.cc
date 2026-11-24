@@ -16,13 +16,16 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <expected>
 #include <format>
 #include <iterator>
+#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "umbra/core/log.h"
@@ -52,15 +55,36 @@ void SetLog(ModuleLogFunction log, core::LogLevel threshold) {
 }
 
 // Logs a message through umbra, formatting it only when it will be shown.
+// A format string and the source line it is written on.
 template <typename... Args>
-void Log(core::LogLevel level, std::format_string<Args...> format,
-         Args&&... args) {
+struct LocatedFormat {
+  template <typename Text>
+    requires std::convertible_to<const Text&, std::string_view>
+  // A string literal converts to it, as to std::format_string.
+  // NOLINTBEGIN(cppcoreguidelines-explicit-constructor): see above.
+  // NOLINTBEGIN(misc-explicit-constructor): see above.
+  // NOLINTBEGIN(google-explicit-constructor): see above.
+  consteval LocatedFormat(const Text& text, std::source_location location =
+                                                std::source_location::current())
+      : format(text), location(location) {}
+  // NOLINTEND(google-explicit-constructor)
+  // NOLINTEND(misc-explicit-constructor)
+  // NOLINTEND(cppcoreguidelines-explicit-constructor)
+
+  std::format_string<Args...> format;
+  std::source_location location;
+};
+
+template <typename... Args>
+void Log(core::LogLevel level,
+         LocatedFormat<std::type_identity_t<Args>...> format, Args&&... args) {
   const ModuleLogFunction log = Logging().log.load(std::memory_order_relaxed);
   if (log == nullptr ||
       level > Logging().threshold.load(std::memory_order_relaxed)) {
     return;
   }
-  log(level, std::format(format, std::forward<Args>(args)...));
+  log(level, std::format(format.format, std::forward<Args>(args)...),
+      {.file = format.location.file_name(), .line = format.location.line()});
 }
 
 // Errors inside the module are messages; the entry points turn them into a

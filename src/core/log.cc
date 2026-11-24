@@ -3,6 +3,7 @@
 
 #include "umbra/core/log.h"
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -10,12 +11,17 @@
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
+#include <ctime>
 #include <expected>
 #include <format>
+#include <functional>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "umbra/core/error.h"
@@ -32,18 +38,28 @@ constexpr std::array<LogLevel, 5> kLevels = {
     LogLevel::kDebug, LogLevel::kTrace,
 };
 
+// The column the message of a trace line starts at, after its time and
+// origin.
+constexpr std::size_t kTraceMessageColumn = 40;
+
 constexpr std::size_t Index(LogComponent component) {
   return static_cast<std::size_t>(component);
 }
 
-// The thresholds of the process's diagnostics. Each is read on every log call
-// and written only by ConfigureLogging, so relaxed atomics suffice.
+// The thresholds and outputs of the process's diagnostics. Each is read on
+// every log call and written only by ConfigureLogging, so relaxed atomics
+// suffice.
 struct LoggingState {
   std::array<std::atomic<LogLevel>, kLogComponentCount> thresholds{};
+  // The file descriptor of each component's messages.
+  std::array<std::atomic<int>, kLogComponentCount> outputs{};
 
   LoggingState() {
     for (auto& threshold : thresholds) {
       threshold.store(LogLevel::kWarning, std::memory_order_relaxed);
+    }
+    for (auto& output : outputs) {
+      output.store(STDERR_FILENO, std::memory_order_relaxed);
     }
   }
 };
@@ -78,50 +94,146 @@ Error BadEntry(std::string_view entry, std::string_view reason) {
           std::format("invalid log filter entry '{}': {}", entry, reason)};
 }
 
-// Applies one entry of a filter ("debug" or "gpu=trace") onto `filter`.
+// Whether `destination` is one UMBRA_LOG accepts: a file descriptor from 2
+// to 9, or an absolute path.
+bool IsDestination(std::string_view destination) {
+  return (destination.size() == 1 && destination.front() >= '2' &&
+          destination.front() <= '9') ||
+         destination.starts_with('/');
+}
+
+// One entry of a filter, split: "gpu=trace:/tmp/x" is "gpu", "trace" and
+// "/tmp/x".
+struct Entry {
+  std::optional<std::string_view> component;
+  std::string_view level;
+  std::optional<std::string_view> destination;
+};
+
+Entry SplitEntry(std::string_view entry) {
+  Entry split;
+  if (const std::size_t equals = entry.find('=');
+      equals != std::string_view::npos) {
+    split.component = entry.substr(0, equals);
+    entry.remove_prefix(equals + 1);
+  }
+  const std::size_t colon = entry.find(':');
+  split.level = entry.substr(0, colon);
+  if (colon != std::string_view::npos) {
+    split.destination = entry.substr(colon + 1);
+  }
+  return split;
+}
+
+// Applies a parsed entry's level and destination onto `filter`, for
+// `component` or, without one, for every component.
+void Apply(const Entry& entry, LogLevel level,
+           std::optional<LogComponent> component, LogFilter& filter) {
+  if (component.has_value()) {
+    filter.SetThreshold(*component, level);
+  } else {
+    filter.SetThreshold(level);
+  }
+  if (!entry.destination.has_value()) {
+    return;
+  }
+  if (component.has_value()) {
+    filter.SetDestination(*component, *entry.destination);
+  } else {
+    filter.SetDestination(*entry.destination);
+  }
+}
+
+// Applies one entry of a filter ("debug", "gpu=trace" or "gpu=trace:3") onto
+// `filter`.
 std::expected<void, Error> ApplyEntry(std::string_view entry,
                                       LogFilter& filter) {
   if (entry.empty()) {
     return {};
   }
-  const std::size_t equals = entry.find('=');
-  const std::string_view level_name =
-      equals == std::string_view::npos ? entry : entry.substr(equals + 1);
-  const std::optional<LogLevel> level = ParseLevel(level_name);
+  const Entry split = SplitEntry(entry);
+  const std::optional<LogLevel> level = ParseLevel(split.level);
   if (!level.has_value()) {
     return std::unexpected(
         BadEntry(entry, "levels are error, warning, info, debug and trace"));
   }
-  if (equals == std::string_view::npos) {
-    filter.SetThreshold(*level);
-    return {};
+  if (split.destination.has_value() && !IsDestination(*split.destination)) {
+    return std::unexpected(
+        BadEntry(entry,
+                 "destinations are a file descriptor from 2 to 9 or an "
+                 "absolute path"));
   }
   const std::optional<LogComponent> component =
-      ParseComponent(entry.substr(0, equals));
-  if (!component.has_value()) {
+      split.component.and_then(ParseComponent);
+  if (split.component.has_value() && !component.has_value()) {
     return std::unexpected(
         BadEntry(entry,
                  "components are core, gpu, usd, osl, oiio, ocio, vdb, osd and "
                  "embree"));
   }
-  filter.SetThreshold(*component, *level);
+  Apply(split, *level, component, filter);
   return {};
 }
 
-// The prefix of every line of a message: "error: ", "info: gpu: ".
-std::string LinePrefix(LogLevel level, LogComponent component) {
-  if (level >= LogLevel::kInfo) {
-    return std::format("{}: {}: ", LogLevelName(level),
-                       LogComponentName(component));
+// The file descriptor of a destination: stderr when it is empty, the
+// descriptor it names, or a file it opens for appending.
+std::expected<int, Error> OpenDestination(std::string_view destination) {
+  if (destination.empty()) {
+    return STDERR_FILENO;
   }
-  return std::format("{}: ", LogLevelName(level));
+  if (!destination.starts_with('/')) {
+    return destination.front() - '0';
+  }
+  const std::string path(destination);
+  constexpr int kMode = 0644;
+  constexpr int kFlags = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): open is variadic.
+  const int file = open(path.c_str(), kFlags, kMode);
+  if (file < 0) {
+    return std::unexpected(
+        Error(ErrorCode::kUnavailable,
+              std::format("cannot open the log file '{}': {}", path,
+                          std::generic_category().message(errno))));
+  }
+  return file;
 }
 
-// Writes all of `text` to stderr. A diagnostic that cannot be written is
+// The prefix of every line of a message: "error: ", "info: gpu: ", and for
+// a trace line "12:34:56.789012 src/gpu/module.cc:161   trace: gpu: ".
+std::string LinePrefix(LogLevel level, LogComponent component,
+                       std::string_view time, LogOrigin origin) {
+  if (level < LogLevel::kInfo) {
+    return std::format("{}: ", LogLevelName(level));
+  }
+  std::string prefix;
+  if (level == LogLevel::kTrace) {
+    prefix = std::format("{} {}:{} ", time, origin.file, origin.line);
+    prefix.resize(std::max(prefix.size(), kTraceMessageColumn), ' ');
+  }
+  std::format_to(std::back_inserter(prefix), "{}: {}: ", LogLevelName(level),
+                 LogComponentName(component));
+  return prefix;
+}
+
+// The local time of day, to the microsecond: "12:34:56.789012".
+std::string TimeOfDay() {
+  std::timespec now{};
+  if (std::timespec_get(&now, TIME_UTC) == 0) {
+    return "--:--:--.------";
+  }
+  std::tm local{};
+  localtime_r(&now.tv_sec, &local);
+  constexpr std::int64_t kNanosecondsPerMicrosecond = 1000;
+  return std::format("{:02}:{:02}:{:02}.{:06}", local.tm_hour, local.tm_min,
+                     local.tm_sec,
+                     std::int64_t{now.tv_nsec} / kNanosecondsPerMicrosecond);
+}
+
+// Writes all of `text` to `output`. A diagnostic that cannot be written is
 // dropped: there is nowhere left to report it.
-void WriteToStderr(std::string_view text) {
+void WriteAll(int output, std::string_view text) {
   while (!text.empty()) {
-    const auto written = write(STDERR_FILENO, text.data(), text.size());
+    const auto written = write(output, text.data(), text.size());
     if (written < 0 && errno == EINTR) {
       continue;
     }
@@ -170,6 +282,19 @@ LogLevel LogFilter::threshold(LogComponent component) const {
   return thresholds_.at(Index(component));
 }
 
+std::string_view LogFilter::destination(LogComponent component) const {
+  return destinations_.at(Index(component));
+}
+
+void LogFilter::SetDestination(std::string_view destination) {
+  destinations_.fill(std::string(destination));
+}
+
+void LogFilter::SetDestination(LogComponent component,
+                               std::string_view destination) {
+  destinations_.at(Index(component)) = destination;
+}
+
 void LogFilter::SetThreshold(LogLevel threshold) {
   thresholds_.fill(threshold);
 }
@@ -194,8 +319,9 @@ std::expected<LogFilter, Error> ParseLogFilter(std::string_view spec,
 }
 
 std::string FormatLogLines(LogLevel level, LogComponent component,
-                           std::string_view message) {
-  const std::string prefix = LinePrefix(level, component);
+                           std::string_view message, std::string_view time,
+                           LogOrigin origin) {
+  const std::string prefix = LinePrefix(level, component, time, origin);
   if (message.ends_with('\n')) {
     message.remove_suffix(1);
   }
@@ -211,13 +337,26 @@ std::string FormatLogLines(LogLevel level, LogComponent component,
   }
 }
 
-void ConfigureLogging(const LogFilter& filter) {
+std::expected<void, Error> ConfigureLogging(const LogFilter& filter) {
   LoggingState& state = State();
+  // Each file is opened once, however many components write to it.
+  std::map<std::string, int, std::less<>> opened;
   for (std::size_t index = 0; index < kLogComponentCount; ++index) {
-    state.thresholds.at(index).store(
-        filter.threshold(static_cast<LogComponent>(index)),
-        std::memory_order_relaxed);
+    const auto component = static_cast<LogComponent>(index);
+    const std::string_view destination = filter.destination(component);
+    auto output =
+        opened.contains(destination)
+            ? std::expected<int, Error>(opened.find(destination)->second)
+            : OpenDestination(destination);
+    if (!output.has_value()) {
+      return std::unexpected(std::move(output.error()));
+    }
+    opened.emplace(destination, *output);
+    state.thresholds.at(index).store(filter.threshold(component),
+                                     std::memory_order_relaxed);
+    state.outputs.at(index).store(*output, std::memory_order_relaxed);
   }
+  return {};
 }
 
 bool IsLogEnabled(LogComponent component, LogLevel level) {
@@ -226,11 +365,15 @@ bool IsLogEnabled(LogComponent component, LogLevel level) {
                       .load(std::memory_order_relaxed);
 }
 
-void Log(LogLevel level, LogComponent component, std::string_view message) {
+void LogAt(LogLevel level, LogComponent component, std::string_view message,
+           LogOrigin origin) {
   if (!IsLogEnabled(component, level)) {
     return;
   }
-  WriteToStderr(FormatLogLines(level, component, message));
+  const std::string time =
+      level == LogLevel::kTrace ? TimeOfDay() : std::string();
+  WriteAll(State().outputs.at(Index(component)).load(std::memory_order_relaxed),
+           FormatLogLines(level, component, message, time, origin));
 }
 
 }  // namespace umbra::core

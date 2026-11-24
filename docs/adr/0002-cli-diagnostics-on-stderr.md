@@ -10,7 +10,7 @@ error: unknown device 'gpu3'; run umbra devices to list them
 warning: /World/Lamp: unsupported light type 'PortalLight', ignored
 info: gpu: OptiX 9.1, device 0: RTX 5090 (sm_120)
 debug: usd: stage opened in 120 ms (3 layers)
-trace: gpu: frame 12: 4096 spp, 38.2 ms
+12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 4096 spp, 38.2 ms
 ```
 
 The levels are fatal, error, warning, info, debug and trace, and by default
@@ -18,15 +18,22 @@ umbra shows fatal errors, errors and warnings. Fatal is the error umbra gives
 up on, after which it exits. The flags `-q` (errors only), `-v` (info), `-vv`
 (debug) and `-vvv` (trace) set the level. `UMBRA_LOG` sets it too, per
 component: `UMBRA_LOG=warn,gpu=trace` shows warnings and everything from
-`gpu`. The flags take precedence over the variable. The component is shown
-from info down, where it helps to tell sources apart; errors and warnings are
-for the user and stay plain.
+`gpu`. The flags take precedence over the levels of the variable. The
+component is shown from info down, where it helps to tell sources apart;
+errors and warnings are for the user and stay plain. A trace line starts with
+the local time, to the microsecond, and the source line it comes from,
+relative to the repository, with its message from column 40.
+
+An entry of `UMBRA_LOG` can end with a destination for the messages it
+enables: a file descriptor from 2 to 9 (`UMBRA_LOG=debug:3`), or the absolute
+path of a file they are appended to (`UMBRA_LOG=warn,gpu=trace:/tmp/gpu.log`
+keeps warnings on stderr and sends `gpu` to the file). A destination that
+cannot be opened stops umbra before any work starts.
 
 The logger is umbra's own, in `core`, on `std::format`: the format above
-needs none of what logging libraries add (sinks, files, rotation,
-asynchronous queues), and their default formats are those of servers, with
-timestamps and thread ids. umbra writes no log file: a user who wants one
-redirects stderr. A message is formatted in full and written with a single
+needs none of what logging libraries add (sinks, rotation, asynchronous
+queues), and their default formats are those of servers, with timestamps and
+thread ids on every line. A message is formatted in full and written with a single
 `write`, so that lines from parallel tasks do not interleave. A disabled level
 costs one comparison, and its arguments are not formatted.
 

@@ -54,9 +54,10 @@ inline ModuleStatus FailedStatus(std::string_view message) {
 
 // umbra's diagnostics, as the loader hands them to the module: the module
 // keeps no logging state of its own and logs through this function, as the
-// gpu component.
+// gpu component, from the source line `origin` names.
 using ModuleLogFunction = void (*)(core::LogLevel level,
-                                   std::string_view message);
+                                   std::string_view message,
+                                   core::LogOrigin origin);
 
 // Whether the module can run on a GPU, or why not.
 enum class GpuUsability : std::uint8_t {

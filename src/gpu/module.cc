@@ -41,8 +41,9 @@ std::string DlError() {
 }
 
 // The module's diagnostics, under the gpu component.
-void LogFromModule(core::LogLevel level, std::string_view message) {
-  core::Log(level, core::LogComponent::kGpu, message);
+void LogFromModule(core::LogLevel level, std::string_view message,
+                   core::LogOrigin origin) {
+  core::LogAt(level, core::LogComponent::kGpu, message, origin);
 }
 
 // The lowest level of the gpu component that is shown.
@@ -186,7 +187,6 @@ Module::~Module() {
   }
 }
 
-
 std::expected<GpuDevices, Error> Module::DescribeDevices() const {
   const auto inventory = std::make_unique<GpuInventory>();
   if (auto described = ResultOf(api_->describe_devices(inventory.get()));
@@ -213,6 +213,5 @@ std::expected<GpuDevices, Error> DescribeGpus(
   return Module::Load(path).and_then(
       [](const Module& module) { return module.DescribeDevices(); });
 }
-
 
 }  // namespace umbra::gpu
