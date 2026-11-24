@@ -34,3 +34,7 @@
 	path = third_party/OpenSubdiv
 	url = https://github.com/PixarAnimationStudios/OpenSubdiv.git
 	shallow = true
+[submodule "third_party/MaterialX"]
+	path = third_party/MaterialX
+	url = https://github.com/AcademySoftwareFoundation/MaterialX.git
+	shallow = true

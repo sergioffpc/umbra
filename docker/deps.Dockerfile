@@ -32,10 +32,18 @@ ARG TOOLCHAIN_IMAGE
 #
 #   /opt/cuda                  nvcc, crt, libnvvm, cudart and CCCL (bin/,
 #                              include/, lib/, nvvm/); CUDAToolkit_ROOT
+#   /opt/cuda/bin              also cuobjdump and nvdisasm, to inspect the
+#                              SASS and PTX in a binary, cuda-gdb, to debug
+#                              kernels, and compute-sanitizer
+#                              (/opt/cuda/compute-sanitizer), the memcheck,
+#                              initcheck, racecheck and synccheck tools;
+#                              cuda-gdb is GPL-3.0-or-later, and its source
+#                              stays in extras/, as NVIDIA ships it
 #   /opt/cuda/optix/include    the OptiX headers; OptiX_INSTALL_DIR
 #
-# The Nsight profilers are developer-only tools, so they stay out of this
-# image, which CI pulls too.
+# The debugger and the sanitizer need a GPU, so only a GPU host uses them. The
+# Nsight profilers are developer-only tools, so they stay out of this image,
+# which CI pulls too.
 #
 # Since CUDA 13.4 the toolkit carries no driver: the driver (libcuda.so.1) and
 # the OptiX runtime come from the host. nvcc compiles device code only, with
@@ -50,6 +58,14 @@ ARG LIBNVVM_VERSION=13.5.37
 ARG LIBNVVM_SHA256=8dd4866e387f0ce2259e8dcc91bebdbb59f84c6d4505b3bba46ae91b9a11dd16
 ARG CUDA_CUDART_VERSION=13.5.37
 ARG CUDA_CUDART_SHA256=26ca1b8963ce1b73e0e77113c711730545cacaaee7233c0526477d96d4c621fe
+ARG CUDA_CUOBJDUMP_VERSION=13.5.37
+ARG CUDA_CUOBJDUMP_SHA256=cef2d02c05b3f6300ac8972ddb960feb899e614575476bf45dbbdf70c330d2ae
+ARG CUDA_NVDISASM_VERSION=13.5.37
+ARG CUDA_NVDISASM_SHA256=6af64b980dcd571657350949f0843e7f851b32e7294e1c3f1acc294ad327ee6e
+ARG CUDA_SANITIZER_API_VERSION=13.5.25
+ARG CUDA_SANITIZER_API_SHA256=483451f82bc238002cd569f8595305d3fc023cd9d36398d033a40edb96b5bcbf
+ARG CUDA_GDB_VERSION=13.5.25
+ARG CUDA_GDB_SHA256=65d86e2c81dd4d2afcdeef6c839d433aa23f48a4431ccaf5700928853b51855e
 ARG CCCL_VERSION=13.3.5.0.6
 ARG CCCL_SHA256=5139f641e72df6b0c64ee9e68cabaeafa9a5e36a4b1f7d370a1dc0dac62dd72f
 ARG OPTIX_VERSION=9.1.0
@@ -71,11 +87,17 @@ RUN set -eu; \
     fetch libnvvm "$LIBNVVM_VERSION" "$LIBNVVM_SHA256"; \
     fetch cuda_cudart "$CUDA_CUDART_VERSION" "$CUDA_CUDART_SHA256"; \
     fetch cccl "$CCCL_VERSION" "$CCCL_SHA256"; \
+    fetch cuda_cuobjdump "$CUDA_CUOBJDUMP_VERSION" "$CUDA_CUOBJDUMP_SHA256"; \
+    fetch cuda_nvdisasm "$CUDA_NVDISASM_VERSION" "$CUDA_NVDISASM_SHA256"; \
+    fetch cuda_sanitizer_api "$CUDA_SANITIZER_API_VERSION" \
+      "$CUDA_SANITIZER_API_SHA256"; \
+    fetch cuda_gdb "$CUDA_GDB_VERSION" "$CUDA_GDB_SHA256"; \
     curl -fsSLo optix.tar.gz \
       "https://github.com/NVIDIA/optix-dev/archive/refs/tags/v${OPTIX_VERSION}.tar.gz"; \
     echo "$OPTIX_SHA256  optix.tar.gz" | sha256sum -c -; \
     install -d /opt/cuda/optix; \
-    for component in cuda_nvcc cuda_crt libnvvm cuda_cudart cccl; do \
+    for component in cuda_nvcc cuda_crt libnvvm cuda_cudart cccl \
+                     cuda_cuobjdump cuda_nvdisasm cuda_sanitizer_api cuda_gdb; do \
       tar -xJf "$component.tar.xz" -C /opt/cuda --strip-components=1; \
     done; \
     tar -xzf optix.tar.gz -C /opt/cuda/optix --strip-components=1; \
@@ -84,6 +106,9 @@ WORKDIR /
 # nvcc links from lib64/, as in the toolkit installers; the archives use lib/.
 RUN ln -s lib /opt/cuda/lib64 \
  && /opt/cuda/bin/nvcc --version \
+ && /opt/cuda/bin/cuobjdump --version \
+ && /opt/cuda/bin/cuda-gdb --version \
+ && /opt/cuda/bin/compute-sanitizer --version \
  && printf '%s\n' "CUDA ${CUDA_VERSION}, OptiX ${OPTIX_VERSION}" >/opt/cuda/version.txt
 ENV PATH=/opt/cuda/bin:${PATH} \
     CUDAToolkit_ROOT=/opt/cuda \

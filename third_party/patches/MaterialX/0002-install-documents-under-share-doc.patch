@@ -1,0 +1,19 @@
+Install the top-level documents under share/doc/MaterialX.
+
+MaterialX installs LICENSE, README.md, CHANGELOG.md and THIRD-PARTY.md at
+the root of the install prefix, which the deps layer shares with every
+other dependency.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4a68f062..06b88901 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -656,7 +656,7 @@ endif()
+ 
+ # Install root-level documents
+ if(NOT SKBUILD)
+-    install(FILES LICENSE CHANGELOG.md README.md THIRD-PARTY.md DESTINATION .)
++    install(FILES LICENSE CHANGELOG.md README.md THIRD-PARTY.md DESTINATION share/doc/MaterialX)
+ 
+     set(MATERIALX_GEN_CONFIG_PATH "${MATERIALX_INSTALL_LIB_PATH}/cmake/${CMAKE_PROJECT_NAME}")
+ 
