@@ -33,6 +33,7 @@ different section 6 (Trademarks).
 | libtiff | `third_party/libtiff` | `v4.7.2` | `d01a94be176f5f6a87f7ee1c0b32e65416aa2b4d` | `libtiff` |
 | pugixml | `third_party/pugixml` | `v1.16` | `c8033ce9d039e7f9d134877c363397b3cfe20816` | `MIT` |
 | OpenImageIO | `third_party/OpenImageIO` | `v3.2.2.0` | `96377f681cc9e6650c8534671f4fc36b3c8acbc1` | `Apache-2.0` |
+| OpenVDB | `third_party/openvdb` | `v14.0.0` | `ecae2bda85744412b0cd47e1b8e1e4e76beb7b88` | `Apache-2.0` |
 
 ## Ubuntu packages
 
@@ -47,9 +48,9 @@ C library: Ubuntu's `libtiff6` links the C++ `liblerc4`.
 |---|---|---|---|
 | hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
 | libdeflate | OpenEXR (ZIP compression) | `libdeflate-dev`, `libdeflate0` | `MIT` |
-| zstd | OpenEXR (ZSTD compression) | `libzstd-dev`, `libzstd1` | `BSD-3-Clause OR GPL-2.0-only` |
+| zstd | OpenEXR, OpenVDB (ZSTD compression) | `libzstd-dev`, `libzstd1` | `BSD-3-Clause OR GPL-2.0-only` |
 | expat | OpenColorIO (CLF and CTF transform files) | `libexpat1-dev`, `libexpat1` | `MIT` |
-| zlib | OpenColorIO, through minizip-ng | `zlib1g-dev`, `zlib1g` | `Zlib` |
+| zlib | OpenColorIO, through minizip-ng; OpenVDB and NanoVDB (ZIP compression) | `zlib1g-dev`, `zlib1g` | `Zlib` |
 | minizip-ng | OpenColorIO (`.ocioz` config archives) | `libminizip-ng-dev`, `libminizip-ng4t64` | `Zlib` |
 | libjpeg-turbo | OpenImageIO (JPEG), libtiff (JPEG compression) | `libjpeg-turbo8-dev`, `libjpeg-turbo8` | `IJG AND BSD-3-Clause AND Zlib` |
 | libpng | OpenImageIO (PNG), FreeType | `libpng-dev`, `libpng16-16t64` | `libpng-2.0` |
