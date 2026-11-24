@@ -104,7 +104,10 @@ runs:
                 third_party/patches/openexr \
                 third_party/OpenSubdiv \
                 third_party/config/OpenSubdiv.cmake \
-                third_party/patches/OpenSubdiv
+                third_party/patches/OpenSubdiv \
+                third_party/MaterialX \
+                third_party/config/MaterialX.cmake \
+                third_party/patches/MaterialX
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

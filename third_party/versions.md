@@ -24,6 +24,7 @@ different section 6 (Trademarks).
 | Imath | `third_party/Imath` | `v3.2.3` | `5f27ba266d3ea1565e912570c30b5eafc89959f1` | `BSD-3-Clause` |
 | OpenEXR | `third_party/openexr` | `v3.5.5` | `486e238dd28ba6fed22528005b05f9f15bef0cc0` | `BSD-3-Clause` |
 | OpenSubdiv | `third_party/OpenSubdiv` | `v3_8_0` | `1d90921ea32b9dcae31d30b907cbacefc0c616bf` | `LicenseRef-TOST-1.0` |
+| MaterialX | `third_party/MaterialX` | `v1.39.5` | `7b64921ef1d42f2d57871e9d2c43dc11f041f26b` | `Apache-2.0` |
 
 ## Ubuntu packages
 
@@ -52,5 +53,7 @@ inside an application under the CUDA EULA (Attachment A). The shared
 | Name | Version | Source | License |
 |---|---|---|---|
 | CUDA Toolkit components (nvcc, crt, libnvvm, cudart) | 13.5.37 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA |
+| CUDA developer tools (cuobjdump, nvdisasm) | 13.5.37 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA |
+| CUDA developer tools (compute-sanitizer, cuda-gdb) | 13.5.25 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA (cuda-gdb: GPL-3.0-or-later, with its source in `/opt/cuda/extras/`) |
 | CCCL | 13.3.5.0.6 | NVIDIA CUDA redist archives | CCCL EULA |
 | OptiX headers | 9.1.0 | `NVIDIA/optix-dev` release archive | NVIDIA DesignWorks SDK license (BSD-3-Clause for some headers) |

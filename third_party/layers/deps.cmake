@@ -2,8 +2,8 @@
 # Copyright The Umbra Authors
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
-# Benchmark, oneTBB, Embree, OpenQMC, Imath, OpenEXR and OpenSubdiv), built
-# with the toolchain image's clang.
+# Benchmark, oneTBB, Embree, OpenQMC, Imath, OpenEXR, OpenSubdiv and
+# MaterialX), built with the toolchain image's clang.
 # Every dependency is a Release shared library without LTO, against libc++,
 # for x86-64-v3, without exceptions where the project allows it, and finds
 # the libraries next to it through RUNPATH ($ORIGIN).
@@ -64,7 +64,8 @@ set(umbra_deps_cmake_args
 
 # Dependencies that build against another dependency of the layer find it in
 # the install prefix (under the staging directory when there is one).
-set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv)
+set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
+  MaterialX)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_depends_openexr oneTBB Imath)
 set(umbra_deps_depends_OpenSubdiv oneTBB)

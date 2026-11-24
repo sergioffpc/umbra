@@ -31,4 +31,7 @@
 !third_party/config/OpenSubdiv.cmake
 !third_party/patches/OpenSubdiv/
 !third_party/OpenSubdiv/
+!third_party/config/MaterialX.cmake
+!third_party/patches/MaterialX/
+!third_party/MaterialX/
 **/.git
