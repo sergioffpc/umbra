@@ -19,4 +19,7 @@
 !third_party/config/embree.cmake
 !third_party/patches/embree/
 !third_party/embree/
+!third_party/config/openqmc.cmake
+!third_party/patches/openqmc/
+!third_party/openqmc/
 **/.git
