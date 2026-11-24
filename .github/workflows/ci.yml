@@ -669,8 +669,10 @@ jobs:
       - name: Validators
         run: make __validators
 
+      # The recipe of `make lint`, whose other steps are the step above and
+      # the format job.
       - name: Lint
-        run: make __tidy
+        run: python3 -m checks.lint
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
   # accepts cycles between static libraries, so tsort checks the graph that

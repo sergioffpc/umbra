@@ -20,7 +20,7 @@ PYTHON = python3
 
 .DEFAULT_GOAL := all
 .PHONY: all check release sanitizers coverage format lint clean distclean \
-	help __asan __tsan __validators __format-check __tidy
+	help __asan __tsan __validators __format-check
 
 all: ## Debug build
 	$(CMAKE) --preset debug
@@ -81,7 +81,10 @@ coverage: ## Coverage build, tests and report (build/coverage/report)
 format: ## Format the C++ and Python sources
 	$(PYTHON) -m checks.formatting
 
-lint: __validators __format-check __tidy ## Check without changing anything: validators, formatting, static analysis
+# After the validators and the formatting: clang-tidy, the clang-query
+# rules, pylint, actionlint and the Python embedded in the workflows.
+lint: __validators __format-check ## Check without changing anything: validators, formatting, static analysis
+	$(PYTHON) -m checks.lint
 
 # The validators shared with the git hooks: the file validators on every
 # tracked file, the current branch name and the commit messages since develop.
@@ -92,11 +95,6 @@ __validators:
 
 __format-check:
 	$(PYTHON) -m checks.formatting --check
-
-# clang-tidy, the clang-query rules, pylint, actionlint and the Python
-# embedded in the workflows.
-__tidy:
-	$(PYTHON) -m checks.lint
 
 # A build tree that was never configured has nothing to clean.
 clean: ## Remove what the builds built, keeping their configuration
