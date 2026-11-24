@@ -16,32 +16,36 @@ PYTHON = python3
 # No implicit rules: every target is explicit.
 .SUFFIXES:
 
-.DEFAULT_GOAL := all
-.PHONY: all check release sanitizers coverage format lint clean distclean \
-	help
+# The CMake preset that `make all` and `make check` build: debug (the
+# default) or release (LTO), e.g. `make check PRESET=release`.
+PRESET = debug
+ifeq ($(filter $(PRESET),debug release),)
+$(error PRESET must be debug or release, not '$(PRESET)')
+endif
 
-all: ## Debug build
-	$(CMAKE) --preset debug
-	$(CMAKE) --build --preset debug
+.DEFAULT_GOAL := all
+.PHONY: all check check-asan check-tsan check-all coverage format lint clean \
+	distclean help
+
+all: ## Build (PRESET=debug, the default, or PRESET=release)
+	$(CMAKE) --preset $(PRESET)
+	$(CMAKE) --build --preset $(PRESET)
 
 # LABEL=<regex> runs only the tests with a matching CTest label, e.g.
 # `make check LABEL=gpu` on a GPU host.
-check: all ## Debug build and run the tests (without the GPU tests; LABEL=gpu for only those)
+check: all ## Build and run the tests (without the GPU tests; LABEL=gpu for only those)
 ifeq ($(LABEL),)
-	$(CTEST) --preset debug
+	$(CTEST) --preset $(PRESET)
 else
-	$(CTEST) --test-dir build/debug --output-on-failure -L '$(LABEL)'
+	$(CTEST) --test-dir build/$(PRESET) --output-on-failure -L '$(LABEL)'
 endif
-
-release: ## Release build (LTO) and run the tests
-	$(CMAKE) --workflow --preset release
 
 # LABEL=<regex> also selects the tests of the sanitizer builds, and runs them
 # under NVIDIA's compute-sanitizer too, which checks the kernels they launch:
 # memcheck (out-of-bounds and misaligned device accesses, device memory
 # leaks) and initcheck (reads of uninitialized device memory) with asan,
 # racecheck (shared-memory races) and synccheck (misused barriers) with tsan.
-# For example `make sanitizers LABEL=gpu` on a GPU host.
+# For example `make check-asan LABEL=gpu` on a GPU host.
 #
 # AddressSanitizer keeps the shadow gap of the address space unmapped, where
 # the CUDA driver maps device memory, so that cudaMalloc would fail with out
@@ -49,10 +53,9 @@ release: ## Release build (LTO) and run the tests
 GPU_SANITIZER = compute-sanitizer --error-exitcode 1 --target-processes all
 ASAN_GPU_OPTIONS = protect_shadow_gap=0
 
-sanitizers: ## ASan + UBSan, then TSan + UBSan integer checks: build and run the tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
+check-asan: ## ASan + UBSan build and tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
 ifeq ($(LABEL),)
 	$(CMAKE) --workflow --preset asan
-	$(CMAKE) --workflow --preset tsan
 else
 	$(CMAKE) --preset asan
 	$(CMAKE) --build --preset asan
@@ -60,11 +63,19 @@ else
 	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
 	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool initcheck \
 	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
+endif
+
+check-tsan: ## TSan + UBSan integer checks build and tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
+ifeq ($(LABEL),)
+	$(CMAKE) --workflow --preset tsan
+else
 	$(CMAKE) --preset tsan
 	$(CMAKE) --build --preset tsan
 	$(GPU_SANITIZER) --tool racecheck $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)'
 	$(GPU_SANITIZER) --tool synccheck $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)'
 endif
+
+check-all: lint check check-asan check-tsan ## lint, check, check-asan and check-tsan: everything before a pull request
 
 coverage: ## Coverage build, tests and report (build/coverage/report)
 	$(CMAKE) --workflow --preset coverage
@@ -95,5 +106,5 @@ distclean: ## Remove the build trees, with their configuration
 	rm -rf build
 
 help: ## List the targets
-	@awk -F ':.*## ' '/^[a-z-]+:.*## / { printf "  %-10s %s\n", $$1, $$2 }' \
+	@awk -F ':.*## ' '/^[a-z-]+:.*## / { printf "  %-11s %s\n", $$1, $$2 }' \
 		$(MAKEFILE_LIST)
