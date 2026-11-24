@@ -98,7 +98,10 @@ runs:
                 third_party/patches/openqmc \
                 third_party/Imath \
                 third_party/config/Imath.cmake \
-                third_party/patches/Imath
+                third_party/patches/Imath \
+                third_party/openexr \
+                third_party/config/openexr.cmake \
+                third_party/patches/openexr
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

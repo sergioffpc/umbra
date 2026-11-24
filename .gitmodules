@@ -26,3 +26,7 @@
 	path = third_party/Imath
 	url = https://github.com/AcademySoftwareFoundation/Imath.git
 	shallow = true
+[submodule "third_party/openexr"]
+	path = third_party/openexr
+	url = https://github.com/AcademySoftwareFoundation/openexr.git
+	shallow = true

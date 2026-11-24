@@ -25,4 +25,7 @@
 !third_party/config/Imath.cmake
 !third_party/patches/Imath/
 !third_party/Imath/
+!third_party/config/openexr.cmake
+!third_party/patches/openexr/
+!third_party/openexr/
 **/.git

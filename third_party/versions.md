@@ -18,6 +18,7 @@ expression.
 | Embree | `third_party/embree` | `v4.5.0` | `3b7e4ee746ce8ed25b206fb2f4d2709e9f8109ce` | `Apache-2.0` |
 | OpenQMC | `third_party/openqmc` | `v0.7.1` | `72617f52751d53a4ca49f60fd0cb4f5946236f2f` | `Apache-2.0` |
 | Imath | `third_party/Imath` | `v3.2.3` | `5f27ba266d3ea1565e912570c30b5eafc89959f1` | `BSD-3-Clause` |
+| OpenEXR | `third_party/openexr` | `v3.5.5` | `486e238dd28ba6fed22528005b05f9f15bef0cc0` | `BSD-3-Clause` |
 
 ## Ubuntu packages
 
@@ -29,6 +30,8 @@ in the image. Only the libraries umbra itself builds against are submodules.
 | Name | Needed by | Packages | License |
 |---|---|---|---|
 | hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
+| libdeflate | OpenEXR (ZIP compression) | `libdeflate-dev`, `libdeflate0` | `MIT` |
+| zstd | OpenEXR (ZSTD compression) | `libzstd-dev`, `libzstd1` | `BSD-3-Clause OR GPL-2.0-only` |
 
 ## Proprietary build-time downloads
 

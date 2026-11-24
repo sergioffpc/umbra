@@ -2,8 +2,8 @@
 # Copyright The Umbra Authors
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
-# Benchmark, oneTBB, Embree, OpenQMC and Imath), built with the toolchain
-# image's clang.
+# Benchmark, oneTBB, Embree, OpenQMC, Imath and OpenEXR), built with the
+# toolchain image's clang.
 # Every dependency is a Release shared library without LTO, against libc++,
 # for x86-64-v3, without exceptions where the project allows it, and finds
 # the libraries next to it through RUNPATH ($ORIGIN).
@@ -30,6 +30,14 @@ set(umbra_deps_hwloc_args
   "-DCMAKE_HWLOC_2_5_LIBRARY_PATH=${UMBRA_HWLOC_LIBRARY}"
   "-DCMAKE_HWLOC_2_5_INCLUDE_PATH=${UMBRA_HWLOC_INCLUDE_DIR}")
 
+# libdeflate and zstd, Ubuntu packages (libdeflate-dev, libzstd-dev), for
+# OpenEXR, which finds them itself but falls back to vendored copies without
+# a word when they are missing: requiring them here makes that an error.
+find_library(UMBRA_DEFLATE_LIBRARY deflate REQUIRED)
+find_path(UMBRA_DEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
+find_library(UMBRA_ZSTD_LIBRARY zstd REQUIRED)
+find_path(UMBRA_ZSTD_INCLUDE_DIR zstd.h REQUIRED)
+
 # Settings shared by every dependency of the layer; config/<dependency>.cmake
 # adds the project's own options.
 set(umbra_deps_cmake_args
@@ -45,8 +53,9 @@ set(umbra_deps_cmake_args
 
 # Dependencies that build against another dependency of the layer find it in
 # the install prefix (under the staging directory when there is one).
-set(umbra_deps googletest benchmark oneTBB embree openqmc Imath)
+set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr)
 set(umbra_deps_depends_embree oneTBB)
+set(umbra_deps_depends_openexr oneTBB Imath)
 set(umbra_deps_args_oneTBB ${umbra_deps_hwloc_args})
 foreach(dependency IN LISTS umbra_deps)
   umbra_add_dependency(${dependency}
