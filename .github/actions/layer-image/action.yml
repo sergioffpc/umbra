@@ -134,7 +134,10 @@ runs:
                 third_party/patches/OpenImageIO \
                 third_party/openvdb \
                 third_party/config/openvdb.cmake \
-                third_party/patches/openvdb
+                third_party/patches/openvdb \
+                third_party/OpenShadingLanguage \
+                third_party/config/OpenShadingLanguage.cmake \
+                third_party/patches/OpenShadingLanguage
               ;;
             *)
               echo "::error::unknown image layer '$1'" >&2

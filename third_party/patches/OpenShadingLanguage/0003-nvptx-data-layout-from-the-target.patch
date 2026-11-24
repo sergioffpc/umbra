@@ -1,0 +1,95 @@
+Take the NVPTX data layout from the LLVM target.
+
+OSL sets a fixed NVPTX data layout on the modules it compiles for OptiX.
+LLVM 23's NVPTX target has a different one, and code generation aborts:
+"Can't create a MachineFunction using a Module with a Target-incompatible
+DataLayout attached". The layout now comes from the NVPTX target machine,
+from LLVM 22 on (the Triple overload of lookupTarget).
+
+diff --git a/src/liboslexec/llvm_instance.cpp b/src/liboslexec/llvm_instance.cpp
+index 209799b6..a69f0b80 100644
+--- a/src/liboslexec/llvm_instance.cpp
++++ b/src/liboslexec/llvm_instance.cpp
+@@ -23,6 +23,9 @@
+ 
+ #if OSL_USE_OPTIX
+ #    include <llvm/Linker/Linker.h>
++#    include <llvm/MC/TargetRegistry.h>
++#    include <llvm/Target/TargetMachine.h>
++#    include <llvm/TargetParser/Triple.h>
+ #endif
+ 
+ // Create external declarations for all built-in funcs we may call from LLVM
+@@ -134,6 +137,32 @@ namespace pvt {
+ 
+ static spin_mutex llvm_mutex;
+ 
++#if OSL_USE_OPTIX
++// The data layout of LLVM's NVPTX target. It changes between LLVM releases
++// (LLVM 23 rejects the fixed string used before), so it comes from the
++// target itself.
++static std::string
++nvptx_data_layout()
++{
++#    if OSL_LLVM_VERSION >= 220
++    static const std::string layout = [] {
++        llvm::Triple triple("nvptx64-nvidia-cuda");
++        std::string error;
++        const llvm::Target* target
++            = llvm::TargetRegistry::lookupTarget(triple, error);
++        OSL_ASSERT(target && "NVPTX target is not initialized");
++        std::unique_ptr<llvm::TargetMachine> machine(
++            target->createTargetMachine(triple, "", "", llvm::TargetOptions(),
++                                        std::nullopt));
++        return machine->createDataLayout().getStringRepresentation();
++    }();
++    return layout;
++#    else
++    return "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64";
++#    endif
++}
++#endif
++
+ static ustring op_end("end");
+ static ustring op_nop("nop");
+ static ustring op_aassign("aassign");
+@@ -2114,8 +2143,7 @@ BackendLLVM::run()
+             // compiling will later fail because the NVPTX target is not found.
+             // The target triple and data layout used here are those specified
+             // for NVPTX (https://www.llvm.org/docs/NVPTXUsage.html#triples).
+-            ll.module()->setDataLayout(
+-                "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64");
++            ll.module()->setDataLayout(nvptx_data_layout());
+ #        if OSL_LLVM_VERSION < 210
+             ll.module()->setTargetTriple("nvptx64-nvidia-cuda");
+ #        else
+@@ -2183,8 +2211,7 @@ BackendLLVM::run()
+                     "llvm::parseBitcodeFile returned '{}' for cuda llvm_ops\n",
+                     err);
+ 
+-            shadeops_module->setDataLayout(
+-                "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64");
++            shadeops_module->setDataLayout(nvptx_data_layout());
+ #        if OSL_LLVM_VERSION < 210
+             shadeops_module->setTargetTriple("nvptx64-nvidia-cuda");
+ #        else
+@@ -2215,8 +2242,7 @@ BackendLLVM::run()
+                         "llvm::parseBitcodeFile returned '{}' for cuda llvm_ops\n",
+                         err);
+ 
+-                rend_lib_module->setDataLayout(
+-                    "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64");
++                rend_lib_module->setDataLayout(nvptx_data_layout());
+ #        if OSL_LLVM_VERSION < 210
+                 rend_lib_module->setTargetTriple("nvptx64-nvidia-cuda");
+ #        else
+@@ -2244,8 +2270,7 @@ BackendLLVM::run()
+ #    else
+             ll.module()->setTargetTriple(llvm::Triple("nvptx64-nvidia-cuda"));
+ #    endif
+-            ll.module()->setDataLayout(
+-                "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-i128:128:128-f32:32:32-f64:64:64-v16:16:16-v32:32:32-v64:64:64-v128:128:128-n16:32:64");
++            ll.module()->setDataLayout(nvptx_data_layout());
+ 
+             // Tag each function as an OSL library function to help with
+             // inlining and optimization after codegen.

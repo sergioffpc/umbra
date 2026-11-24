@@ -26,8 +26,13 @@ set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "")
 set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "")
 set(MATERIALX_BUILD_RENDER_PLATFORMS OFF CACHE BOOL "")
 set(MATERIALX_BUILD_OIIO OFF CACHE BOOL "")
-set(MATERIALX_BUILD_OSOS OFF CACHE BOOL "")
-set(MATERIALX_BUILD_DATA_LIBRARY OFF CACHE BOOL "")
+# The OSL network generator (genoslnetwork) builds a material as a group of
+# precompiled OSL shaders, one per node, instead of one generated shader:
+# OSOS compiles the standard library's nodes to .oso with OSL's oslc at
+# build time. It needs the built data library, where it writes the .oso and
+# their node definitions, so the data library is built, not copied.
+set(MATERIALX_BUILD_OSOS ON CACHE BOOL "")
+set(MATERIALX_BUILD_DATA_LIBRARY ON CACHE BOOL "")
 
 set(MATERIALX_BUILD_PYTHON OFF CACHE BOOL "")
 set(MATERIALX_BUILD_JS OFF CACHE BOOL "")
