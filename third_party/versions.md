@@ -42,7 +42,8 @@ different section 6 (Trademarks).
 The C dependencies of the submodules are not submodules: they are Ubuntu
 packages of the image's release, installed by `docker/deps.Dockerfile`, the
 `-dev` package in the stage that builds the submodules and the runtime package
-in the image. Their C++ dependencies are submodules, built against libc++,
+in the image. zlib and zstd keep their `-dev` packages in the image too: umbra
+finds OpenVDB through `FindOpenVDB.cmake`, which finds them. Their C++ dependencies are submodules, built against libc++,
 because Ubuntu builds its C++ libraries against libstdc++. So is libtiff, a
 C library: Ubuntu's `libtiff6` links the C++ `liblerc4`.
 
