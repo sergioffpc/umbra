@@ -9,7 +9,8 @@
 #   tsan/                       oneTBB instrumented with ThreadSanitizer, for
 #                               the tsan preset
 #   src/                        the dependency build and, in src/<dependency>/,
-#                               the (patched) sources, kept for navigation
+#                               the (patched) sources, kept for navigation and
+#                               for the license texts umbra's install ships
 #   share/clangd/deps.idx       clangd index of src/, with absolute paths
 #                               under /opt/umbra/src (for an External index)
 #
