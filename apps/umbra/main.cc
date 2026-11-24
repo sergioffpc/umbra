@@ -36,6 +36,10 @@
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
+#include "umbra/ext/embree/embree.h"
+#include "umbra/ext/ocio/ocio.h"
+#include "umbra/ext/oiio/oiio.h"
+#include "umbra/ext/opensubdiv/opensubdiv.h"
 #include "umbra/gpu/module.h"
 
 namespace {
@@ -50,6 +54,7 @@ using ::umbra::core::LogFilter;
 using ::umbra::core::LogLevel;
 
 constexpr int kExitSuccess = 0;
+constexpr int kExitFailure = 1;
 constexpr int kExitUsage = 2;
 
 constexpr std::array<std::string_view, 3> kColorChoices = {
@@ -184,6 +189,16 @@ void PrintVersion() {
   }
 }
 
+// Initializes the libraries umbra uses, in order, once diagnostics are
+// configured, so that their messages reach umbra's log
+// (docs/adr/0002-cli-diagnostics-on-stderr.md).
+std::expected<void, Error> InitializeLibraries() {
+  return umbra::ext::ocio::Initialize()
+      .and_then(umbra::ext::oiio::Initialize)
+      .and_then(umbra::ext::opensubdiv::Initialize)
+      .and_then(umbra::ext::embree::Initialize);
+}
+
 // Reports a usage error and returns its exit code.
 int UsageError(const Error& error) {
   umbra::core::Log(LogLevel::kError, umbra::core::LogComponent::kCore,
@@ -211,6 +226,11 @@ int main(int argc, char** argv) {
   if (global.Count("help") > 0) {
     std::print("{}", umbra::cli::FormatHelp(kProgram, {}));
     return kExitSuccess;
+  }
+  if (auto initialized = InitializeLibraries(); !initialized.has_value()) {
+    umbra::core::Log(LogLevel::kError, umbra::core::LogComponent::kCore,
+                     initialized.error().message());
+    return kExitFailure;
   }
   PrintVersion();
   return kExitSuccess;
