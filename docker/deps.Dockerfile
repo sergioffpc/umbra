@@ -119,17 +119,29 @@ ENV PATH=/opt/cuda/bin:${PATH} \
 # The dependencies of the dependencies are Ubuntu packages, not submodules:
 # their -dev packages are installed here, their runtime packages in the final
 # stage (see third_party/versions.md).
+#
+# Every compiler runs through ccache, whose cache is the BuildKit cache mount
+# below: the deps workflow loads it before the build and saves it after, so a
+# build recompiles only the files whose source, flags or compiler changed.
+# The paths of the build are fixed, and ccache hashes the compiler's content,
+# so a hit is a file compiled the same way. ccache stays in this stage only.
 FROM nvidia AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      libhwloc-dev libdeflate-dev libzstd-dev \
+      libhwloc-dev libdeflate-dev libzstd-dev ccache \
  && rm -rf /var/lib/apt/lists/*
+ENV CCACHE_DIR=/var/cache/ccache \
+    CCACHE_MAXSIZE=5G \
+    CCACHE_COMPILERCHECK=content
 COPY third_party/ /opt/umbra/src/
-RUN cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
+RUN --mount=type=cache,id=umbra-deps-ccache,target=/var/cache/ccache,sharing=locked \
+    ccache --zero-stats \
+ && cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
           -DUMBRA_LAYER=deps \
           -DCMAKE_INSTALL_PREFIX=/opt/umbra \
- && cmake --build /tmp/dependency-build --target layer-deps
+ && cmake --build /tmp/dependency-build --target layer-deps \
+ && ccache --show-stats
 
 FROM nvidia AS deps
 ARG DEBIAN_FRONTEND=noninteractive

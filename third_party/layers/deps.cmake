@@ -62,6 +62,17 @@ set(umbra_deps_cmake_args
   "-DCMAKE_INSTALL_RPATH=$ORIGIN"
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
 
+# ccache, when the build has it (the deps image build does, see
+# docker/deps.Dockerfile): every compiler of every dependency runs through it.
+# The compile databases leave the launcher out.
+find_program(UMBRA_CCACHE ccache)
+if(UMBRA_CCACHE)
+  list(APPEND umbra_deps_cmake_args
+    "-DCMAKE_C_COMPILER_LAUNCHER=${UMBRA_CCACHE}"
+    "-DCMAKE_CXX_COMPILER_LAUNCHER=${UMBRA_CCACHE}"
+    "-DCMAKE_CUDA_COMPILER_LAUNCHER=${UMBRA_CCACHE}")
+endif()
+
 # Dependencies that build against another dependency of the layer find it in
 # the install prefix (under the staging directory when there is one).
 set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
