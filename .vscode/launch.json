@@ -12,7 +12,7 @@
       "type": "lldb-dap",
       "request": "launch",
       "preLaunchTask": "build: debug",
-      "program": "${workspaceFolder}/build/debug/apps/umbra/umbra",
+      "program": "${workspaceFolder}/build/debug/bin/umbra",
       "args": [],
       "cwd": "${workspaceFolder}"
     },
@@ -21,7 +21,7 @@
       "type": "lldb-dap",
       "request": "launch",
       "preLaunchTask": "build: release",
-      "program": "${workspaceFolder}/build/release/apps/umbra/umbra",
+      "program": "${workspaceFolder}/build/release/bin/umbra",
       "args": [],
       "cwd": "${workspaceFolder}"
     }
