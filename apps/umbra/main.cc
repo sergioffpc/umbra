@@ -40,6 +40,7 @@
 #include "umbra/ext/ocio/ocio.h"
 #include "umbra/ext/oiio/oiio.h"
 #include "umbra/ext/opensubdiv/opensubdiv.h"
+#include "umbra/ext/openvdb/openvdb.h"
 #include "umbra/gpu/module.h"
 
 namespace {
@@ -195,6 +196,7 @@ void PrintVersion() {
 std::expected<void, Error> InitializeLibraries() {
   return umbra::ext::ocio::Initialize()
       .and_then(umbra::ext::oiio::Initialize)
+      .and_then(umbra::ext::openvdb::Initialize)
       .and_then(umbra::ext::opensubdiv::Initialize)
       .and_then(umbra::ext::embree::Initialize);
 }
