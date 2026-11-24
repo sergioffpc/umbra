@@ -36,6 +36,11 @@ env:
   # Cache mount of docker/toolchain.Dockerfile holding the LLVM build tree.
   TOOLCHAIN_CACHE_ID: umbra-toolchain-build
   TOOLCHAIN_CACHE_TARGET: /var/cache/umbra-build
+  # Cache mount of docker/deps.Dockerfile holding the ccache of the
+  # dependency build, and the private image that carries it between runs.
+  DEPS_CCACHE_ID: umbra-deps-ccache
+  DEPS_CCACHE_TARGET: /var/cache/ccache
+  DEPS_CCACHE_PACKAGE: umbra-deps-ccache
 
 jobs:
   toolchain:
@@ -328,7 +333,40 @@ jobs:
         if: steps.published.outputs.exists == 'false'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # The ccache of the dependency build lives in an image, not in the
+      # Actions cache, which is scoped to a branch: the runs on develop find
+      # their image published and build nothing, so a new branch would never
+      # see the cache of the previous one. Every branch reads and writes the
+      # latest tag; the build is correct whatever the cache holds.
+      - name: Name the compiler cache image
+        id: ccache
+        if: steps.published.outputs.exists == 'false'
+        run: >-
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$DEPS_CCACHE_PACKAGE:latest"
+          >>"$GITHUB_OUTPUT"
+
+      # Copies the cache image into the BuildKit cache mount the Dockerfile
+      # builds in.
+      - name: Load the compiler cache into BuildKit
+        if: steps.published.outputs.exists == 'false'
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          CCACHE_REF: ${{ steps.ccache.outputs.ref }}
+        run: |
+          if ! docker manifest inspect "$CCACHE_REF" >/dev/null 2>&1; then
+            echo "No compiler cache yet: the build starts cold."
+            exit 0
+          fi
+          empty=$(mktemp -d)
+          docker buildx build --builder "$BUILDER" --file - "$empty" <<EOF
+          FROM ubuntu:26.04
+          RUN --mount=type=cache,id=${DEPS_CCACHE_ID},target=${DEPS_CCACHE_TARGET},sharing=locked \
+              --mount=type=bind,from=${CCACHE_REF},target=/restore \
+              cp -a /restore/. ${DEPS_CCACHE_TARGET}/
+          EOF
+
       - name: Build the image
+        id: build
         if: steps.published.outputs.exists == 'false'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -361,6 +399,40 @@ jobs:
         with:
           image: ${{ steps.image.outputs.ref }}
           paths: /opt/umbra
+
+      # Saved even when the build failed: what it compiled is still valid.
+      - name: Save the compiler cache
+        if: >-
+          always() && steps.published.outputs.exists == 'false'
+          && env.CAN_WRITE == 'true' && steps.buildx.outcome == 'success'
+          && steps.build.outcome != 'skipped'
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          CCACHE_REF: ${{ steps.ccache.outputs.ref }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          empty=$(mktemp -d)
+          docker buildx build --builder "$BUILDER" --file - \
+            --output "type=image,name=$CCACHE_REF,push=true" "$empty" <<EOF
+          FROM ubuntu:26.04 AS export
+          RUN --mount=type=cache,id=${DEPS_CCACHE_ID},target=${DEPS_CCACHE_TARGET},sharing=locked \
+              mkdir /export && cp -a ${DEPS_CCACHE_TARGET}/. /export/
+          FROM scratch
+          LABEL org.opencontainers.image.source=$SOURCE
+          COPY --from=export /export/ /
+          EOF
+
+      - name: Prune old compiler caches
+        if: >-
+          always() && steps.published.outputs.exists == 'false'
+          && env.CAN_WRITE == 'true' && steps.buildx.outcome == 'success'
+          && steps.build.outcome != 'skipped'
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: ${{ env.DEPS_CCACHE_PACKAGE }}
+          package-type: container
+          min-versions-to-keep: 1
+          delete-only-untagged-versions: true
 
       - name: Report a read-only token
         if: env.CAN_WRITE != 'true'
