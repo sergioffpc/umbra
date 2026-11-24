@@ -226,6 +226,7 @@ jobs:
             Zlib
             BSL-1.0
             LicenseRef-TOST-1.0
+            libtiff
         run: |
           set -euo pipefail
           status=0

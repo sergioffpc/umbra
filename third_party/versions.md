@@ -30,13 +30,18 @@ different section 6 (Trademarks).
 | OpenColorIO | `third_party/OpenColorIO` | `v2.6.0` | `10a43ec1df03d072ca9a9e2fb3f26e454b0900d8` | `BSD-3-Clause` |
 | {fmt} | `third_party/fmt` | `12.2.1` | `208219daff58f2a7438f6931cc2ddc358acf33ef` | `MIT` |
 | robin-map | `third_party/robin-map` | `v1.4.1` | `bd14e6830a1474fed9d2d03f5c3b0683d818d540` | `MIT` |
+| libtiff | `third_party/libtiff` | `v4.7.2` | `d01a94be176f5f6a87f7ee1c0b32e65416aa2b4d` | `libtiff` |
+| pugixml | `third_party/pugixml` | `v1.16` | `c8033ce9d039e7f9d134877c363397b3cfe20816` | `MIT` |
+| OpenImageIO | `third_party/OpenImageIO` | `v3.2.2.0` | `96377f681cc9e6650c8534671f4fc36b3c8acbc1` | `Apache-2.0` |
 
 ## Ubuntu packages
 
-The dependencies of the submodules are not submodules: they are Ubuntu
+The C dependencies of the submodules are not submodules: they are Ubuntu
 packages of the image's release, installed by `docker/deps.Dockerfile`, the
 `-dev` package in the stage that builds the submodules and the runtime package
-in the image. Only the libraries umbra itself builds against are submodules.
+in the image. Their C++ dependencies are submodules, built against libc++,
+because Ubuntu builds its C++ libraries against libstdc++. So is libtiff, a
+C library: Ubuntu's `libtiff6` links the C++ `liblerc4`.
 
 | Name | Needed by | Packages | License |
 |---|---|---|---|
@@ -46,6 +51,12 @@ in the image. Only the libraries umbra itself builds against are submodules.
 | expat | OpenColorIO (CLF and CTF transform files) | `libexpat1-dev`, `libexpat1` | `MIT` |
 | zlib | OpenColorIO, through minizip-ng | `zlib1g-dev`, `zlib1g` | `Zlib` |
 | minizip-ng | OpenColorIO (`.ocioz` config archives) | `libminizip-ng-dev`, `libminizip-ng4t64` | `Zlib` |
+| libjpeg-turbo | OpenImageIO (JPEG), libtiff (JPEG compression) | `libjpeg-turbo8-dev`, `libjpeg-turbo8` | `IJG AND BSD-3-Clause AND Zlib` |
+| libpng | OpenImageIO (PNG), FreeType | `libpng-dev`, `libpng16-16t64` | `libpng-2.0` |
+| libwebp | OpenImageIO (WebP), libtiff (WebP compression) | `libwebp-dev`, `libwebp7`, `libwebpdemux2`, `libwebpmux3` | `BSD-3-Clause` |
+| giflib | OpenImageIO (GIF) | `libgif-dev`, `libgif7` | `MIT` |
+| OpenJPEG | OpenImageIO (JPEG 2000) | `libopenjp2-7-dev`, `libopenjp2-7` | `BSD-2-Clause` |
+| FreeType | OpenImageIO (text rendering) | `libfreetype-dev`, `libfreetype6` | `FTL OR GPL-2.0-or-later` |
 
 ## Proprietary build-time downloads
 
