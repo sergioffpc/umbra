@@ -640,7 +640,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Formatting
-        run: make __format-check
+        run: python3 -m checks.formatting --check
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
   # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
@@ -666,11 +666,14 @@ jobs:
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # The commands of `make lint`, except the formatting, which is the
+      # format job.
       - name: Validators
-        run: make __validators
+        run: |
+          python3 -m checks.conventions
+          python3 -m checks.branch_name --current
+          python3 -m checks.commit_message --since develop
 
-      # The recipe of `make lint`, whose other steps are the step above and
-      # the format job.
       - name: Lint
         run: python3 -m checks.lint
 
