@@ -40,12 +40,13 @@ jobs:
         id: tag
         run: python3 -m forge release-tag
 
-  # Builds the release image on the pinned deps image and checks it as the
-  # release pull requests do, then pushes it with its tags, signs it with
-  # cosign, keyless, under the identity of this workflow, and attests its
-  # SLSA build provenance and its SPDX SBOM. The signature and the
-  # attestations are stored in the registry next to the image; the
-  # attestations also in the repository's attestations.
+  # Builds the release image on the pinned deps image and pushes it by
+  # digest, untagged. That image, by its digest, is checked as the release
+  # pull requests check it, described by its SPDX SBOM, signed with cosign,
+  # keyless, under the identity of this workflow, and attested (its SLSA
+  # build provenance and its SBOM); only then do its tags name it. The
+  # signature and the attestations are stored in the registry next to the
+  # image; the attestations also in the repository's attestations.
   publish:
     needs: tag
     runs-on: ubuntu-26.04
@@ -56,7 +57,7 @@ jobs:
       attestations: write
     env:
       IMAGE: ${{ needs.tag.outputs.image }}
-      VERSION: ${{ needs.tag.outputs.version }}
+      TAGS: ${{ needs.tag.outputs.tags }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,9 +79,10 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # Loaded into docker, not pushed, to be checked first. BuildKit's own
-      # provenance and SBOM are left out: the attestations below replace them.
-      - name: Build the image
+      # BuildKit's own provenance and SBOM are left out: the attestations
+      # below replace them.
+      - name: Build and push the image by digest
+        id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -88,11 +90,9 @@ jobs:
           target: release
           build-args: DEPS_IMAGE=${{ steps.deps.outputs.ref }}
           builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          push: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
           sbom: false
-          tags: ${{ needs.tag.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.tag.outputs.version }}
@@ -102,31 +102,18 @@ jobs:
       # a file system without a shell, a package manager or any program but
       # umbra, and umbra starting in it.
       - name: Contract and start
-        run: python3 -m forge release-image "${IMAGE}:${VERSION}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 -m forge release-image "${IMAGE}@${DIGEST}"
 
       # The Ubuntu packages from Chisel's manifest in the image, umbra, and
       # the submodules whose license texts the image carries.
       - name: SBOM
-        run: python3 -m forge sbom "${IMAGE}:${VERSION}" --output sbom.spdx.json
-
-      # The same build, from the builder's cache, pushed with every tag.
-      - name: Push the image
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: docker/release.Dockerfile
-          target: release
-          build-args: DEPS_IMAGE=${{ steps.deps.outputs.ref }}
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          provenance: false
-          sbom: false
-          tags: ${{ needs.tag.outputs.tags }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.tag.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: >-
+          python3 -m forge sbom "${IMAGE}@${DIGEST}"
+          --output sbom.spdx.json
 
       - name: Install cosign
         uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
@@ -154,3 +141,9 @@ jobs:
           sbom-path: sbom.spdx.json
           push-to-registry: true
           create-storage-record: false
+
+      # X.Y.Z, X.Y, X and latest, each pointing to the manifest above.
+      - name: Tag the image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 -m forge tag-image "${IMAGE}@${DIGEST}" "${TAGS}"

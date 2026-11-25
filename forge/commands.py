@@ -66,7 +66,8 @@ class Option(enum.Enum):
     IMAGE = enum.auto()
     TAG = enum.auto()
     OUTPUT = enum.auto()
-    SIGNED = enum.auto()
+    PUSHED = enum.auto()
+    TAGS = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -86,11 +87,15 @@ class Options:
         ref: The deps image that the current inputs hash to, for pin.
         branch: The release or hotfix branch, for release; None for that
             of the GitHub Actions run.
-        image: The release image, loaded in docker, for release-image and
-            sbom; the pushed image by digest, IMAGE@DIGEST, for sign.
+        image: The release image, in docker or in its registry, for
+            release-image and sbom.
         tag: The release tag, for release-tag; None for that of the
             GitHub Actions run.
         output: The file that sbom writes.
+        pushed: The pushed image by digest, IMAGE@DIGEST, for sign and
+            tag-image.
+        tags: The image's references to create, comma-separated, for
+            tag-image.
     """
 
     preset: Preset = Preset.DEBUG
@@ -102,6 +107,8 @@ class Options:
     image: str = ""
     tag: str | None = None
     output: str = ""
+    pushed: str = ""
+    tags: str = ""
 
     def with_preset(self, preset: Preset) -> "Options":
         """Returns these options with another preset."""
@@ -487,7 +494,22 @@ def sign(options: Options) -> list[Step]:
     cosign signs under the identity of the OIDC token of the GitHub Actions
     job, and records the signature in Sigstore's transparency log.
     """
-    return [Program(["cosign", "sign", "--yes", options.image])]
+    return [Program(["cosign", "sign", "--yes", options.pushed])]
+
+
+def tag_image(options: Options) -> list[Step]:
+    """Returns the step that tags a pushed image in its registry.
+
+    Each tag points to the pushed manifest itself, so that the image checked,
+    signed and attested by digest is the one the tags name.
+    """
+    tags = [tag for tag in options.tags.split(",") if tag]
+    flags = [flag for tag in tags for flag in ("--tag", tag)]
+    return [
+        Program(
+            ["docker", "buildx", "imagetools", "create", *flags, options.pushed]
+        )
+    ]
 
 
 def modules(options: Options) -> list[Step]:
@@ -649,6 +671,12 @@ COMMANDS = (
         "Sign a pushed image with cosign, keyless, under the identity of the"
         " GitHub Actions job (CI).",
         sign,
-        (Option.SIGNED,),
+        (Option.PUSHED,),
+    ),
+    Command(
+        "tag-image",
+        "Tag a pushed image in its registry with every given reference.",
+        tag_image,
+        (Option.PUSHED, Option.TAGS),
     ),
 )

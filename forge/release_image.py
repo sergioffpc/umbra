@@ -11,7 +11,7 @@ The contract is read from the image configuration and from the file system of
 a container created from it. umbra then runs with no network: with no
 argument, ``version --build-options``, ``devices`` (where the GPU module must
 load, though without a GPU it finds no device) and ``render``. It needs
-docker, with the image loaded.
+docker, and pulls the image when docker does not have it.
 
 Usage: python3 -m forge release-image IMAGE
 """
@@ -73,6 +73,22 @@ def docker(*args: str) -> str:
     return result.stdout
 
 
+def ensure_local(image: str) -> None:
+    """Pulls the image unless docker has it already.
+
+    Raises:
+        StepError: docker cannot pull it.
+    """
+    present = subprocess.run(
+        ["docker", "image", "inspect", image],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if present.returncode:
+        docker("pull", "--quiet", image)
+
+
 def config_errors(image: str) -> list[str]:
     """Returns how the image configuration differs from the contract."""
     config = json.loads(
@@ -93,7 +109,7 @@ def export(
     Paths are relative to the root, without a trailing slash.
 
     Args:
-        image: The image, loaded in docker.
+        image: The image, in docker.
         wanted: Whether the content of the regular file at a path is read.
 
     Returns:
@@ -217,8 +233,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         umbra starts, 1 otherwise.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("image", help="the image, loaded in docker")
+    parser.add_argument("image", help="the image, in docker or in its registry")
     image = parser.parse_args(argv).image
+    ensure_local(image)
     errors = config_errors(image) + file_system_errors(file_system(image))
     if shell_runs(image):
         errors.append("/bin/sh runs in the image")

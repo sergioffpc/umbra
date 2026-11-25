@@ -157,10 +157,11 @@ jobs run `check --preset debug`, `check --preset release`, `check-asan` and
 | `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
 | `image` | Resolve the pinned deps image and check that it is published |
 | `modules` | Check that the target graph is acyclic |
-| `release-image` | Check the contract of a release image loaded in docker (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
+| `release-image` | Check the contract of a release image, in docker or in its registry (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
 | `release-tag` | Check that a release tag (`--tag`, or that of the GitHub Actions run) is `vX.Y.Z`, annotated and signed, on `main`, with the CMake project version `X.Y.Z`, and name the release image with its tags `X.Y.Z`, `X.Y`, `X` and `latest` |
-| `sbom` | Write the SPDX 2.3 SBOM of a release image loaded in docker to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
+| `sbom` | Write the SPDX 2.3 SBOM of a release image, in docker or in its registry, to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
 | `sign` | Sign a pushed image, `IMAGE@DIGEST`, with cosign, keyless, under the identity of the GitHub Actions job (CI only) |
+| `tag-image` | Tag a pushed image, `IMAGE@DIGEST`, in its registry with each of the comma-separated references `TAGS`, pointing to its manifest itself |
 
 Under GitHub Actions their errors are annotations; elsewhere they are plain
 `error:` lines on stderr. A command that needs the variables of a GitHub

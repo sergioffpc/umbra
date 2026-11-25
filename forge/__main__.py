@@ -75,7 +75,9 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
     )
     image = argparse.ArgumentParser(add_help=False)
     image.add_argument(
-        "image", metavar="IMAGE", help="the image, loaded in docker"
+        "image",
+        metavar="IMAGE",
+        help="the image, in docker or in its registry",
     )
     tag = argparse.ArgumentParser(add_help=False)
     tag.add_argument(
@@ -88,11 +90,18 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
     output.add_argument(
         "--output", required=True, metavar="FILE", help="the file to write"
     )
-    signed = argparse.ArgumentParser(add_help=False)
-    signed.add_argument(
-        "image",
+    pushed = argparse.ArgumentParser(add_help=False)
+    pushed.add_argument(
+        "pushed",
         metavar="IMAGE@DIGEST",
         help="the image in its registry, by digest",
+    )
+    tags = argparse.ArgumentParser(add_help=False)
+    tags.add_argument(
+        "tags",
+        metavar="TAGS",
+        help="the references to create, comma-separated, e.g."
+        " ghcr.io/o/umbra:1.2.3,ghcr.io/o/umbra:latest",
     )
     return {
         commands.Option.PRESET: preset,
@@ -105,7 +114,8 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         commands.Option.IMAGE: image,
         commands.Option.TAG: tag,
         commands.Option.OUTPUT: output,
-        commands.Option.SIGNED: signed,
+        commands.Option.PUSHED: pushed,
+        commands.Option.TAGS: tags,
     }
 
 
@@ -153,6 +163,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         image=getattr(args, "image", ""),
         tag=getattr(args, "tag", None),
         output=getattr(args, "output", ""),
+        pushed=getattr(args, "pushed", ""),
+        tags=getattr(args, "tags", ""),
     )
     return commands.execute(args.command.steps(options))
 

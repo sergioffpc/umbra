@@ -325,6 +325,7 @@ def extracted_licenses(
                 continue
             found[license_id] = {
                 "licenseId": license_id,
+                "name": license_id,
                 "extractedText": texts[files[0]].decode("utf-8", "replace"),
                 "comment": f"The text of /{files[0]}.",
             }
@@ -471,11 +472,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         The process exit status: 0 when the SBOM is written, 1 otherwise.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("image", help="the image, loaded in docker")
+    parser.add_argument("image", help="the image, in docker or in its registry")
     parser.add_argument(
         "--output", required=True, metavar="FILE", help="the SBOM to write"
     )
     args = parser.parse_args(argv)
+    release_image.ensure_local(args.image)
     config = json.loads(
         release_image.docker(
             "image", "inspect", "--format", "{{json .}}", args.image
