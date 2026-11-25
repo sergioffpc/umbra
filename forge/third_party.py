@@ -34,6 +34,7 @@ LICENSES = frozenset(
         "Zlib",
         "BSL-1.0",
         "LicenseRef-TOST-1.0",
+        "LicenseRef-Ptex",
         "libtiff",
     }
 )

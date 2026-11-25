@@ -11,7 +11,9 @@ expression.
 
 `LicenseRef-TOST-1.0` is the Tomorrow Open Source Technology License 1.0 of
 Pixar's projects, which has no SPDX identifier: the Apache License 2.0 with a
-different section 6 (Trademarks).
+different section 6 (Trademarks). `LicenseRef-Ptex` is the license of Disney's
+Ptex, which has no SPDX identifier: the BSD 3-Clause License with a
+disclaimer that also disclaims the warranties of non-infringement and title.
 
 | Name | Path | Tag | Commit | License |
 |---|---|---|---|---|
@@ -32,6 +34,7 @@ different section 6 (Trademarks).
 | robin-map | `third_party/robin-map` | `v1.4.1` | `bd14e6830a1474fed9d2d03f5c3b0683d818d540` | `MIT` |
 | libtiff | `third_party/libtiff` | `v4.7.2` | `d01a94be176f5f6a87f7ee1c0b32e65416aa2b4d` | `libtiff` |
 | pugixml | `third_party/pugixml` | `v1.16` | `c8033ce9d039e7f9d134877c363397b3cfe20816` | `MIT` |
+| Ptex | `third_party/ptex` | `v2.5.4` | `42787491dbea182e339074d305b782b14f1ca2be` | `LicenseRef-Ptex` |
 | OpenImageIO | `third_party/OpenImageIO` | `v3.2.2.0` | `96377f681cc9e6650c8534671f4fc36b3c8acbc1` | `Apache-2.0` |
 | OpenVDB | `third_party/openvdb` | `v14.0.0` | `ecae2bda85744412b0cd47e1b8e1e4e76beb7b88` | `Apache-2.0` |
 | OSL | `third_party/OpenShadingLanguage` | `v1.15.8.0` | `b64c29cc2540c398265942edc44650aea3a8c103` | `BSD-3-Clause` |
@@ -56,7 +59,7 @@ the Dockerfile pins, and, for a package it does not slice yet, ours in
 | Name | Needed by | Packages | License |
 |---|---|---|---|
 | hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
-| libdeflate | OpenEXR (ZIP compression) | `libdeflate-dev`, `libdeflate0` | `MIT` |
+| libdeflate | OpenEXR (ZIP compression), Ptex (compression) | `libdeflate-dev`, `libdeflate0` | `MIT` |
 | zstd | OpenEXR, OpenVDB (ZSTD compression) | `libzstd-dev`, `libzstd1` | `BSD-3-Clause OR GPL-2.0-only` |
 | expat | OpenColorIO (CLF and CTF transform files) | `libexpat1-dev`, `libexpat1` | `MIT` |
 | zlib | OpenColorIO, through minizip-ng; OpenVDB and NanoVDB (ZIP compression) | `zlib1g-dev`, `zlib1g` | `Zlib` |
