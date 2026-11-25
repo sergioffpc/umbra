@@ -65,7 +65,6 @@ TOOLCHAIN_TOOLS = (
 OTHER_TOOLS = (
     "cmake",
     "ninja",
-    "make",
     "python3",
     "git",
     "pylint",
