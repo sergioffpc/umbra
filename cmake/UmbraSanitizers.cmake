@@ -28,6 +28,12 @@
 #
 # The settings apply through umbra_apply_sanitizers(<target>), called by the
 # helpers in UmbraModules.cmake.
+#
+# The tsan preset finds oneTBB in <prefix>/tsan before <prefix>, for every
+# prefix of CMAKE_PREFIX_PATH (the variable, then the environment): there the
+# dependency build installs a libtbb instrumented with ThreadSanitizer, whose
+# synchronization TSan can see. Include this module before UmbraModules.cmake,
+# which finds oneTBB.
 
 include_guard(GLOBAL)
 
@@ -43,6 +49,20 @@ elseif(UMBRA_SANITIZER STREQUAL "thread")
   set(UMBRA_SANITIZE_FLAGS
     -fsanitize=thread,integer,implicit-conversion,nullability,float-cast-overflow
     -fno-sanitize-recover=all)
+  set(umbra_tsan_prefixes "")
+  # The environment variable separates its prefixes with ':'.
+  string(REPLACE ":" ";" umbra_env_prefixes "$ENV{CMAKE_PREFIX_PATH}")
+  foreach(prefix IN LISTS CMAKE_PREFIX_PATH umbra_env_prefixes)
+    if(IS_DIRECTORY "${prefix}/tsan")
+      list(APPEND umbra_tsan_prefixes "${prefix}/tsan")
+    endif()
+  endforeach()
+  if(NOT umbra_tsan_prefixes)
+    message(FATAL_ERROR
+            "UMBRA_SANITIZER=thread needs the ThreadSanitizer oneTBB in "
+            "<prefix>/tsan for a prefix of CMAKE_PREFIX_PATH")
+  endif()
+  list(PREPEND CMAKE_PREFIX_PATH ${umbra_tsan_prefixes})
 elseif(NOT UMBRA_SANITIZER STREQUAL "")
   message(FATAL_ERROR
           "UMBRA_SANITIZER must be empty, address or thread "

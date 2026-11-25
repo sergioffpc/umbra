@@ -12,9 +12,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
+#include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -23,7 +26,7 @@ namespace umbra::gpu {
 
 // The version of ModuleApi. Bump it whenever ModuleApi or ModuleStatus
 // changes.
-inline constexpr std::uint32_t kModuleAbiVersion = 1;
+inline constexpr std::uint32_t kModuleAbiVersion = 3;
 
 // The name of the exported entry point, of type ModuleEntryPoint.
 inline constexpr const char* kModuleEntryPoint = "umbra_gpu_module";
@@ -49,15 +52,82 @@ inline ModuleStatus FailedStatus(std::string_view message) {
   return status;
 }
 
+// umbra's diagnostics, as the loader hands them to the module: the module
+// keeps no logging state of its own and logs through this function, as the
+// gpu component, from the source line `origin` names.
+using ModuleLogFunction = void (*)(core::LogLevel level,
+                                   std::string_view message,
+                                   core::LogOrigin origin);
+
+// Whether the module can run on a GPU, or why not.
+enum class GpuUsability : std::uint8_t {
+  kUsable,
+  // Its architecture is older than the oldest the module is built for.
+  kTooOld,
+  // The driver's OptiX runtime cannot be used; GpuInventory says why.
+  kNoOptix,
+  // The CUDA runtime cannot describe it.
+  kUnreadable,
+};
+
+// One GPU, as the CUDA runtime describes it.
+struct GpuDescription {
+  // The CUDA ordinal.
+  std::int32_t ordinal = 0;
+  GpuUsability usability = GpuUsability::kUsable;
+  std::int32_t sm_major = 0;
+  std::int32_t sm_minor = 0;
+  std::uint64_t memory_bytes = 0;
+  // NUL-terminated, truncated to fit.
+  std::array<char, 256> name{};
+  // The PCI address, "0000:01:00.0", NUL-terminated.
+  std::array<char, 32> pci_bus_id{};
+};
+
+// The most GPUs a module describes.
+inline constexpr std::size_t kMaxGpus = 64;
+
+// Every GPU the CUDA runtime sees, in CUDA order, and what they run on.
+struct GpuInventory {
+  std::int32_t count = 0;
+  std::array<GpuDescription, kMaxGpus> gpus{};
+  // cudaDriverGetVersion: 13040 for CUDA 13.4.
+  std::int32_t cuda_driver_version = 0;
+  // OPTIX_VERSION of the module: 90100 for OptiX 9.1.0.
+  std::int32_t optix_version = 0;
+  // Why OptiX cannot be used, for GPUs that are kNoOptix; NUL-terminated.
+  std::array<char, 256> optix_error{};
+};
+
+// The text of a NUL-terminated array of the ABI.
+template <std::size_t N>
+constexpr std::string_view TextOf(const std::array<char, N>& text) {
+  return {text.begin(), std::ranges::find(text, '\0')};
+}
+
+// The GPUs `inventory` describes.
+inline std::span<const GpuDescription> DescribedGpus(
+    const GpuInventory& inventory) {
+  return std::span(inventory.gpus)
+      .first(std::min(static_cast<std::size_t>(std::max(inventory.count, 0)),
+                      kMaxGpus));
+}
+
 // The functions of the module.
 struct ModuleApi {
   // kModuleAbiVersion of the build that produced the module.
   std::uint32_t abi_version;
 
-  // Writes the number of usable GPUs (sm_120 or newer, with a driver whose
-  // OptiX runtime the module can use) to *count. Fails when the driver or
-  // OptiX cannot be initialized.
-  ModuleStatus (*count_devices)(std::int32_t* count);
+  // Hands the module umbra's log function and the gpu component's threshold,
+  // so that it formats only the messages that will be shown. The loader
+  // calls it once, before any other function.
+  void (*set_log)(ModuleLogFunction log, core::LogLevel threshold);
+
+  // Describes every GPU the CUDA runtime sees in *inventory, usable or not:
+  // a GPU is usable when it is sm_120 or newer and the module can use the
+  // driver's OptiX runtime.
+  // Fails when the CUDA runtime cannot be initialized.
+  ModuleStatus (*describe_devices)(GpuInventory* inventory);
 };
 
 // The type of the module's entry point.

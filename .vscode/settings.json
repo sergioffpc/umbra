@@ -6,7 +6,7 @@
 {
   // Saves one second after the last edit. These saves skip formatOnSave
   // (VS Code formats only explicit and focus-change saves), so formatting
-  // happens on Ctrl+S, or with make format before committing.
+  // happens on Ctrl+S, or with python3 -m forge format before committing.
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 1000,
   "files.trimTrailingWhitespace": true,
@@ -31,6 +31,25 @@
     "third_party/llvm-project/**": true,
     "third_party/googletest/**": true,
     "third_party/benchmark/**": true,
+    "third_party/oneTBB/**": true,
+    "third_party/embree/**": true,
+    "third_party/openqmc/**": true,
+    "third_party/Imath/**": true,
+    "third_party/openexr/**": true,
+    "third_party/OpenSubdiv/**": true,
+    "third_party/MaterialX/**": true,
+    "third_party/yaml-cpp/**": true,
+    "third_party/pystring/**": true,
+    "third_party/OpenColorIO/**": true,
+    "third_party/fmt/**": true,
+    "third_party/robin-map/**": true,
+    "third_party/libtiff/**": true,
+    "third_party/pugixml/**": true,
+    "third_party/ptex/**": true,
+    "third_party/OpenImageIO/**": true,
+    "third_party/openvdb/**": true,
+    "third_party/OpenShadingLanguage/**": true,
+    "third_party/OpenUSD/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -38,17 +57,58 @@
     "**/.cache/**": true,
     "third_party/llvm-project/**": true,
     "third_party/googletest/**": true,
-    "third_party/benchmark/**": true
+    "third_party/benchmark/**": true,
+    "third_party/oneTBB/**": true,
+    "third_party/embree/**": true,
+    "third_party/openqmc/**": true,
+    "third_party/Imath/**": true,
+    "third_party/openexr/**": true,
+    "third_party/OpenSubdiv/**": true,
+    "third_party/MaterialX/**": true,
+    "third_party/yaml-cpp/**": true,
+    "third_party/pystring/**": true,
+    "third_party/OpenColorIO/**": true,
+    "third_party/fmt/**": true,
+    "third_party/robin-map/**": true,
+    "third_party/libtiff/**": true,
+    "third_party/pugixml/**": true,
+    "third_party/ptex/**": true,
+    "third_party/OpenImageIO/**": true,
+    "third_party/openvdb/**": true,
+    "third_party/OpenShadingLanguage/**": true,
+    "third_party/OpenUSD/**": true
   },
   "search.exclude": {
     "**/build": true,
     "**/.cache": true,
     "third_party/llvm-project": true,
     "third_party/googletest": true,
-    "third_party/benchmark": true
+    "third_party/benchmark": true,
+    "third_party/oneTBB": true,
+    "third_party/embree": true,
+    "third_party/openqmc": true,
+    "third_party/Imath": true,
+    "third_party/openexr": true,
+    "third_party/OpenSubdiv": true,
+    "third_party/MaterialX": true,
+    "third_party/yaml-cpp": true,
+    "third_party/pystring": true,
+    "third_party/OpenColorIO": true,
+    "third_party/fmt": true,
+    "third_party/robin-map": true,
+    "third_party/libtiff": true,
+    "third_party/pugixml": true,
+    "third_party/ptex": true,
+    "third_party/OpenImageIO": true,
+    "third_party/openvdb": true,
+    "third_party/OpenShadingLanguage": true,
+    "third_party/OpenUSD": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,
+  // Commits from the Source Control view carry the Developer Certificate of
+  // Origin sign-off (see CONTRIBUTING.md), as with git commit -s.
+  "git.alwaysSignOff": true,
 
   // Language features come from clangd (configured in .clangd): its
   // background index covers umbra's code, merged with the static index

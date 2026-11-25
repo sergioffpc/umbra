@@ -28,12 +28,11 @@ SOURCE_SUFFIXES = CPP_SUFFIXES + (
 )
 SOURCE_NAMES = (
     "CMakeLists.txt",
-    "Makefile",
     ".clang-format",
     ".clang-tidy",
     ".clangd",
 )
-SOURCE_DIRS = (".githooks/", ".github/workflows/", ".github/actions/")
+SOURCE_DIRS = (".githooks/", ".github/workflows/")
 # Every file in .githooks/ is a Python 3 script without an extension.
 HOOKS_DIR = ".githooks/"
 WORKFLOWS_DIR = ".github/workflows/"

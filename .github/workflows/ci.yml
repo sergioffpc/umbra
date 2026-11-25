@@ -41,160 +41,28 @@ jobs:
       # inputs. The deps workflow builds that image and commits the pin.
       - name: Compute the deps image tag
         id: deps-image
-        uses: ./.github/actions/layer-image
-        with:
-          layer: deps
+        run: python3 -m forge layer-image deps
 
       - name: Devcontainer image pin
         env:
           REF: ${{ steps.deps-image.outputs.ref }}
-          PIN_FILE: .devcontainer/devcontainer.json
-        run: |
-          pinned=$(sed -nE 's/^[[:space:]]*"image":[[:space:]]*"([^"]*)".*$/\1/p' "$PIN_FILE")
-          if [[ "$pinned" != "$REF" ]]; then
-            echo "::error file=$PIN_FILE::the pinned image '${pinned:-none}' is stale; the deps inputs hash to $REF. Let the deps workflow publish and pin it (or run it: gh workflow run deps.yml --ref <branch>), then pull."
-            exit 1
-          fi
-          echo "$PIN_FILE pins $REF."
+        run: python3 -m forge pin --ref "$REF"
 
       # The pull request of the event, or on a dispatched run the open pull
-      # request whose head is the branch. Without one, the pull request
-      # checks below are skipped.
+      # request whose head is the branch: its branch name (Dependabot's
+      # dependabot/<ecosystem>/<dependency> branches are exempt), its title
+      # (features and bugfixes are squash-merged: the title becomes the commit
+      # header on develop) and its commits. Without one, the checks are
+      # skipped.
       - name: Pull request
-        id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.ref_name }}
-          EVENT_PR: ${{ toJSON(github.event.pull_request) }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            pr=$(jq -c '{number, title, base: .base.ref, head: .head.ref,
-              author: .user.login}' <<<"$EVENT_PR")
-          else
-            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
-              --state open --limit 1 --json number,title,baseRefName,author \
-              --jq '.[] | {number, title, base: .baseRefName,
-                head: env.BRANCH, author: .author.login}')
-          fi
-          if [[ -z "$pr" ]]; then
-            echo "::notice title=No pull request::$BRANCH has no open pull" \
-              "request: the branch name, title and commit checks are skipped"
-            exit 0
-          fi
-          for key in number title base head author; do
-            echo "$key=$(jq -r ".$key" <<<"$pr")" >>"$GITHUB_OUTPUT"
-          done
-          echo "Pull request #$(jq -r .number <<<"$pr"): $(jq -r .title <<<"$pr")"
-
-      # Dependabot names its branches dependabot/<ecosystem>/<dependency>.
-      - name: Branch name
-        if: >-
-          steps.pr.outputs.number != ''
-          && steps.pr.outputs.author != 'dependabot[bot]'
-        env:
-          HEAD_REF: ${{ steps.pr.outputs.head }}
-        run: python3 -m checks.branch_name --pull-request "$HEAD_REF"
-
-      # Features and bugfixes are squash-merged: the title becomes the commit
-      # header on develop.
-      - name: Pull request title
-        if: steps.pr.outputs.number != ''
-        env:
-          PR_TITLE: ${{ steps.pr.outputs.title }}
-        run: printf '%s\n' "$PR_TITLE" | python3 -m checks.commit_message -
-
-      - name: Pull request commits
-        if: steps.pr.outputs.number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          HEAD_REF: ${{ steps.pr.outputs.head }}
-          BASE_REF: ${{ steps.pr.outputs.base }}
-        run: |
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" \
-            --jq '.[] | @json' > "$RUNNER_TEMP/commits.jsonl"
-          python3 - "$RUNNER_TEMP/commits.jsonl" <<'EOF'
-          """Validates the pull request commits listed in a JSON Lines file.
-
-          Each line is a commit object of the GitHub pull request commits endpoint.
-          Every commit must have a signature that GitHub verified, and be a
-          Conventional Commit; merge commits are allowed only in release and hotfix
-          pull requests into main (the git flow back-merges), and are not checked.
-
-          Usage: python3 - COMMITS_JSONL (with BASE_REF and HEAD_REF set)
-          """
-
-          import json
-          import os
-          import sys
-
-          from checks import commit_message
-          from checks import report
-
-          # The pull request commits endpoint lists at most 250 commits.
-          MAX_COMMITS = 250
-
-
-          def commit_errors(
-              commit: dict, scopes: frozenset[str], merges_allowed: bool
-          ) -> list[str]:
-              """Returns the errors of one commit.
-
-              Args:
-                  commit: The commit object of the GitHub API.
-                  scopes: The scopes a commit header may use.
-                  merges_allowed: Whether merge commits are allowed.
-
-              Returns:
-                  The human-readable errors; empty when the commit is valid.
-              """
-              sha = commit["sha"][:12]
-              message = commit["commit"]["message"]
-              header = message.split("\n", 1)[0]
-              errors = []
-              verification = commit["commit"]["verification"]
-              if not verification["verified"]:
-                  reason = verification["reason"]
-                  errors.append(f"signature not verified by GitHub ({reason})")
-              if len(commit["parents"]) > 1:
-                  if not merges_allowed:
-                      errors.append("merge commits are not allowed; rebase instead")
-              else:
-                  errors.extend(commit_message.validate(message.strip(), scopes))
-              return [f"{sha} {header!r}: {error}" for error in errors]
-
-
-          def main() -> int:
-              """Validates the commits of the file given on the command line.
-
-              Returns:
-                  The process exit status: 0 when every commit is valid, 1 otherwise.
-              """
-              with open(sys.argv[1], encoding="utf-8") as lines:
-                  commits = [json.loads(line) for line in lines if line.strip()]
-              merges_allowed = os.environ["BASE_REF"] == "main" and os.environ[
-                  "HEAD_REF"
-              ].startswith(("release/", "hotfix/"))
-              scopes = commit_message.allowed_scopes()
-              errors = []
-              if len(commits) >= MAX_COMMITS:
-                  errors.append(
-                      f"the pull request has {len(commits)} commits or more; "
-                      f"only the first {MAX_COMMITS} can be verified"
-                  )
-              for commit in commits:
-                  errors.extend(commit_errors(commit, scopes, merges_allowed))
-              return report.fail("invalid pull request commits", errors)
-
-
-          if __name__ == "__main__":
-              sys.exit(main())
-          EOF
+        run: python3 -m forge pull-request
 
   # Checks third_party/versions.md against the submodule commits recorded in
   # the tree and against the upstream release tags, and every license against
-  # the allow-list. Runs directly on the runner: it needs only git.
+  # the allow-list. Runs directly on the runner: it needs only Python 3 and
+  # git.
   third-party:
     runs-on: ubuntu-26.04
     permissions:
@@ -207,83 +75,7 @@ jobs:
 
       # Licenses are SPDX expressions, compared whole.
       - name: Versions manifest and licenses
-        env:
-          MANIFEST: third_party/versions.md
-          ALLOWED_LICENSES: |-
-            Apache-2.0
-            Apache-2.0 WITH LLVM-exception
-            BSD-2-Clause
-            BSD-3-Clause
-            MIT
-            Zlib
-            BSL-1.0
-        run: |
-          set -euo pipefail
-          status=0
-          fail() { echo "::error file=$MANIFEST::$*"; status=1; }
-          cell() {
-            local value=${1//\`/}
-            value=${value#"${value%%[![:space:]]*}"}
-            printf '%s' "${value%"${value##*[![:space:]]}"}"
-          }
-
-          # Table rows whose Path cell is code: | Name | `path` | ... |
-          declare -A tags=() commits=() licenses=()
-          while IFS='|' read -r _ name path tag commit license _; do
-            path=$(cell "$path")
-            if [[ -n "${tags[$path]+set}" ]]; then
-              fail "$path is listed more than once"
-            fi
-            tags[$path]=$(cell "$tag")
-            commits[$path]=$(cell "$commit")
-            licenses[$path]=$(cell "$license")
-            echo "Manifest: $(cell "$name") $path ${tags[$path]} ${commits[$path]} ${licenses[$path]}"
-          done < <(grep -E '^\|[^|]*\|[[:space:]]*`' "$MANIFEST")
-
-          # Every gitlink of the tree is a submodule listed in the manifest.
-          declare -A gitlinks=()
-          while read -r _ type sha path; do
-            if [[ "$type" == commit ]]; then
-              gitlinks[$path]=$sha
-            fi
-          done < <(git ls-tree -r HEAD)
-          for path in "${!gitlinks[@]}"; do
-            [[ -n "${tags[$path]+set}" ]] \
-              || fail "submodule $path is missing from the manifest"
-          done
-
-          for path in "${!tags[@]}"; do
-            tag=${tags[$path]}
-            commit=${commits[$path]}
-            license=${licenses[$path]}
-            if ! grep -Fxq -- "$license" <<<"$ALLOWED_LICENSES"; then
-              fail "$path: license '$license' is not on the allow-list"
-            fi
-            if [[ -z "${gitlinks[$path]+set}" ]]; then
-              fail "$path is listed but is not a submodule"
-              continue
-            fi
-            if [[ "$commit" != "${gitlinks[$path]}" ]]; then
-              fail "$path: the manifest says $commit, the submodule is at ${gitlinks[$path]}"
-            fi
-            # The tag must exist upstream and point to that commit (peeled
-            # when annotated).
-            url=$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
-              | awk -v p="$path" '$2 == p { print $1 }' \
-              | sed -E 's/\.path$/.url/' | xargs -r git config -f .gitmodules --get || true)
-            if [[ -z "$url" ]]; then
-              fail "$path has no URL in .gitmodules"
-              continue
-            fi
-            upstream=$(git ls-remote --tags "$url" "refs/tags/$tag" "refs/tags/$tag^{}" \
-              | sort -k2 | awk 'END { print $1 }')
-            if [[ -z "$upstream" ]]; then
-              fail "$path: tag $tag does not exist in $url"
-            elif [[ "$upstream" != "$commit" ]]; then
-              fail "$path: tag $tag points to $upstream, not $commit"
-            fi
-          done
-          exit "$status"
+        run: python3 -m forge third-party
 
   # On release and hotfix pull requests: the version in the branch name must
   # equal the CMake project version and git-cliff's bumped version, and
@@ -320,63 +112,38 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Versions, changelog and tags
-        shell: bash
+        run: python3 -m forge release
+
+  # Whether a pull request changes more than documentation: Markdown files and
+  # docs/. One that does not skips the image job and so every job that runs in
+  # the image (build, sanitizers, format, lint, modules); GitHub counts a
+  # skipped required check as passed. The files are those of the whole pull
+  # request, renames counted by both names. Pushes and dispatched runs always
+  # build.
+  changes:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Changed files
+        id: files
         env:
-          HEAD_REF: ${{ github.head_ref || github.ref_name }}
-        run: |
-          set -euo pipefail
-          status=0
-          fail() { echo "::error::$*"; status=1; }
-          version=${HEAD_REF#*/}
-          echo "Branch version: $version"
-
-          cmake_version=
-          if [[ -f CMakeLists.txt ]]; then
-            cmake_version=$(tr '\n' ' ' <CMakeLists.txt | sed -nE \
-              's/.*project\([[:space:]]*umbra[[:space:]][^)]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
-          fi
-          if [[ -z "$cmake_version" ]]; then
-            fail "CMakeLists.txt declares no 'project(umbra VERSION X.Y.Z ...)'"
-          elif [[ "$cmake_version" != "$version" ]]; then
-            fail "the CMake project version is $cmake_version, the branch says $version"
-          fi
-
-          if ! bumped=$(git cliff --bumped-version); then
-            fail "git cliff --bumped-version failed"
-          elif [[ "${bumped#v}" != "$version" ]]; then
-            fail "git-cliff bumps to ${bumped#v}, the branch says $version"
-          fi
-
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            fail "v$version is already tagged"
-          fi
-
-          heading="## [$version] - "
-          date=$(grep -F -- "$heading" CHANGELOG.md | head -n1 \
-            | cut -c$((${#heading} + 1))- || true)
-          if [[ -z "$date" ]]; then
-            fail "CHANGELOG.md has no '## [$version] - YYYY-MM-DD' section"
-          elif ! [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
-              || [[ "$(date -d "$date" +%F 2>/dev/null)" != "$date" ]]; then
-            fail "the CHANGELOG.md section of $version has an invalid date: '$date'"
-          fi
-
-          # Only the presence of a signature is checked: no allowed-signers
-          # file is committed.
-          while read -r tag; do
-            if [[ "$(git cat-file -t "$tag")" != tag ]]; then
-              fail "release tag $tag is lightweight, so it is not signed"
-            elif ! git cat-file tag "$tag" \
-                | grep -Eq -- '^-----BEGIN (SSH|PGP) SIGNATURE-----$'; then
-              fail "release tag $tag is not signed"
-            fi
-          done < <(git tag --list 'v[0-9]*.[0-9]*.[0-9]*')
-
-          exit "$status"
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m forge changes
 
   # Resolves the deps image pinned in the devcontainer configuration, so that
   # the build jobs run in it, and fails clearly when it is not published yet.
   image:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -398,22 +165,7 @@ jobs:
 
       - name: Pinned image
         id: pin
-        env:
-          PIN_FILE: .devcontainer/devcontainer.json
-        run: |
-          set -euo pipefail
-          image_line='^[[:space:]]*"image":[[:space:]]*"([^"]*)".*$'
-          ref=$(sed -nE "s/$image_line/\\1/p" "$PIN_FILE")
-          if [[ -z "$ref" ]]; then
-            echo "::error file=$PIN_FILE::no \"image\" line with the pinned image"
-            exit 1
-          fi
-          if ! docker manifest inspect "$ref" >/dev/null 2>&1; then
-            echo "::error title=Image missing::$ref is not published:" \
-              "run the deps workflow on this branch to build it, then re-run CI"
-            exit 1
-          fi
-          echo "ref=$ref" >>"$GITHUB_OUTPUT"
+        run: python3 -m forge image
 
   build-debug:
     needs: image
@@ -433,26 +185,14 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make test
+        run: python3 -m forge check --preset debug
 
       # The image carries nvcc and the OptiX headers, so UMBRA_GPU (AUTO)
       # builds the GPU module; its tests need a GPU and run on GPU hosts only.
-      - name: GPU module
-        run: |
-          if [[ ! -f build/debug/lib/libumbra-gpu.so ]]; then
-            echo "::error::the GPU module was not built (UMBRA_GPU)"
-            exit 1
-          fi
-
-      - name: No GCC runtime
-        uses: ./.github/actions/no-gcc-runtime
-        with:
-          paths: build/debug
-
-      - name: No libcuda
-        uses: ./.github/actions/no-libcuda
-        with:
-          paths: build/debug
+      # No binary needs a GCC runtime, nor the CUDA driver unless it is a
+      # module loaded at run time.
+      - name: Build tree
+        run: python3 -m forge audit --preset debug
 
   build-release:
     needs: image
@@ -472,26 +212,72 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make release
+        run: python3 -m forge check --preset release
 
       # The image carries nvcc and the OptiX headers, so UMBRA_GPU (AUTO)
       # builds the GPU module; its tests need a GPU and run on GPU hosts only.
-      - name: GPU module
-        run: |
-          if [[ ! -f build/release/lib/libumbra-gpu.so ]]; then
-            echo "::error::the GPU module was not built (UMBRA_GPU)"
-            exit 1
-          fi
+      # No binary needs a GCC runtime, nor the CUDA driver unless it is a
+      # module loaded at run time.
+      - name: Build tree
+        run: python3 -m forge audit --preset release
 
-      - name: No GCC runtime
-        uses: ./.github/actions/no-gcc-runtime
+  # On release and hotfix pull requests: builds the release image
+  # (docker/release.Dockerfile) on the pinned deps image, without publishing
+  # it, and checks its contract and that it starts, without network: every
+  # run loads the libraries umbra links, and devices and render also
+  # initialize each dependency, which loads OpenUSD's plugins, and load the
+  # GPU module, which without a GPU reports CUDA's error. The runner has no
+  # GPU, so the GPU path is not checked.
+  release-image:
+    if: >-
+      (github.event_name == 'pull_request'
+       || github.event_name == 'workflow_dispatch')
+      && (startsWith(github.head_ref || github.ref_name, 'release/')
+          || startsWith(github.head_ref || github.ref_name, 'hotfix/'))
+    needs: image
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: umbra:release-check
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          paths: build/release
+          persist-credentials: false
 
-      - name: No libcuda
-        uses: ./.github/actions/no-libcuda
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          paths: build/release
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/release.Dockerfile
+          target: release
+          build-args: DEPS_IMAGE=${{ needs.image.outputs.ref }}
+          builder: ${{ steps.buildx.outputs.name }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ env.IMAGE }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      # The user, entrypoint, command and working directory of the contract,
+      # a file system without a shell, a package manager or any program but
+      # umbra, and umbra starting in it.
+      - name: Contract and start
+        run: python3 -m forge release-image "$IMAGE"
 
   # ASan + UBSan (with pattern auto-var-init). As in the devcontainer, ptrace
   # and an unconfined seccomp profile let LeakSanitizer stop the process.
@@ -514,17 +300,12 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make asan
+        run: python3 -m forge check-asan
 
-      - name: No GCC runtime
-        uses: ./.github/actions/no-gcc-runtime
-        with:
-          paths: build/asan
-
-      - name: No libcuda
-        uses: ./.github/actions/no-libcuda
-        with:
-          paths: build/asan
+      # No binary needs a GCC runtime, nor the CUDA driver unless it is a
+      # module loaded at run time.
+      - name: Build tree
+        run: python3 -m forge audit --preset asan
 
   # TSan + the UBSan integer, conversion and nullability checks (with pattern
   # auto-var-init). The unconfined seccomp profile lets TSan re-execute itself
@@ -549,20 +330,14 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make tsan
+        run: python3 -m forge check-tsan
 
-      - name: No GCC runtime
-        uses: ./.github/actions/no-gcc-runtime
-        with:
-          paths: build/tsan
+      # No binary needs a GCC runtime, nor the CUDA driver unless it is a
+      # module loaded at run time.
+      - name: Build tree
+        run: python3 -m forge audit --preset tsan
 
-      - name: No libcuda
-        uses: ./.github/actions/no-libcuda
-        with:
-          paths: build/tsan
-
-  # Formats the sources with `make format` and fails when that changes any
-  # file.
+  # Fails when the formatters would change any file.
   format:
     needs: image
     runs-on: ubuntu-26.04
@@ -584,15 +359,8 @@ jobs:
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Format
-        run: make format
-
-      - name: Unformatted files
-        run: |
-          if ! git diff --exit-code; then
-            echo "::error title=Unformatted files::run make format and commit the result"
-            exit 1
-          fi
+      - name: Formatting
+        run: python3 -m forge format --check
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
   # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
@@ -618,14 +386,11 @@ jobs:
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Validators
-        run: make checks
-
       - name: Lint
-        run: make lint
+        run: python3 -m forge lint
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
-  # accepts cycles between static libraries, so tsort checks the graph that
+  # accepts cycles between static libraries, so forge checks the graph that
   # CMake writes.
   modules:
     needs: image
@@ -645,19 +410,4 @@ jobs:
           persist-credentials: false
 
       - name: Module graph
-        shell: bash
-        run: |
-          set -euo pipefail
-          graph=build/graph
-          cmake --preset debug --graphviz="$graph/umbra.dot" >/dev/null
-          # Each dependency edge ends in a comment: // <target> -> <target>.
-          sed -nE 's|^[[:space:]]*"node[0-9]+" -> "node[0-9]+".*// (.+) -> (.+)$|\1 \2|p' \
-            "$graph/umbra.dot" >"$graph/edges"
-          echo "Dependencies:"
-          sed 's/^/  /' "$graph/edges"
-          if ! tsort "$graph/edges" >/dev/null 2>"$graph/cycle"; then
-            echo "::error title=Module cycle::the target graph has a cycle:" \
-              "$(sed -n 's/^tsort: //p' "$graph/cycle" | tail -n +2 | xargs)"
-            exit 1
-          fi
-          echo "The target graph is acyclic."
+        run: python3 -m forge modules

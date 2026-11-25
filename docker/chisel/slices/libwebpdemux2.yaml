@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# Chisel slices of libwebpdemux2, which canonical/chisel-releases does not
+# slice yet, in its format. docker/release.Dockerfile adds this file to the
+# pinned chisel-releases tree.
+package: libwebpdemux2
+
+essential:
+  libwebpdemux2_copyright:
+
+slices:
+  libs:
+    essential:
+      libc6_libs:
+      libwebp7_libs:
+    contents:
+      /usr/lib/*-linux-*/libwebpdemux.so.2*:
+
+  copyright:
+    contents:
+      /usr/share/doc/libwebpdemux2/copyright:

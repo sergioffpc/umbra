@@ -10,3 +10,79 @@
 	path = third_party/benchmark
 	url = https://github.com/google/benchmark.git
 	shallow = true
+[submodule "third_party/embree"]
+	path = third_party/embree
+	url = https://github.com/RenderKit/embree.git
+	shallow = true
+[submodule "third_party/oneTBB"]
+	path = third_party/oneTBB
+	url = https://github.com/uxlfoundation/oneTBB.git
+	shallow = true
+[submodule "third_party/openqmc"]
+	path = third_party/openqmc
+	url = https://github.com/AcademySoftwareFoundation/openqmc.git
+	shallow = true
+[submodule "third_party/Imath"]
+	path = third_party/Imath
+	url = https://github.com/AcademySoftwareFoundation/Imath.git
+	shallow = true
+[submodule "third_party/openexr"]
+	path = third_party/openexr
+	url = https://github.com/AcademySoftwareFoundation/openexr.git
+	shallow = true
+[submodule "third_party/OpenSubdiv"]
+	path = third_party/OpenSubdiv
+	url = https://github.com/PixarAnimationStudios/OpenSubdiv.git
+	shallow = true
+[submodule "third_party/MaterialX"]
+	path = third_party/MaterialX
+	url = https://github.com/AcademySoftwareFoundation/MaterialX.git
+	shallow = true
+[submodule "third_party/yaml-cpp"]
+	path = third_party/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
+	shallow = true
+[submodule "third_party/pystring"]
+	path = third_party/pystring
+	url = https://github.com/imageworks/pystring.git
+	shallow = true
+[submodule "third_party/OpenColorIO"]
+	path = third_party/OpenColorIO
+	url = https://github.com/AcademySoftwareFoundation/OpenColorIO.git
+	shallow = true
+[submodule "third_party/fmt"]
+	path = third_party/fmt
+	url = https://github.com/fmtlib/fmt.git
+	shallow = true
+[submodule "third_party/robin-map"]
+	path = third_party/robin-map
+	url = https://github.com/Tessil/robin-map.git
+	shallow = true
+[submodule "third_party/OpenImageIO"]
+	path = third_party/OpenImageIO
+	url = https://github.com/AcademySoftwareFoundation/OpenImageIO.git
+	shallow = true
+[submodule "third_party/libtiff"]
+	path = third_party/libtiff
+	url = https://gitlab.com/libtiff/libtiff.git
+	shallow = true
+[submodule "third_party/pugixml"]
+	path = third_party/pugixml
+	url = https://github.com/zeux/pugixml.git
+	shallow = true
+[submodule "third_party/openvdb"]
+	path = third_party/openvdb
+	url = https://github.com/AcademySoftwareFoundation/openvdb.git
+	shallow = true
+[submodule "third_party/OpenShadingLanguage"]
+	path = third_party/OpenShadingLanguage
+	url = https://github.com/AcademySoftwareFoundation/OpenShadingLanguage.git
+	shallow = true
+[submodule "third_party/OpenUSD"]
+	shallow = true
+	path = third_party/OpenUSD
+	url = https://github.com/PixarAnimationStudios/OpenUSD.git
+[submodule "third_party/ptex"]
+	path = third_party/ptex
+	url = https://github.com/wdas/ptex.git
+	shallow = true

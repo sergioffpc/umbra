@@ -1,7 +1,7 @@
 # Build context of docker/deps.Dockerfile: the shared dependency build files
 # and, for each dependency of the deps layer, its submodule, config and
 # patches.
-# Keep in sync with the deps inputs in .github/actions/layer-image.
+# Keep in sync with the deps inputs in forge/layer_image.py.
 *
 !third_party/CMakeLists.txt
 !third_party/cmake/
@@ -13,4 +13,61 @@
 !third_party/config/benchmark.cmake
 !third_party/patches/benchmark/
 !third_party/benchmark/
+!third_party/config/oneTBB.cmake
+!third_party/patches/oneTBB/
+!third_party/oneTBB/
+!third_party/config/embree.cmake
+!third_party/patches/embree/
+!third_party/embree/
+!third_party/config/openqmc.cmake
+!third_party/patches/openqmc/
+!third_party/openqmc/
+!third_party/config/Imath.cmake
+!third_party/patches/Imath/
+!third_party/Imath/
+!third_party/config/openexr.cmake
+!third_party/patches/openexr/
+!third_party/openexr/
+!third_party/config/OpenSubdiv.cmake
+!third_party/patches/OpenSubdiv/
+!third_party/OpenSubdiv/
+!third_party/config/MaterialX.cmake
+!third_party/patches/MaterialX/
+!third_party/MaterialX/
+!third_party/config/yaml-cpp.cmake
+!third_party/patches/yaml-cpp/
+!third_party/yaml-cpp/
+!third_party/config/pystring.cmake
+!third_party/patches/pystring/
+!third_party/pystring/
+!third_party/config/OpenColorIO.cmake
+!third_party/patches/OpenColorIO/
+!third_party/OpenColorIO/
+!third_party/config/fmt.cmake
+!third_party/patches/fmt/
+!third_party/fmt/
+!third_party/config/robin-map.cmake
+!third_party/patches/robin-map/
+!third_party/robin-map/
+!third_party/config/libtiff.cmake
+!third_party/patches/libtiff/
+!third_party/libtiff/
+!third_party/config/pugixml.cmake
+!third_party/patches/pugixml/
+!third_party/pugixml/
+!third_party/config/ptex.cmake
+!third_party/patches/ptex/
+!third_party/ptex/
+!third_party/config/OpenImageIO.cmake
+!third_party/patches/OpenImageIO/
+!third_party/OpenImageIO/
+!third_party/config/openvdb.cmake
+!third_party/patches/openvdb/
+!third_party/openvdb/
+!third_party/config/OpenShadingLanguage.cmake
+!third_party/patches/OpenShadingLanguage/
+!third_party/OpenShadingLanguage/
+!third_party/config/OpenUSD.cmake
+!third_party/patches/OpenUSD/
+!third_party/OpenUSD/
 **/.git

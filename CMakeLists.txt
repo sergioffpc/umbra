@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
 #
-# Umbra. Configure through the presets in CMakePresets.json (or the Makefile),
+# Umbra. Configure through the presets in CMakePresets.json (or forge),
 # inside the devcontainer: the toolchain is LLVM with libc++, compiler-rt,
 # libunwind and lld, and the dependencies are found in CMAKE_PREFIX_PATH.
 
@@ -28,5 +28,14 @@ enable_testing()
 
 add_subdirectory(src/core)
 add_subdirectory(src/gpu)
+add_subdirectory(src/ext/ocio)
+add_subdirectory(src/ext/oiio)
+add_subdirectory(src/ext/openvdb)
+add_subdirectory(src/ext/opensubdiv)
+add_subdirectory(src/ext/embree)
+add_subdirectory(src/ext/usd)
+add_subdirectory(src/ext/osl)
 add_subdirectory(apps/umbra)
 add_subdirectory(tests)
+
+include(UmbraInstall)

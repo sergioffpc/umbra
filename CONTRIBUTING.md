@@ -7,6 +7,36 @@ follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 All code, comments, documentation, commit messages, issues and pull requests
 are written in English.
 
+## Contents
+
+- [Environment](#environment)
+  - [GPU hosts](#gpu-hosts)
+- [Compatibility policy](#compatibility-policy)
+- [Daily commands](#daily-commands)
+- [Git flow](#git-flow)
+- [Commit messages](#commit-messages)
+- [Signed commits and tags](#signed-commits-and-tags)
+- [Developer Certificate of Origin](#developer-certificate-of-origin)
+- [Git hooks](#git-hooks)
+- [Safety rules](#safety-rules)
+  - [Errors and language features](#errors-and-language-features)
+  - [Memory and ownership](#memory-and-ownership)
+  - [Lifetimes](#lifetimes)
+  - [Thread safety](#thread-safety)
+  - [Nullability](#nullability)
+  - [Integers, conversions and booleans](#integers-conversions-and-booleans)
+  - [Floating point](#floating-point)
+  - [Style and lint](#style-and-lint)
+  - [Modules](#modules)
+  - [Licensing](#licensing)
+- [Testing policy](#testing-policy)
+- [Pull requests](#pull-requests)
+- [Versioning and releases](#versioning-and-releases)
+  - [Running the release image with Podman](#running-the-release-image-with-podman)
+- [Third-party dependencies](#third-party-dependencies)
+- [Reporting issues](#reporting-issues)
+- [License](#license)
+
 ## Environment
 
 **The devcontainer is the only supported environment.** It pulls a prebuilt
@@ -17,21 +47,33 @@ be reproduced inside the devcontainer are not supported.
 
 Nothing depends on a GCC runtime: CI fails when any binary of the toolchain,
 of the dependencies or of an umbra build tree needs libstdc++, libgcc_s or
-GCC's libatomic (`.github/actions/no-gcc-runtime`).
+GCC's libatomic (`python3 -m forge no-gcc-runtime`).
 
 The image also carries the NVIDIA development stack under `/opt/cuda`: CUDA
 13.5 (nvcc, cudart, CCCL) and the OptiX 9.1 headers. nvcc compiles device code
 only, with clang as its host compiler; the GPU backend is a module,
 `libumbra-gpu.so`, that umbra loads at run time.
 CI fails when any binary other than such a module needs the CUDA driver,
-`libcuda.so.1` (`.github/actions/no-libcuda`). Those NVIDIA tools are not
+`libcuda.so.1` (`python3 -m forge no-libcuda`). Those NVIDIA tools are not
 redistributable, so the image is a **private** package: log in to the GitHub
 Container Registry before opening the devcontainer, with a personal access
 token that has `read:packages`:
 
 ```sh
-podman login ghcr.io
+podman login ghcr.io --compat-auth-file ~/.docker/config.json
 ```
+
+If the host's `gh` is logged in with the `read:packages` (or `write:packages`)
+scope, its token works too:
+
+```sh
+gh auth token | podman login ghcr.io --username "$(gh api user --jq .login)" \
+    --password-stdin --compat-auth-file ~/.docker/config.json
+```
+
+The Dev Containers extension reads only `~/.docker/config.json`, never
+Podman's own login file, which lives in `$XDG_RUNTIME_DIR` and is gone after a
+reboot; Podman reads `~/.docker/config.json` too.
 
 The devcontainer is set up for VS Code Dev Containers on rootless Podman
 (set `"dev.containers.dockerPath": "podman"` in your VS Code user settings).
@@ -68,11 +110,16 @@ the host is set up:
 1. Install the NVIDIA driver, R590 or newer; OptiX 9.1 needs it. (An R580
    driver loads CUDA but not OptiX 9.1; whether R590 reads the OptiX-IR of
    nvcc 13.5 or R620 is needed is still to be confirmed.)
-2. Install the NVIDIA Container Toolkit and generate the CDI specification
-   of your GPUs (again after every driver update):
+2. Install the NVIDIA Container Toolkit, 1.18 or newer. Its
+   `nvidia-cdi-refresh` service writes the CDI specification of your GPUs to
+   `/var/run/cdi/nvidia.yaml` and rewrites it after every driver update. Do
+   not also generate one in `/etc/cdi`: that copy goes stale on the next
+   driver update, and the container then fails to mount the driver's
+   libraries. After a driver update, reboot before rebuilding the container,
+   so that the loaded kernel module matches the driver's libraries:
 
    ```sh
-   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+   nvidia-smi    # fails with "Driver/library version mismatch" until then
    ```
 
 3. Give your rootless Podman containers the GPUs, in
@@ -85,13 +132,12 @@ the host is set up:
 
    This applies to every container of your user on the host. Never add
    `--device` to the devcontainer's `runArgs`: hosts without a CDI
-   specification then fail to start it. Docker hosts with the NVIDIA
-   container runtime need none of this: the devcontainer asks for an
-   optional GPU, and its `NVIDIA_DRIVER_CAPABILITIES` include `graphics`,
-   which mounts the driver's OptiX runtime.
+   specification then fail to start it. The devcontainer's
+   `NVIDIA_DRIVER_CAPABILITIES` include `graphics`, which mounts the
+   driver's OptiX runtime.
 
 4. Rebuild the devcontainer and check: `nvidia-smi -L` lists the GPU,
-   and `build/debug/bin/umbra` reports the GPU executors.
+   and `build/debug/bin/umbra devices` lists the GPU as `gpu0`.
 
 ## Compatibility policy
 
@@ -101,23 +147,73 @@ changes bump the minor version until then; see
 
 ## Daily commands
 
-The Makefile is a thin wrapper over CMake presets and the shared checks:
+`forge` runs the CMake presets and the shared checks, as
+`python3 -m forge <command>` from the repository root:
 
-| Target | Action |
+| Command | Action |
 | --- | --- |
-| `make` / `make all` | Debug build |
-| `make test` | Debug build and run the tests, except those that need a GPU; `make test LABEL=gpu` runs only the tests with that CTest label |
-| `make release` | Release build and tests |
-| `make asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests |
-| `make tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests |
-| `make coverage` | Coverage build and tests, then the coverage report (local only) |
-| `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
-| `make lint` | Run clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
-| `make checks` | Run the validators shared with the git hooks and CI: the file validators on every tracked file, the current branch name, and the commit messages since `develop` |
-| `make clean` | Remove the build trees |
-| `make help` | List the targets |
+| `build` | Debug build; `--preset release` builds the release preset (LTO) instead |
+| `check` | Build and run the tests, except those that need a GPU; `--label gpu` runs only the tests with that CTest label; `--preset release` as for `build` |
+| `check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `--label gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
+| `check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `--label gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
+| `check-all` | `lint`, `check`, `check-asan` and `check-tsan`, stopping at the first failure: everything to run before a pull request |
+| `coverage` | Coverage build and tests, then the coverage report (local only) |
+| `format` | Format the C++ (clang-format) and Python (pyink, isort) sources; `--check` changes no file and fails when one is not formatted |
+| `lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
+| `clean` | Remove what the builds built, keeping their configuration |
+| `distclean` | Remove the build trees, with their configuration |
 
-CI uses the same targets where they exist.
+`python3 -m forge --help` lists the commands, and
+`python3 -m forge <command> --help` their options. `-v`/`--verbose` makes
+any command that runs CMake or CTest as verbose as its tools allow: the
+configure's messages down to `TRACE`, every command the build runs, and the
+full output of every test, e.g. `python3 -m forge check -v`. Every step is
+echoed to stderr before it runs, prefixed with `+ `, and a command stops at
+the first step that fails, with its exit status.
+
+CI runs through forge too: every step of the workflows that runs a command
+is one forge command, apart from trusting the checkout, pushing an image and
+reporting a read-only token. A step that checks an image runs the forge
+command inside it, with `docker run` on a read-only mount of the checkout and
+`python3 -B`, so that nothing is written there. The build jobs run
+`check --preset debug`, `check --preset release`, `check-asan` and
+`check-tsan`, then `audit` on their build tree; the other jobs run
+`format --check`, `lint` and the commands below, which check what CI checks:
+
+| Command | Action |
+| --- | --- |
+| `audit` | Check a build tree (`--preset debug`, `release`, `asan` or `tsan`): the debug and release trees have the GPU module, no ELF file needs a GCC runtime, and none needs the CUDA driver unless it is a module loaded at run time |
+| `pin` | Check that `.devcontainer/devcontainer.json` pins `--ref`, the deps image of the current inputs |
+| `pull-request` | Check the branch name, title and commits of the pull request of the GitHub Actions run (CI only) |
+| `third-party` | Check `third_party/versions.md` against the submodules, the license allow-list and the upstream tags |
+| `release` | Check the version, changelog and tags of a release or hotfix branch, `--branch` or that of the run |
+| `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
+| `image` | Resolve the pinned deps image and check that it is published |
+| `modules` | Check that the target graph is acyclic |
+| `release-image` | Check the contract of a release image, in docker or in its registry (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
+| `release-tag` | Check that a release tag (`--tag`, or that of the GitHub Actions run) is `vX.Y.Z`, annotated and signed, on `main`, with the CMake project version `X.Y.Z`, and name the release image with its tags `X.Y.Z`, `X.Y`, `X` and `latest` |
+| `sbom` | Write the SPDX 2.3 SBOM of a release image, in docker or in its registry, to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
+| `sign` | Sign a pushed image, `IMAGE@DIGEST`, with cosign, keyless, under the identity of the GitHub Actions job (CI only) |
+| `tag-image` | Tag a pushed image, `IMAGE@DIGEST`, in its registry with each of the comma-separated references `TAGS`, pointing to its manifest itself |
+| `no-gcc-runtime` | Check that no ELF file under the given paths needs a GCC runtime, directly or through its dependencies, and that every dependency resolves |
+| `no-libcuda` | Check that no ELF file under the given paths needs `libcuda.so.1`, except the modules loaded at run time |
+
+The deps and submodules workflows build the images and move the submodules
+through these commands:
+
+| Command | Action |
+| --- | --- |
+| `layer-image` | Compute the reference of a layer image (`toolchain` or `deps`), `ghcr.io/<owner>/umbra-<layer>:<tag>`, the tag a hash of the layer's inputs at `HEAD` (and its parent's reference), and write it to the step outputs |
+| `published` | Tell whether an image is published, in the step output `exists` |
+| `checkout-submodules` | Check out the submodules among the inputs of a layer (`--layer`); `--touch` gives their files their commit time, so that a cached build tree stays newer than the sources |
+| `buildkit-cache` | Copy a directory (`--from-dir`) or a package image (`--from-package`) into a BuildKit cache mount (`load`), or the mount into a directory (`--to-dir`) or a pushed package image (`--to-package`) (`save`) |
+| `verify-toolchain` | Check the tools and runtimes of the toolchain image it runs in, and that its test programs use only the LLVM runtimes |
+| `pin-devcontainer` | Pin `--ref` in `.devcontainer/devcontainer.json` on `--branch` with a commit that GitHub signs, then dispatch CI on the branch |
+| `bump-submodules` | Open a pull request per submodule with a newer upstream release tag, on `--base`, labelled `--label` |
+
+Under GitHub Actions their errors are annotations; elsewhere they are plain
+`error:` lines on stderr. A command that needs the variables of a GitHub
+Actions run fails with an error when they are not set.
 
 ## Git flow
 
@@ -142,11 +238,16 @@ Umbra follows git flow:
   The pre-push hook rejects other names, and CI also rejects `research/` and
   `prototype/` as pull request branches; only Dependabot's own
   `dependabot/...` branches are exempt in CI.
-- Features and bugfixes are **squash-merged** into `develop`. The pull request
-  title becomes the commit header, so it must be a valid Conventional Commit;
-  CI checks it.
+- Features and bugfixes are **squash-merged** into `develop`. Squash is the
+  only merge method the repository allows on GitHub: merge commits and
+  rebase merging are disabled.
+- The squash commit takes the pull request title as its header, so the title
+  must be a valid Conventional Commit; CI checks it. The commit body joins
+  the messages of the branch's commits.
 - Releases and hotfixes are merged with `--no-ff` and tagged `vX.Y.Z` on
-  `main`.
+  `main`. GitHub cannot create those merge commits, so they are made
+  locally and pushed; see
+  [Versioning and releases](#versioning-and-releases).
 - git-flow-next is available in the devcontainer as an optional helper.
 
 ## Commit messages
@@ -179,7 +280,9 @@ request.
   before opening or updating a pull request.
 - Pull request history is linear: rebase instead of merging. Only release and
   hotfix pull requests into `main` may contain merge commits (the git flow
-  back-merges), and those are not checked as Conventional Commits.
+  back-merges), and those are not checked as Conventional Commits. CI checks
+  only the commits of such a pull request that are not on `develop`; the
+  others passed the checks in their own pull requests.
 
 Examples:
 
@@ -203,6 +306,29 @@ Every commit and release tag must be cryptographically signed.
 - Squash merges, Dependabot commits and automation commits (the devcontainer
   image pin update and the submodule bumps) are signed by GitHub.
 
+## Developer Certificate of Origin
+
+Every commit must be signed off under the
+[Developer Certificate of Origin 1.1](DCO): by adding a
+`Signed-off-by: Name <email>` trailer, you certify that you wrote the change,
+or otherwise have the right to submit it under the project's license, and
+that the record of your contribution, sign-off included, is public. The
+sign-off is a statement, not a cryptographic signature; commits need both.
+
+- Commit with `git commit -s`, which adds the trailer from your `user.name`
+  and `user.email`. The sign-off must carry the email of the commit author.
+  Commits from VS Code's Source Control view are signed off automatically
+  (`git.alwaysSignOff` in `.vscode/settings.json`).
+- Sign off with your real name. A sign-off cannot be made on someone else's
+  behalf: when you submit work written by others, keep their sign-off and add
+  yours.
+- To add a forgotten sign-off, amend the last commit
+  (`git commit --amend --no-edit -s`) or rebase the branch
+  (`git rebase --signoff develop`), then force-push it.
+- The commit-msg hook and CI reject commits without a sign-off matching the
+  author. Merge commits and commits authored by bots (Dependabot and the
+  automation workflows) are exempt.
+
 ## Git hooks
 
 The hooks in `.githooks/` are Python 3 standard-library executables that
@@ -213,7 +339,8 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
   clang-query rules on the affected translation units (those that include a
   staged file), pylint on staged Python files, and actionlint and the
   embedded Python checks on staged workflows.
-- **commit-msg** validates the Conventional Commit format.
+- **commit-msg** validates the Conventional Commit format and the
+  Developer Certificate of Origin sign-off.
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
 
@@ -329,26 +456,36 @@ clang-tidy families and the function limits below), this document wins.
 - The namespace matches the directory: `umbra::<module>` in
   `include/umbra/<module>/`, `src/<module>/` and `tests/<module>/`
   (`umbra::ext::<dep>` for bridges), or a namespace nested in it.
-- Python (`checks/` and the extensionless scripts in `.githooks/`) is
-  enforced like C++: [Pyink](https://github.com/google/pyink) formats it
-  (80 columns, 4-space indent, configured in `pyproject.toml`), isort orders
-  the imports (`profile = "google"`), and pylint lints it with Google's
-  unmodified `pylintrc` (`.pylintrc`). The versions are pinned in the
-  devcontainer image.
+- Python (`checks/`, `forge/` and the extensionless scripts in
+  `.githooks/`) is enforced like C++: [Pyink](https://github.com/google/pyink)
+  formats it (80 columns, 4-space indent, configured in `pyproject.toml`),
+  isort orders the imports (`profile = "google"`), and pylint lints it with
+  Google's unmodified `pylintrc` (`.pylintrc`). The versions are pinned in
+  the devcontainer image.
 - Workflows are linted with actionlint, which runs shellcheck on their
   scripts; both are pinned in the devcontainer image.
-- CI-only logic stays inline in the workflows. Python there is written as a
-  quoted heredoc read by `python3 -` (`python3 - <<'EOF'`), follows the same
-  Google style (a `main()` and the `__main__` guard, no module-level logic)
-  and is checked like a Python file: `make lint` and the pre-commit hook
-  extract it (`python3 -m checks.embedded` prints what they find) and fail
-  when pyink or isort would change it or pylint reports anything. Format it
-  by hand.
+- Shell, in scripts, workflow steps and the `RUN` instructions of the
+  Dockerfiles, follows
+  [Google's Shell Style Guide](https://google.github.io/styleguide/shellguide.html):
+  bash only, with errexit, nounset and pipefail (a Dockerfile stage sets
+  `SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]`
+  before its first `RUN`); 2-space indent and 80 columns; `[[ ]]` and
+  `$(...)`; every expansion quoted and braced (`"${name}"`); lowercase
+  variables, `local` in functions, and uppercase `readonly` constants and
+  environment variables; a long command broken before its `&&`, `||` or `|`.
+- CI logic lives in forge: the workflows' steps run forge commands.
+  Python embedded in a workflow is written as a quoted heredoc read
+  by `python3 -` (`python3 - <<'EOF'`), follows the same Google style (a
+  `main()` and the `__main__` guard, no module-level logic) and is checked
+  like a Python file: `python3 -m forge lint` and the pre-commit hook extract
+  it (`python3 -m checks.embedded` prints what they find) and fail when pyink
+  or isort would change it or pylint reports anything. Format it by hand.
 - Every pylint suppression names the message and gives a reason, for example
   `# pylint: disable=invalid-name` after a comment explaining why. The git
   hooks are the only standing exception to Google's naming and import rules:
   git fixes their file names, and they add the repository root to the import
-  path before importing `checks`.
+  path before importing `checks`. `forge/__main__.py` also disables
+  `invalid-name`, because Python fixes the name of a package's entry point.
 
 ### Modules
 
@@ -374,35 +511,37 @@ clang-tidy families and the function limits below), this document wins.
   a module only, never generated headers or internal plumbing.
 - Tests are added only to modules the maintainers explicitly request. There
   is no one-test-per-source rule and no coverage gate. The coverage preset
-  (`make coverage`: clang source-based coverage, merged with llvm-profdata)
-  writes llvm-cov reports of umbra's sources, tests excluded, to
+  (`python3 -m forge coverage`: clang source-based coverage, merged with
+  llvm-profdata) writes llvm-cov reports of umbra's sources, tests excluded, to
   `build/coverage/report/` (`summary.txt` and `html/index.html`) for local
   use only; CI does not run it.
 - A tested source file gets one test file under `tests/<module>/`, mirroring
   the module tree.
 - Test bodies follow the same lint rules, except the function-size limit and
   cognitive complexity.
-- Infrastructure (hooks, checks, workflows, CMake, Dockerfiles) has no tests;
-  it is validated by use.
+- Infrastructure (hooks, checks, forge, workflows, CMake, Dockerfiles) has no
+  tests; it is validated by use.
 - Tests run in the debug, release, asan and tsan presets, both locally and in
   CI.
 - Tests that need a GPU carry the CTest label `gpu` (`umbra_add_test(...
   LABELS gpu)`). CI runners have no GPU, so the test presets leave them out
-  (`ctest -LE gpu`); run them on a GPU host with `make test LABEL=gpu`
-  (`ctest -L gpu`). CI still builds them, and the GPU module.
+  (`ctest -LE gpu`); run them on a GPU host with
+  `python3 -m forge check --label gpu` (`ctest -L gpu`). CI still builds
+  them, and the GPU module.
 
 ## Pull requests
 
 1. Open an issue first for anything beyond a small fix.
 2. Branch from `develop` following the git flow naming rules.
 3. Keep commits small, themed and signed.
-4. Run `make checks`, `make lint` and `make test` inside the devcontainer.
+4. Run `python3 -m forge lint` and `python3 -m forge check` inside the
+   devcontainer.
 5. Open the pull request against `develop` and fill in the template. Its title
    must be a Conventional Commit.
 
 Every pull request must pass the required CI jobs: conventions, format, lint,
 build-debug, build-release, sanitize-address, sanitize-thread, modules,
-third-party and, on release and hotfix branches, release.
+third-party and, on release and hotfix branches, release and release-image.
 
 ## Versioning and releases
 
@@ -439,12 +578,63 @@ To cut a release:
 5. Open a pull request into `main`. The CI `release` job checks that the
    branch version equals the CMake project version and git-cliff's bumped
    version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
-   section for it, and that every existing release tag is signed.
-6. Merge with `--no-ff`, create the signed annotated tag `vX.Y.Z` on `main`
-   (`git tag -s`, or `git flow release finish` with signing enabled), and
-   merge `main` back into `develop`.
+   section for it, and that every existing release tag is signed. The CI
+   `release-image` job builds the release image, `docker/release.Dockerfile`,
+   without publishing it, and `python3 -m forge release-image` checks that it
+   runs as UID 65532, which owns `/work`, with no shell and no package
+   manager, and runs `umbra version --build-options`,
+   `umbra devices` and `umbra render` in it, without a GPU.
+6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
+   merge button (the repository allows only squash merges), create the
+   signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
+   `git flow release finish` with signing enabled), merge `main` back into
+   `develop`, and push both branches and the tag. GitHub marks the pull
+   request as merged when `main` receives its commits. The tag starts the
+   release workflow, `.github/workflows/release.yml`:
+   `python3 -m forge release-tag` checks that the tag is `vX.Y.Z`, annotated
+   and signed, on a commit of `main` whose CMake project version is `X.Y.Z`;
+   the workflow then builds the release image on the pinned deps image,
+   checks it with `python3 -m forge release-image`, writes its SPDX SBOM
+   with `python3 -m forge sbom`, pushes it to `ghcr.io/<owner>/umbra` with
+   the tags `X.Y.Z`, `X.Y`, `X` and `latest`, signs it with cosign, keyless,
+   under the workflow's identity, and attests its SLSA build provenance and
+   its SBOM. The README's [Install](README.md#install) section shows how to
+   verify them.
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
+
+### Running the release image with Podman
+
+On rootless Podman, the user of the release image, UID 65532, is one of your
+subordinate UIDs on the host, so it cannot write to a directory of yours
+mounted on `/work`. `--userns=keep-id:uid=65532,gid=65532` maps your own user
+to it instead, and umbra's outputs belong to you. To list the published tags
+(Podman shows at most 25 unless `--limit` says otherwise):
+
+```sh
+podman search --list-tags --limit 100 ghcr.io/sergioffpc/umbra
+```
+
+Then run one of them:
+
+```sh
+podman run --rm --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render
+```
+
+On SELinux hosts, `:z` relabels the mounted directory so the container can
+read it: run the command from the directory of your scenes, never from your
+home directory.
+
+On a GPU host set up as in [GPU hosts](#gpu-hosts), every container of your
+user already gets the GPUs; on any other host with the NVIDIA Container
+Toolkit, give them to the container with `--device nvidia.com/gpu=all`:
+
+```sh
+podman run --rm --device nvidia.com/gpu=all \
+  --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render --devices=gpu0
+```
 
 ## Third-party dependencies
 
@@ -458,6 +648,10 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
   commit its upstream tag points to, and that the license is on the
   allow-list.
 - A new dependency arrives in its own `build(deps): add <dep>` pull request.
+  When umbra installs its libraries, the table of components in
+  `cmake/InstallRuntime.cmake` maps them to the dependency, whose license
+  texts the install takes; a library the table does not cover stops the
+  install.
 - The NVIDIA development stack (CUDA, the OptiX headers) is not a
   submodule: it is prebuilt downloads, each pinned by version and SHA-256 in
   the `nvidia` stage of `docker/deps.Dockerfile`, and listed under

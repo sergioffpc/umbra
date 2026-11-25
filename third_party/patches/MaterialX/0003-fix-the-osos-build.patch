@@ -1,0 +1,52 @@
+Fix the build of the OSL .oso files.
+
+Three things keep MATERIALX_BUILD_OSOS from producing any .oso file:
+
+- it turns on MaterialXRender and its platforms, which need the hardware
+  shading generators (GLSL, MSL or Slang): with only GenOsl, the link of
+  MaterialXRender fails on -lMaterialXGenHw. MaterialXGenOsl_LibsToOso
+  needs none of them, only Core, Format, GenShader, GenOsl and oslcomp;
+- LibsToOso runs in <build>/libraries and loads the folder "libraries"
+  relative to it, which does not exist, so it finds no node definition
+  and writes nothing, without an error. It is given the source tree as
+  its search path, where libraries/ and the genosl includes are;
+- it is passed --removeNdPrefix, an option it does not have.
+
+The OSL include path, where stdosl.h is, also comes from OSL's install
+layout, share/OSL/shaders, instead of <prefix>/include.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7f9ec02d..025c3011 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -151,8 +151,6 @@ endif()
+ if (MATERIALX_BUILD_OSOS)
+     set(MATERIALX_BUILD_DATA_LIBRARY ON)
+     set(MATERIALX_BUILD_GEN_OSL ON)
+-    set(MATERIALX_BUILD_RENDER ON)
+-    set(MATERIALX_BUILD_RENDER_PLATFORMS ON)
+ endif()
+ 
+ # Helpers for MDL validation
+@@ -279,7 +277,7 @@ if((MATERIALX_BUILD_RENDER AND MATERIALX_BUILD_GEN_OSL AND MATERIALX_BUILD_TESTS
+         endif()
+         if(NOT MATERIALX_OSL_INCLUDE_PATH)
+             # OSL does not yet export a CMake target for testrender.
+-            set(MATERIALX_OSL_INCLUDE_PATH $<TARGET_FILE_DIR:OSL::oslc>/../include)
++            set(MATERIALX_OSL_INCLUDE_PATH $<TARGET_FILE_DIR:OSL::oslc>/../share/OSL/shaders)
+         endif()
+     endif()
+ endif()
+diff --git a/libraries/CMakeLists.txt b/libraries/CMakeLists.txt
+index 432df18b..67c30dd2 100644
+--- a/libraries/CMakeLists.txt
++++ b/libraries/CMakeLists.txt
+@@ -46,7 +46,7 @@ if(MATERIALX_BUILD_DATA_LIBRARY)
+                             --oslCompilerPath ${MATERIALX_OSL_BINARY_OSLC}
+                             --oslIncludePath ${MATERIALX_OSL_INCLUDE_PATH}
+                             --libraryRelativeOsoPath libraries/targets/genoslnetwork/osos
+-                            --removeNdPrefix true
++                            --path ${PROJECT_SOURCE_DIR}
+                 DEPENDS ${MATERIALX_DATA_LIBRARY_SOURCE_FILES} MaterialXGenOsl_LibsToOso
+         )
+ 

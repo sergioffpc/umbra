@@ -14,13 +14,18 @@
 - description: English (ASCII), imperative, starting with a lowercase letter,
   no trailing period;
 - header: at most MAX_HEADER_LENGTH characters;
-- body: separated from the header by a blank line.
+- body: separated from the header by a blank line;
+- sign-off: a ``Signed-off-by: Name <email>`` trailer whose email is the
+  author's (the Developer Certificate of Origin), when an author is given.
 
-With --since BASE, the commits of BASE..HEAD are validated instead, as CI
-validates those of a pull request: merge commits are skipped, and nothing is
-validated when BASE does not exist (a shallow clone, for example).
+A message read from FILE is checked without a sign-off, as for a pull request
+title; with --sign-off it must carry the sign-off of the author git would
+record (``git var GIT_AUTHOR_IDENT``). With --since BASE, the commits of
+BASE..HEAD are validated instead, sign-off included, as CI validates those of
+a pull request: merge commits are skipped, and nothing is validated when BASE
+does not exist (a shallow clone, for example).
 
-Usage: python3 -m checks.commit_message [--allow-autosquash] FILE
+Usage: python3 -m checks.commit_message [--allow-autosquash] [--sign-off] FILE
        (FILE is ``-`` to read the message from stdin)
        python3 -m checks.commit_message [--allow-autosquash] --since BASE
 """
@@ -59,6 +64,8 @@ HEADER = re.compile(
     r"(?P<breaking>!)?"
     r": (?P<description>\S.*)$"
 )
+SIGN_OFF = re.compile(r"^Signed-off-by: (?P<name>\S.*?) <(?P<email>[^<>\s]+)>$")
+IDENT = re.compile(r"^(?P<name>.*?) <(?P<email>[^<>]*)>")
 
 # Words that end like non-imperative verb forms but are imperative themselves.
 IMPERATIVE_EXCEPTIONS = frozenset(
@@ -209,11 +216,54 @@ def validate_header(header: str, scopes: frozenset[str]) -> list[str]:
     return errors
 
 
+def validate_sign_off(message: str, author: str) -> list[str]:
+    """Validates the Developer Certificate of Origin sign-off of a message.
+
+    Args:
+        message: The cleaned commit message.
+        author: The email of the commit author.
+
+    Returns:
+        The human-readable errors; empty when a ``Signed-off-by`` trailer
+        carries the author's email (compared case-insensitively).
+    """
+    emails = [
+        match["email"]
+        for match in map(SIGN_OFF.match, message.split("\n")[1:])
+        if match is not None
+    ]
+    if author.lower() in (email.lower() for email in emails):
+        return []
+    if not emails:
+        return [
+            "missing 'Signed-off-by: Name <email>' trailer: commit with "
+            "'git commit -s' (see Developer Certificate of Origin in "
+            "CONTRIBUTING.md)"
+        ]
+    found = ", ".join(emails)
+    return [
+        f"no Signed-off-by trailer for the author <{author}> "
+        f"(found: {found}); commit with 'git commit -s' as the author"
+    ]
+
+
+def author_email() -> str:
+    """Returns the email of the author git would record for a new commit.
+
+    Honors ``GIT_AUTHOR_EMAIL``, which ``git commit`` sets for its hooks,
+    including when ``--amend`` keeps the original author.
+    """
+    ident = git.run("var", "GIT_AUTHOR_IDENT").strip()
+    match = IDENT.match(ident)
+    return match["email"] if match is not None else ""
+
+
 def validate(
     message: str,
     scopes: frozenset[str],
     *,
     allow_autosquash: bool = False,
+    author: str | None = None,
 ) -> list[str]:
     """Validates a cleaned commit message.
 
@@ -222,6 +272,9 @@ def validate(
         scopes: The scopes the header may use.
         allow_autosquash: Whether to accept fixup!, squash! and amend!
             commits (local work before ``git rebase --autosquash``).
+        author: The email of the commit author, whose sign-off the message
+            must carry; None to skip the sign-off, as for a pull request
+            title.
 
     Returns:
         The human-readable errors; empty when the message is valid.
@@ -239,6 +292,8 @@ def validate(
     errors = validate_header(header, scopes)
     if rest and rest[0].strip():
         errors.append("the header must be followed by a blank line")
+    if author is not None:
+        errors.extend(validate_sign_off(message, author))
     return errors
 
 
@@ -267,11 +322,15 @@ def validate_history(
     errors = []
     for sha in shas:
         message = git.run("log", "-1", "--format=%B", sha).strip()
+        author = git.run("log", "-1", "--format=%ae", sha).strip()
         header = message.split("\n", 1)[0]
         errors.extend(
             f"{sha[:12]} {header!r}: {error}"
             for error in validate(
-                message, scopes, allow_autosquash=allow_autosquash
+                message,
+                scopes,
+                allow_autosquash=allow_autosquash,
+                author=author,
             )
         )
     return errors
@@ -300,6 +359,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="accept fixup!, squash! and amend! commits",
     )
+    parser.add_argument(
+        "--sign-off",
+        action="store_true",
+        help="require the sign-off of the author of the next commit (FILE)",
+    )
     args = parser.parse_args(argv)
     if args.since is not None:
         errors = validate_history(
@@ -314,7 +378,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = pathlib.Path(args.file).read_text(encoding="utf-8")
     message = clean(raw)
     errors = validate(
-        message, allowed_scopes(), allow_autosquash=args.allow_autosquash
+        message,
+        allowed_scopes(),
+        allow_autosquash=args.allow_autosquash,
+        author=author_email() if args.sign_off else None,
     )
     return report.fail("invalid commit message", errors)
 

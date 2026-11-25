@@ -17,7 +17,6 @@
 *.toml    text
 *.sh      text eol=lf
 *.patch   text -whitespace
-Makefile  text
 Dockerfile text
 
 # Binary files

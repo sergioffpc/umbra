@@ -16,6 +16,8 @@
 #   - Release keeps the frame pointers, including in leaf functions, so that
 #     profilers (perf) unwind call stacks cheaply and reliably; the cost is
 #     about 1%, and the major Linux distributions build this way too;
+#   - source paths in __FILE__ and std::source_location are relative to the
+#     repository ("src/gpu/module.cc"), as trace lines show them;
 #   - UMBRA_TIME_TRACE writes a -ftime-trace JSON file per translation unit
 #     next to its object file.
 #
@@ -63,6 +65,7 @@ function(umbra_apply_compiler_settings target)
     -fno-math-errno
     -ffp-contract=on
     -fno-trapping-math
+    -fmacro-prefix-map=${PROJECT_SOURCE_DIR}/=
     $<$<BOOL:${UMBRA_TIME_TRACE}>:-ftime-trace>
     $<$<CONFIG:Release>:-flto=full -fwhole-program-vtables
       -fvisibility=hidden -fvisibility-inlines-hidden

@@ -1,0 +1,19 @@
+Keep the install RPATHs relative.
+
+MaterialX appends the absolute <prefix>/lib to every RPATH it sets, for
+backwards compatibility. The deps layer installs relocatable libraries:
+$ORIGIN, and $ORIGIN/../lib from bin/, find everything.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4a68f062..a88ec7cc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -330,7 +330,7 @@ endif()
+ # absolute RPATHS for backwards compatibility.
+ 
+ # For linking to libraries in the same dir - ie, things in "MATX/lib" to each other
+-set(MATERIALX_SAME_DIR_RPATH "${RPATH_RELATIVE_SYMBOL};${CMAKE_INSTALL_PREFIX}/${MATERIALX_INSTALL_LIB_PATH}")
++set(MATERIALX_SAME_DIR_RPATH "${RPATH_RELATIVE_SYMBOL}")
+ # For linking to libraries where source is one directory deep, ie: "MATX/bin/../lib"
+ set(MATERIALX_UP_ONE_RPATH "${RPATH_RELATIVE_SYMBOL}/../${MATERIALX_INSTALL_LIB_PATH};${MATERIALX_SAME_DIR_RPATH}")
+ # For linking to libraries where source is two directories deep, ie: "MATX/python/MaterialX/../../lib"

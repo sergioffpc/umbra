@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
-"""Checks shared by the git hooks in .githooks/, the Makefile and CI.
+"""Checks shared by the git hooks in .githooks/, forge and CI.
 
 Validator modules (branch_name, commit_message, and the file validators spdx,
 nolint, safety_comment, assume_nonnull and namespace) expose a ``validate``
