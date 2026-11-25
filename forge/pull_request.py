@@ -15,8 +15,10 @@ fails:
   Commit carrying its author's Developer Certificate of Origin sign-off; bots
   (Dependabot, the submodules workflow) are exempt from the sign-off. Merge
   commits are allowed only in release and hotfix pull requests into main
-  (the git flow back-merges), and are not checked. GitHub lists at most
-  MAX_COMMITS commits of a pull request, so one with more fails.
+  (the git flow back-merges), and are not checked. A release or hotfix pull
+  request into main checks only its commits that are not on develop: those
+  on develop passed these checks in their own pull requests. GitHub lists at
+  most MAX_COMMITS commits of a pull request, so one with more fails.
 
 Needs the GitHub Actions variables GITHUB_EVENT_NAME, GITHUB_EVENT_PATH,
 GITHUB_REF_NAME and GITHUB_REPOSITORY, and gh (authenticated by GH_TOKEN).
@@ -152,17 +154,17 @@ def commit_errors(
 def check_commits(pull: PullRequest) -> int:
     """Validates the commits of the pull request."""
     repository = github.variable("GITHUB_REPOSITORY")
-    lines = github.gh(
-        "api",
-        "--paginate",
-        f"repos/{repository}/pulls/{pull.number}/commits",
-        "--jq",
-        ".[] | @json",
-    )
-    commits = [json.loads(line) for line in lines.splitlines() if line.strip()]
     merges_allowed = pull.base == "main" and pull.head.startswith(
         ("release/", "hotfix/")
     )
+    if merges_allowed:
+        endpoint = f"repos/{repository}/compare/develop...{pull.head}"
+        jq = ".commits[] | @json"
+    else:
+        endpoint = f"repos/{repository}/pulls/{pull.number}/commits"
+        jq = ".[] | @json"
+    lines = github.gh("api", "--paginate", endpoint, "--jq", jq)
+    commits = [json.loads(line) for line in lines.splitlines() if line.strip()]
     scopes = commit_message.allowed_scopes()
     errors = []
     if len(commits) >= MAX_COMMITS:

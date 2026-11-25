@@ -280,7 +280,9 @@ request.
   before opening or updating a pull request.
 - Pull request history is linear: rebase instead of merging. Only release and
   hotfix pull requests into `main` may contain merge commits (the git flow
-  back-merges), and those are not checked as Conventional Commits.
+  back-merges), and those are not checked as Conventional Commits. CI checks
+  only the commits of such a pull request that are not on `develop`; the
+  others passed the checks in their own pull requests.
 
 Examples:
 
