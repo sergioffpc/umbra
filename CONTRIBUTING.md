@@ -7,6 +7,36 @@ follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 All code, comments, documentation, commit messages, issues and pull requests
 are written in English.
 
+## Contents
+
+- [Environment](#environment)
+  - [GPU hosts](#gpu-hosts)
+- [Compatibility policy](#compatibility-policy)
+- [Daily commands](#daily-commands)
+- [Git flow](#git-flow)
+- [Commit messages](#commit-messages)
+- [Signed commits and tags](#signed-commits-and-tags)
+- [Developer Certificate of Origin](#developer-certificate-of-origin)
+- [Git hooks](#git-hooks)
+- [Safety rules](#safety-rules)
+  - [Errors and language features](#errors-and-language-features)
+  - [Memory and ownership](#memory-and-ownership)
+  - [Lifetimes](#lifetimes)
+  - [Thread safety](#thread-safety)
+  - [Nullability](#nullability)
+  - [Integers, conversions and booleans](#integers-conversions-and-booleans)
+  - [Floating point](#floating-point)
+  - [Style and lint](#style-and-lint)
+  - [Modules](#modules)
+  - [Licensing](#licensing)
+- [Testing policy](#testing-policy)
+- [Pull requests](#pull-requests)
+- [Versioning and releases](#versioning-and-releases)
+  - [Running the release image with Podman](#running-the-release-image-with-podman)
+- [Third-party dependencies](#third-party-dependencies)
+- [Reporting issues](#reporting-issues)
+- [License](#license)
+
 ## Environment
 
 **The devcontainer is the only supported environment.** It pulls a prebuilt
