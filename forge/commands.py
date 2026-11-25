@@ -47,10 +47,7 @@ AUDIT_PRESETS = (Preset.DEBUG, Preset.RELEASE, Preset.ASAN, Preset.TSAN)
 # The build trees that have the GPU module: the sanitizer presets leave it out.
 GPU_PRESETS = (Preset.DEBUG, Preset.RELEASE)
 # The checks of the ELF files of a build tree, shared with the deps workflow.
-ELF_CHECKS = (
-    ".github/actions/no-gcc-runtime/check.sh",
-    ".github/actions/no-libcuda/check.sh",
-)
+ELF_CHECKS = ("forge.no_gcc_runtime", "forge.no_libcuda")
 
 
 class Option(enum.Enum):
@@ -68,6 +65,16 @@ class Option(enum.Enum):
     OUTPUT = enum.auto()
     PUSHED = enum.auto()
     TAGS = enum.auto()
+    LAYER = enum.auto()
+    LAYER_OPTION = enum.auto()
+    TOUCH = enum.auto()
+    PATHS = enum.auto()
+    PUBLISHED_REF = enum.auto()
+    BUILDKIT_CACHE = enum.auto()
+    PIN_TAG = enum.auto()
+    PIN_BRANCH = enum.auto()
+    BASE = enum.auto()
+    PR_LABEL = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,9 +91,10 @@ class Options:
             runs, and the full output of every test.
         check: Whether format only checks, failing when it would change a
             file.
-        ref: The deps image that the current inputs hash to, for pin.
-        branch: The release or hotfix branch, for release; None for that
-            of the GitHub Actions run.
+        ref: An image: the deps image that the current inputs hash to, for
+            pin and pin-devcontainer; the image looked up, for published.
+        branch: The release or hotfix branch, for release, None for that of
+            the GitHub Actions run; the branch to pin, for pin-devcontainer.
         image: The release image, in docker or in its registry, for
             release-image and sbom.
         tag: The release tag, for release-tag; None for that of the
@@ -96,6 +104,23 @@ class Options:
             tag-image.
         tags: The image's references to create, comma-separated, for
             tag-image.
+        layer: The image layer, for layer-image and checkout-submodules.
+        touch: Whether checkout-submodules gives the files of each
+            submodule its commit time.
+        paths: The files or directories that no-gcc-runtime and no-libcuda
+            check.
+        cache_action: load or save, for buildkit-cache.
+        builder: The buildx builder, for buildkit-cache.
+        cache_id: The id of the cache mount, for buildkit-cache.
+        cache_target: Where the Dockerfile mounts it, for buildkit-cache.
+        from_dir: The directory that buildkit-cache loads, if any.
+        from_package: The package whose image buildkit-cache loads, if any.
+        to_dir: The directory that buildkit-cache saves to, if any.
+        to_package: The package whose image buildkit-cache saves to, if
+            any.
+        pin_tag: The tag of the image, for pin-devcontainer.
+        base: The base branch of the pull requests, for bump-submodules.
+        pr_label: The label of the pull requests, for bump-submodules.
     """
 
     preset: Preset = Preset.DEBUG
@@ -109,6 +134,20 @@ class Options:
     output: str = ""
     pushed: str = ""
     tags: str = ""
+    layer: str = ""
+    touch: bool = False
+    paths: tuple[str, ...] = ()
+    cache_action: str = ""
+    builder: str = ""
+    cache_id: str = ""
+    cache_target: str = ""
+    from_dir: str | None = None
+    from_package: str | None = None
+    to_dir: str | None = None
+    to_package: str | None = None
+    pin_tag: str = ""
+    base: str = ""
+    pr_label: str = ""
 
     def with_preset(self, preset: Preset) -> "Options":
         """Returns these options with another preset."""
@@ -433,7 +472,7 @@ def audit(options: Options) -> list[Step]:
     gpu_module = [Call("forge.gpu_module", [tree])]
     return [
         *(gpu_module if options.preset in GPU_PRESETS else []),
-        *(Program(["bash", script, tree]) for script in ELF_CHECKS),
+        *(Call(module, [tree]) for module in ELF_CHECKS),
     ]
 
 
@@ -508,6 +547,97 @@ def tag_image(options: Options) -> list[Step]:
     return [
         Program(
             ["docker", "buildx", "imagetools", "create", *flags, options.pushed]
+        )
+    ]
+
+
+def layer_image(options: Options) -> list[Step]:
+    """Returns the step that computes the reference of a layer image."""
+    return [Call("forge.layer_image", [options.layer])]
+
+
+def checkout_submodules(options: Options) -> list[Step]:
+    """Returns the step that checks out the submodules of a layer image."""
+    touch = ["--touch"] if options.touch else []
+    return [
+        Call("forge.checkout_submodules", ["--layer", options.layer, *touch])
+    ]
+
+
+def no_gcc_runtime(options: Options) -> list[Step]:
+    """Returns the step that checks ELF files for a GCC runtime."""
+    return [Call("forge.no_gcc_runtime", options.paths)]
+
+
+def no_libcuda(options: Options) -> list[Step]:
+    """Returns the step that checks ELF files for the CUDA driver."""
+    return [Call("forge.no_libcuda", options.paths)]
+
+
+def published(options: Options) -> list[Step]:
+    """Returns the step that tells whether an image is published."""
+    return [Call("forge.published", [options.ref])]
+
+
+def buildkit_cache(options: Options) -> list[Step]:
+    """Returns the step that loads or saves a BuildKit cache mount."""
+    places = {
+        "--from-dir": options.from_dir,
+        "--from-package": options.from_package,
+        "--to-dir": options.to_dir,
+        "--to-package": options.to_package,
+    }
+    return [
+        Call(
+            "forge.buildkit_cache",
+            [
+                options.cache_action,
+                "--builder",
+                options.builder,
+                "--id",
+                options.cache_id,
+                "--target",
+                options.cache_target,
+                *(
+                    argument
+                    for flag, value in places.items()
+                    if value is not None
+                    for argument in (flag, value)
+                ),
+            ],
+        )
+    ]
+
+
+def verify_toolchain(options: Options) -> list[Step]:
+    """Returns the step that verifies the toolchain image it runs in."""
+    del options  # Unused: verify-toolchain takes no options.
+    return [Call("forge.verify_toolchain")]
+
+
+def pin_devcontainer(options: Options) -> list[Step]:
+    """Returns the step that pins the deps image on a branch."""
+    return [
+        Call(
+            "forge.pin_devcontainer",
+            [
+                "--ref",
+                options.ref,
+                "--tag",
+                options.pin_tag,
+                "--branch",
+                options.branch or "",
+            ],
+        )
+    ]
+
+
+def bump_submodules(options: Options) -> list[Step]:
+    """Returns the step that opens the submodule bump pull requests."""
+    return [
+        Call(
+            "forge.bump_submodules",
+            ["--base", options.base, "--label", options.pr_label],
         )
     ]
 
@@ -678,5 +808,65 @@ COMMANDS = (
         "Tag a pushed image in its registry with every given reference.",
         tag_image,
         (Option.PUSHED, Option.TAGS),
+    ),
+    Command(
+        "layer-image",
+        "Compute the content-addressed reference of a container image layer"
+        " (CI).",
+        layer_image,
+        (Option.LAYER,),
+    ),
+    Command(
+        "published",
+        "Tell whether an image is published in its registry (CI).",
+        published,
+        (Option.PUBLISHED_REF,),
+    ),
+    Command(
+        "checkout-submodules",
+        "Check out the submodules of a layer image; with --touch, give their"
+        " files their commit time (CI).",
+        checkout_submodules,
+        (Option.LAYER_OPTION, Option.TOUCH),
+    ),
+    Command(
+        "buildkit-cache",
+        "Load a directory or a package image into a BuildKit cache mount, or"
+        " save the mount into one (CI).",
+        buildkit_cache,
+        (Option.BUILDKIT_CACHE,),
+    ),
+    Command(
+        "no-gcc-runtime",
+        "Check that no ELF file under some paths needs a GCC runtime.",
+        no_gcc_runtime,
+        (Option.PATHS,),
+    ),
+    Command(
+        "no-libcuda",
+        "Check that no ELF file under some paths needs the CUDA driver,"
+        " except the modules loaded at run time.",
+        no_libcuda,
+        (Option.PATHS,),
+    ),
+    Command(
+        "verify-toolchain",
+        "Verify the tools and runtimes of the toolchain image it runs in"
+        " (CI).",
+        verify_toolchain,
+    ),
+    Command(
+        "pin-devcontainer",
+        "Pin the deps image in the devcontainer configuration of a branch,"
+        " then dispatch CI on it (CI).",
+        pin_devcontainer,
+        (Option.REF, Option.PIN_TAG, Option.PIN_BRANCH),
+    ),
+    Command(
+        "bump-submodules",
+        "Open a pull request per submodule with a newer upstream release tag"
+        " (CI).",
+        bump_submodules,
+        (Option.BASE, Option.PR_LABEL),
     ),
 )

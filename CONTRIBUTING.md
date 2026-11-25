@@ -17,14 +17,14 @@ be reproduced inside the devcontainer are not supported.
 
 Nothing depends on a GCC runtime: CI fails when any binary of the toolchain,
 of the dependencies or of an umbra build tree needs libstdc++, libgcc_s or
-GCC's libatomic (`.github/actions/no-gcc-runtime`).
+GCC's libatomic (`python3 -m forge no-gcc-runtime`).
 
 The image also carries the NVIDIA development stack under `/opt/cuda`: CUDA
 13.5 (nvcc, cudart, CCCL) and the OptiX 9.1 headers. nvcc compiles device code
 only, with clang as its host compiler; the GPU backend is a module,
 `libumbra-gpu.so`, that umbra loads at run time.
 CI fails when any binary other than such a module needs the CUDA driver,
-`libcuda.so.1` (`.github/actions/no-libcuda`). Those NVIDIA tools are not
+`libcuda.so.1` (`python3 -m forge no-libcuda`). Those NVIDIA tools are not
 redistributable, so the image is a **private** package: log in to the GitHub
 Container Registry before opening the devcontainer, with a personal access
 token that has `read:packages`:
@@ -141,9 +141,12 @@ full output of every test, e.g. `python3 -m forge check -v`. Every step is
 echoed to stderr before it runs, prefixed with `+ `, and a command stops at
 the first step that fails, with its exit status.
 
-CI runs through forge too: every step of the ci and release workflows that
-runs a command, apart from trusting the checkout, is one forge command. The build
-jobs run `check --preset debug`, `check --preset release`, `check-asan` and
+CI runs through forge too: every step of the workflows that runs a command
+is one forge command, apart from trusting the checkout, pushing an image and
+reporting a read-only token. A step that checks an image runs the forge
+command inside it, with `docker run` on a read-only mount of the checkout and
+`python3 -B`, so that nothing is written there. The build jobs run
+`check --preset debug`, `check --preset release`, `check-asan` and
 `check-tsan`, then `audit` on their build tree; the other jobs run
 `format --check`, `lint` and the commands below, which check what CI checks:
 
@@ -162,6 +165,21 @@ jobs run `check --preset debug`, `check --preset release`, `check-asan` and
 | `sbom` | Write the SPDX 2.3 SBOM of a release image, in docker or in its registry, to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
 | `sign` | Sign a pushed image, `IMAGE@DIGEST`, with cosign, keyless, under the identity of the GitHub Actions job (CI only) |
 | `tag-image` | Tag a pushed image, `IMAGE@DIGEST`, in its registry with each of the comma-separated references `TAGS`, pointing to its manifest itself |
+| `no-gcc-runtime` | Check that no ELF file under the given paths needs a GCC runtime, directly or through its dependencies, and that every dependency resolves |
+| `no-libcuda` | Check that no ELF file under the given paths needs `libcuda.so.1`, except the modules loaded at run time |
+
+The deps and submodules workflows build the images and move the submodules
+through these commands:
+
+| Command | Action |
+| --- | --- |
+| `layer-image` | Compute the reference of a layer image (`toolchain` or `deps`), `ghcr.io/<owner>/umbra-<layer>:<tag>`, the tag a hash of the layer's inputs at `HEAD` (and its parent's reference), and write it to the step outputs |
+| `published` | Tell whether an image is published, in the step output `exists` |
+| `checkout-submodules` | Check out the submodules among the inputs of a layer (`--layer`); `--touch` gives their files their commit time, so that a cached build tree stays newer than the sources |
+| `buildkit-cache` | Copy a directory (`--from-dir`) or a package image (`--from-package`) into a BuildKit cache mount (`load`), or the mount into a directory (`--to-dir`) or a pushed package image (`--to-package`) (`save`) |
+| `verify-toolchain` | Check the tools and runtimes of the toolchain image it runs in, and that its test programs use only the LLVM runtimes |
+| `pin-devcontainer` | Pin `--ref` in `.devcontainer/devcontainer.json` on `--branch` with a commit that GitHub signs, then dispatch CI on the branch |
+| `bump-submodules` | Open a pull request per submodule with a newer upstream release tag, on `--base`, labelled `--label` |
 
 Under GitHub Actions their errors are annotations; elsewhere they are plain
 `error:` lines on stderr. A command that needs the variables of a GitHub
@@ -423,7 +441,7 @@ clang-tidy families and the function limits below), this document wins.
   `$(...)`; every expansion quoted and braced (`"${name}"`); lowercase
   variables, `local` in functions, and uppercase `readonly` constants and
   environment variables; a long command broken before its `&&`, `||` or `|`.
-- CI logic lives in forge: the ci workflow's steps run forge commands.
+- CI logic lives in forge: the workflows' steps run forge commands.
   Python embedded in a workflow is written as a quoted heredoc read
   by `python3 -` (`python3 - <<'EOF'`), follows the same Google style (a
   `main()` and the `__main__` guard, no module-level logic) and is checked

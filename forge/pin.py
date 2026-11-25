@@ -3,7 +3,7 @@
 """The devcontainer must pin the deps image built from the current inputs.
 
 The deps workflow builds that image and commits the pin; the layer-image
-action computes its reference from the inputs, which is given as --ref.
+command computes its reference from the inputs, which is given as --ref.
 
 Usage: python3 -m forge pin --ref IMAGE
 """
