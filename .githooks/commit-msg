@@ -9,6 +9,9 @@ The message must carry the author's Developer Certificate of Origin sign-off
 fixup!, squash! and amend! commits are accepted here so that
 ``git commit --fixup`` keeps working locally; CI rejects them.
 
+Merge commits on a release or hotfix branch (release/X.Y.Z, hotfix/X.Y.Z),
+the git flow back-merges, are not checked, as in CI.
+
 Usage (run by git): .githooks/commit-msg MESSAGE_FILE
 """
 
@@ -17,6 +20,8 @@ Usage (run by git): .githooks/commit-msg MESSAGE_FILE
 
 from collections.abc import Sequence
 import pathlib
+import re
+import subprocess
 import sys
 
 # The checks package lives at the repository root, which is not on the import
@@ -25,11 +30,14 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 # pylint: disable=wrong-import-position
+from checks import branch_name
 from checks import commit_message
 from checks import git
 from checks import report
 
 # pylint: enable=wrong-import-position
+
+MERGE_BRANCH = re.compile(rf"^(?:release|hotfix)/{branch_name.VERSION}$")
 
 
 def comment_char() -> str:
@@ -38,6 +46,16 @@ def comment_char() -> str:
         "core.commentString", git.config("core.commentChar", "#")
     )
     return "#" if value == "auto" else value
+
+
+def is_release_merge() -> bool:
+    """Returns whether the commit is a merge on a release or hotfix branch."""
+    try:
+        git.run("rev-parse", "--quiet", "--verify", "MERGE_HEAD")
+        branch = git.run("symbolic-ref", "--quiet", "--short", "HEAD")
+    except subprocess.CalledProcessError:
+        return False
+    return bool(MERGE_BRANCH.match(branch.strip()))
 
 
 def main(argv: Sequence[str]) -> int:
@@ -49,6 +67,8 @@ def main(argv: Sequence[str]) -> int:
     Returns:
         The process exit status: 0 when the message is valid, 1 otherwise.
     """
+    if is_release_merge():
+        return 0
     raw = pathlib.Path(argv[0]).read_text(encoding="utf-8")
     message = commit_message.clean(raw, comment_char())
     errors = commit_message.validate(
