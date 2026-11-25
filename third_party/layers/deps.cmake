@@ -3,7 +3,7 @@
 #
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
 # Benchmark, oneTBB, Embree, OpenQMC, Imath, OpenEXR, OpenSubdiv, yaml-cpp,
-# pystring, OpenColorIO, MaterialX, {fmt}, robin-map, libtiff, pugixml,
+# pystring, OpenColorIO, MaterialX, {fmt}, robin-map, libtiff, pugixml, Ptex,
 # OpenImageIO, OpenVDB, OSL and OpenUSD), built with the toolchain image's
 # clang.
 # Every dependency is a Release shared library without LTO, against libc++,
@@ -79,7 +79,7 @@ endif()
 # the install prefix (under the staging directory when there is one). Each
 # comes after the ones it depends on, which ExternalProject must already know.
 set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
-  yaml-cpp pystring OpenColorIO fmt robin-map libtiff pugixml OpenImageIO
+  yaml-cpp pystring OpenColorIO fmt robin-map libtiff pugixml ptex OpenImageIO
   openvdb OpenShadingLanguage MaterialX OpenUSD)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_depends_openexr oneTBB Imath)
@@ -87,7 +87,7 @@ set(umbra_deps_depends_OpenColorIO yaml-cpp pystring Imath)
 # MaterialX compiles its standard library to .oso with OSL's oslc.
 set(umbra_deps_depends_MaterialX OpenColorIO OpenShadingLanguage)
 set(umbra_deps_depends_OpenImageIO
-  oneTBB Imath openexr OpenColorIO fmt robin-map libtiff pugixml)
+  oneTBB Imath openexr OpenColorIO fmt robin-map libtiff pugixml ptex)
 set(umbra_deps_depends_OpenSubdiv oneTBB)
 set(umbra_deps_depends_openvdb oneTBB Imath)
 set(umbra_deps_depends_OpenShadingLanguage Imath OpenImageIO pugixml robin-map)

@@ -111,6 +111,7 @@ LAYERS = {
                     "robin-map",
                     "libtiff",
                     "pugixml",
+                    "ptex",
                     "OpenImageIO",
                     "openvdb",
                     "OpenShadingLanguage",

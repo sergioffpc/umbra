@@ -12,15 +12,16 @@
 # so the ones umbra wants are required.
 #
 #   layer    Imath, OpenEXR, OpenColorIO, libtiff, pugixml, {fmt},
-#            robin-map, oneTBB
+#            robin-map, oneTBB, Ptex
 #   Ubuntu   libjpeg-turbo, libpng, libwebp, giflib, OpenJPEG, FreeType,
 #            zlib, libdeflate, zstd
 #
 # The formats whose libraries are C++ in Ubuntu (JPEG XL, HEIF/AVIF, camera
-# RAW, DICOM, video, Ultra HDR) stay out, with Ptex and OpenVDB: umbra loads
-# volumes itself. OpenImageIO has no GPU code; its TextureSystem runs on the
-# CPU. The API reports errors through return values and geterror(), not
-# exceptions.
+# RAW, DICOM, video, Ultra HDR) stay out, with OpenVDB: umbra loads volumes
+# itself. The Ptex plugin reads .ptx files, each face a subimage; the
+# TextureSystem does no per-face Ptex filtering. OpenImageIO has no GPU code;
+# its TextureSystem runs on the CPU. The API reports errors through return
+# values and geterror(), not exceptions.
 
 set(OIIO_BUILD_TOOLS OFF CACHE BOOL "")
 set(OIIO_BUILD_TESTS OFF CACHE BOOL "")
@@ -38,7 +39,7 @@ set(STOP_ON_WARNING OFF CACHE BOOL "")
 set(OpenImageIO_BUILD_MISSING_DEPS "" CACHE STRING "")
 set(OpenImageIO_BUILD_LOCAL_DEPS "" CACHE STRING "")
 set(OpenImageIO_REQUIRED_DEPS
-    "TIFF;JPEG;PNG;WebP;GIF;OpenJPEG;Freetype;OpenColorIO;TBB;pugixml;fmt;Robinmap"
+    "TIFF;JPEG;PNG;WebP;GIF;OpenJPEG;Freetype;OpenColorIO;TBB;pugixml;fmt;Robinmap;Ptex"
     CACHE STRING "")
 
 # The parallel_for of OpenImageIO runs on oneTBB when the application sets
@@ -52,7 +53,7 @@ set(OIIO_INTERNALIZE_FMT OFF CACHE BOOL "")
 
 # Ubuntu ships libjpeg-turbo without its CMake package: OpenImageIO finds it
 # as plain JPEG. openjph (HTJ2K) is internal to OpenEXR.
-foreach(package JXL Libheif LibRaw libuhdr DCMTK FFmpeg OpenCV Ptex OpenVDB
+foreach(package JXL Libheif LibRaw libuhdr DCMTK FFmpeg OpenCV OpenVDB
                 R3DSDK Nuke hwy OpenGL Qt5 Qt6 libjpeg-turbo openjph)
   set(USE_${package} OFF CACHE BOOL "")
 endforeach()

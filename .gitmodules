@@ -82,3 +82,7 @@
 	shallow = true
 	path = third_party/OpenUSD
 	url = https://github.com/PixarAnimationStudios/OpenUSD.git
+[submodule "third_party/ptex"]
+	path = third_party/ptex
+	url = https://github.com/wdas/ptex.git
+	shallow = true

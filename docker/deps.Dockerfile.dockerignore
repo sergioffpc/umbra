@@ -55,6 +55,9 @@
 !third_party/config/pugixml.cmake
 !third_party/patches/pugixml/
 !third_party/pugixml/
+!third_party/config/ptex.cmake
+!third_party/patches/ptex/
+!third_party/ptex/
 !third_party/config/OpenImageIO.cmake
 !third_party/patches/OpenImageIO/
 !third_party/OpenImageIO/
