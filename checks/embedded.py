@@ -2,8 +2,8 @@
 # Copyright The Umbra Authors
 """Python embedded in the workflows' run steps.
 
-CI-only logic stays inline in the workflows. Python is embedded there as a
-quoted heredoc passed to ``python3 -``::
+Python is embedded in a workflow as a quoted heredoc passed to
+``python3 -``::
 
     run: |
       python3 - "$ARGUMENT" <<'EOF'

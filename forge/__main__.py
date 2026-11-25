@@ -28,6 +28,14 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         default=commands.Preset.DEBUG.value,
         help="the CMake preset: debug (the default) or release (LTO)",
     )
+    audit_preset = argparse.ArgumentParser(add_help=False)
+    audit_preset.add_argument(
+        "--preset",
+        choices=[preset.value for preset in commands.AUDIT_PRESETS],
+        default=commands.Preset.DEBUG.value,
+        help="the build tree, build/PRESET: debug (the default), release, asan"
+        " or tsan",
+    )
     label = argparse.ArgumentParser(add_help=False)
     label.add_argument(
         "--label",
@@ -45,10 +53,34 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
             " every test"
         ),
     )
+    check = argparse.ArgumentParser(add_help=False)
+    check.add_argument(
+        "--check",
+        action="store_true",
+        help="change no file: fail when one is not formatted",
+    )
+    ref = argparse.ArgumentParser(add_help=False)
+    ref.add_argument(
+        "--ref",
+        required=True,
+        metavar="IMAGE",
+        help="the deps image that the current inputs hash to",
+    )
+    branch = argparse.ArgumentParser(add_help=False)
+    branch.add_argument(
+        "--branch",
+        metavar="NAME",
+        help="the release or hotfix branch; by default, that of the GitHub"
+        " Actions run",
+    )
     return {
         commands.Option.PRESET: preset,
+        commands.Option.AUDIT_PRESET: audit_preset,
         commands.Option.LABEL: label,
         commands.Option.VERBOSE: verbose,
+        commands.Option.CHECK: check,
+        commands.Option.REF: ref,
+        commands.Option.BRANCH: branch,
     }
 
 
@@ -58,7 +90,7 @@ def parser() -> argparse.ArgumentParser:
         prog="python3 -m forge",
         description=(
             "Builds, tests and checks Umbra through the CMake presets and"
-            " the shared checks."
+            " the shared checks, locally and in CI."
         ),
     )
     subcommands = root.add_subparsers(
@@ -90,6 +122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         preset=commands.Preset(getattr(args, "preset", commands.Preset.DEBUG)),
         label=getattr(args, "label", None),
         verbose=getattr(args, "verbose", False),
+        check=getattr(args, "check", False),
+        ref=getattr(args, "ref", ""),
+        branch=getattr(args, "branch", None),
     )
     return commands.execute(args.command.steps(options))
 

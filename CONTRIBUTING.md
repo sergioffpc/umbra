@@ -128,7 +128,7 @@ changes bump the minor version until then; see
 | `check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `--label gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
 | `check-all` | `lint`, `check`, `check-asan` and `check-tsan`, stopping at the first failure: everything to run before a pull request |
 | `coverage` | Coverage build and tests, then the coverage report (local only) |
-| `format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
+| `format` | Format the C++ (clang-format) and Python (pyink, isort) sources; `--check` changes no file and fails when one is not formatted |
 | `lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
 | `clean` | Remove what the builds built, keeping their configuration |
 | `distclean` | Remove the build trees, with their configuration |
@@ -141,8 +141,26 @@ full output of every test, e.g. `python3 -m forge check -v`. Every step is
 echoed to stderr before it runs, prefixed with `+ `, and a command stops at
 the first step that fails, with its exit status.
 
-CI does not use forge: it runs the CMake workflow presets and the checks
-directly.
+CI runs through forge too: every step of the ci workflow that runs a
+command, apart from trusting the checkout, is one forge command. The build
+jobs run `check --preset debug`, `check --preset release`, `check-asan` and
+`check-tsan`, then `audit` on their build tree; the other jobs run
+`format --check`, `lint` and the commands below, which check what CI checks:
+
+| Command | Action |
+| --- | --- |
+| `audit` | Check a build tree (`--preset debug`, `release`, `asan` or `tsan`): the debug and release trees have the GPU module, no ELF file needs a GCC runtime, and none needs the CUDA driver unless it is a module loaded at run time |
+| `pin` | Check that `.devcontainer/devcontainer.json` pins `--ref`, the deps image of the current inputs |
+| `pull-request` | Check the branch name, title and commits of the pull request of the GitHub Actions run (CI only) |
+| `third-party` | Check `third_party/versions.md` against the submodules, the license allow-list and the upstream tags |
+| `release` | Check the version, changelog and tags of a release or hotfix branch, `--branch` or that of the run |
+| `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
+| `image` | Resolve the pinned deps image and check that it is published |
+| `modules` | Check that the target graph is acyclic |
+
+Under GitHub Actions their errors are annotations; elsewhere they are plain
+`error:` lines on stderr. A command that needs the variables of a GitHub
+Actions run fails with an error when they are not set.
 
 ## Git flow
 
@@ -391,13 +409,13 @@ clang-tidy families and the function limits below), this document wins.
   the devcontainer image.
 - Workflows are linted with actionlint, which runs shellcheck on their
   scripts; both are pinned in the devcontainer image.
-- CI-only logic stays inline in the workflows. Python there is written as a
-  quoted heredoc read by `python3 -` (`python3 - <<'EOF'`), follows the same
-  Google style (a `main()` and the `__main__` guard, no module-level logic)
-  and is checked like a Python file: `python3 -m forge lint` and the
-  pre-commit hook extract it (`python3 -m checks.embedded` prints what they
-  find) and fail when pyink or isort would change it or pylint reports
-  anything. Format it by hand.
+- CI logic lives in forge: the ci workflow's steps run forge commands.
+  Python embedded in a workflow is written as a quoted heredoc read
+  by `python3 -` (`python3 - <<'EOF'`), follows the same Google style (a
+  `main()` and the `__main__` guard, no module-level logic) and is checked
+  like a Python file: `python3 -m forge lint` and the pre-commit hook extract
+  it (`python3 -m checks.embedded` prints what they find) and fail when pyink
+  or isort would change it or pylint reports anything. Format it by hand.
 - Every pylint suppression names the message and gives a reason, for example
   `# pylint: disable=invalid-name` after a comment explaining why. The git
   hooks are the only standing exception to Google's naming and import rules:

@@ -4,10 +4,10 @@
 
 A command is a list of steps, run in order until the first that fails. A
 step is a program run as a subprocess from the repository root (cmake, ctest,
-compute-sanitizer) or a module of ``checks`` imported and called with an
-explicit argv. Each step is echoed to stderr before it runs, prefixed with
-``+ ``: a program as its command line, preceded by the environment variables
-it sets, and a check as its module and arguments.
+compute-sanitizer, a script) or a module of ``checks`` or ``forge`` imported
+and called with an explicit argv. Each step is echoed to stderr before it
+runs, prefixed with ``+ ``: a program as its command line, preceded by the
+environment variables it sets, and a call as its module and arguments.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -21,6 +21,7 @@ import subprocess
 import sys
 
 from checks import git
+from forge import github
 
 BUILD_DIR = git.REPO_ROOT / "build"
 # The exit status of a program that cannot start.
@@ -41,14 +42,27 @@ class Preset(enum.StrEnum):
 
 # The presets that build and check accept: debug, or release (LTO).
 BUILD_PRESETS = (Preset.DEBUG, Preset.RELEASE)
+# The build trees that audit accepts.
+AUDIT_PRESETS = (Preset.DEBUG, Preset.RELEASE, Preset.ASAN, Preset.TSAN)
+# The build trees that have the GPU module: the sanitizer presets leave it out.
+GPU_PRESETS = (Preset.DEBUG, Preset.RELEASE)
+# The checks of the ELF files of a build tree, shared with the deps workflow.
+ELF_CHECKS = (
+    ".github/actions/no-gcc-runtime/check.sh",
+    ".github/actions/no-libcuda/check.sh",
+)
 
 
 class Option(enum.Enum):
     """The command-line options that a command may take."""
 
     PRESET = enum.auto()
+    AUDIT_PRESET = enum.auto()
     LABEL = enum.auto()
     VERBOSE = enum.auto()
+    CHECK = enum.auto()
+    REF = enum.auto()
+    BRANCH = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,11 +77,19 @@ class Options:
         verbose: Whether the tools print as much as they can: the
             configure's messages down to TRACE, every command the build
             runs, and the full output of every test.
+        check: Whether format only checks, failing when it would change a
+            file.
+        ref: The deps image that the current inputs hash to, for pin.
+        branch: The release or hotfix branch, for release; None for that
+            of the GitHub Actions run.
     """
 
     preset: Preset = Preset.DEBUG
     label: str | None = None
     verbose: bool = False
+    check: bool = False
+    ref: str = ""
+    branch: str | None = None
 
     def with_preset(self, preset: Preset) -> "Options":
         """Returns these options with another preset."""
@@ -124,8 +146,8 @@ class Program:
 
 
 @dataclasses.dataclass(frozen=True)
-class Check:
-    """A module of ``checks`` called in this process.
+class Call:
+    """A module of ``checks`` or ``forge`` called in this process.
 
     Attributes:
         module: The module's name; its ``main(argv)`` returns an exit status.
@@ -139,13 +161,21 @@ class Check:
         return shlex.join([self.module, *self.argv])
 
     def run(self) -> int:
-        """Calls the module's ``main`` and returns its exit status."""
-        status = importlib.import_module(self.module).main(list(self.argv))
+        """Calls the module's ``main`` and returns its exit status.
+
+        A step that cannot run (``github.StepError``) is reported as an
+        error, with exit status 1.
+        """
+        try:
+            status = importlib.import_module(self.module).main(list(self.argv))
+        except github.StepError as error:
+            github.error(str(error))
+            status = 1
         sys.stdout.flush()
         return status
 
 
-Step = Program | Check
+Step = Program | Call
 
 
 def execute(steps: Sequence[Step]) -> int:
@@ -291,11 +321,11 @@ def lint(options: Options) -> list[Step]:
     """
     del options  # Unused: lint takes no options.
     return [
-        Check("checks.conventions"),
-        Check("checks.branch_name", ["--current"]),
-        Check("checks.commit_message", ["--since", "develop"]),
-        Check("checks.formatting", ["--check"]),
-        Check("checks.lint"),
+        Call("checks.conventions"),
+        Call("checks.branch_name", ["--current"]),
+        Call("checks.commit_message", ["--since", "develop"]),
+        Call("checks.formatting", ["--check"]),
+        Call("checks.lint"),
     ]
 
 
@@ -330,9 +360,8 @@ def coverage(options: Options) -> list[Step]:
 
 
 def format_sources(options: Options) -> list[Step]:
-    """Returns the step that formats the C++ and Python sources."""
-    del options  # Unused: format takes no options.
-    return [Check("checks.formatting")]
+    """Returns the step that formats, or with --check checks, the sources."""
+    return [Call("checks.formatting", ["--check"] if options.check else [])]
 
 
 def relative(path: pathlib.Path) -> str:
@@ -372,6 +401,62 @@ def distclean(options: Options) -> list[Step]:
     """Returns the step that removes the build trees and their configuration."""
     del options  # Unused: distclean takes no options.
     return [Program(["rm", "-rf", relative(BUILD_DIR)])]
+
+
+def audit(options: Options) -> list[Step]:
+    """Returns the steps that check the build tree of a preset.
+
+    The debug and release trees must have the GPU module. No ELF file of the
+    tree may need a GCC runtime, or the CUDA driver unless it is a module
+    loaded at run time.
+    """
+    tree = f"build/{options.preset}"
+    gpu_module = [Call("forge.gpu_module", [tree])]
+    return [
+        *(gpu_module if options.preset in GPU_PRESETS else []),
+        *(Program(["bash", script, tree]) for script in ELF_CHECKS),
+    ]
+
+
+def pin(options: Options) -> list[Step]:
+    """Returns the step that checks the devcontainer's deps image pin."""
+    return [Call("forge.pin", ["--ref", options.ref])]
+
+
+def pull_request(options: Options) -> list[Step]:
+    """Returns the step that checks the pull request of the run."""
+    del options  # Unused: pull-request takes no options.
+    return [Call("forge.pull_request")]
+
+
+def third_party(options: Options) -> list[Step]:
+    """Returns the step that checks the third-party versions manifest."""
+    del options  # Unused: third-party takes no options.
+    return [Call("forge.third_party")]
+
+
+def release(options: Options) -> list[Step]:
+    """Returns the step that checks a release or hotfix branch."""
+    branch = [] if options.branch is None else ["--branch", options.branch]
+    return [Call("forge.release", branch)]
+
+
+def changes(options: Options) -> list[Step]:
+    """Returns the step that tells whether a pull request changes code."""
+    del options  # Unused: changes takes no options.
+    return [Call("forge.changes")]
+
+
+def image(options: Options) -> list[Step]:
+    """Returns the step that resolves the pinned deps image."""
+    del options  # Unused: image takes no options.
+    return [Call("forge.image")]
+
+
+def modules(options: Options) -> list[Step]:
+    """Returns the step that checks that the target graph is acyclic."""
+    del options  # Unused: modules takes no options.
+    return [Call("forge.modules")]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -432,7 +517,13 @@ COMMANDS = (
         coverage,
         (Option.VERBOSE,),
     ),
-    Command("format", "Format the C++ and Python sources.", format_sources),
+    Command(
+        "format",
+        "Format the C++ and Python sources; with --check, fail when a file"
+        " is not formatted instead.",
+        format_sources,
+        (Option.CHECK,),
+    ),
     Command(
         "lint",
         "Check without changing any file: validators, formatting, static"
@@ -450,4 +541,49 @@ COMMANDS = (
         "Remove the build trees, with their configuration.",
         distclean,
     ),
+    Command(
+        "audit",
+        "Check a build tree: the GPU module (debug and release), no GCC"
+        " runtime and no CUDA driver.",
+        audit,
+        (Option.AUDIT_PRESET,),
+    ),
+    Command(
+        "pin",
+        "Check that the devcontainer pins the deps image of the current"
+        " inputs.",
+        pin,
+        (Option.REF,),
+    ),
+    Command(
+        "pull-request",
+        "Check the branch name, title and commits of the run's pull request"
+        " (CI).",
+        pull_request,
+    ),
+    Command(
+        "third-party",
+        "Check the third-party versions manifest against the submodules, the"
+        " license allow-list and the upstream tags.",
+        third_party,
+    ),
+    Command(
+        "release",
+        "Check the version, changelog and tags of a release or hotfix"
+        " branch.",
+        release,
+        (Option.BRANCH,),
+    ),
+    Command(
+        "changes",
+        "Tell whether the run's pull request changes more than documentation"
+        " (CI).",
+        changes,
+    ),
+    Command(
+        "image",
+        "Resolve the pinned deps image and check that it is published (CI).",
+        image,
+    ),
+    Command("modules", "Check that the target graph is acyclic.", modules),
 )

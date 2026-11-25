@@ -10,7 +10,8 @@
 # without an NVIDIA driver, and only those modules, loaded with dlopen when a
 # usable GPU exists, may need it. Also fails when there is no ELF file at all
 # (a wrong path). Needs llvm-readelf. This is the single definition of the
-# rule: the no-libcuda action runs it on the build trees and in the images.
+# rule: `python3 -m forge audit` runs it on the build trees, and the
+# no-libcuda action in the images.
 set -euo pipefail
 
 # File name patterns of the modules loaded at run time: umbra's GPU module
