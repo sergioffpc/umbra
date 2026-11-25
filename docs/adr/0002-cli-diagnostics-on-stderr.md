@@ -90,12 +90,11 @@ line printed during a phase clears the progress line, and the progress line
 is drawn again below it, in the same `write`. When stderr is not a terminal
 (CI, `2>file`), a phase writes its line each time its work reaches a further
 10%, then its `done.` line, without carriage returns, throughput or time
-left. `-q` hides the progress, as it hides the start block. Like the start
+left. The work is checked every 100 ms, so a phase that passes several
+tenths in that time writes one line for them, and a phase shorter than that
+writes only its `done.` line. A phase without a total writes nothing there
+until it has one. `-q` hides the progress, as it hides the start block. Like the start
 block, progress has no level, and `UMBRA_LOG` does not filter it.
-
-Each phase ends with one debug line, from the component of the module that
-runs it, with what its `done.` line leaves out
-(`debug: usd: stage opened in 120 ms (3 layers, 42 prims, frame 12)`).
 
 The numbers on stderr follow one set of rules: durations in seconds with
 one decimal under a minute (`38.2 s`), then `m:ss`, then `h:mm:ss`; rates
@@ -125,4 +124,6 @@ decimal point, whatever the locale.
 - A phase's work is counted with an atomic counter, which the render threads
   update on the hot path without allocating or locking
   (docs/adr/0003-no-allocations-on-the-hot-path.md); the line is formatted
-  and written by a timer thread of the phase.
+  and written by a timer thread of the phase. That thread sleeps between
+  updates and does no parallel work, so it is not a task for the oneTBB
+  pool (docs/adr/0001-onetbb-thread-pool.md), whose workers it would hold.

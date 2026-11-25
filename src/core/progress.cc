@@ -30,18 +30,6 @@ constexpr std::chrono::milliseconds kInterval{100};
 constexpr std::uint64_t kPercent = 100;
 constexpr std::uint64_t kStepsPerPhase = 10;
 
-// Where phases are shown, from ConfigureProgress.
-enum class Display : std::uint8_t {
-  kHidden,
-  kTerminal,
-  kLines,
-};
-
-std::atomic<Display>& ConfiguredDisplay() {
-  static std::atomic<Display> display{Display::kHidden};
-  return display;
-}
-
 // The percent of `total` that `done` is, rounded down, so that 100% means
 // all of it.
 std::uint64_t Percent(std::uint64_t done, std::uint64_t total) {
@@ -54,26 +42,20 @@ std::uint64_t Percent(std::uint64_t done, std::uint64_t total) {
   return std::min(percent, kPercent - 1);
 }
 
-// "<Phase>:  75% (9/12 <unit>)", or "<Phase>: 9 <unit>" without a total.
-std::string Status(std::string_view name, std::string_view unit,
-                   std::uint64_t done, std::uint64_t total) {
-  if (total == ProgressPhase::kUnknownTotal) {
-    return std::format("{}: {} {}", name, FormatCount(done), unit);
-  }
-  const std::uint64_t shown = std::min(done, total);
-  return std::format("{}: {:3}% ({}/{} {})", name, Percent(shown, total),
-                     FormatCount(shown), FormatCount(total), unit);
-}
-
 }  // namespace
 
 void ConfigureProgress(ProgressDisplay display) {
-  Display configured = Display::kHidden;
+  using Output = ProgressPhase::Output;
+  Output output = Output::kHidden;
   if (display == ProgressDisplay::kShown) {
-    configured =
-        isatty(STDERR_FILENO) == 1 ? Display::kTerminal : Display::kLines;
+    output = isatty(STDERR_FILENO) == 1 ? Output::kTerminal : Output::kLines;
   }
-  ConfiguredDisplay().store(configured, std::memory_order_relaxed);
+  ProgressPhase::ConfiguredOutput().store(output, std::memory_order_relaxed);
+}
+
+std::atomic<ProgressPhase::Output>& ProgressPhase::ConfiguredOutput() {
+  static std::atomic<Output> output{Output::kHidden};
+  return output;
 }
 
 ProgressPhase::ProgressPhase(std::string_view name, std::string_view unit,
@@ -85,18 +67,11 @@ ProgressPhase::ProgressPhase(std::string_view name, std::string_view unit,
     : name_(name),
       unit_(unit),
       rate_(rate),
+      output_(ConfiguredOutput().load(std::memory_order_relaxed)),
       start_(std::chrono::steady_clock::now()),
       total_(total) {
-  switch (ConfiguredDisplay().load(std::memory_order_relaxed)) {
-    case Display::kHidden:
-      output_ = Output::kHidden;
-      return;
-    case Display::kTerminal:
-      output_ = Output::kTerminal;
-      break;
-    case Display::kLines:
-      output_ = Output::kLines;
-      break;
+  if (output_ == Output::kHidden) {
+    return;
   }
   timer_ = std::jthread([this](const std::stop_token& stop) { Run(stop); });
 }
@@ -107,10 +82,20 @@ ProgressPhase::~ProgressPhase() {
   }
 }
 
+std::string ProgressPhase::Status(std::uint64_t done,
+                                  std::uint64_t total) const {
+  if (total == kUnknownTotal) {
+    return std::format("{}: {} {}", name_, FormatCount(done), unit_);
+  }
+  const std::uint64_t shown = std::min(done, total);
+  return std::format("{}: {:3}% ({}/{} {})", name_, Percent(shown, total),
+                     FormatCount(shown), FormatCount(total), unit_);
+}
+
 std::string ProgressPhase::RunningLine(ProgressRate rate) const {
   const std::uint64_t done = done_.load(std::memory_order_relaxed);
   const std::uint64_t total = total_.load(std::memory_order_relaxed);
-  std::string line = Status(name_, unit_, done, total);
+  std::string line = Status(done, total);
   const std::chrono::duration<double> elapsed =
       std::chrono::steady_clock::now() - start_;
   if (rate == ProgressRate::kHidden || done == 0 || elapsed.count() <= 0.0) {
@@ -130,14 +115,13 @@ void ProgressPhase::Run(const std::stop_token& stop) {
   std::mutex mutex;
   std::condition_variable_any wake;
   std::unique_lock lock(mutex);
-  std::uint64_t step = 0;
   while (!stop.stop_requested()) {
-    Show(step);
+    Show();
     wake.wait_for(lock, stop, kInterval, [] { return false; });
   }
 }
 
-void ProgressPhase::Show(std::uint64_t& step) const {
+void ProgressPhase::Show() {
   if (output_ == Output::kTerminal) {
     internal::DrawProgressLine(RunningLine(rate_));
     return;
@@ -147,11 +131,11 @@ void ProgressPhase::Show(std::uint64_t& step) const {
     return;
   }
   const std::uint64_t done = done_.load(std::memory_order_relaxed);
-  const std::uint64_t reached = Percent(done, total) / kStepsPerPhase;
+  const std::uint64_t tenths = Percent(done, total) / kStepsPerPhase;
   // The 100% line is the "done." line.
-  if (reached > step && reached < kStepsPerPhase) {
-    step = reached;
-    internal::WriteStderr(RunningLine(ProgressRate::kHidden) + "\n");
+  if (tenths > written_tenths_ && tenths < kStepsPerPhase) {
+    written_tenths_ = tenths;
+    internal::WriteAboveProgressLine(RunningLine(ProgressRate::kHidden) + "\n");
   }
 }
 
@@ -165,7 +149,7 @@ void ProgressPhase::End(std::string_view line) {
   if (output_ == Output::kTerminal) {
     internal::EndProgressLine(line);
   } else {
-    internal::WriteStderr(std::string(line) + "\n");
+    internal::WriteAboveProgressLine(std::string(line) + "\n");
   }
 }
 
@@ -178,8 +162,7 @@ void ProgressPhase::Finish() {
   const std::uint64_t all = total == kUnknownTotal ? done : total;
   const std::chrono::duration<double> elapsed =
       std::chrono::steady_clock::now() - start_;
-  End(std::format("{}, {}, done.", Status(name_, unit_, all, all),
-                  FormatDuration(elapsed)));
+  End(std::format("{}, {}, done.", Status(all, all), FormatDuration(elapsed)));
 }
 
 void ProgressPhase::Fail() {

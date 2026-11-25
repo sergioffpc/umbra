@@ -21,9 +21,9 @@ namespace umbra::core::internal {
 // there is nowhere left to report it.
 void WriteAll(int output, std::string_view text);
 
-// Writes diagnostics lines to stderr with one write, clearing the progress
-// line first and drawing it again after, when one is shown.
-void WriteStderr(std::string_view text);
+// Writes lines to stderr with one write, above the progress line: clears
+// it first and draws it again after, when one is shown.
+void WriteAboveProgressLine(std::string_view text);
 
 // Shows `line` as the progress line on the terminal, in place of the one
 // shown, cut to the terminal's width.

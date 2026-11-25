@@ -368,7 +368,7 @@ void LogAt(LogLevel level, LogComponent component, std::string_view message,
       FormatLogLines(level, component, message, time, origin);
   // On stderr, the lines go above the progress line, if one is shown.
   if (output == STDERR_FILENO) {
-    internal::WriteStderr(lines);
+    internal::WriteAboveProgressLine(lines);
   } else {
     internal::WriteAll(output, lines);
   }

@@ -38,8 +38,8 @@ namespace umbra::core {
 
 // Whether progress is shown: -q hides it.
 enum class ProgressDisplay : std::uint8_t {
-  kShown,
   kHidden,
+  kShown,
 };
 
 // Whether a phase's line shows its throughput and, with a total, the time
@@ -95,7 +95,9 @@ class ProgressPhase {
   void Fail();
 
  private:
-  // Where the phase is shown.
+  friend void ConfigureProgress(ProgressDisplay display);
+
+  // Where phases are shown.
   enum class Output : std::uint8_t {
     kHidden,
     kTerminal,
@@ -107,13 +109,19 @@ class ProgressPhase {
     kEnded,
   };
 
+  // Where phases are shown, from ConfigureProgress().
+  static std::atomic<Output>& ConfiguredOutput();
+
   // The timer thread: shows the line until the phase ends.
   void Run(const std::stop_token& stop);
   // Shows the line once: draws it on a terminal, or writes it when the work
-  // reaches the next 10% after `step` tenths, which it then raises.
-  void Show(std::uint64_t& step) const;
+  // reaches a further 10% otherwise.
+  void Show();
   // Stops the timer thread and writes the last line.
   void End(std::string_view line);
+  // "<Phase>:  75% (9/12 <unit>)", or "<Phase>: 9 <unit>" without a total.
+  [[nodiscard]] std::string Status(std::uint64_t done,
+                                   std::uint64_t total) const;
   // The line of the running phase, with the throughput and the time left
   // when the phase shows them.
   [[nodiscard]] std::string RunningLine(ProgressRate rate) const;
@@ -126,7 +134,9 @@ class ProgressPhase {
   std::chrono::steady_clock::time_point start_;
   std::atomic<std::uint64_t> done_{0};
   std::atomic<std::uint64_t> total_;
-  // Last, so that it starts once the rest is initialized.
+  // The tenths of the total written off a terminal; the timer thread's own.
+  std::uint64_t written_tenths_ = 0;
+  // Started at the end of the constructor, once the rest is initialized.
   std::jthread timer_;
 };
 

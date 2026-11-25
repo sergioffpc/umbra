@@ -24,7 +24,7 @@ constexpr std::string_view kClearToEnd = "\x1b[K";
 
 // `line` cut to the terminal's width, less one column, so that the terminal
 // never wraps it and a carriage return goes back to its start.
-std::string_view FitTerminal(std::string_view line) {
+std::string_view FitTerminal(std::string_view line UMBRA_LIFETIMEBOUND) {
   winsize size{};
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): ioctl is variadic.
   if (ioctl(STDERR_FILENO, TIOCGWINSZ, &size) != 0 || size.ws_col == 0) {
@@ -90,7 +90,7 @@ void WriteAll(int output, std::string_view text) {
   }
 }
 
-void WriteStderr(std::string_view text) { Shown().Write(text); }
+void WriteAboveProgressLine(std::string_view text) { Shown().Write(text); }
 
 void DrawProgressLine(std::string_view line) { Shown().Draw(line); }
 
