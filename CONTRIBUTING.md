@@ -141,8 +141,8 @@ full output of every test, e.g. `python3 -m forge check -v`. Every step is
 echoed to stderr before it runs, prefixed with `+ `, and a command stops at
 the first step that fails, with its exit status.
 
-CI runs through forge too: every step of the ci workflow that runs a
-command, apart from trusting the checkout, is one forge command. The build
+CI runs through forge too: every step of the ci and release workflows that
+runs a command, apart from trusting the checkout, is one forge command. The build
 jobs run `check --preset debug`, `check --preset release`, `check-asan` and
 `check-tsan`, then `audit` on their build tree; the other jobs run
 `format --check`, `lint` and the commands below, which check what CI checks:
@@ -157,7 +157,11 @@ jobs run `check --preset debug`, `check --preset release`, `check-asan` and
 | `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
 | `image` | Resolve the pinned deps image and check that it is published |
 | `modules` | Check that the target graph is acyclic |
-| `release-image` | Check the contract of a release image loaded in docker (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
+| `release-image` | Check the contract of a release image, in docker or in its registry (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
+| `release-tag` | Check that a release tag (`--tag`, or that of the GitHub Actions run) is `vX.Y.Z`, annotated and signed, on `main`, with the CMake project version `X.Y.Z`, and name the release image with its tags `X.Y.Z`, `X.Y`, `X` and `latest` |
+| `sbom` | Write the SPDX 2.3 SBOM of a release image, in docker or in its registry, to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
+| `sign` | Sign a pushed image, `IMAGE@DIGEST`, with cosign, keyless, under the identity of the GitHub Actions job (CI only) |
+| `tag-image` | Tag a pushed image, `IMAGE@DIGEST`, in its registry with each of the comma-separated references `TAGS`, pointing to its manifest itself |
 
 Under GitHub Actions their errors are annotations; elsewhere they are plain
 `error:` lines on stderr. A command that needs the variables of a GitHub
@@ -526,7 +530,17 @@ To cut a release:
    signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
    `git flow release finish` with signing enabled), merge `main` back into
    `develop`, and push both branches and the tag. GitHub marks the pull
-   request as merged when `main` receives its commits.
+   request as merged when `main` receives its commits. The tag starts the
+   release workflow, `.github/workflows/release.yml`:
+   `python3 -m forge release-tag` checks that the tag is `vX.Y.Z`, annotated
+   and signed, on a commit of `main` whose CMake project version is `X.Y.Z`;
+   the workflow then builds the release image on the pinned deps image,
+   checks it with `python3 -m forge release-image`, writes its SPDX SBOM
+   with `python3 -m forge sbom`, pushes it to `ghcr.io/<owner>/umbra` with
+   the tags `X.Y.Z`, `X.Y`, `X` and `latest`, signs it with cosign, keyless,
+   under the workflow's identity, and attests its SLSA build provenance and
+   its SBOM. The README's [Install](README.md#install) section shows how to
+   verify them.
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 

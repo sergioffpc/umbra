@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+name: release
+
+# A signed vX.Y.Z tag on main publishes the release image
+# (docs/adr/0005-releases-are-a-chiseled-image.md).
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The tag must be vX.Y.Z, annotated and signed, on a commit of main whose
+  # CMake project version is X.Y.Z. Names the image and its tags: X.Y.Z,
+  # X.Y, X and latest. Runs directly on the runner: it needs only Python 3
+  # and git.
+  tag:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      image: ${{ steps.tag.outputs.image }}
+      tags: ${{ steps.tag.outputs.tags }}
+    steps:
+      # The whole history, the tags and origin/main.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Release tag
+        id: tag
+        run: python3 -m forge release-tag
+
+  # Builds the release image on the pinned deps image and pushes it by
+  # digest, untagged. That image, by its digest, is checked as the release
+  # pull requests check it, described by its SPDX SBOM, signed with cosign,
+  # keyless, under the identity of this workflow, and attested (its SLSA
+  # build provenance and its SBOM); only then do its tags name it. The
+  # signature and the attestations are stored in the registry next to the
+  # image; the attestations also in the repository's attestations.
+  publish:
+    needs: tag
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ${{ needs.tag.outputs.image }}
+      TAGS: ${{ needs.tag.outputs.tags }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pinned deps image
+        id: deps
+        run: python3 -m forge image
+
+      - name: Set up Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # BuildKit's own provenance and SBOM are left out: the attestations
+      # below replace them.
+      - name: Build and push the image by digest
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/release.Dockerfile
+          target: release
+          build-args: DEPS_IMAGE=${{ steps.deps.outputs.ref }}
+          builder: ${{ steps.buildx.outputs.name }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.tag.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # The user, entrypoint, command and working directory of the contract,
+      # a file system without a shell, a package manager or any program but
+      # umbra, and umbra starting in it.
+      - name: Contract and start
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 -m forge release-image "${IMAGE}@${DIGEST}"
+
+      # The Ubuntu packages from Chisel's manifest in the image, umbra, and
+      # the submodules whose license texts the image carries.
+      - name: SBOM
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: >-
+          python3 -m forge sbom "${IMAGE}@${DIGEST}"
+          --output sbom.spdx.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+
+      - name: Sign
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 -m forge sign "${IMAGE}@${DIGEST}"
+
+      # The repository is owned by a user, not an organization, so GitHub
+      # keeps no artifact storage record of the image.
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest the SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      # X.Y.Z, X.Y, X and latest, each pointing to the manifest above.
+      - name: Tag the image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 -m forge tag-image "${IMAGE}@${DIGEST}" "${TAGS}"

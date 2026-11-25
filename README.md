@@ -16,6 +16,58 @@ Umbra is pre-1.0 and under active development. The current scaffold builds a
 release may break the API**: breaking changes bump the minor version (see
 [Versioning](CONTRIBUTING.md#versioning-and-releases)).
 
+## Install
+
+Each release of Umbra is a container image, `ghcr.io/sergioffpc/umbra`,
+tagged `X.Y.Z`, `X.Y`, `X` and `latest`, for Linux on x86-64 CPUs with AVX2,
+FMA and BMI2 (`x86-64-v3`). Its entrypoint is `umbra`, which runs as user and
+group 65532 in `/work`, the directory to mount scenes and outputs on:
+
+```sh
+docker run --rm -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z devices
+docker run --rm -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z render
+```
+
+Without a command, `umbra` shows its help. With the NVIDIA Container Toolkit
+installed, `--gpus all` gives the container the GPU and its driver, which the
+GPU module loads:
+
+```sh
+docker run --rm --gpus all -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z \
+  render --devices=gpu0
+```
+
+The image holds the license texts of Umbra and of every component in it in
+`/opt/umbra/share/licenses/`, and the copyright file of each Ubuntu package
+in `/usr/share/doc/<package>/`.
+
+### Verify the image
+
+The release workflow signs the image with cosign, keyless, under its own
+identity, and attests its SLSA build provenance and its SPDX SBOM. To check
+the signature, with [cosign](https://docs.sigstore.dev/cosign/):
+
+```sh
+cosign verify ghcr.io/sergioffpc/umbra:X.Y.Z \
+  --certificate-identity-regexp \
+  '^https://github\.com/sergioffpc/umbra/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To check the build provenance, and then the SBOM, with the
+[GitHub CLI](https://cli.github.com/):
+
+```sh
+gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z \
+  --repo sergioffpc/umbra
+gh attestation verify oci://ghcr.io/sergioffpc/umbra:X.Y.Z \
+  --repo sergioffpc/umbra --predicate-type https://spdx.dev/Document/v2.3
+```
+
+The SBOM lists the Ubuntu packages of the image with their versions, Umbra,
+and the third-party components built into it with their versions and
+licenses.
+
 ## Supported environment
 
 **The devcontainer is the only supported environment.** Builds outside it are

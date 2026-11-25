@@ -49,6 +49,19 @@ def branch_of_run() -> str:
     return branch
 
 
+def project_version(cmake_lists: str) -> str:
+    """Returns the project version that a CMakeLists.txt declares.
+
+    Args:
+        cmake_lists: The text of the CMakeLists.txt.
+
+    Returns:
+        The version, X.Y.Z, or an empty string when it declares none.
+    """
+    match = PROJECT_VERSION.match(cmake_lists.replace("\n", " "))
+    return match["version"] if match else ""
+
+
 def version_errors(version: str) -> list[str]:
     """Returns the errors of the CMake and git-cliff versions.
 
@@ -59,9 +72,7 @@ def version_errors(version: str) -> list[str]:
     cmake_lists = git.REPO_ROOT / "CMakeLists.txt"
     cmake_version = ""
     if cmake_lists.is_file():
-        text = cmake_lists.read_text(encoding="utf-8").replace("\n", " ")
-        match = PROJECT_VERSION.match(text)
-        cmake_version = match["version"] if match else ""
+        cmake_version = project_version(cmake_lists.read_text(encoding="utf-8"))
     if not cmake_version:
         errors.append(
             "CMakeLists.txt declares no 'project(umbra VERSION X.Y.Z ...)'"
@@ -120,16 +131,26 @@ def changelog_errors(version: str) -> list[str]:
     return []
 
 
+def signature_error(tag: str) -> str:
+    """Returns why a release tag is not signed, or an empty string.
+
+    Args:
+        tag: The tag's name, which exists in the repository.
+    """
+    if git.run("cat-file", "-t", f"refs/tags/{tag}").strip() != "tag":
+        return f"release tag {tag} is lightweight, so it is not signed"
+    if not SIGNATURE.search(git.run("cat-file", "tag", f"refs/tags/{tag}")):
+        return f"release tag {tag} is not signed"
+    return ""
+
+
 def tag_errors() -> list[str]:
     """Returns the errors of the release tags: each must be signed."""
     errors = []
     for tag in git.run("tag", "--list", RELEASE_TAGS).split():
-        if git.run("cat-file", "-t", tag).strip() != "tag":
-            errors.append(
-                f"release tag {tag} is lightweight, so it is not signed"
-            )
-        elif not SIGNATURE.search(git.run("cat-file", "tag", tag)):
-            errors.append(f"release tag {tag} is not signed")
+        message = signature_error(tag)
+        if message:
+            errors.append(message)
     return errors
 
 
