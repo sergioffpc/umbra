@@ -3,4 +3,5 @@
 
 find_package(pxr CONFIG REQUIRED)
 
-umbra_add_ext_module(usd SOURCES usd.cc DEPENDS core LINK tf work plug sdf)
+umbra_add_ext_module(usd SOURCES usd.cc DEPENDS core scene
+                     LINK tf work plug sdf usd)
