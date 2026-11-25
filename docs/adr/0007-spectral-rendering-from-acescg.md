@@ -1,15 +1,15 @@
 # umbra renders spectrally from ACEScg inputs
 
-umbra transports light as spectra, sampled per wavelength, so that
-dispersion and the spectra of light sources are rendered as they are,
-rather than through three RGB channels. Scenes, however, are authored in
-RGB, in many color spaces.
+umbra transports light as spectra, sampled per wavelength, rather than as
+three RGB channels, so that light sources and surfaces interact through
+their spectra. Scenes, however, are authored in RGB, in many color spaces.
 
-Every color input is converted to ACEScg when the scene loads: the
-reference color space of the Scene. OpenColorIO converts it, with its
-built-in `ocio://cg-config-latest` configuration, or the configuration
-`$OCIO` names. ACEScg is wide enough for the colors scenes are authored in,
-and is the working space of the pipelines umbra renders for.
+ACEScg is the reference color space of the Scene. Every color value is
+converted to ACEScg when the scene loads; a texture keeps its file and its
+color space, and the renderer converts its texels to ACEScg as it reads
+them. OpenColorIO converts both, with its built-in `ocio://cg-config-latest`
+configuration, or the configuration `$OCIO` names. ACEScg is wide enough for
+the colors scenes are authored in.
 
 The Scene keeps each color as ACEScg RGB with its spectral kind:
 reflectance (bounded by 1, as an albedo), unbounded (a scattering
@@ -29,9 +29,7 @@ observer, and writes ACEScg OpenEXR images, tagged with their
 
 ## Consequences
 
-- Color management happens once, at load: the integrator never converts
-  between color spaces, and the Scene holds no color space but ACEScg.
+- The integrator works in one color space: every color it reads, from the
+  Scene or from a texture, is ACEScg.
 - The uplift table is umbra's own data, built for the ACEScg gamut; a
   different reference space would need a new table.
-- An image is in ACEScg wherever it is read: OpenColorIO converts it for
-  display.

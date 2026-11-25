@@ -5,9 +5,9 @@ Umbra is a physically based path tracer. This glossary fixes the language of its
 ## Scenes
 
 **Scene**:
-What umbra renders: the camera, the render settings, the geometry, the
-materials and the lights of one frame, in umbra's own types, synced from a
-USD stage through Hydra and immutable once loaded
+What umbra renders: the render settings, the geometry, the materials and
+the lights of one frame, in umbra's own types, synced from a USD stage
+through Hydra and immutable once loaded
 (docs/adr/0006-scenes-enter-through-hydra.md).
 _Avoid:_ stage (the USD side), render index (Hydra's)
 
@@ -17,8 +17,8 @@ instanced is a prototype with one instance
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Instance**:
-A placement of a prototype: its transform, and its own material, primvars
-and light-link and shadow-link masks when it has them
+A placement of a prototype: its transform, its own material and primvars
+when it has them, and its light-link and shadow-link masks
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Material network**:
@@ -27,31 +27,33 @@ A material as the Scene holds it: nodes that are MaterialX nodedef ids or
 (docs/adr/0008-materials-cross-as-neutral-networks.md).
 
 **Fallback material**:
-The material of a prim whose material does not translate or compile, or
-that has none: an 18% grey diffuse
+An 18% gray diffuse: the material of a prim whose material does not
+translate, or that has none and no `displayColor`
 (docs/adr/0008-materials-cross-as-neutral-networks.md).
 
 **Light link**:
-Which lights illuminate an instance: a mask of the light-link categories of
-the lights (docs/adr/0006-scenes-enter-through-hydra.md).
+The lights that illuminate an instance: a mask of the lights' light-link
+categories; all of them for an instance with no category
+(docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Shadow link**:
-Which lights an instance casts shadows from: a mask of the shadow-link
-categories of the lights (docs/adr/0006-scenes-enter-through-hydra.md).
+The lights an instance casts shadows from: a mask of the lights'
+shadow-link categories; all of them for an instance with no category
+(docs/adr/0006-scenes-enter-through-hydra.md).
 
 ## Rendering
 
 **Render settings**:
-The USD prim that says how a frame is rendered: its camera, resolution and
+The `UsdRender` prim a render uses: its camera, resolution and render
 products (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Render product**:
-An image a render writes, a file, with the render vars it holds
+An image file a render writes, holding render vars
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Render var**:
-One quantity a render product holds, such as the color (`color`) or the
-depth of the first hit (docs/adr/0006-scenes-enter-through-hydra.md).
+One quantity per pixel a render product holds, such as the color (`color`)
+(docs/adr/0006-scenes-enter-through-hydra.md).
 _Avoid:_ AOV
 
 **Shutter**:
@@ -60,17 +62,18 @@ its `shutter:close`, relative to the frame
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Motion sample**:
-The value of a transform or of a mesh's points at one time within the
-shutter; a prim that moves has several, equally spaced
+The value of a transform or of a mesh's points at one of the equally spaced
+times within the shutter, for a prim that moves
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 ## Color
 
 **Reference color space**:
-The color space of every color in the Scene: ACEScg
+ACEScg: the color space of every color value in the Scene, and of every
+texel once the renderer reads it
 (docs/adr/0007-spectral-rendering-from-acescg.md).
 
 **Spectral uplift**:
-The conversion of an ACEScg color, by its spectral kind (reflectance,
-unbounded, illuminant), into a spectrum the renderer samples per wavelength
-(docs/adr/0007-spectral-rendering-from-acescg.md).
+The conversion of an ACEScg color into a spectrum the renderer samples per
+wavelength, scaled by its spectral kind: reflectance, unbounded or
+illuminant (docs/adr/0007-spectral-rendering-from-acescg.md).
