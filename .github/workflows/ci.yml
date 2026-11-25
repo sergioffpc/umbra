@@ -41,9 +41,7 @@ jobs:
       # inputs. The deps workflow builds that image and commits the pin.
       - name: Compute the deps image tag
         id: deps-image
-        uses: ./.github/actions/layer-image
-        with:
-          layer: deps
+        run: python3 -m forge layer-image deps
 
       - name: Devcontainer image pin
         env:

@@ -1,7 +1,7 @@
 # Build context of docker/deps.Dockerfile: the shared dependency build files
 # and, for each dependency of the deps layer, its submodule, config and
 # patches.
-# Keep in sync with the deps inputs in .github/actions/layer-image.
+# Keep in sync with the deps inputs in forge/layer_image.py.
 *
 !third_party/CMakeLists.txt
 !third_party/cmake/

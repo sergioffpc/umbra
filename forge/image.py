@@ -16,6 +16,7 @@ import re
 
 from checks import git
 from forge import github
+from forge import published
 
 PIN_FILE = ".devcontainer/devcontainer.json"
 IMAGE_LINE = re.compile(
@@ -28,17 +29,6 @@ def pinned_image() -> str:
     text = (git.REPO_ROOT / PIN_FILE).read_text(encoding="utf-8")
     match = IMAGE_LINE.search(text)
     return match["ref"] if match else ""
-
-
-def is_published(ref: str) -> bool:
-    """Returns whether the registry has the image ``ref``."""
-    try:
-        status = git.call(
-            ["docker", "manifest", "inspect", ref], capture=True
-        ).returncode
-    except OSError:
-        return False
-    return status == 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -57,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not ref:
         github.error('no "image" line with the pinned image', file=PIN_FILE)
         return 1
-    if not is_published(ref):
+    if not published.is_published(ref):
         github.error(
             f"{ref} is not published: run the deps workflow on this branch to"
             " build it, then re-run CI",

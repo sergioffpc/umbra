@@ -73,6 +73,11 @@ def error(
     annotate("error", message, {"file": file, "title": title})
 
 
+def warning(message: str, *, file: str | None = None) -> None:
+    """Prints a warning annotation, on a file if given."""
+    annotate("warning", message, {"file": file})
+
+
 def notice(message: str, *, title: str | None = None) -> None:
     """Prints a notice annotation, with a title if given."""
     annotate("notice", message, {"title": title})
@@ -110,6 +115,23 @@ def variable(name: str) -> str:
     return value
 
 
+def package_image(package: str) -> str:
+    """Returns the image of a container package of the repository's owner.
+
+    Args:
+        package: The package's name, for example ``umbra-deps``.
+
+    Returns:
+        ``ghcr.io/<owner>/<package>``, the owner lowercased as image
+        references require.
+
+    Raises:
+        StepError: GITHUB_REPOSITORY_OWNER is unset.
+    """
+    owner = variable("GITHUB_REPOSITORY_OWNER").lower()
+    return f"ghcr.io/{owner}/{package}"
+
+
 def event() -> dict[str, Any]:
     """Returns the payload of the event that started the workflow run.
 
@@ -121,13 +143,15 @@ def event() -> dict[str, Any]:
         return json.load(payload)
 
 
-def gh(*args: str) -> str:
+def gh(*args: str, stdin: str | None = None) -> str:
     """Runs the GitHub CLI and returns its standard output.
 
     Its standard error passes through. gh authenticates with ``GH_TOKEN``.
 
     Args:
         *args: The gh arguments, for example ``"api", "repos/..."``.
+        stdin: Text written to gh's standard input, if any, for example the
+            body of ``gh api --input -``.
 
     Raises:
         StepError: gh cannot start or exits with a non-zero status.
@@ -137,6 +161,7 @@ def gh(*args: str) -> str:
         result = subprocess.run(
             command,
             cwd=git.REPO_ROOT,
+            input=stdin,
             stdout=subprocess.PIPE,
             text=True,
             check=False,

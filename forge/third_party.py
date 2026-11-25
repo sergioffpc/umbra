@@ -8,7 +8,8 @@ license, an SPDX expression compared whole with LICENSES. Every gitlink of
 the tree must be listed, every listed path must be a gitlink at that commit,
 and the tag must exist upstream (its URL in .gitmodules) and point to that
 commit, peeled when annotated. Needs git and access to the upstream
-repositories.
+repositories. The bump-submodules command reads the manifest through this
+module too.
 
 Usage: python3 -m forge third-party
 """
@@ -87,7 +88,6 @@ def read_manifest() -> tuple[list[Entry], list[str]]:
         if path in entries:
             errors.append(f"{path} is listed more than once")
         entries[path] = Entry(name, path, tag, commit, license_)
-        print(f"Manifest: {name} {path} {tag} {commit} {license_}")
     return list(entries.values()), errors
 
 
@@ -202,6 +202,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv
     )
     entries, errors = read_manifest()
+    for entry in entries:
+        print(
+            f"Manifest: {entry.name} {entry.path} {entry.tag} {entry.commit}"
+            f" {entry.license}"
+        )
     links = gitlinks()
     listed = {entry.path for entry in entries}
     errors.extend(

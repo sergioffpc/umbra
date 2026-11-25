@@ -3,12 +3,15 @@
 #
 # Builds the prebuilt container image layers when their inputs change, or on
 # manual dispatch (e.g. on a Dependabot branch, whose token is read-only).
-# Each layer is tagged with a hash of its inputs (see
-# .github/actions/layer-image) and skipped when that tag is already published.
-# The deps image is built on the toolchain image, and the devcontainer pins it:
+# Each layer is tagged with a hash of its inputs (python3 -m forge layer-image,
+# forge/layer_image.py) and skipped when that tag is already published. The
+# deps image is built on the toolchain image, and the devcontainer pins it:
 # when the pinned tag differs, this workflow commits the new pin to the branch.
 # Either way it then dispatches CI on the branch, whose image jobs fail until
-# the pinned image is published.
+# the pinned image is published. Its logic is in forge commands, run on the
+# runner or, through docker run on a read-only mount of the checkout, inside
+# the image they check; the other steps are actions, docker push and the
+# warnings of a read-only token.
 name: deps
 
 on:
@@ -17,9 +20,8 @@ on:
       - .gitmodules
       - third_party/**
       - docker/**
-      - .github/actions/layer-image/**
-      - .github/actions/no-gcc-runtime/**
-      - .github/actions/no-libcuda/**
+      - forge/**
+      - checks/git.py
       - .github/workflows/deps.yml
   workflow_dispatch:
 
@@ -64,9 +66,7 @@ jobs:
 
       - name: Compute image tag
         id: image
-        uses: ./.github/actions/layer-image
-        with:
-          layer: toolchain
+        run: python3 -m forge layer-image toolchain
 
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -79,27 +79,14 @@ jobs:
         id: published
         env:
           REF: ${{ steps.image.outputs.ref }}
-        run: |
-          if docker manifest inspect "$REF" >/dev/null 2>&1; then
-            echo "$REF is already published; nothing to build."
-            echo "exists=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >>"$GITHUB_OUTPUT"
-          fi
+        run: python3 -m forge published "${REF}"
 
       # Source mtimes are set to each submodule's commit time so that a build
       # tree restored from the cache is newer than the sources and ninja
       # resumes instead of rebuilding everything.
       - name: Check out submodules
         if: steps.published.outputs.exists == 'false'
-        run: |
-          git submodule update --init --depth 1 --recursive
-          # Single quotes: foreach expands the script in each submodule.
-          # shellcheck disable=SC2016
-          git submodule foreach --quiet --recursive '
-            ts=$(git log -1 --format=%ct)
-            find . -path ./.git -prune -o -exec touch -h -d "@$ts" {} +
-          '
+        run: python3 -m forge checkout-submodules --layer toolchain --touch
 
       - name: Set up Buildx
         id: buildx
@@ -122,14 +109,10 @@ jobs:
         env:
           BUILDER: ${{ steps.buildx.outputs.name }}
           CACHE_DIR: ${{ runner.temp }}/toolchain-build
-        run: |
-          docker buildx build --builder "$BUILDER" --file - "$CACHE_DIR" <<EOF
-          FROM ubuntu:26.04
-          RUN --mount=type=cache,id=${TOOLCHAIN_CACHE_ID},target=${TOOLCHAIN_CACHE_TARGET},sharing=locked \
-              --mount=type=bind,target=/restore \
-              cp -a /restore/. ${TOOLCHAIN_CACHE_TARGET}/
-          EOF
-          rm -rf "$CACHE_DIR"
+        run: >-
+          python3 -m forge buildkit-cache load --builder "${BUILDER}"
+          --id "${TOOLCHAIN_CACHE_ID}" --target "${TOOLCHAIN_CACHE_TARGET}"
+          --from-dir "${CACHE_DIR}"
 
       # The step timeout leaves the job time to save the build tree: a step
       # that times out fails, so the steps below still run.
@@ -157,17 +140,10 @@ jobs:
         env:
           BUILDER: ${{ steps.buildx.outputs.name }}
           CACHE_DIR: ${{ runner.temp }}/toolchain-build
-        run: |
-          rm -rf "$CACHE_DIR"
-          empty=$(mktemp -d)
-          docker buildx build --builder "$BUILDER" --file - \
-            --output "type=local,dest=$CACHE_DIR" "$empty" <<EOF
-          FROM ubuntu:26.04 AS export
-          RUN --mount=type=cache,id=${TOOLCHAIN_CACHE_ID},target=${TOOLCHAIN_CACHE_TARGET},sharing=locked \
-              mkdir /export && cp -a ${TOOLCHAIN_CACHE_TARGET}/. /export/
-          FROM scratch
-          COPY --from=export /export/ /
-          EOF
+        run: >-
+          python3 -m forge buildkit-cache save --builder "${BUILDER}"
+          --id "${TOOLCHAIN_CACHE_ID}" --target "${TOOLCHAIN_CACHE_TARGET}"
+          --to-dir "${CACHE_DIR}"
 
       # Saved only when the build did not finish: a published image makes the
       # build tree useless.
@@ -181,75 +157,26 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
 
       # No ELF file of the toolchain may need a GCC runtime, and every
-      # dependency must resolve.
+      # dependency must resolve. Like the verification below, forge runs in the
+      # image, on a read-only mount of the checkout, and writes no bytecode
+      # there.
       - name: No GCC runtime in the toolchain
         if: steps.published.outputs.exists == 'false'
-        uses: ./.github/actions/no-gcc-runtime
-        with:
-          image: ${{ steps.image.outputs.ref }}
-          paths: /usr/local /opt/python-tools
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: >-
+          docker run --rm -e GITHUB_ACTIONS -v "${PWD}:/src:ro" -w /src "${REF}"
+          python3 -B -m forge no-gcc-runtime /usr/local /opt/python-tools
 
-      # The GCC runtime rule of .github/actions/no-gcc-runtime is mounted for
-      # the test programs.
+      # The tools and runtimes of the toolchain, and test programs that use only
+      # the LLVM runtimes.
       - name: Verify the toolchain
         if: steps.published.outputs.exists == 'false'
         env:
           REF: ${{ steps.image.outputs.ref }}
-          RULE: ${{ github.workspace }}/.github/actions/no-gcc-runtime/check.sh
-        run: |
-          docker run --rm -i -v "$RULE:/no-gcc-runtime.sh:ro" "$REF" \
-            bash -s <<'EOF'
-          set -euo pipefail
-          status=0
-          fail() { echo "::error::$*"; status=1; }
-
-          # Tools of the built toolchain are on PATH, from /usr/local/bin.
-          for tool in clang clang++ cc c++ clang-tidy clang-format clang-query \
-              clangd clangd-indexer clang-apply-replacements git-clang-format \
-              run-clang-tidy lld ld.lld lldb lldb-dap llvm-bolt perf2bolt \
-              merge-fdata llvm-mca llvm-xray llvm-cov llvm-profdata \
-              llvm-symbolizer llvm-ar llvm-readelf llvm-objcopy llvm-config \
-              FileCheck git-cliff git-flow actionlint; do
-            path=$(command -v "$tool") || { fail "$tool is not on PATH"; continue; }
-            [[ "$path" == /usr/local/bin/* ]] || fail "$tool resolves to $path"
-          done
-          for tool in cmake ninja make python3 git pylint pyink isort; do
-            command -v "$tool" >/dev/null || fail "$tool is not on PATH"
-          done
-          clang --version | grep -q 'version 23\.1\.6' || fail "clang is not 23.1.6"
-          [[ -f /usr/local/share/opt-viewer/opt-viewer.py ]] || fail "opt-viewer is missing"
-          python3 /usr/local/share/opt-viewer/opt-viewer.py --help >/dev/null \
-            || fail "opt-viewer does not run"
-
-          # compiler-rt runtimes, and the BOLT runtime.
-          runtime_dir=$(clang -print-runtime-dir)
-          for lib in builtins atomic asan ubsan_standalone tsan msan lsan cfi \
-              cfi_diag xray fuzzer fuzzer_no_main profile; do
-            compgen -G "$runtime_dir/libclang_rt.$lib.*" >/dev/null \
-              || fail "compiler-rt runtime $lib is missing from $runtime_dir"
-          done
-          compgen -G '/usr/local/lib/libbolt_rt_instr.a' >/dev/null \
-            || fail "the BOLT instrumentation runtime is missing"
-
-          # No LLVM package from apt (the stage-1 compiler is discarded).
-          apt_llvm=$(dpkg-query -W -f '${Package}\n' \
-            | grep -E '^(clang|lld|lldb|llvm|libllvm|libclang|libc\+\+|libunwind|libomp|python3-lldb)' || true)
-          [[ -z "$apt_llvm" ]] || fail "apt LLVM packages installed: $(xargs <<<"$apt_llvm")"
-
-          # The default toolchain builds a program that uses only LLVM runtimes.
-          cd "$(mktemp -d)"
-          printf '%s\n' '#include <iostream>' \
-            'int main() { std::cout << "hello\n"; return 0; }' >hello.cpp
-          clang++ -std=c++23 -O2 hello.cpp -o hello
-          [[ "$(./hello)" == hello ]] || fail "the test program does not run"
-          ldd ./hello | grep -q 'libc++\.so\.1' || fail "the test program does not use libc++"
-          clang++ -std=c++23 -g -fsanitize=address,undefined hello.cpp -o hello-asan
-          [[ "$(./hello-asan)" == hello ]] || fail "the sanitized test program does not run"
-          bash /no-gcc-runtime.sh hello hello-asan \
-            || fail "a test program needs a GCC runtime"
-
-          exit "$status"
-          EOF
+        run: >-
+          docker run --rm -e GITHUB_ACTIONS -v "${PWD}:/src:ro" -w /src "${REF}"
+          python3 -B -m forge verify-toolchain
 
       - name: Report a read-only token
         if: steps.published.outputs.exists == 'false' && env.CAN_WRITE != 'true'
@@ -262,7 +189,7 @@ jobs:
         if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
         env:
           REF: ${{ steps.image.outputs.ref }}
-        run: docker push "$REF"
+        run: docker push "${REF}"
 
       # A container image version is one manifest per tag here (no provenance
       # or SBOM manifests), so this keeps the five most recent tags.
@@ -297,9 +224,7 @@ jobs:
 
       - name: Compute image tag
         id: image
-        uses: ./.github/actions/layer-image
-        with:
-          layer: deps
+        run: python3 -m forge layer-image deps
 
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -312,58 +237,32 @@ jobs:
         id: published
         env:
           REF: ${{ steps.image.outputs.ref }}
-        run: |
-          if docker manifest inspect "$REF" >/dev/null 2>&1; then
-            echo "$REF is already published; nothing to build."
-            echo "exists=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >>"$GITHUB_OUTPUT"
-          fi
+        run: python3 -m forge published "${REF}"
 
       - name: Check out submodules
         if: steps.published.outputs.exists == 'false'
-        env:
-          SUBMODULES: ${{ steps.image.outputs.submodules }}
-        run: |
-          read -ra paths <<<"$SUBMODULES"
-          git submodule update --init --depth 1 -- "${paths[@]}"
+        run: python3 -m forge checkout-submodules --layer deps
 
       - name: Set up Buildx
         id: buildx
         if: steps.published.outputs.exists == 'false'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # The ccache of the dependency build lives in an image, not in the
-      # Actions cache, which is scoped to a branch: the runs on develop find
-      # their image published and build nothing, so a new branch would never
-      # see the cache of the previous one. Every branch reads and writes the
-      # latest tag; the build is correct whatever the cache holds.
-      - name: Name the compiler cache image
-        id: ccache
-        if: steps.published.outputs.exists == 'false'
-        run: >-
-          echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$DEPS_CCACHE_PACKAGE:latest"
-          >>"$GITHUB_OUTPUT"
-
-      # Copies the cache image into the BuildKit cache mount the Dockerfile
-      # builds in.
+      # The ccache of the dependency build lives in an image,
+      # ghcr.io/<owner>/$DEPS_CCACHE_PACKAGE:latest, not in the Actions cache,
+      # which is scoped to a branch: the runs on develop find their image
+      # published and build nothing, so a new branch would never see the cache
+      # of the previous one. Every branch reads and writes the latest tag; the
+      # build is correct whatever the cache holds. This copies the cache image,
+      # if any, into the BuildKit cache mount the Dockerfile builds in.
       - name: Load the compiler cache into BuildKit
         if: steps.published.outputs.exists == 'false'
         env:
           BUILDER: ${{ steps.buildx.outputs.name }}
-          CCACHE_REF: ${{ steps.ccache.outputs.ref }}
-        run: |
-          if ! docker manifest inspect "$CCACHE_REF" >/dev/null 2>&1; then
-            echo "No compiler cache yet: the build starts cold."
-            exit 0
-          fi
-          empty=$(mktemp -d)
-          docker buildx build --builder "$BUILDER" --file - "$empty" <<EOF
-          FROM ubuntu:26.04
-          RUN --mount=type=cache,id=${DEPS_CCACHE_ID},target=${DEPS_CCACHE_TARGET},sharing=locked \
-              --mount=type=bind,from=${CCACHE_REF},target=/restore \
-              cp -a /restore/. ${DEPS_CCACHE_TARGET}/
-          EOF
+        run: >-
+          python3 -m forge buildkit-cache load --builder "${BUILDER}"
+          --id "${DEPS_CCACHE_ID}" --target "${DEPS_CCACHE_TARGET}"
+          --from-package "${DEPS_CCACHE_PACKAGE}"
 
       - name: Build the image
         id: build
@@ -386,19 +285,21 @@ jobs:
       # the prefix may need a GCC runtime, and every dependency must resolve.
       - name: No GCC runtime in the dependencies
         if: steps.published.outputs.exists == 'false'
-        uses: ./.github/actions/no-gcc-runtime
-        with:
-          image: ${{ steps.image.outputs.ref }}
-          paths: /opt/umbra
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: >-
+          docker run --rm -e GITHUB_ACTIONS -v "${PWD}:/src:ro" -w /src "${REF}"
+          python3 -B -m forge no-gcc-runtime /opt/umbra
 
       # No library of the dependencies may link the CUDA driver, except the
       # modules loaded at run time.
       - name: No libcuda in the dependencies
         if: steps.published.outputs.exists == 'false'
-        uses: ./.github/actions/no-libcuda
-        with:
-          image: ${{ steps.image.outputs.ref }}
-          paths: /opt/umbra
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: >-
+          docker run --rm -e GITHUB_ACTIONS -v "${PWD}:/src:ro" -w /src "${REF}"
+          python3 -B -m forge no-libcuda /opt/umbra
 
       # Saved even when the build failed: what it compiled is still valid.
       - name: Save the compiler cache
@@ -408,20 +309,10 @@ jobs:
           && steps.build.outcome != 'skipped'
         env:
           BUILDER: ${{ steps.buildx.outputs.name }}
-          CCACHE_REF: ${{ steps.ccache.outputs.ref }}
-          SOURCE: ${{ github.server_url }}/${{ github.repository }}
-        run: |
-          empty=$(mktemp -d)
-          docker buildx build --builder "$BUILDER" --file - \
-            --provenance=false --sbom=false \
-            --output "type=image,name=$CCACHE_REF,push=true" "$empty" <<EOF
-          FROM ubuntu:26.04 AS export
-          RUN --mount=type=cache,id=${DEPS_CCACHE_ID},target=${DEPS_CCACHE_TARGET},sharing=locked \
-              mkdir /export && cp -a ${DEPS_CCACHE_TARGET}/. /export/
-          FROM scratch
-          LABEL org.opencontainers.image.source=$SOURCE
-          COPY --from=export /export/ /
-          EOF
+        run: >-
+          python3 -m forge buildkit-cache save --builder "${BUILDER}"
+          --id "${DEPS_CCACHE_ID}" --target "${DEPS_CCACHE_TARGET}"
+          --to-package "${DEPS_CCACHE_PACKAGE}"
 
       # One manifest per version, without provenance or SBOM manifests: those
       # would be untagged versions that the tagged image needs, and this step
@@ -449,7 +340,7 @@ jobs:
         if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
         env:
           REF: ${{ steps.image.outputs.ref }}
-        run: docker push "$REF"
+        run: docker push "${REF}"
 
       - name: Prune old images
         if: steps.published.outputs.exists == 'false' && env.CAN_WRITE == 'true'
@@ -465,7 +356,9 @@ jobs:
       # after this one (the runs of a branch never overlap). Commits made with
       # this token start no workflow runs, except workflow_dispatch, so the
       # step dispatches CI on the branch: its jobs then report on the pin
-      # commit, the head of the branch's pull request.
+      # commit, the head of the branch's pull request. When the branch already
+      # pins the image, CI is dispatched all the same: the image may have been
+      # missing when CI ran for this head.
       - name: Pin the devcontainer image
         if: github.ref_type == 'branch' && env.CAN_WRITE == 'true'
         env:
@@ -473,53 +366,6 @@ jobs:
           REF: ${{ steps.image.outputs.ref }}
           TAG: ${{ steps.image.outputs.tag }}
           BRANCH: ${{ github.ref_name }}
-          PIN_FILE: .devcontainer/devcontainer.json
-        run: |
-          set -euo pipefail
-          image_line='^([[:space:]]*"image":[[:space:]]*")([^"]*)(".*)$'
-          pin="$RUNNER_TEMP/devcontainer.json"
-          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)
-          gh api -H 'Accept: application/vnd.github.raw+json' \
-            "repos/$GITHUB_REPOSITORY/contents/$PIN_FILE?ref=$head" >"$pin"
-          pinned=$(sed -nE "s/$image_line/\\2/p" "$pin")
-          if [[ -z "$pinned" ]]; then
-            echo "::error file=$PIN_FILE::no \"image\" line to pin"
-            exit 1
-          fi
-          if [[ "$pinned" == "$REF" ]]; then
-            # The pinned image may have been missing when CI ran for this
-            # head: re-run CI now that it is published.
-            echo "$PIN_FILE already pins $REF."
-            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
-            echo "Dispatched the ci workflow on $BRANCH."
-            exit 0
-          fi
-          sed -i -E "s|$image_line|\\1$REF\\3|" "$pin"
-          # The GraphQL query's $variables are not shell expansions.
-          # shellcheck disable=SC2016
-          gh api graphql \
-            -f repository="$GITHUB_REPOSITORY" \
-            -f branch="$BRANCH" \
-            -f head="$head" \
-            -f path="$PIN_FILE" \
-            -f contents="$(base64 -w0 "$pin")" \
-            -f headline="build(devcontainer): pin umbra-deps image $TAG" \
-            -f body="Image $REF, built from $GITHUB_SHA." \
-            -f query='
-              mutation($repository: String!, $branch: String!,
-                       $head: GitObjectID!, $path: String!,
-                       $contents: Base64String!, $headline: String!,
-                       $body: String!) {
-                createCommitOnBranch(input: {
-                  branch: {repositoryNameWithOwner: $repository,
-                           branchName: $branch},
-                  expectedHeadOid: $head,
-                  message: {headline: $headline, body: $body},
-                  fileChanges: {additions: [{path: $path,
-                                             contents: $contents}]}
-                }) { commit { oid url } }
-              }' \
-            --jq '"Pinned \(.data.createCommitOnBranch.commit.url)"'
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
-          echo "Dispatched the ci workflow on $BRANCH."
-
+        run: >-
+          python3 -m forge pin-devcontainer --ref "${REF}" --tag "${TAG}"
+          --branch "${BRANCH}"
