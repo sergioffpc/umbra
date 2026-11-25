@@ -4,6 +4,12 @@
 // Runs the umbra executable under lldb-dap, after building its preset (see
 // tasks.json). Breakpoints need the debug preset: release builds carry no
 // debug information, and are for running and profiling optimized code.
+//
+// Each launch asks for umbra's arguments (`render --devices=cpu0`). lldb-dap
+// takes "args" as a list only, so lldb splits the line instead, at spaces
+// outside quotes: `settings set -- target.run-args` (`--` keeps the
+// arguments that start with `-` for umbra). Empty, umbra gets no argument,
+// and lldb says in the debug console that `settings set` takes more.
 {
   "version": "0.2.0",
   "configurations": [
@@ -13,7 +19,7 @@
       "request": "launch",
       "preLaunchTask": "build: debug",
       "program": "${workspaceFolder}/build/debug/bin/umbra",
-      "args": [],
+      "preRunCommands": ["settings set -- target.run-args ${input:args}"],
       "cwd": "${workspaceFolder}"
     },
     {
@@ -22,8 +28,15 @@
       "request": "launch",
       "preLaunchTask": "build: release",
       "program": "${workspaceFolder}/build/release/bin/umbra",
-      "args": [],
+      "preRunCommands": ["settings set -- target.run-args ${input:args}"],
       "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "args",
+      "type": "promptString",
+      "description": "umbra's arguments, e.g. render --devices=cpu0"
     }
   ]
 }
