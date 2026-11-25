@@ -47,6 +47,14 @@ def cache_mount(cache_id: str, target: str) -> str:
     return f"--mount=type=cache,id={cache_id},target={target},sharing=locked"
 
 
+# Every stage runs its RUN instructions with bash, errexit, nounset and
+# pipefail.
+SHELL = (
+    'SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail",'
+    ' "-c"]\n'
+)
+
+
 def load_dockerfile(cache_id: str, target: str, source: str) -> str:
     """Returns the Dockerfile that copies a bind mount into the cache mount.
 
@@ -57,9 +65,10 @@ def load_dockerfile(cache_id: str, target: str, source: str) -> str:
     """
     return (
         f"FROM {BASE}\n"
+        f"{SHELL}"
         f"RUN {cache_mount(cache_id, target)} \\\n"
-        f"    --mount=type=bind{source},target=/restore \\\n"
-        f"    cp -a /restore/. {target}/\n"
+        f"  --mount=type=bind{source},target=/restore \\\n"
+        f"  cp -a /restore/. {target}/\n"
     )
 
 
@@ -73,8 +82,10 @@ def save_dockerfile(cache_id: str, target: str, label: str) -> str:
     """
     return (
         f"FROM {BASE} AS export\n"
+        f"{SHELL}"
         f"RUN {cache_mount(cache_id, target)} \\\n"
-        f"    mkdir /export && cp -a {target}/. /export/\n"
+        f"  mkdir /export \\\n"
+        f"  && cp -a {target}/. /export/\n"
         "FROM scratch\n"
         f"{label}"
         "COPY --from=export /export/ /\n"
