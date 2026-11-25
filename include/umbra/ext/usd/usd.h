@@ -46,7 +46,11 @@ struct LoadOptions {
 // render settings, their camera and their products, whose files are checked
 // writable, their missing directories created. Settings without products
 // write <scene-stem>.<frame>.exr, in the current directory, with the color.
-// Render vars umbra does not render are left out, with one warning.
+// Render vars umbra does not render are left out, with one warning. The
+// visible meshes, implicit surfaces among them, become prototypes with one
+// instance each; one warning each reports the meshes rendered as the cage
+// of the subdivision they ask for, the invalid ones, dropped, the instanced
+// ones, and the curves, points and volumes, left out.
 //
 // Fails with kNotFound when the file does not exist or no RenderSettings
 // prim is at the settings' path; kInvalidArgument when the file cannot be

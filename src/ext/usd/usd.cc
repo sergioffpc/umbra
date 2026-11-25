@@ -11,12 +11,19 @@
 #include <pxr/base/tf/error.h>
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/status.h>
+#include <pxr/base/tf/token.h>
 #include <pxr/base/tf/warning.h>
 #include <pxr/base/work/threadLimits.h>
+#include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderIndex.h>
+#include <pxr/imaging/hd/repr.h>
+#include <pxr/imaging/hd/retainedDataSource.h>
+#include <pxr/imaging/hd/rprimCollection.h>
 #include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/task.h>
+#include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/hdsi/implicitSurfaceSceneIndex.h>
 #include <pxr/imaging/hdsi/lightLinkingSceneIndex.h>
 #include <pxr/imaging/hdsi/renderSettingsFilteringSceneIndex.h>
 #include <pxr/imaging/hdsi/sceneGlobalsSceneIndex.h>
@@ -44,6 +51,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -277,9 +285,27 @@ std::expected<pxr::SdfPath, Error> SettingsPath(const pxr::UsdStage& stage,
   return path;
 }
 
+// The implicit surfaces (capsules, cones, cubes, cylinders, planes and
+// spheres), turned into meshes.
+pxr::HdSceneIndexBaseRefPtr ImplicitSurfacesToMeshes(
+    const pxr::HdSceneIndexBaseRefPtr& input) {
+  const pxr::HdDataSourceBaseHandle to_mesh =
+      pxr::HdRetainedTypedSampledDataSource<pxr::TfToken>::New(
+          pxr::HdsiImplicitSurfaceSceneIndexTokens->toMesh);
+  const pxr::HdContainerDataSourceHandle args =
+      pxr::HdRetainedContainerDataSource::New(
+          pxr::HdPrimTypeTokens->capsule, to_mesh, pxr::HdPrimTypeTokens->cone,
+          to_mesh, pxr::HdPrimTypeTokens->cube, to_mesh,
+          pxr::HdPrimTypeTokens->cylinder, to_mesh,
+          pxr::HdPrimTypeTokens->plane, to_mesh, pxr::HdPrimTypeTokens->sphere,
+          to_mesh);
+  return pxr::HdsiImplicitSurfaceSceneIndex::New(input, args);
+}
+
 // The scene indices from the stage to the render index: usdImaging's, at
 // `time`, then the scene globals, which name the settings and the frame,
-// and hdsi's render settings and light linking filters.
+// hdsi's render settings and light linking filters, and its implicit
+// surfaces, as meshes.
 pxr::HdSceneIndexBaseRefPtr ChainSceneIndices(const pxr::UsdStageRefPtr& stage,
                                               pxr::UsdTimeCode time,
                                               const pxr::SdfPath& settings) {
@@ -297,6 +323,7 @@ pxr::HdSceneIndexBaseRefPtr ChainSceneIndices(const pxr::UsdStageRefPtr& stage,
   pxr::HdSceneIndexBaseRefPtr chain = globals;
   chain = pxr::HdsiRenderSettingsFilteringSceneIndex::New(chain, nullptr);
   chain = pxr::HdsiLightLinkingSceneIndex::New(chain, nullptr);
+  chain = ImplicitSurfacesToMeshes(chain);
   return chain;
 }
 
@@ -313,7 +340,8 @@ std::expected<scene::Scene, Error> ExecuteSync(
     const pxr::UsdStageRefPtr& stage, pxr::UsdTimeCode time,
     const internal::CloseInputs& inputs, core::ProgressPhase& phase) {
   internal::RenderDelegate delegate(
-      phase, [&inputs, &stage](const internal::SyncedPrims& prims) {
+      phase, inputs.meters_per_unit,
+      [&inputs, &stage](const internal::SyncedPrims& prims) {
         return internal::CloseScene(inputs, *stage, prims);
       });
   // Destroyed before the delegate, whose prims it destroys.
@@ -327,6 +355,10 @@ std::expected<scene::Scene, Error> ExecuteSync(
                           pxr::SdfPath::AbsoluteRootPath(),
                           /*needsPrefixing=*/false);
   phase.SetTotal(delegate.PrimCount());
+  // Hydra syncs the rprims of the collections queued, in their reprs: one
+  // collection of every rprim, whose repr umbra never draws.
+  index->EnqueueCollectionToSync(pxr::HdRprimCollection(
+      pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->hull)));
   pxr::HdTaskSharedPtrVector tasks = {
       std::make_shared<internal::SyncTask>(delegate, inputs.settings),
   };
@@ -386,8 +418,27 @@ std::string DescribeProduct(const scene::RenderProduct& product) {
   return std::format("{} [{}]", product.file, vars);
 }
 
+// "1.24M triangles in 3.4k meshes, 18 primvars": the primvars counted by
+// name, the normals apart.
+std::string DescribeGeometry(const scene::Scene& scene) {
+  std::size_t triangles = 0;
+  std::set<std::string_view> primvars;
+  for (const scene::Mesh& mesh : scene.prototypes()) {
+    triangles += mesh.triangles.size();
+    for (const scene::Primvar& primvar : mesh.primvars) {
+      primvars.insert(primvar.name);
+    }
+  }
+  const std::size_t meshes = scene.prototypes().size();
+  return std::format("{} triangle{} in {} mesh{}, {} primvar{}",
+                     core::FormatCount(triangles), triangles == 1 ? "" : "s",
+                     core::FormatCount(meshes), meshes == 1 ? "" : "es",
+                     core::FormatCount(primvars.size()),
+                     primvars.size() == 1 ? "" : "s");
+}
+
 // "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
-// [color, depth]".
+// [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars".
 std::string DescribeScene(const scene::Scene& scene) {
   const scene::RenderSettings& settings = scene.settings();
   std::string products;
@@ -395,9 +446,10 @@ std::string DescribeScene(const scene::Scene& scene) {
     products += (products.empty() ? "" : ", ") + DescribeProduct(product);
   }
   const std::size_t count = settings.products.size();
-  return std::format("settings {}, camera {}, {} product{}: {}", settings.path,
-                     scene.cameras().subspan(settings.camera).front().path,
-                     count, count == 1 ? "" : "s", products);
+  return std::format(
+      "settings {}, camera {}, {} product{}: {}, {}", settings.path,
+      scene.cameras().subspan(settings.camera).front().path, count,
+      count == 1 ? "" : "s", products, DescribeGeometry(scene));
 }
 
 }  // namespace

@@ -8,6 +8,7 @@ umbra_add_ext_module(
   SOURCES
   close_scene.cc
   hydra.cc
+  mesh.cc
   outputs.cc
   usd.cc
   DEPENDS
@@ -24,5 +25,6 @@ umbra_add_ext_module(
   usdGeom
   usdRender
   hd
+  pxOsd
   hdsi
   usdImaging)

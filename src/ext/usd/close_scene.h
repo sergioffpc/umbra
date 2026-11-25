@@ -2,7 +2,8 @@
 // Copyright The Umbra Authors
 //
 // Closing the Scene, once Hydra has synced the prims: the render settings
-// the render uses, their camera and their products, in umbra's types.
+// the render uses, their camera and their products, and the meshes, in
+// umbra's types.
 
 #ifndef UMBRA_EXT_USD_CLOSE_SCENE_H_
 #define UMBRA_EXT_USD_CLOSE_SCENE_H_
@@ -42,7 +43,10 @@ struct CloseInputs {
 // have no camera or one that is not a Camera, a product has no orderedVars
 // or none umbra renders, or a product's file is not .exr; kUnavailable when
 // a file cannot be written. Unsupported render vars are left out, with one
-// warning.
+// warning. Each mesh converted becomes a prototype with one instance; one
+// warning each reports the meshes that ask for a subdivision scheme, the
+// invalid ones, the instanced ones and the rprims of each type not
+// supported, with their count and the first.
 [[nodiscard]] std::expected<scene::Scene, core::Error> CloseScene(
     const CloseInputs& inputs, const pxr::UsdStage& stage,
     const SyncedPrims& prims);
