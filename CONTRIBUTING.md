@@ -414,6 +414,15 @@ clang-tidy families and the function limits below), this document wins.
   the devcontainer image.
 - Workflows are linted with actionlint, which runs shellcheck on their
   scripts; both are pinned in the devcontainer image.
+- Shell, in scripts, workflow steps and the `RUN` instructions of the
+  Dockerfiles, follows
+  [Google's Shell Style Guide](https://google.github.io/styleguide/shellguide.html):
+  bash only, with errexit, nounset and pipefail (a Dockerfile stage sets
+  `SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]`
+  before its first `RUN`); 2-space indent and 80 columns; `[[ ]]` and
+  `$(...)`; every expansion quoted and braced (`"${name}"`); lowercase
+  variables, `local` in functions, and uppercase `readonly` constants and
+  environment variables; a long command broken before its `&&`, `||` or `|`.
 - CI logic lives in forge: the ci workflow's steps run forge commands.
   Python embedded in a workflow is written as a quoted heredoc read
   by `python3 -` (`python3 - <<'EOF'`), follows the same Google style (a

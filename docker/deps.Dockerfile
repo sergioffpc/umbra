@@ -78,48 +78,54 @@ ARG CCCL_SHA256=5139f641e72df6b0c64ee9e68cabaeafa9a5e36a4b1f7d370a1dc0dac62dd72f
 ARG OPTIX_VERSION=9.1.0
 ARG OPTIX_SHA256=3a29b2254107fdfbb5e6bbad3ec154dd682149121f61e9c406607ac7b52a6ba6
 ARG DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl xz-utils \
- && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends curl xz-utils \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp/nvidia
-RUN set -eu; \
-    redist=https://developer.download.nvidia.com/compute/cuda/redist; \
-    fetch() { \
-      curl -fsSLo "$1.tar.xz" \
-        "$redist/$1/linux-x86_64/$1-linux-x86_64-$2-archive.tar.xz"; \
-      echo "$3  $1.tar.xz" | sha256sum -c -; \
-    }; \
-    fetch cuda_nvcc "$CUDA_NVCC_VERSION" "$CUDA_NVCC_SHA256"; \
-    fetch cuda_crt "$CUDA_CRT_VERSION" "$CUDA_CRT_SHA256"; \
-    fetch libnvvm "$LIBNVVM_VERSION" "$LIBNVVM_SHA256"; \
-    fetch cuda_cudart "$CUDA_CUDART_VERSION" "$CUDA_CUDART_SHA256"; \
-    fetch cccl "$CCCL_VERSION" "$CCCL_SHA256"; \
-    fetch cuda_cuobjdump "$CUDA_CUOBJDUMP_VERSION" "$CUDA_CUOBJDUMP_SHA256"; \
-    fetch cuda_nvdisasm "$CUDA_NVDISASM_VERSION" "$CUDA_NVDISASM_SHA256"; \
-    fetch cuda_sanitizer_api "$CUDA_SANITIZER_API_VERSION" \
-      "$CUDA_SANITIZER_API_SHA256"; \
-    fetch cuda_gdb "$CUDA_GDB_VERSION" "$CUDA_GDB_SHA256"; \
-    fetch libcurand "$LIBCURAND_VERSION" "$LIBCURAND_SHA256"; \
-    curl -fsSLo optix.tar.gz \
-      "https://github.com/NVIDIA/optix-dev/archive/refs/tags/v${OPTIX_VERSION}.tar.gz"; \
-    echo "$OPTIX_SHA256  optix.tar.gz" | sha256sum -c -; \
-    install -d /opt/cuda/optix; \
-    for component in cuda_nvcc cuda_crt libnvvm cuda_cudart cccl \
-                     cuda_cuobjdump cuda_nvdisasm cuda_sanitizer_api cuda_gdb; do \
-      tar -xJf "$component.tar.xz" -C /opt/cuda --strip-components=1; \
-    done; \
-    tar -xJf libcurand.tar.xz -C /opt/cuda --strip-components=1 \
-      --wildcards '*/include/*'; \
-    tar -xzf optix.tar.gz -C /opt/cuda/optix --strip-components=1; \
-    rm -rf /tmp/nvidia
+# fetch COMPONENT VERSION SHA256 downloads the redist archive of a CUDA
+# component to COMPONENT.tar.xz and verifies it.
+RUN readonly REDIST=https://developer.download.nvidia.com/compute/cuda/redist; \
+  readonly OPTIX=https://github.com/NVIDIA/optix-dev/archive/refs/tags; \
+  fetch() { \
+    local component="$1" version="$2" sha256="$3"; \
+    local archive="${component}-linux-x86_64-${version}-archive.tar.xz"; \
+    curl -fsSLo "${component}.tar.xz" \
+      "${REDIST}/${component}/linux-x86_64/${archive}"; \
+    echo "${sha256}  ${component}.tar.xz" | sha256sum -c -; \
+  }; \
+  fetch cuda_nvcc "${CUDA_NVCC_VERSION}" "${CUDA_NVCC_SHA256}"; \
+  fetch cuda_crt "${CUDA_CRT_VERSION}" "${CUDA_CRT_SHA256}"; \
+  fetch libnvvm "${LIBNVVM_VERSION}" "${LIBNVVM_SHA256}"; \
+  fetch cuda_cudart "${CUDA_CUDART_VERSION}" "${CUDA_CUDART_SHA256}"; \
+  fetch cccl "${CCCL_VERSION}" "${CCCL_SHA256}"; \
+  fetch cuda_cuobjdump "${CUDA_CUOBJDUMP_VERSION}" \
+    "${CUDA_CUOBJDUMP_SHA256}"; \
+  fetch cuda_nvdisasm "${CUDA_NVDISASM_VERSION}" "${CUDA_NVDISASM_SHA256}"; \
+  fetch cuda_sanitizer_api "${CUDA_SANITIZER_API_VERSION}" \
+    "${CUDA_SANITIZER_API_SHA256}"; \
+  fetch cuda_gdb "${CUDA_GDB_VERSION}" "${CUDA_GDB_SHA256}"; \
+  fetch libcurand "${LIBCURAND_VERSION}" "${LIBCURAND_SHA256}"; \
+  curl -fsSLo optix.tar.gz "${OPTIX}/v${OPTIX_VERSION}.tar.gz"; \
+  echo "${OPTIX_SHA256}  optix.tar.gz" | sha256sum -c -; \
+  install -d /opt/cuda/optix; \
+  for component in cuda_nvcc cuda_crt libnvvm cuda_cudart cccl \
+    cuda_cuobjdump cuda_nvdisasm cuda_sanitizer_api cuda_gdb; do \
+    tar -xJf "${component}.tar.xz" -C /opt/cuda --strip-components=1; \
+  done; \
+  tar -xJf libcurand.tar.xz -C /opt/cuda --strip-components=1 \
+    --wildcards '*/include/*'; \
+  tar -xzf optix.tar.gz -C /opt/cuda/optix --strip-components=1; \
+  rm -rf /tmp/nvidia
 WORKDIR /
 # nvcc links from lib64/, as in the toolkit installers; the archives use lib/.
 RUN ln -s lib /opt/cuda/lib64 \
- && /opt/cuda/bin/nvcc --version \
- && /opt/cuda/bin/cuobjdump --version \
- && /opt/cuda/bin/cuda-gdb --version \
- && /opt/cuda/bin/compute-sanitizer --version \
- && printf '%s\n' "CUDA ${CUDA_VERSION}, OptiX ${OPTIX_VERSION}" >/opt/cuda/version.txt
+  && /opt/cuda/bin/nvcc --version \
+  && /opt/cuda/bin/cuobjdump --version \
+  && /opt/cuda/bin/cuda-gdb --version \
+  && /opt/cuda/bin/compute-sanitizer --version \
+  && printf '%s\n' "CUDA ${CUDA_VERSION}, OptiX ${OPTIX_VERSION}" \
+    >/opt/cuda/version.txt
 ENV PATH=/opt/cuda/bin:${PATH} \
     CUDAToolkit_ROOT=/opt/cuda \
     OptiX_INSTALL_DIR=/opt/cuda/optix
@@ -138,23 +144,23 @@ ENV PATH=/opt/cuda/bin:${PATH} \
 FROM nvidia AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      libhwloc-dev libdeflate-dev libzstd-dev ccache \
-      libexpat1-dev zlib1g-dev libminizip-ng-dev \
-      libjpeg-turbo8-dev libpng-dev libwebp-dev libgif-dev libopenjp2-7-dev \
-      libfreetype-dev flex bison \
- && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends \
+    libhwloc-dev libdeflate-dev libzstd-dev ccache \
+    libexpat1-dev zlib1g-dev libminizip-ng-dev \
+    libjpeg-turbo8-dev libpng-dev libwebp-dev libgif-dev libopenjp2-7-dev \
+    libfreetype-dev flex bison \
+  && rm -rf /var/lib/apt/lists/*
 ENV CCACHE_DIR=/var/cache/ccache \
     CCACHE_MAXSIZE=5G \
     CCACHE_COMPILERCHECK=content
 COPY third_party/ /opt/umbra/src/
 RUN --mount=type=cache,id=umbra-deps-ccache,target=/var/cache/ccache,sharing=locked \
-    ccache --zero-stats \
- && cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
-          -DUMBRA_LAYER=deps \
-          -DCMAKE_INSTALL_PREFIX=/opt/umbra \
- && cmake --build /tmp/dependency-build --target layer-deps \
- && ccache --show-stats
+  ccache --zero-stats \
+  && cmake -S /opt/umbra/src -B /tmp/dependency-build -G Ninja \
+    -DUMBRA_LAYER=deps \
+    -DCMAKE_INSTALL_PREFIX=/opt/umbra \
+  && cmake --build /tmp/dependency-build --target layer-deps \
+  && ccache --show-stats
 
 FROM nvidia AS deps
 ARG DEBIAN_FRONTEND=noninteractive
@@ -167,12 +173,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 # -dev packages too, since FindOpenVDB.cmake, through which umbra finds
 # OpenVDB, finds them for its own targets.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      libhwloc15 libdeflate0 libzstd1 libexpat1 zlib1g libminizip-ng4t64 \
-      zlib1g-dev libzstd-dev \
-      libjpeg-turbo8 libpng16-16t64 libwebp7 libwebpdemux2 libwebpmux3 \
-      libgif7 libopenjp2-7 libfreetype6 \
- && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends \
+    libhwloc15 libdeflate0 libzstd1 libexpat1 zlib1g libminizip-ng4t64 \
+    zlib1g-dev libzstd-dev \
+    libjpeg-turbo8 libpng16-16t64 libwebp7 libwebpdemux2 libwebpmux3 \
+    libgif7 libopenjp2-7 libfreetype6 \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/umbra/ /opt/umbra/
 ENV CMAKE_PREFIX_PATH=/opt/umbra
 
@@ -181,5 +187,6 @@ ENV CMAKE_PREFIX_PATH=/opt/umbra
 # keep-id). The directories mounted as named volumes exist here, owned by dev,
 # so that a new volume starts out owned by dev too. CI keeps running as root.
 RUN userdel --remove ubuntu \
- && useradd --create-home --uid 1000 --user-group --shell /bin/bash dev \
- && install -d -o dev -g dev /home/dev/.claude /home/dev/.config /home/dev/.config/gh
+  && useradd --create-home --uid 1000 --user-group --shell /bin/bash dev \
+  && install -d -o dev -g dev \
+    /home/dev/.claude /home/dev/.config /home/dev/.config/gh
