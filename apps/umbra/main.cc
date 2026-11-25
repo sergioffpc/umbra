@@ -6,8 +6,9 @@
 //   umbra [--version] [-h | --help] [-q | --quiet] <command> [<args>]
 //
 // `umbra devices` lists the devices it can render on, with their hardware
-// (see devices.h); `umbra render [--devices=cpu0,gpu0]` chooses among them
-// and shows them on stderr, and renders nothing yet. `umbra version
+// (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
+// [--frame=<n>] <scene>` chooses among them, shows them on stderr and loads
+// the scene, and renders nothing yet. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -20,14 +21,21 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <expected>
+#include <format>
+#include <memory>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "cli/parser.h"
@@ -79,9 +87,14 @@ constexpr CommandSpec kProgram = {
 
 constexpr std::array<OptionSpec, 1> kHelpOnly = {kHelpOption};
 
-constexpr std::array<OptionSpec, 2> kRenderOptions = {
+constexpr std::array<OptionSpec, 4> kRenderOptions = {
     umbra::cli::ValueOption('\0', "devices", "list", {},
                             "the devices to render on (default: all)"),
+    umbra::cli::ValueOption('\0', "settings", "prim", {},
+                            "the RenderSettings prim to render with"),
+    umbra::cli::ValueOption('\0', "frame", "n", {},
+                            "the time code to render (default: the stage's "
+                            "start)"),
     kHelpOption,
 };
 
@@ -99,9 +112,9 @@ constexpr std::array<CommandSpec, 4> kCommands = {
     },
     CommandSpec{
         .name = "render",
-        .summary = "Render on the chosen devices",
+        .summary = "Render a scene on the chosen devices",
         .options = kRenderOptions,
-        .arguments = {},
+        .arguments = "<scene>",
     },
     CommandSpec{
         .name = "version",
@@ -254,9 +267,59 @@ void PrintRenderBlock(const umbra::devices::Hardware& hardware,
              umbra::devices::FormatRenderDevices(hardware, chosen));
 }
 
-// `umbra render`: resolves the devices and shows them. It renders nothing
-// yet.
-int Render(const ParsedCommand& global, const ParsedCommand& render) {
+// What `umbra render` renders: its scene, and how to load it.
+struct RenderRequest {
+  std::string_view scene;
+  umbra::ext::usd::LoadOptions options;
+};
+
+// The time code of --frame: an integer or a decimal fraction ("12", "12.5"),
+// without an exponent.
+std::expected<double, Error> ParseFrame(std::string_view text) {
+  double frame = 0.0;
+  const char* const first = std::to_address(text.begin());
+  const char* const last = std::to_address(text.end());
+  const auto [end, error] =
+      std::from_chars(first, last, frame, std::chars_format::fixed);
+  const bool is_whole = end == last;
+  if (error != std::errc() || !is_whole || !std::isfinite(frame)) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("invalid frame '{}': a time code such as 12 or "
+                          "12.5 is expected",
+                          text)));
+  }
+  return frame;
+}
+
+// The scene and options of `umbra render`: exactly one scene.
+std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
+  const auto scenes = render.arguments();
+  if (scenes.size() != 1) {
+    return std::unexpected(Error(
+        ErrorCode::kInvalidArgument,
+        scenes.empty() ? std::string("missing the scene to render; see "
+                                     "'umbra render -h'")
+                       : std::format("umbra render renders one scene, not {}; "
+                                     "see 'umbra render -h'",
+                                     scenes.size())));
+  }
+  RenderRequest request{.scene = scenes.front(), .options = {}};
+  request.options.settings = render.Value("settings");
+  if (render.Count("frame") > 0) {
+    const auto frame = ParseFrame(render.Value("frame"));
+    if (!frame.has_value()) {
+      return std::unexpected(frame.error());
+    }
+    request.options.frame = *frame;
+  }
+  return request;
+}
+
+// `umbra render`: resolves the devices, shows them and loads the scene. It
+// renders nothing yet.
+int Render(const ParsedCommand& global, const ParsedCommand& render,
+           const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
   if (!hardware.has_value()) {
     return Failure(hardware.error());
@@ -270,6 +333,10 @@ int Render(const ParsedCommand& global, const ParsedCommand& render) {
   }
   if (global.Count("quiet") == 0) {
     PrintRenderBlock(*hardware, *chosen);
+  }
+  const auto scene = umbra::ext::usd::LoadScene(request.scene, request.options);
+  if (!scene.has_value()) {
+    return Failure(scene.error());
   }
   return kExitSuccess;
 }
@@ -290,14 +357,22 @@ int Help(const ParsedCommand& help) {
   return kExitSuccess;
 }
 
-// Runs a command that works on the hardware, once the libraries are
-// initialized.
+// Runs a command that works on the hardware, once its arguments are checked
+// and the libraries are initialized.
 int RunOnHardware(const ParsedCommand& global, const ParsedCommand& command) {
+  std::optional<RenderRequest> request;
+  if (command.name() == "render") {
+    auto parsed = ParseRender(command);
+    if (!parsed.has_value()) {
+      return UsageError(parsed.error());
+    }
+    request = std::move(*parsed);
+  }
   if (auto initialized = InitializeLibraries(); !initialized.has_value()) {
     return Failure(initialized.error());
   }
-  if (command.name() == "render") {
-    return Render(global, command);
+  if (request.has_value()) {
+    return Render(global, command, *request);
   }
   return ListDevices();
 }

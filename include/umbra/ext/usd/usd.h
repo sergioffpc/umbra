@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// The bridge to OpenUSD, which reads the scenes umbra renders: its
-// diagnostics go to umbra's log as the usd component.
+// The bridge to OpenUSD, which reads the scenes umbra renders into umbra's
+// Scene (docs/adr/0006-scenes-enter-through-hydra.md): its diagnostics go to
+// umbra's log as the usd component, and no OpenUSD type leaves it.
 
 #ifndef UMBRA_EXT_USD_USD_H_
 #define UMBRA_EXT_USD_USD_H_
 
 #include <expected>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -23,6 +28,25 @@ namespace umbra::ext::usd {
 // .usda files, which means OpenUSD's plugins were not found next to its
 // libraries.
 [[nodiscard]] std::expected<void, core::Error> Initialize();
+
+// How a scene is loaded.
+struct LoadOptions {
+  // The time code to load, or none for the stage's startTimeCode when it
+  // authors one, and the default time otherwise.
+  std::optional<double> frame;
+  // The path of the RenderSettings prim given, or empty for none. LoadScene
+  // carries it and reads no render settings.
+  std::string settings;
+};
+
+// Loads the scene of the USD file at `path`, as the render's first phase,
+// "Loading stage": opens its stage, with every payload loaded and no session
+// layer, and builds its Scene. Fails with kNotFound when the file does not
+// exist, and kInvalidArgument when it cannot be read or its stage does not
+// open or compose;
+// warnings while composing (a missing sublayer) go to the log.
+[[nodiscard]] std::expected<scene::Scene, core::Error> LoadScene(
+    std::string_view path, const LoadOptions& options);
 
 }  // namespace umbra::ext::usd
 
