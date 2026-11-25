@@ -1,0 +1,15 @@
+# Build context of docker/release.Dockerfile: the sources of umbra's release
+# preset, its license texts and our Chisel slices.
+*
+!CMakeLists.txt
+!CMakePresets.json
+!LICENSE
+!NOTICE
+!apps/
+!benchmarks/
+!cmake/
+!docker/chisel/slices/
+!include/
+!sanitizers/
+!src/
+!tests/

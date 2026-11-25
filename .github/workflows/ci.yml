@@ -548,6 +548,109 @@ jobs:
         with:
           paths: build/release
 
+  # On release and hotfix pull requests: builds the release image
+  # (docker/release.Dockerfile) on the pinned deps image, without publishing
+  # it, and checks its contract and that it starts, without network: every
+  # run loads the libraries umbra links, and devices and render also
+  # initialize each dependency, which loads OpenUSD's plugins, and load the
+  # GPU module, which without a GPU reports CUDA's error. The runner has no
+  # GPU, so the GPU path is not checked.
+  release-image:
+    if: >-
+      (github.event_name == 'pull_request'
+       || github.event_name == 'workflow_dispatch')
+      && (startsWith(github.head_ref || github.ref_name, 'release/')
+          || startsWith(github.head_ref || github.ref_name, 'hotfix/'))
+    needs: image
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: umbra:release-check
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/release.Dockerfile
+          target: release
+          build-args: DEPS_IMAGE=${{ needs.image.outputs.ref }}
+          builder: ${{ steps.buildx.outputs.name }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ env.IMAGE }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      # The user, entrypoint and working directory of the contract, and a
+      # file system without a shell, a package manager or any program but
+      # umbra.
+      - name: Contract
+        run: |
+          set -euo pipefail
+          status=0
+          fail() { echo "::error::$*"; status=1; }
+          config() { docker image inspect --format "{{json .Config.$1}}" "$IMAGE"; }
+          [[ "$(config User)" == '"65532:65532"' ]] \
+            || fail "the image runs as $(config User), not 65532:65532"
+          [[ "$(config Entrypoint)" == '["/opt/umbra/bin/umbra"]' ]] \
+            || fail "the entrypoint is $(config Entrypoint)"
+          [[ "$(config Cmd)" == '["--help"]' ]] || fail "the command is $(config Cmd)"
+          [[ "$(config WorkingDir)" == '"/work"' ]] \
+            || fail "the working directory is $(config WorkingDir)"
+
+          files="$RUNNER_TEMP/image-files"
+          container=$(docker create "$IMAGE")
+          docker export "$container" | tar -t | sed 's|/$||' | sort >"$files"
+          docker rm "$container" >/dev/null
+          programs=$(grep -E '^(usr/)?s?bin/.' "$files" || true)
+          [[ -z "$programs" ]] || fail "the image has programs: $(xargs <<<"$programs")"
+          others=$(grep -E '(^|/)(sh|bash|dash|busybox|apt|apt-get|dpkg)$|^(etc/apt|var/lib/dpkg)(/|$)' \
+            "$files" || true)
+          [[ -z "$others" ]] \
+            || fail "the image has a shell or a package manager: $(xargs <<<"$others")"
+          for path in opt/umbra/bin/umbra opt/umbra/lib/libumbra-gpu.so \
+              opt/umbra/share/licenses/umbra/LICENSE etc/passwd etc/group; do
+            grep -Fxq "$path" "$files" || fail "the image has no /$path"
+          done
+          if docker run --rm --entrypoint /bin/sh "$IMAGE" -c true 2>/dev/null; then
+            fail "/bin/sh runs in the image"
+          fi
+          exit "$status"
+
+      - name: Start
+        run: |
+          set -euo pipefail
+          umbra() { docker run --rm --network none "$IMAGE" "$@"; }
+          umbra
+          umbra version --build-options
+          devices=$(umbra devices)
+          echo "$devices"
+          if grep -Eq 'cannot load |is not installed|has no entry point|has ABI version' \
+              <<<"$devices"; then
+            echo "::error::the GPU module does not load in the image"
+            exit 1
+          fi
+          umbra render
+
   # ASan + UBSan (with pattern auto-var-init). As in the devcontainer, ptrace
   # and an unconfined seccomp profile let LeakSanitizer stop the process.
   sanitize-address:

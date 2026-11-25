@@ -47,6 +47,12 @@ finds OpenVDB through `FindOpenVDB.cmake`, which finds them. Their C++ dependenc
 because Ubuntu builds its C++ libraries against libstdc++. So is libtiff, a
 C library: Ubuntu's `libtiff6` links the C++ `liblerc4`.
 
+The release image, built by `docker/release.Dockerfile`, takes the runtime
+packages that umbra loads, and those they depend on, as Chisel slices cut
+from the same release: those of `canonical/chisel-releases`, at the commit
+the Dockerfile pins, and, for a package it does not slice yet, ours in
+`docker/chisel/slices/`.
+
 | Name | Needed by | Packages | License |
 |---|---|---|---|
 | hwloc | oneTBB (`libtbbbind_2_5`, NUMA-aware task arenas) | `libhwloc-dev`, `libhwloc15` | `BSD-3-Clause` |
