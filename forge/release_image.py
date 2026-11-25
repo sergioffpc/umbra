@@ -17,7 +17,7 @@ Usage: python3 -m forge release-image IMAGE
 """
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import json
 import re
 import subprocess
@@ -85,27 +85,50 @@ def config_errors(image: str) -> list[str]:
     ]
 
 
+def export(
+    image: str, wanted: Callable[[str], bool]
+) -> tuple[dict[str, tarfile.TarInfo], dict[str, bytes]]:
+    """Reads the file system of the image.
+
+    Paths are relative to the root, without a trailing slash.
+
+    Args:
+        image: The image, loaded in docker.
+        wanted: Whether the content of the regular file at a path is read.
+
+    Returns:
+        The entries of the file system, and the content of the wanted
+        regular files, by path.
+    """
+    container = docker("create", image).strip()
+    contents = {}
+    try:
+        with subprocess.Popen(
+            ["docker", "export", container], stdout=subprocess.PIPE
+        ) as exported:
+            with tarfile.open(fileobj=exported.stdout, mode="r|") as archive:
+                entries = {}
+                for member in archive:
+                    path = member.name.rstrip("/")
+                    entries[path] = member
+                    if member.isfile() and wanted(path):
+                        file = archive.extractfile(member)
+                        contents[path] = file.read() if file else b""
+        if exported.returncode:
+            raise github.StepError(
+                f"docker export exited with status {exported.returncode}"
+            )
+    finally:
+        docker("rm", container)
+    return entries, contents
+
+
 def file_system(image: str) -> dict[str, tarfile.TarInfo]:
     """Returns the entries of the file system of the image, by path.
 
     Paths are relative to the root, without a trailing slash.
     """
-    container = docker("create", image).strip()
-    try:
-        with subprocess.Popen(
-            ["docker", "export", container], stdout=subprocess.PIPE
-        ) as export:
-            with tarfile.open(fileobj=export.stdout, mode="r|") as archive:
-                entries = {
-                    member.name.rstrip("/"): member for member in archive
-                }
-        if export.returncode:
-            raise github.StepError(
-                f"docker export exited with status {export.returncode}"
-            )
-    finally:
-        docker("rm", container)
-    return entries
+    return export(image, lambda path: False)[0]
 
 
 def file_system_errors(entries: dict[str, tarfile.TarInfo]) -> list[str]:

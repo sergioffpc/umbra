@@ -77,6 +77,23 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
     image.add_argument(
         "image", metavar="IMAGE", help="the image, loaded in docker"
     )
+    tag = argparse.ArgumentParser(add_help=False)
+    tag.add_argument(
+        "--tag",
+        metavar="NAME",
+        help="the release tag, vX.Y.Z; by default, the tag of the GitHub"
+        " Actions run",
+    )
+    output = argparse.ArgumentParser(add_help=False)
+    output.add_argument(
+        "--output", required=True, metavar="FILE", help="the file to write"
+    )
+    signed = argparse.ArgumentParser(add_help=False)
+    signed.add_argument(
+        "image",
+        metavar="IMAGE@DIGEST",
+        help="the image in its registry, by digest",
+    )
     return {
         commands.Option.PRESET: preset,
         commands.Option.AUDIT_PRESET: audit_preset,
@@ -86,6 +103,9 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         commands.Option.REF: ref,
         commands.Option.BRANCH: branch,
         commands.Option.IMAGE: image,
+        commands.Option.TAG: tag,
+        commands.Option.OUTPUT: output,
+        commands.Option.SIGNED: signed,
     }
 
 
@@ -131,6 +151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ref=getattr(args, "ref", ""),
         branch=getattr(args, "branch", None),
         image=getattr(args, "image", ""),
+        tag=getattr(args, "tag", None),
+        output=getattr(args, "output", ""),
     )
     return commands.execute(args.command.steps(options))
 

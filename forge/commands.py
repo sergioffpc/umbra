@@ -64,6 +64,9 @@ class Option(enum.Enum):
     REF = enum.auto()
     BRANCH = enum.auto()
     IMAGE = enum.auto()
+    TAG = enum.auto()
+    OUTPUT = enum.auto()
+    SIGNED = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,7 +86,11 @@ class Options:
         ref: The deps image that the current inputs hash to, for pin.
         branch: The release or hotfix branch, for release; None for that
             of the GitHub Actions run.
-        image: The release image, loaded in docker, for release-image.
+        image: The release image, loaded in docker, for release-image and
+            sbom; the pushed image by digest, IMAGE@DIGEST, for sign.
+        tag: The release tag, for release-tag; None for that of the
+            GitHub Actions run.
+        output: The file that sbom writes.
     """
 
     preset: Preset = Preset.DEBUG
@@ -93,6 +100,8 @@ class Options:
     ref: str = ""
     branch: str | None = None
     image: str = ""
+    tag: str | None = None
+    output: str = ""
 
     def with_preset(self, preset: Preset) -> "Options":
         """Returns these options with another preset."""
@@ -461,6 +470,26 @@ def release_image(options: Options) -> list[Step]:
     return [Call("forge.release_image", [options.image])]
 
 
+def release_tag(options: Options) -> list[Step]:
+    """Returns the step that checks a release tag and names the image tags."""
+    tag = [] if options.tag is None else ["--tag", options.tag]
+    return [Call("forge.release_tag", tag)]
+
+
+def sbom(options: Options) -> list[Step]:
+    """Returns the step that writes the SPDX SBOM of the release image."""
+    return [Call("forge.sbom", [options.image, "--output", options.output])]
+
+
+def sign(options: Options) -> list[Step]:
+    """Returns the step that signs a pushed image with cosign, keyless.
+
+    cosign signs under the identity of the OIDC token of the GitHub Actions
+    job, and records the signature in Sigstore's transparency log.
+    """
+    return [Program(["cosign", "sign", "--yes", options.image])]
+
+
 def modules(options: Options) -> list[Step]:
     """Returns the step that checks that the target graph is acyclic."""
     del options  # Unused: modules takes no options.
@@ -600,5 +629,26 @@ COMMANDS = (
         " (CI).",
         release_image,
         (Option.IMAGE,),
+    ),
+    Command(
+        "release-tag",
+        "Check that the release tag is signed, vX.Y.Z and on main, and name"
+        " the release image's tags (CI).",
+        release_tag,
+        (Option.TAG,),
+    ),
+    Command(
+        "sbom",
+        "Write the SPDX SBOM of the release image: its Ubuntu packages,"
+        " umbra and the submodules in it.",
+        sbom,
+        (Option.IMAGE, Option.OUTPUT),
+    ),
+    Command(
+        "sign",
+        "Sign a pushed image with cosign, keyless, under the identity of the"
+        " GitHub Actions job (CI).",
+        sign,
+        (Option.SIGNED,),
     ),
 )
