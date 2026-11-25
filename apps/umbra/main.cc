@@ -15,6 +15,7 @@
 // Diagnostics go to stderr (docs/adr/0002-cli-diagnostics-on-stderr.md):
 // errors, warnings and info are shown, -q shows errors only, and the
 // UMBRA_LOG variable shows debug and trace messages, on stderr or in a file.
+// The progress of each phase of a render goes there too, and -q hides it.
 // umbra exits with 0 on success, 1 on failure and 2 on a usage error.
 
 #include <algorithm>
@@ -35,6 +36,7 @@
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/log.h"
+#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
 #include "umbra/ext/embree/embree.h"
@@ -151,7 +153,7 @@ bool HasTraceThreshold(const LogFilter& filter) {
   return false;
 }
 
-// Configures diagnostics from the global options.
+// Configures diagnostics and progress from the global options.
 std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
   const auto filter = LoggingFilter(global);
   if (!filter.has_value()) {
@@ -161,6 +163,9 @@ std::expected<void, Error> ConfigureLogging(const ParsedCommand& global) {
       !configured.has_value()) {
     return configured;
   }
+  umbra::core::ConfigureProgress(global.Count("quiet") > 0
+                                     ? umbra::core::ProgressDisplay::kHidden
+                                     : umbra::core::ProgressDisplay::kShown);
   if (HasTraceThreshold(*filter) && !umbra::core::IsTraceCompiled()) {
     UMBRA_LOG_WARNING(kCore,
                       "trace messages exist in debug builds only; this is a "

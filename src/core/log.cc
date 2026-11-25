@@ -24,6 +24,7 @@
 #include <system_error>
 #include <utility>
 
+#include "stderr_output.h"
 #include "umbra/core/error.h"
 
 namespace umbra::core {
@@ -230,21 +231,6 @@ std::string TimeOfDay() {
                      std::int64_t{now.tv_nsec} / kNanosecondsPerMicrosecond);
 }
 
-// Writes all of `text` to `output`. A diagnostic that cannot be written is
-// dropped: there is nowhere left to report it.
-void WriteAll(int output, std::string_view text) {
-  while (!text.empty()) {
-    const auto written = write(output, text.data(), text.size());
-    if (written < 0 && errno == EINTR) {
-      continue;
-    }
-    if (written <= 0) {
-      return;
-    }
-    text.remove_prefix(static_cast<std::size_t>(written));
-  }
-}
-
 }  // namespace
 
 std::string_view LogLevelName(LogLevel level) {
@@ -378,7 +364,14 @@ void LogAt(LogLevel level, LogComponent component, std::string_view message,
       level >= LogLevel::kDebug
           ? State().outputs.at(Index(component)).load(std::memory_order_relaxed)
           : STDERR_FILENO;
-  WriteAll(output, FormatLogLines(level, component, message, time, origin));
+  const std::string lines =
+      FormatLogLines(level, component, message, time, origin);
+  // On stderr, the lines go above the progress line, if one is shown.
+  if (output == STDERR_FILENO) {
+    internal::WriteAboveProgressLine(lines);
+  } else {
+    internal::WriteAll(output, lines);
+  }
 }
 
 }  // namespace umbra::core

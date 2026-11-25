@@ -20,6 +20,9 @@
 #     (narrowing, sign, 64-to-32, integer to float, float to integer) and
 #     every implicit float-to-double promotion.
 #   - Initialization: reads of possibly uninitialized variables.
+#   - Hot path: a function declared [[clang::nonallocating]] or
+#     [[clang::nonblocking]] that may allocate, or block too
+#     (docs/adr/0003-no-allocations-on-the-hot-path.md).
 #
 # UMBRA_EXPERIMENTAL_SAFETY (ON by default) adds the analyses clang still
 # labels experimental or beta: the lifetime safety analysis and the beta
@@ -64,7 +67,9 @@ set(UMBRA_SAFETY_FLAGS
   -Wuninitialized
   -Wconditional-uninitialized
   -Wsometimes-uninitialized
-  -Wuninitialized-const-reference)
+  -Wuninitialized-const-reference
+  # Hot path.
+  -Wfunction-effects)
 
 set(UMBRA_EXPERIMENTAL_SAFETY_FLAGS)
 if(UMBRA_EXPERIMENTAL_SAFETY)
