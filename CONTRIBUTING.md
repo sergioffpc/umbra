@@ -280,9 +280,10 @@ request.
   before opening or updating a pull request.
 - Pull request history is linear: rebase instead of merging. Only release and
   hotfix pull requests into `main` may contain merge commits (the git flow
-  back-merges), and those are not checked as Conventional Commits. CI checks
-  only the commits of such a pull request that are not on `develop`; the
-  others passed the checks in their own pull requests.
+  back-merges), and neither the commit-msg hook (on a release or hotfix
+  branch) nor CI checks those as Conventional Commits. CI checks only the
+  commits of such a pull request that are not on `develop`; the others
+  passed the checks in their own pull requests.
 
 Examples:
 
@@ -340,7 +341,8 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
   staged file), pylint on staged Python files, and actionlint and the
   embedded Python checks on staged workflows.
 - **commit-msg** validates the Conventional Commit format and the
-  Developer Certificate of Origin sign-off.
+  Developer Certificate of Origin sign-off, except on merge commits of a
+  release or hotfix branch.
 - **pre-push** validates branch names, rejects unsigned commits, and runs a
   quick debug build and test.
 
