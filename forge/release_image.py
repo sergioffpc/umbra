@@ -44,10 +44,13 @@ REQUIRED = (
     "etc/group",
 )
 PROGRAM = re.compile(r"^(usr/)?s?bin/.")
+# A shell or package manager program, matched on files only: base-files
+# ships /etc/dpkg/origins, the vendor of the release, which is no program.
 SHELL_OR_PACKAGE_MANAGER = re.compile(
     r"(^|/)(sh|bash|dash|busybox|apt|apt-get|dpkg)$"
-    r"|^(etc/apt|var/lib/dpkg)(/|$)"
 )
+# The state and configuration of a package manager.
+PACKAGE_MANAGER_STATE = re.compile(r"^(etc/apt|var/lib/dpkg)(/|$)")
 # What umbra devices prints when the GPU module does not load.
 GPU_MODULE_ERROR = re.compile(
     r"cannot load |is not installed|has no entry point|has ABI version"
@@ -154,7 +157,10 @@ def file_system_errors(entries: dict[str, tarfile.TarInfo]) -> list[str]:
     if programs:
         errors.append("the image has programs: " + " ".join(programs))
     others = sorted(
-        path for path in entries if SHELL_OR_PACKAGE_MANAGER.search(path)
+        path
+        for path, entry in entries.items()
+        if (SHELL_OR_PACKAGE_MANAGER.search(path) and not entry.isdir())
+        or PACKAGE_MANAGER_STATE.search(path)
     )
     if others:
         errors.append(
