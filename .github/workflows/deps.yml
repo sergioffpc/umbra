@@ -8,9 +8,10 @@
 # deps image is built on the toolchain image, and the devcontainer pins it:
 # when the pinned tag differs, this workflow commits the new pin to the branch.
 # Either way it then dispatches CI on the branch, whose image jobs fail until
-# the pinned image is published. Every step runs a forge command, on the
+# the pinned image is published. Its logic is in forge commands, run on the
 # runner or, through docker run on a read-only mount of the checkout, inside
-# the image it checks.
+# the image they check; the other steps are actions, docker push and the
+# warnings of a read-only token.
 name: deps
 
 on:
@@ -19,7 +20,8 @@ on:
       - .gitmodules
       - third_party/**
       - docker/**
-      - forge/layer_image.py
+      - forge/**
+      - checks/git.py
       - .github/workflows/deps.yml
   workflow_dispatch:
 

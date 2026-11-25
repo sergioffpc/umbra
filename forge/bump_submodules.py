@@ -93,9 +93,9 @@ def branch_exists(repository: str, branch: str) -> bool:
 
 def ensure_label(repository: str, label: str) -> None:
     """Creates the label of the pull requests when the repository lacks it."""
-    if git.call(
-        ["gh", "api", f"repos/{repository}/labels/{label}"], capture=True
-    ).returncode:
+    try:
+        github.gh("api", f"repos/{repository}/labels/{label}")
+    except github.StepError:
         github.gh(
             "label",
             "create",
@@ -120,7 +120,7 @@ def bumped_manifest(entry: third_party.Entry, tag: str, commit: str) -> str:
             else line
         )
         + "\n"
-        for line in lines.splitlines()
+        for line in lines.removesuffix("\n").split("\n")
     )
 
 
@@ -214,6 +214,10 @@ def bump(base: Base, entry: third_party.Entry, url: str) -> None:
         print(f"{entry.name}: {branch} already exists.")
         return
     upstream = third_party.upstream_commit(url, latest)
+    if upstream is None:
+        raise github.StepError(
+            f"{entry.path}: the tags of {url} cannot be listed"
+        )
     if not upstream:
         raise github.StepError(f"{entry.path}: tag {latest} has no commit")
     print(f"{entry.name}: {entry.tag} -> {latest} ({upstream}) on {branch}")
