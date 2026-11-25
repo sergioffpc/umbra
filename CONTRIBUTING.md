@@ -606,7 +606,14 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 On rootless Podman, the user of the release image, UID 65532, is one of your
 subordinate UIDs on the host, so it cannot write to a directory of yours
 mounted on `/work`. `--userns=keep-id:uid=65532,gid=65532` maps your own user
-to it instead, and umbra's outputs belong to you:
+to it instead, and umbra's outputs belong to you. To list the published tags
+(Podman shows at most 25 unless `--limit` says otherwise):
+
+```sh
+podman search --list-tags --limit 100 ghcr.io/sergioffpc/umbra
+```
+
+Then run one of them:
 
 ```sh
 podman run --rm --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
