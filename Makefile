@@ -23,21 +23,32 @@ ifeq ($(filter $(PRESET),debug release),)
 $(error PRESET must be debug or release, not '$(PRESET)')
 endif
 
+# V=1 shows as much as each tool can: the configure's messages down to
+# TRACE, every command the build runs, and the full output of every test,
+# e.g. `make check V=1`.
+V = 0
+ifeq ($(V),1)
+CONFIGURE_FLAGS = --log-level=TRACE
+BUILD_FLAGS = --verbose
+TEST_FLAGS = --extra-verbose
+endif
+
 .DEFAULT_GOAL := all
 .PHONY: all check check-asan check-tsan check-all coverage format lint clean \
 	distclean help
 
-all: ## Build (PRESET=debug, the default, or PRESET=release)
-	$(CMAKE) --preset $(PRESET)
-	$(CMAKE) --build --preset $(PRESET)
+all: ## Build (PRESET=debug, the default, or PRESET=release; V=1: verbose)
+	$(CMAKE) --preset $(PRESET) $(CONFIGURE_FLAGS)
+	$(CMAKE) --build --preset $(PRESET) $(BUILD_FLAGS)
 
 # LABEL=<regex> runs only the tests with a matching CTest label, e.g.
 # `make check LABEL=gpu` on a GPU host.
 check: all ## Build and run the tests (without the GPU tests; LABEL=gpu for only those)
 ifeq ($(LABEL),)
-	$(CTEST) --preset $(PRESET)
+	$(CTEST) --preset $(PRESET) $(TEST_FLAGS)
 else
-	$(CTEST) --test-dir build/$(PRESET) --output-on-failure -L '$(LABEL)'
+	$(CTEST) --test-dir build/$(PRESET) --output-on-failure -L '$(LABEL)' \
+	  $(TEST_FLAGS)
 endif
 
 # LABEL=<regex> also selects the tests of the sanitizer builds, and runs them
@@ -54,31 +65,36 @@ GPU_SANITIZER = compute-sanitizer --error-exitcode 1 --target-processes all
 ASAN_GPU_OPTIONS = protect_shadow_gap=0
 
 check-asan: ## ASan + UBSan build and tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
+	$(CMAKE) --preset asan $(CONFIGURE_FLAGS)
+	$(CMAKE) --build --preset asan $(BUILD_FLAGS)
 ifeq ($(LABEL),)
-	$(CMAKE) --workflow --preset asan
+	$(CTEST) --preset asan $(TEST_FLAGS)
 else
-	$(CMAKE) --preset asan
-	$(CMAKE) --build --preset asan
 	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool memcheck --leak-check full \
-	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
+	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)' $(TEST_FLAGS)
 	ASAN_OPTIONS=$(ASAN_GPU_OPTIONS) $(GPU_SANITIZER) --tool initcheck \
-	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)'
+	  $(CTEST) --test-dir build/asan --output-on-failure -L '$(LABEL)' $(TEST_FLAGS)
 endif
 
 check-tsan: ## TSan + UBSan integer checks build and tests (LABEL=gpu: the GPU tests, also under compute-sanitizer)
+	$(CMAKE) --preset tsan $(CONFIGURE_FLAGS)
+	$(CMAKE) --build --preset tsan $(BUILD_FLAGS)
 ifeq ($(LABEL),)
-	$(CMAKE) --workflow --preset tsan
+	$(CTEST) --preset tsan $(TEST_FLAGS)
 else
-	$(CMAKE) --preset tsan
-	$(CMAKE) --build --preset tsan
-	$(GPU_SANITIZER) --tool racecheck $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)'
-	$(GPU_SANITIZER) --tool synccheck $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)'
+	$(GPU_SANITIZER) --tool racecheck \
+	  $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)' $(TEST_FLAGS)
+	$(GPU_SANITIZER) --tool synccheck \
+	  $(CTEST) --test-dir build/tsan --output-on-failure -L '$(LABEL)' $(TEST_FLAGS)
 endif
 
 check-all: lint check check-asan check-tsan ## lint, check, check-asan and check-tsan: everything before a pull request
 
 coverage: ## Coverage build, tests and report (build/coverage/report)
-	$(CMAKE) --workflow --preset coverage
+	$(CMAKE) --preset coverage $(CONFIGURE_FLAGS)
+	$(CMAKE) --build --preset coverage $(BUILD_FLAGS)
+	$(CTEST) --preset coverage $(TEST_FLAGS)
+	$(CMAKE) --build --preset coverage-report $(BUILD_FLAGS)
 
 format: ## Format the C++ and Python sources
 	$(PYTHON) -m checks.formatting

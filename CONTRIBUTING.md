@@ -133,6 +133,10 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make distclean` | Remove the build trees, with their configuration |
 | `make help` | List the targets |
 
+`V=1` makes any target as verbose as its tools allow: the configure's
+messages down to `TRACE`, every command the build runs, and the full output
+of every test, e.g. `make check V=1`.
+
 CI does not use the Makefile: it runs the CMake workflow presets and the
 checks directly.
 
