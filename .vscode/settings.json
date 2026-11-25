@@ -6,7 +6,7 @@
 {
   // Saves one second after the last edit. These saves skip formatOnSave
   // (VS Code formats only explicit and focus-change saves), so formatting
-  // happens on Ctrl+S, or with make format before committing.
+  // happens on Ctrl+S, or with python3 -m forge format before committing.
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 1000,
   "files.trimTrailingWhitespace": true,

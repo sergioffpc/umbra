@@ -44,13 +44,13 @@ optional (RTX 5070 Ti class or newer); see
 4. Build and test:
 
    ```sh
-   make          # debug build
-   make check    # build and run the tests
+   python3 -m forge build   # debug build
+   python3 -m forge check   # build and run the tests
    ```
 
-Run `make help` for the full list of targets: `all`, `check`, `check-asan`,
-`check-tsan`, `check-all`, `coverage`, `format`, `lint`, `clean`, `distclean`
-and `help`.
+Run `python3 -m forge --help` for the full list of commands: `build`,
+`check`, `check-asan`, `check-tsan`, `check-all`, `coverage`, `format`,
+`lint`, `clean` and `distclean`.
 
 ## Repository layout
 
@@ -64,6 +64,7 @@ and `help`.
 | `benchmarks/` | Google Benchmark benchmarks |
 | `cmake/` | CMake modules (compiler, warnings, safety, sanitizers, hardening, build info) |
 | `checks/` | Validators shared by the git hooks and CI, and clang-query rules |
+| `forge/` | Developer commands over the CMake presets and the checks |
 | `sanitizers/` | Sanitizer suppressions and default options |
 | `third_party/` | Submodules, dependency build, patches and the versions manifest |
 | `docker/` | Container image definitions |

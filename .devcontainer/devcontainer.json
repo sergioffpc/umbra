@@ -78,7 +78,7 @@
         "llvm-vs-code-extensions.vscode-clangd",
         "llvm-vs-code-extensions.lldb-dap",
         "ms-vscode.cmake-tools",
-        // Python: the checks, git hooks and devcontainer scripts. The
+        // Python: the checks, forge, git hooks and devcontainer scripts. The
         // formatter and linters run the toolchain's own binaries.
         "ms-python.python",
         "ms-python.black-formatter",
