@@ -121,10 +121,11 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 
 | Target | Action |
 | --- | --- |
-| `make` / `make all` | Debug build |
-| `make check` | Debug build and run the tests, except those that need a GPU; `make check LABEL=gpu` runs only the tests with that CTest label |
-| `make release` | Release build and tests |
-| `make sanitizers` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests, then ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `make sanitizers LABEL=gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck with ASan, racecheck and synccheck with TSan), on a GPU host |
+| `make` / `make all` | Debug build; `PRESET=release` builds the release preset (LTO) instead |
+| `make check` | Build and run the tests, except those that need a GPU; `make check LABEL=gpu` runs only the tests with that CTest label; `PRESET=release` as for `make all` |
+| `make check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `make check-asan LABEL=gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
+| `make check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `make check-tsan LABEL=gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
+| `make check-all` | `make lint`, `make check`, `make check-asan` and `make check-tsan`: everything to run before a pull request |
 | `make coverage` | Coverage build and tests, then the coverage report (local only) |
 | `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
 | `make lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
@@ -132,7 +133,8 @@ The Makefile is a thin wrapper over CMake presets and the shared checks:
 | `make distclean` | Remove the build trees, with their configuration |
 | `make help` | List the targets |
 
-CI uses the same targets where they exist.
+CI does not use the Makefile: it runs the CMake workflow presets and the
+checks directly.
 
 ## Git flow
 

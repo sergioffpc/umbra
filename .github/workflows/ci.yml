@@ -488,7 +488,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make check
+        run: cmake --workflow --preset debug
 
       # The image carries nvcc and the OptiX headers, so UMBRA_GPU (AUTO)
       # builds the GPU module; its tests need a GPU and run on GPU hosts only.
@@ -527,7 +527,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make release
+        run: cmake --workflow --preset release
 
       # The image carries nvcc and the OptiX headers, so UMBRA_GPU (AUTO)
       # builds the GPU module; its tests need a GPU and run on GPU hosts only.
@@ -569,7 +569,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make __asan
+        run: cmake --workflow --preset asan
 
       - name: No GCC runtime
         uses: ./.github/actions/no-gcc-runtime
@@ -604,7 +604,7 @@ jobs:
           persist-credentials: false
 
       - name: Build and test
-        run: make __tsan
+        run: cmake --workflow --preset tsan
 
       - name: No GCC runtime
         uses: ./.github/actions/no-gcc-runtime
@@ -616,8 +616,7 @@ jobs:
         with:
           paths: build/tsan
 
-  # Fails when `make format` would change any file (the formatting step of
-  # `make lint`).
+  # Fails when the formatters would change any file.
   format:
     needs: image
     runs-on: ubuntu-26.04
@@ -640,7 +639,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Formatting
-        run: make __format-check
+        run: python3 -m checks.formatting --check
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
   # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
@@ -667,10 +666,13 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Validators
-        run: make __validators
+        run: |
+          python3 -m checks.conventions
+          python3 -m checks.branch_name --current
+          python3 -m checks.commit_message --since develop
 
       - name: Lint
-        run: make __lint
+        run: python3 -m checks.lint
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
   # accepts cycles between static libraries, so tsort checks the graph that

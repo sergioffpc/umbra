@@ -48,8 +48,9 @@ optional (RTX 5070 Ti class or newer); see
    make check    # build and run the tests
    ```
 
-Run `make help` for the full list of targets: `all`, `check`, `release`,
-`sanitizers`, `coverage`, `format`, `lint`, `clean`, `distclean` and `help`.
+Run `make help` for the full list of targets: `all`, `check`, `check-asan`,
+`check-tsan`, `check-all`, `coverage`, `format`, `lint`, `clean`, `distclean`
+and `help`.
 
 ## Repository layout
 
