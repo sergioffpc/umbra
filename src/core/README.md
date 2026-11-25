@@ -13,6 +13,11 @@ Public headers (`include/umbra/core/`):
   `std::expected<T, Error>`.
 - `log.h`: the diagnostics on stderr, filtered by level per component, and
   the `UMBRA_LOG_*` macros (see `docs/adr/0002-cli-diagnostics-on-stderr.md`).
+- `progress.h`: the progress of each phase of umbra's work on stderr, in
+  place on a terminal and at every 10% otherwise, counted from any thread
+  without allocating or locking.
+- `number_format.h`: the durations, rates, sizes and counts umbra shows on
+  stderr, whatever the locale.
 - `cpu_topology.h`: the CPUs of each NUMA node, read from sysfs (model,
   cores, threads, memory, caches with the cores grouped by cache sizes), and
   the CPU's widest vector ISA. A CPU render device is one NUMA node (see

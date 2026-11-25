@@ -7,6 +7,9 @@ umbra_add_module(core
     error.cc
     floating_point.cc
     log.cc
+    number_format.cc
+    progress.cc
+    stderr_output.cc
     version.cc)
 
 # Only version.cc sees the version, so a version bump recompiles one file.
