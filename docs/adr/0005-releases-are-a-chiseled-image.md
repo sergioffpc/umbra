@@ -17,8 +17,8 @@ from the packages of the Ubuntu release the build uses, slice by slice, so
 it holds the files umbra loads and their copyright notices, with no shell,
 no package manager and no other tools. The Chisel slices come from
 `canonical/chisel-releases`. A package that has no slice there gets one of
-our own, in `docker/chisel/slices/`, and a pull request upstream; ours is
-deleted once upstream has it.
+our own, in `docker/chisel/slices/`. The build stops when upstream slices a
+package of ours, and ours is then deleted.
 
 Of the libraries umbra builds, the image takes those that `umbra`, the GPU
 module and OpenUSD's plugins need, collected from their dynamic sections when
