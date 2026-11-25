@@ -34,17 +34,26 @@ struct LoadOptions {
   // The time code to load, or none for the stage's startTimeCode when it
   // authors one, and the default time otherwise.
   std::optional<double> frame;
-  // The path of the RenderSettings prim given, or empty for none. LoadScene
-  // carries it and reads no render settings.
+  // The path of the RenderSettings prim to render with, or empty for the
+  // stage's renderSettingsPrimPath.
   std::string settings;
 };
 
-// Loads the scene of the USD file at `path`, as the render's first phase,
-// "Loading stage": opens its stage, with every payload loaded and no session
-// layer, and builds its Scene. Fails with kNotFound when the file does not
-// exist, and kInvalidArgument when it cannot be read or its stage does not
-// open or compose;
-// warnings while composing (a missing sublayer) go to the log.
+// Loads the scene of the USD file at `path`, in the render's first two
+// phases. "Loading stage" opens its stage, with every payload loaded and no
+// session layer; warnings while composing (a missing sublayer) go to the
+// log. "Syncing scene" syncs the stage through Hydra into the Scene: the
+// render settings, their camera and their products, whose files are checked
+// writable, their missing directories created. Settings without products
+// write <scene-stem>.<frame>.exr, in the current directory, with the color.
+// Render vars umbra does not render are left out, with one warning.
+//
+// Fails with kNotFound when the file does not exist or no RenderSettings
+// prim is at the settings' path; kInvalidArgument when the file cannot be
+// read or its stage does not open or compose, there are no settings, the
+// settings or a product have no camera or one that is not a Camera, a
+// product has no orderedVars or its file is not .exr; and kUnavailable when
+// a product's file cannot be written.
 [[nodiscard]] std::expected<scene::Scene, core::Error> LoadScene(
     std::string_view path, const LoadOptions& options);
 
