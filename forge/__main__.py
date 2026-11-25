@@ -73,6 +73,10 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         help="the release or hotfix branch; by default, that of the GitHub"
         " Actions run",
     )
+    image = argparse.ArgumentParser(add_help=False)
+    image.add_argument(
+        "image", metavar="IMAGE", help="the image, loaded in docker"
+    )
     return {
         commands.Option.PRESET: preset,
         commands.Option.AUDIT_PRESET: audit_preset,
@@ -81,6 +85,7 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         commands.Option.CHECK: check,
         commands.Option.REF: ref,
         commands.Option.BRANCH: branch,
+        commands.Option.IMAGE: image,
     }
 
 
@@ -125,6 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         check=getattr(args, "check", False),
         ref=getattr(args, "ref", ""),
         branch=getattr(args, "branch", None),
+        image=getattr(args, "image", ""),
     )
     return commands.execute(args.command.steps(options))
 

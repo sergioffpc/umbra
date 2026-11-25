@@ -63,6 +63,7 @@ class Option(enum.Enum):
     CHECK = enum.auto()
     REF = enum.auto()
     BRANCH = enum.auto()
+    IMAGE = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -82,6 +83,7 @@ class Options:
         ref: The deps image that the current inputs hash to, for pin.
         branch: The release or hotfix branch, for release; None for that
             of the GitHub Actions run.
+        image: The release image, loaded in docker, for release-image.
     """
 
     preset: Preset = Preset.DEBUG
@@ -90,6 +92,7 @@ class Options:
     check: bool = False
     ref: str = ""
     branch: str | None = None
+    image: str = ""
 
     def with_preset(self, preset: Preset) -> "Options":
         """Returns these options with another preset."""
@@ -453,6 +456,11 @@ def image(options: Options) -> list[Step]:
     return [Call("forge.image")]
 
 
+def release_image(options: Options) -> list[Step]:
+    """Returns the step that checks the release image and starts umbra."""
+    return [Call("forge.release_image", [options.image])]
+
+
 def modules(options: Options) -> list[Step]:
     """Returns the step that checks that the target graph is acyclic."""
     del options  # Unused: modules takes no options.
@@ -586,4 +594,11 @@ COMMANDS = (
         image,
     ),
     Command("modules", "Check that the target graph is acyclic.", modules),
+    Command(
+        "release-image",
+        "Check the contract of the release image and start umbra in it"
+        " (CI).",
+        release_image,
+        (Option.IMAGE,),
+    ),
 )

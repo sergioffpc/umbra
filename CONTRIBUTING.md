@@ -157,6 +157,7 @@ jobs run `check --preset debug`, `check --preset release`, `check-asan` and
 | `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
 | `image` | Resolve the pinned deps image and check that it is published |
 | `modules` | Check that the target graph is acyclic |
+| `release-image` | Check the contract of a release image loaded in docker (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
 
 Under GitHub Actions their errors are annotations; elsewhere they are plain
 `error:` lines on stderr. A command that needs the variables of a GitHub
@@ -516,8 +517,9 @@ To cut a release:
    version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
    section for it, and that every existing release tag is signed. The CI
    `release-image` job builds the release image, `docker/release.Dockerfile`,
-   without publishing it, checks that it runs as UID 65532 with no shell and
-   no package manager, and runs `umbra version --build-options`,
+   without publishing it, and `python3 -m forge release-image` checks that it
+   runs as UID 65532, which owns `/work`, with no shell and no package
+   manager, and runs `umbra version --build-options`,
    `umbra devices` and `umbra render` in it, without a GPU.
 6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
    merge button (the repository allows only squash merges), create the

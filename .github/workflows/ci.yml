@@ -275,56 +275,11 @@ jobs:
           tags: ${{ env.IMAGE }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-      # The user, entrypoint and working directory of the contract, and a
-      # file system without a shell, a package manager or any program but
-      # umbra.
-      - name: Contract
-        run: |
-          set -euo pipefail
-          status=0
-          fail() { echo "::error::$*"; status=1; }
-          config() { docker image inspect --format "{{json .Config.$1}}" "$IMAGE"; }
-          [[ "$(config User)" == '"65532:65532"' ]] \
-            || fail "the image runs as $(config User), not 65532:65532"
-          [[ "$(config Entrypoint)" == '["/opt/umbra/bin/umbra"]' ]] \
-            || fail "the entrypoint is $(config Entrypoint)"
-          [[ "$(config Cmd)" == '["--help"]' ]] || fail "the command is $(config Cmd)"
-          [[ "$(config WorkingDir)" == '"/work"' ]] \
-            || fail "the working directory is $(config WorkingDir)"
-
-          files="$RUNNER_TEMP/image-files"
-          container=$(docker create "$IMAGE")
-          docker export "$container" | tar -t | sed 's|/$||' | sort >"$files"
-          docker rm "$container" >/dev/null
-          programs=$(grep -E '^(usr/)?s?bin/.' "$files" || true)
-          [[ -z "$programs" ]] || fail "the image has programs: $(xargs <<<"$programs")"
-          others=$(grep -E '(^|/)(sh|bash|dash|busybox|apt|apt-get|dpkg)$|^(etc/apt|var/lib/dpkg)(/|$)' \
-            "$files" || true)
-          [[ -z "$others" ]] \
-            || fail "the image has a shell or a package manager: $(xargs <<<"$others")"
-          for path in opt/umbra/bin/umbra opt/umbra/lib/libumbra-gpu.so \
-              opt/umbra/share/licenses/umbra/LICENSE etc/passwd etc/group; do
-            grep -Fxq "$path" "$files" || fail "the image has no /$path"
-          done
-          if docker run --rm --entrypoint /bin/sh "$IMAGE" -c true 2>/dev/null; then
-            fail "/bin/sh runs in the image"
-          fi
-          exit "$status"
-
-      - name: Start
-        run: |
-          set -euo pipefail
-          umbra() { docker run --rm --network none "$IMAGE" "$@"; }
-          umbra
-          umbra version --build-options
-          devices=$(umbra devices)
-          echo "$devices"
-          if grep -Eq 'cannot load |is not installed|has no entry point|has ABI version' \
-              <<<"$devices"; then
-            echo "::error::the GPU module does not load in the image"
-            exit 1
-          fi
-          umbra render
+      # The user, entrypoint, command and working directory of the contract,
+      # a file system without a shell, a package manager or any program but
+      # umbra, and umbra starting in it.
+      - name: Contract and start
+        run: python3 -m forge release-image "$IMAGE"
 
   # ASan + UBSan (with pattern auto-var-init). As in the devcontainer, ptrace
   # and an unconfined seccomp profile let LeakSanitizer stop the process.
