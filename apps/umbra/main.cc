@@ -91,7 +91,8 @@ constexpr std::array<OptionSpec, 4> kRenderOptions = {
     umbra::cli::ValueOption('\0', "devices", "list", {},
                             "the devices to render on (default: all)"),
     umbra::cli::ValueOption('\0', "settings", "prim", {},
-                            "the RenderSettings prim to render with"),
+                            "the RenderSettings prim to render with "
+                            "(default: the stage's)"),
     umbra::cli::ValueOption('\0', "frame", "n", {},
                             "the time code to render (default: the stage's "
                             "start)"),
