@@ -7,6 +7,36 @@ follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 All code, comments, documentation, commit messages, issues and pull requests
 are written in English.
 
+## Contents
+
+- [Environment](#environment)
+  - [GPU hosts](#gpu-hosts)
+- [Compatibility policy](#compatibility-policy)
+- [Daily commands](#daily-commands)
+- [Git flow](#git-flow)
+- [Commit messages](#commit-messages)
+- [Signed commits and tags](#signed-commits-and-tags)
+- [Developer Certificate of Origin](#developer-certificate-of-origin)
+- [Git hooks](#git-hooks)
+- [Safety rules](#safety-rules)
+  - [Errors and language features](#errors-and-language-features)
+  - [Memory and ownership](#memory-and-ownership)
+  - [Lifetimes](#lifetimes)
+  - [Thread safety](#thread-safety)
+  - [Nullability](#nullability)
+  - [Integers, conversions and booleans](#integers-conversions-and-booleans)
+  - [Floating point](#floating-point)
+  - [Style and lint](#style-and-lint)
+  - [Modules](#modules)
+  - [Licensing](#licensing)
+- [Testing policy](#testing-policy)
+- [Pull requests](#pull-requests)
+- [Versioning and releases](#versioning-and-releases)
+  - [Running the release image with Podman](#running-the-release-image-with-podman)
+- [Third-party dependencies](#third-party-dependencies)
+- [Reporting issues](#reporting-issues)
+- [License](#license)
+
 ## Environment
 
 **The devcontainer is the only supported environment.** It pulls a prebuilt
@@ -570,6 +600,39 @@ To cut a release:
    verify them.
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
+
+### Running the release image with Podman
+
+On rootless Podman, the user of the release image, UID 65532, is one of your
+subordinate UIDs on the host, so it cannot write to a directory of yours
+mounted on `/work`. `--userns=keep-id:uid=65532,gid=65532` maps your own user
+to it instead, and umbra's outputs belong to you. To list the published tags
+(Podman shows at most 25 unless `--limit` says otherwise):
+
+```sh
+podman search --list-tags --limit 100 ghcr.io/sergioffpc/umbra
+```
+
+Then run one of them:
+
+```sh
+podman run --rm --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render
+```
+
+On SELinux hosts, `:z` relabels the mounted directory so the container can
+read it: run the command from the directory of your scenes, never from your
+home directory.
+
+On a GPU host set up as in [GPU hosts](#gpu-hosts), every container of your
+user already gets the GPUs; on any other host with the NVIDIA Container
+Toolkit, give them to the container with `--device nvidia.com/gpu=all`:
+
+```sh
+podman run --rm --device nvidia.com/gpu=all \
+  --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render --devices=gpu0
+```
 
 ## Third-party dependencies
 
