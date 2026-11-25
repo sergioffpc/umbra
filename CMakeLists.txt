@@ -37,3 +37,5 @@ add_subdirectory(src/ext/usd)
 add_subdirectory(src/ext/osl)
 add_subdirectory(apps/umbra)
 add_subdirectory(tests)
+
+include(UmbraInstall)

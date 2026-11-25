@@ -20,10 +20,11 @@ no package manager and no other tools. The Chisel slices come from
 our own, in `docker/chisel/slices/`, and a pull request upstream; ours is
 deleted once upstream has it.
 
-Of the libraries umbra builds, the image takes those that `ldd` finds for
-`umbra` and the GPU module, collected when the image is built, and an
-explicit list of what umbra loads with `dlopen`, which `ldd` cannot see: the
-GPU module itself and OpenUSD's plugins. CI checks that the image starts:
+Of the libraries umbra builds, the image takes those that `umbra`, the GPU
+module and OpenUSD's plugins need, collected from their dynamic sections when
+umbra is installed. The GPU module and the plugins themselves are loaded with
+`dlopen`, which the dynamic sections do not show: the plugins are those the
+`plugInfo.json` files of OpenUSD name. CI checks that the image starts:
 `umbra version`, `umbra devices` and `umbra render`, all of which initialize
 every library. CI has no GPU, so the GPU module's use of the driver's CUDA
 and OptiX, which the NVIDIA Container Toolkit mounts into the container, is
@@ -31,9 +32,11 @@ not verified in the image.
 
 The image's contract:
 
-- `/opt/umbra/bin/umbra`, and `/opt/umbra/lib/` with the GPU module, the
-  libraries and `usd/` for the plugins. Binaries find their libraries
-  through `RUNPATH=$ORIGIN/../lib`, without `LD_LIBRARY_PATH`.
+- `/opt/umbra/bin/umbra`, `/opt/umbra/lib/` with the GPU module, the
+  libraries and `usd/`, the resources through which OpenUSD loads its own
+  libraries as plugins, and `/opt/umbra/plugin/usd/`, its other plugins.
+  Binaries find their libraries through `RUNPATH=$ORIGIN/../lib`, without
+  `LD_LIBRARY_PATH`.
 - `ENTRYPOINT ["/opt/umbra/bin/umbra"]` and `CMD ["--help"]`.
 - An unprivileged user, UID and GID 65532, and `WORKDIR /work`, where scenes
   and outputs are mounted.
@@ -54,9 +57,12 @@ submodules and their licenses.
 
 ## Consequences
 
-- CMake gains `install()` rules that lay out `bin/`, `lib/` and
+- CMake gains `install()` rules that lay out `bin/`, `lib/`, `plugin/` and
   `share/licenses/` with the relative RUNPATH; the image copies that tree.
-- A dependency that adds a library from Ubuntu needs its slice; one loaded
-  with `dlopen` needs to be added to the explicit list.
+- A dependency that adds a library from Ubuntu needs its slice; one whose
+  libraries umbra installs needs its entry in the table of components of
+  `cmake/InstallRuntime.cmake`, which finds its license texts. A library
+  that umbra loads with `dlopen` and OpenUSD does not name must be added to
+  the install rules.
 - Users without containers have no release to install; an archive of the
   same tree can be added if someone needs it.

@@ -511,6 +511,10 @@ Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
   commit its upstream tag points to, and that the license is on the
   allow-list.
 - A new dependency arrives in its own `build(deps): add <dep>` pull request.
+  When umbra installs its libraries, the table of components in
+  `cmake/InstallRuntime.cmake` maps them to the dependency, whose license
+  texts the install takes; a library the table does not cover stops the
+  install.
 - The NVIDIA development stack (CUDA, the OptiX headers) is not a
   submodule: it is prebuilt downloads, each pinned by version and SHA-256 in
   the `nvidia` stage of `docker/deps.Dockerfile`, and listed under

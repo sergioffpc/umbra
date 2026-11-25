@@ -112,6 +112,12 @@ RUN apt-get update \
       libxml2-16 linux-perf \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=llvm /stage/ /
+# The license of the LLVM libraries that umbra's install rules ship (libc++,
+# libc++abi, libunwind and libLLVM): they take it from
+# share/licenses/llvm-project/.
+RUN --mount=type=bind,source=third_party/llvm-project/LICENSE.TXT,target=/tmp/LICENSE.TXT \
+    install -D -m 0644 /tmp/LICENSE.TXT \
+      /usr/local/share/licenses/llvm-project/LICENSE.TXT
 COPY --from=tools /out/bin/ /usr/local/bin/
 COPY --from=python-tools /opt/python-tools /opt/python-tools
 RUN ln -s clang /usr/local/bin/cc \
