@@ -452,7 +452,7 @@ clang-tidy families and the function limits below), this document wins.
 
 Every pull request must pass the required CI jobs: conventions, format, lint,
 build-debug, build-release, sanitize-address, sanitize-thread, modules,
-third-party and, on release and hotfix branches, release.
+third-party and, on release and hotfix branches, release and release-image.
 
 ## Versioning and releases
 
@@ -489,7 +489,11 @@ To cut a release:
 5. Open a pull request into `main`. The CI `release` job checks that the
    branch version equals the CMake project version and git-cliff's bumped
    version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
-   section for it, and that every existing release tag is signed.
+   section for it, and that every existing release tag is signed. The CI
+   `release-image` job builds the release image, `docker/release.Dockerfile`,
+   without publishing it, checks that it runs as UID 65532 with no shell and
+   no package manager, and runs `umbra version --build-options`,
+   `umbra devices` and `umbra render` in it, without a GPU.
 6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
    merge button (the repository allows only squash merges), create the
    signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
