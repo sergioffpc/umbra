@@ -28,7 +28,6 @@ SOURCE_SUFFIXES = CPP_SUFFIXES + (
 )
 SOURCE_NAMES = (
     "CMakeLists.txt",
-    "Makefile",
     ".clang-format",
     ".clang-tidy",
     ".clangd",

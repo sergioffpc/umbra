@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
 #
-# Umbra. Configure through the presets in CMakePresets.json (or the Makefile),
+# Umbra. Configure through the presets in CMakePresets.json (or forge),
 # inside the devcontainer: the toolchain is LLVM with libc++, compiler-rt,
 # libunwind and lld, and the dependencies are found in CMAKE_PREFIX_PATH.
 

@@ -21,7 +21,7 @@ body:
       label: Steps to reproduce
       description: Exact commands run inside the devcontainer, starting from a clean checkout.
       placeholder: |
-        1. make
+        1. python3 -m forge build
         2. ...
     validations:
       required: true

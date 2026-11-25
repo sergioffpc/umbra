@@ -18,7 +18,7 @@ file(GLOB raw_profiles "${PROFILE_DIR}/*.profraw")
 if(NOT raw_profiles)
   message(FATAL_ERROR
           "no raw profiles in ${PROFILE_DIR}: run the tests first "
-          "(ctest --preset coverage, or make coverage)")
+          "(ctest --preset coverage, or python3 -m forge coverage)")
 endif()
 
 file(MAKE_DIRECTORY "${REPORT_DIR}")

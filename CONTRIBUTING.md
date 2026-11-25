@@ -117,28 +117,32 @@ changes bump the minor version until then; see
 
 ## Daily commands
 
-The Makefile is a thin wrapper over CMake presets and the shared checks:
+`forge` runs the CMake presets and the shared checks, as
+`python3 -m forge <command>` from the repository root:
 
-| Target | Action |
+| Command | Action |
 | --- | --- |
-| `make` / `make all` | Debug build; `PRESET=release` builds the release preset (LTO) instead |
-| `make check` | Build and run the tests, except those that need a GPU; `make check LABEL=gpu` runs only the tests with that CTest label; `PRESET=release` as for `make all` |
-| `make check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `make check-asan LABEL=gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
-| `make check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `make check-tsan LABEL=gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
-| `make check-all` | `make lint`, `make check`, `make check-asan` and `make check-tsan`: everything to run before a pull request |
-| `make coverage` | Coverage build and tests, then the coverage report (local only) |
-| `make format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
-| `make lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
-| `make clean` | Remove what the builds built, keeping their configuration |
-| `make distclean` | Remove the build trees, with their configuration |
-| `make help` | List the targets |
+| `build` | Debug build; `--preset release` builds the release preset (LTO) instead |
+| `check` | Build and run the tests, except those that need a GPU; `--label gpu` runs only the tests with that CTest label; `--preset release` as for `build` |
+| `check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `--label gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
+| `check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `--label gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
+| `check-all` | `lint`, `check`, `check-asan` and `check-tsan`, stopping at the first failure: everything to run before a pull request |
+| `coverage` | Coverage build and tests, then the coverage report (local only) |
+| `format` | Format the C++ (clang-format) and Python (pyink, isort) sources |
+| `lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
+| `clean` | Remove what the builds built, keeping their configuration |
+| `distclean` | Remove the build trees, with their configuration |
 
-`V=1` makes any target as verbose as its tools allow: the configure's
-messages down to `TRACE`, every command the build runs, and the full output
-of every test, e.g. `make check V=1`.
+`python3 -m forge --help` lists the commands, and
+`python3 -m forge <command> --help` their options. `-v`/`--verbose` makes
+any command that runs CMake or CTest as verbose as its tools allow: the
+configure's messages down to `TRACE`, every command the build runs, and the
+full output of every test, e.g. `python3 -m forge check -v`. Every step is
+echoed to stderr before it runs, prefixed with `+ `, and a command stops at
+the first step that fails, with its exit status.
 
-CI does not use the Makefile: it runs the CMake workflow presets and the
-checks directly.
+CI does not use forge: it runs the CMake workflow presets and the checks
+directly.
 
 ## Git flow
 
@@ -379,26 +383,27 @@ clang-tidy families and the function limits below), this document wins.
 - The namespace matches the directory: `umbra::<module>` in
   `include/umbra/<module>/`, `src/<module>/` and `tests/<module>/`
   (`umbra::ext::<dep>` for bridges), or a namespace nested in it.
-- Python (`checks/` and the extensionless scripts in `.githooks/`) is
-  enforced like C++: [Pyink](https://github.com/google/pyink) formats it
-  (80 columns, 4-space indent, configured in `pyproject.toml`), isort orders
-  the imports (`profile = "google"`), and pylint lints it with Google's
-  unmodified `pylintrc` (`.pylintrc`). The versions are pinned in the
-  devcontainer image.
+- Python (`checks/`, `forge/` and the extensionless scripts in
+  `.githooks/`) is enforced like C++: [Pyink](https://github.com/google/pyink)
+  formats it (80 columns, 4-space indent, configured in `pyproject.toml`),
+  isort orders the imports (`profile = "google"`), and pylint lints it with
+  Google's unmodified `pylintrc` (`.pylintrc`). The versions are pinned in
+  the devcontainer image.
 - Workflows are linted with actionlint, which runs shellcheck on their
   scripts; both are pinned in the devcontainer image.
 - CI-only logic stays inline in the workflows. Python there is written as a
   quoted heredoc read by `python3 -` (`python3 - <<'EOF'`), follows the same
   Google style (a `main()` and the `__main__` guard, no module-level logic)
-  and is checked like a Python file: `make lint` and the pre-commit hook
-  extract it (`python3 -m checks.embedded` prints what they find) and fail
-  when pyink or isort would change it or pylint reports anything. Format it
-  by hand.
+  and is checked like a Python file: `python3 -m forge lint` and the
+  pre-commit hook extract it (`python3 -m checks.embedded` prints what they
+  find) and fail when pyink or isort would change it or pylint reports
+  anything. Format it by hand.
 - Every pylint suppression names the message and gives a reason, for example
   `# pylint: disable=invalid-name` after a comment explaining why. The git
   hooks are the only standing exception to Google's naming and import rules:
   git fixes their file names, and they add the repository root to the import
-  path before importing `checks`.
+  path before importing `checks`. `forge/__main__.py` also disables
+  `invalid-name`, because Python fixes the name of a package's entry point.
 
 ### Modules
 
@@ -424,29 +429,31 @@ clang-tidy families and the function limits below), this document wins.
   a module only, never generated headers or internal plumbing.
 - Tests are added only to modules the maintainers explicitly request. There
   is no one-test-per-source rule and no coverage gate. The coverage preset
-  (`make coverage`: clang source-based coverage, merged with llvm-profdata)
-  writes llvm-cov reports of umbra's sources, tests excluded, to
+  (`python3 -m forge coverage`: clang source-based coverage, merged with
+  llvm-profdata) writes llvm-cov reports of umbra's sources, tests excluded, to
   `build/coverage/report/` (`summary.txt` and `html/index.html`) for local
   use only; CI does not run it.
 - A tested source file gets one test file under `tests/<module>/`, mirroring
   the module tree.
 - Test bodies follow the same lint rules, except the function-size limit and
   cognitive complexity.
-- Infrastructure (hooks, checks, workflows, CMake, Dockerfiles) has no tests;
-  it is validated by use.
+- Infrastructure (hooks, checks, forge, workflows, CMake, Dockerfiles) has no
+  tests; it is validated by use.
 - Tests run in the debug, release, asan and tsan presets, both locally and in
   CI.
 - Tests that need a GPU carry the CTest label `gpu` (`umbra_add_test(...
   LABELS gpu)`). CI runners have no GPU, so the test presets leave them out
-  (`ctest -LE gpu`); run them on a GPU host with `make check LABEL=gpu`
-  (`ctest -L gpu`). CI still builds them, and the GPU module.
+  (`ctest -LE gpu`); run them on a GPU host with
+  `python3 -m forge check --label gpu` (`ctest -L gpu`). CI still builds
+  them, and the GPU module.
 
 ## Pull requests
 
 1. Open an issue first for anything beyond a small fix.
 2. Branch from `develop` following the git flow naming rules.
 3. Keep commits small, themed and signed.
-4. Run `make lint` and `make check` inside the devcontainer.
+4. Run `python3 -m forge lint` and `python3 -m forge check` inside the
+   devcontainer.
 5. Open the pull request against `develop` and fill in the template. Its title
    must be a Conventional Commit.
 

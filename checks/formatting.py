@@ -4,9 +4,10 @@
 
 Formats the given files in place, or every tracked C++ and Python file when
 none is given. With --check it changes no file and fails when formatting
-would change one (``make lint`` and CI). The ``check_*`` functions check
-content without changing any file: the pre-commit hook checks the staged
-changes, and the linter checks the Python embedded in the workflows.
+would change one (``python3 -m forge lint`` and CI). The ``check_*``
+functions check content without changing any file: the pre-commit hook checks
+the staged changes, and the linter checks the Python embedded in the
+workflows.
 
 Usage: python3 -m checks.formatting [--check] [PATH...]
 """
@@ -86,7 +87,7 @@ def check_files(paths: Sequence[str]) -> int:
             ("Python", ["pyink", "--check", "--diff", "--quiet", *python]),
         ]
     errors = [
-        f"{kind} sources are not formatted (run make format)"
+        f"{kind} sources are not formatted (run python3 -m forge format)"
         for kind, command in checks
         if git.call(command).returncode
     ]
@@ -96,7 +97,7 @@ def check_files(paths: Sequence[str]) -> int:
 def check_python(
     path: str,
     text: str,
-    remedy: str = "run make format",
+    remedy: str = "run python3 -m forge format",
     label: str | None = None,
 ) -> list[str]:
     """Checks that Python source is formatted, without changing any file.
@@ -160,7 +161,10 @@ def check_staged_cpp() -> int:
     print(output, file=sys.stderr)
     return report.fail(
         "staged C++ changes are not formatted",
-        ["run make format (or git clang-format) and stage the result"],
+        [
+            "run python3 -m forge format (or git clang-format) and stage the"
+            " result"
+        ],
     )
 
 

@@ -10,8 +10,8 @@ Only the presence of a signature is checked: no allowed-signers file is
 committed, and GitHub verifies the signatures in CI.
 
 When the refs and commits are valid, a quick debug build runs the tests
-(``make check``) on the working tree. It needs the devcontainer toolchain: the
-devcontainer is the only supported environment.
+(``python3 -m forge check``) on the working tree. It needs the devcontainer
+toolchain: the devcontainer is the only supported environment.
 
 Usage (run by git): .githooks/pre-push REMOTE URL < REFS
 """
@@ -25,8 +25,8 @@ import shutil
 import subprocess
 import sys
 
-# The checks package lives at the repository root, which is not on the import
-# path of a hook; it is added before importing it.
+# The checks and forge packages live at the repository root, which is not on
+# the import path of a hook; it is added before importing them.
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
@@ -34,13 +34,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from checks import branch_name
 from checks import git
 from checks import report
+from forge import commands
 
 # pylint: enable=wrong-import-position
 
 BRANCH_PREFIX = "refs/heads/"
 SIGNATURE_HEADERS = (b"gpgsig ", b"gpgsig-sha256 ")
 # The programs the debug build and test needs.
-BUILD_TOOLS = ("make", "cmake", "ninja", "clang++", "ctest")
+BUILD_TOOLS = ("cmake", "ninja", "clang++", "ctest")
 
 
 def is_null(sha: str) -> bool:
@@ -111,10 +112,13 @@ def build_and_test() -> int:
                 "push from the devcontainer, the only supported environment",
             ],
         )
-    print("pre-push: debug build and tests (make check)", file=sys.stderr)
-    status = git.call(["make", "check"]).returncode
+    print(
+        "pre-push: debug build and tests (python3 -m forge check)",
+        file=sys.stderr,
+    )
+    status = commands.execute(commands.check())
     return report.exit_status(
-        "debug build or tests failed", "make check", status
+        "debug build or tests failed", "python3 -m forge check", status
     )
 
 

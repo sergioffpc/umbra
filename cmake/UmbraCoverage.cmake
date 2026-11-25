@@ -2,8 +2,8 @@
 # Copyright The Umbra Authors
 #
 # Source-based code coverage of the tests, for local reports only (the
-# coverage preset, `make coverage`). There is no coverage gate and CI does
-# not run it.
+# coverage preset, `python3 -m forge coverage`). There is no coverage gate and
+# CI does not run it.
 #
 # With UMBRA_COVERAGE on, every umbra target is instrumented
 # (-fprofile-instr-generate -fcoverage-mapping). The coverage test preset sets
