@@ -571,6 +571,32 @@ To cut a release:
 
 Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 
+### Running the release image with Podman
+
+On rootless Podman, the user of the release image, UID 65532, is one of your
+subordinate UIDs on the host, so it cannot write to a directory of yours
+mounted on `/work`. `--userns=keep-id:uid=65532,gid=65532` maps your own user
+to it instead, and umbra's outputs belong to you:
+
+```sh
+podman run --rm --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render
+```
+
+On SELinux hosts, `:z` relabels the mounted directory so the container can
+read it: run the command from the directory of your scenes, never from your
+home directory.
+
+On a GPU host set up as in [GPU hosts](#gpu-hosts), every container of your
+user already gets the GPUs; on any other host with the NVIDIA Container
+Toolkit, give them to the container with `--device nvidia.com/gpu=all`:
+
+```sh
+podman run --rm --device nvidia.com/gpu=all \
+  --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
+  ghcr.io/sergioffpc/umbra:X.Y.Z render --devices=gpu0
+```
+
 ## Third-party dependencies
 
 - Dependencies are git submodules under `third_party/`, pinned to official
