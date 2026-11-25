@@ -21,12 +21,13 @@
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/timeCode.h>
+#include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <exception>
 #include <expected>
-#include <filesystem>
 #include <format>
 #include <iterator>
 #include <optional>
@@ -114,9 +115,9 @@ std::expected<void, Error> LoadPlugins() {
   return {};
 }
 
-// The commentaries of the errors posted since `mark`, joined: what OpenUSD
+// The messages of the errors posted since `mark`, joined: what OpenUSD
 // says when a stage does not open.
-std::string Commentaries(const pxr::TfErrorMark& mark) {
+std::string ErrorMessages(const pxr::TfErrorMark& mark) {
   std::string joined;
   for (const pxr::TfError& error : mark) {
     if (!joined.empty()) {
@@ -127,20 +128,23 @@ std::string Commentaries(const pxr::TfErrorMark& mark) {
   return joined.empty() ? std::string("unknown error") : joined;
 }
 
+// "cannot open '<path>': <reason>".
+Error CannotOpen(ErrorCode code, std::string_view path,
+                 std::string_view reason) {
+  return {code, std::format("cannot open '{}': {}", path, reason)};
+}
+
 // Opens the stage of the file at `path`, with every payload loaded and no
 // session layer. The errors of a stage that does not open become the
 // returned error rather than log lines; those of a stage that opens are
 // logged.
 std::expected<pxr::UsdStageRefPtr, Error> OpenStage(const std::string& path) {
-  std::error_code status;
-  if (!std::filesystem::exists(path, status)) {
-    return std::unexpected(Error(
-        ErrorCode::kNotFound,
-        std::format(
-            "cannot open '{}': {}", path,
-            status ? status.message()
-                   : std::make_error_code(std::errc::no_such_file_or_directory)
-                         .message())));
+  // OpenUSD gives no reason for a file it cannot read; the system does.
+  if (access(path.c_str(), R_OK) != 0) {
+    const int reason = errno;
+    return std::unexpected(CannotOpen(
+        reason == ENOENT ? ErrorCode::kNotFound : ErrorCode::kInvalidArgument,
+        path, std::generic_category().message(reason)));
   }
   const pxr::TfErrorMark mark;
   pxr::UsdStageRefPtr stage;
@@ -152,15 +156,13 @@ std::expected<pxr::UsdStageRefPtr, Error> OpenStage(const std::string& path) {
   } catch (const std::exception& error) {
     mark.Clear();
     return std::unexpected(
-        Error(ErrorCode::kInvalidArgument,
-              std::format("cannot open '{}': {}", path, error.what())));
+        CannotOpen(ErrorCode::kInvalidArgument, path, error.what()));
   }
   if (!stage) {
-    const std::string reason = Commentaries(mark);
+    const std::string reason = ErrorMessages(mark);
     mark.Clear();
     return std::unexpected(
-        Error(ErrorCode::kInvalidArgument,
-              std::format("cannot open '{}': {}", path, reason)));
+        CannotOpen(ErrorCode::kInvalidArgument, path, reason));
   }
   return stage;
 }

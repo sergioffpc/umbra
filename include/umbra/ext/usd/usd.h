@@ -34,15 +34,16 @@ struct LoadOptions {
   // The time code to load, or none for the stage's startTimeCode when it
   // authors one, and the default time otherwise.
   std::optional<double> frame;
-  // The path of the RenderSettings prim to render with, or empty for none
-  // given.
+  // The path of the RenderSettings prim given, or empty for none. LoadScene
+  // carries it and reads no render settings.
   std::string settings;
 };
 
 // Loads the scene of the USD file at `path`, as the render's first phase,
 // "Loading stage": opens its stage, with every payload loaded and no session
 // layer, and builds its Scene. Fails with kNotFound when the file does not
-// exist, and kInvalidArgument when its stage does not open or compose;
+// exist, and kInvalidArgument when it cannot be read or its stage does not
+// open or compose;
 // warnings while composing (a missing sublayer) go to the log.
 [[nodiscard]] std::expected<scene::Scene, core::Error> LoadScene(
     std::string_view path, const LoadOptions& options);

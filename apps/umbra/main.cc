@@ -273,12 +273,14 @@ struct RenderRequest {
   umbra::ext::usd::LoadOptions options;
 };
 
-// The time code of --frame: an integer or a fraction ("12", "12.5").
+// The time code of --frame: an integer or a decimal fraction ("12", "12.5"),
+// without an exponent.
 std::expected<double, Error> ParseFrame(std::string_view text) {
   double frame = 0.0;
   const char* const first = std::to_address(text.begin());
   const char* const last = std::to_address(text.end());
-  const auto [end, error] = std::from_chars(first, last, frame);
+  const auto [end, error] =
+      std::from_chars(first, last, frame, std::chars_format::fixed);
   const bool is_whole = end == last;
   if (error != std::errc() || !is_whole || !std::isfinite(frame)) {
     return std::unexpected(

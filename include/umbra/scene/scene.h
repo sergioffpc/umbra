@@ -14,7 +14,7 @@ UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::scene {
 
-// The scene of one frame. It holds nothing yet.
+// The scene of one frame. It is empty.
 class Scene {
  public:
   Scene();
