@@ -18,6 +18,7 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -25,8 +26,8 @@
 
 #include "host_copy.h"
 #include "motion.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -92,13 +93,14 @@ struct LightNote {
 // A light sprim, synced. It reads its parameters as it syncs, before the
 // settings choose the shutter and the purposes, and is placed once they
 // have: its transform sampled over the shutter, one light for each
-// instance of its instancer.
+// instance of its instancer. It syncs again whenever it, or its instancer,
+// changes.
 class LightPrim final : public pxr::HdLight {
  public:
-  // Counts its sync into `phase`, unless it is a fallback prim; its lengths
+  // Counts its sync into `counter`, unless it is a fallback prim; its lengths
   // are scaled by `meters_per_unit`.
   LightPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
-            core::ProgressPhase* UMBRA_NULLABLE phase, double meters_per_unit);
+            SyncCounter* UMBRA_NULLABLE counter, double meters_per_unit);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* scene_delegate,
@@ -133,14 +135,21 @@ class LightPrim final : public pxr::HdLight {
   [[nodiscard]] const host::Light& light() const UMBRA_LIFETIMEBOUND {
     return light_;
   }
+  // The instances it placed when it last synced, which its host copy no
+  // longer holds once committed.
+  [[nodiscard]] std::size_t instance_count() const { return instance_count_; }
+  // Whether it synced since its host copy was last committed.
+  [[nodiscard]] bool IsChanged() const { return changed_ == Changed::kYes; }
   // Frees its host copy, once committed.
   void FreeHostCopy();
 
  private:
   void Convert(pxr::HdSceneDelegate& delegate);
 
+  enum class Changed : std::uint8_t { kNo, kYes };
+
   pxr::TfToken type_;
-  core::ProgressPhase* UMBRA_NULLABLE phase_;
+  SyncCounter* UMBRA_NULLABLE counter_;
   double meters_per_unit_;
   // The scene delegate it synced with, which Place reads: Hydra's, which
   // lives as long as the render index.
@@ -151,6 +160,8 @@ class LightPrim final : public pxr::HdLight {
   std::vector<LightNote> notes_;
   std::optional<core::Error> fatal_;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
+  std::size_t instance_count_ = 0;
+  Changed changed_ = Changed::kNo;
   host::Light light_;
 };
 

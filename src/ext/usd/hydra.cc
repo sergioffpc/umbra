@@ -15,6 +15,7 @@
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/geomSubset.h>
 #include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/light.h>
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/renderIndex.h>
@@ -50,24 +51,25 @@
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
 #include "umbra/ext/usd/render_settings.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
 
-// Counts the sync of the prim at `prim_id` into `phase`, for a prim that is not
-// a fallback.
-void CountSync(core::ProgressPhase* UMBRA_NULLABLE phase,
+// Counts the sync of the prim at `prim_id` into `counter`, for a prim that is
+// not a fallback.
+void CountSync(SyncCounter* UMBRA_NULLABLE counter,
                const pxr::SdfPath& prim_id) {
-  if (phase == nullptr) {
+  if (counter == nullptr) {
     return;
   }
-  phase->Add(1);
+  counter->Add(1);
   UMBRA_LOG_TRACE(kUsd, "synced {}", prim_id.GetString());
 }
 
@@ -225,9 +227,9 @@ const pxr::SdfPath& SyncTaskPath() {
 
 }  // namespace
 
-RenderSettingsPrim::RenderSettingsPrim(
-    const pxr::SdfPath& prim_id, core::ProgressPhase* UMBRA_NULLABLE phase)
-    : pxr::HdRenderSettings(prim_id), phase_(phase) {}
+RenderSettingsPrim::RenderSettingsPrim(const pxr::SdfPath& prim_id,
+                                       SyncCounter* UMBRA_NULLABLE counter)
+    : pxr::HdRenderSettings(prim_id), counter_(counter) {}
 
 void RenderSettingsPrim::_Sync(
     pxr::HdSceneDelegate* scene_delegate,
@@ -238,7 +240,7 @@ void RenderSettingsPrim::_Sync(
   if (terminal != nullptr) {
     base_ = ReadSettingsBase(terminal->GetPrim(GetId()).dataSource);
   }
-  CountSync(phase_, GetId());
+  CountSync(counter_, GetId());
 }
 
 pxr::SdfPath RenderSettingsPrim::CameraPath() const {
@@ -248,10 +250,10 @@ pxr::SdfPath RenderSettingsPrim::CameraPath() const {
 }
 
 CameraPrim::CameraPrim(const pxr::SdfPath& prim_id,
-                       core::ProgressPhase* UMBRA_NULLABLE phase,
+                       SyncCounter* UMBRA_NULLABLE counter,
                        double meters_per_unit)
     : pxr::HdCamera(prim_id),
-      phase_(phase),
+      counter_(counter),
       meters_per_unit_(meters_per_unit) {}
 
 void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
@@ -270,7 +272,8 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
       transform_samples_ = std::move(samples);
     }
   }
-  CountSync(phase_, GetId());
+  changed_ = Changed::kYes;
+  CountSync(counter_, GetId());
 }
 
 void CameraPrim::Place(const host::Shutter& shutter) {
@@ -307,12 +310,15 @@ void CameraPrim::Place(const host::Shutter& shutter) {
   };
 }
 
-void CameraPrim::FreeHostCopy() { camera_ = {}; }
+void CameraPrim::FreeHostCopy() {
+  camera_ = {};
+  changed_ = Changed::kNo;
+}
 
-MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
+MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
                    double meters_per_unit, const host::Shutter& shutter)
     : pxr::HdMesh(prim_id),
-      phase_(&phase),
+      counter_(&counter),
       meters_per_unit_(meters_per_unit),
       shutter_(&shutter) {}
 
@@ -324,31 +330,139 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
                     pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
                     pxr::HdDirtyBits* dirty_bits,
                     const pxr::TfToken& /*repr*/) {
+  const pxr::HdDirtyBits bits = *dirty_bits;
   _UpdateVisibility(delegate, dirty_bits);
   _UpdateInstancer(delegate, dirty_bits);
-  if ((*dirty_bits & pxr::HdChangeTracker::DirtyMaterialId) != 0U) {
+  if ((bits & pxr::HdChangeTracker::DirtyMaterialId) != 0U) {
     SetMaterialId(delegate->GetMaterialId(GetId()));
   }
+  const bool placed = state_ == MeshState::kConverted && instance_count_ > 0;
   if (!IsVisible()) {
     state_ = MeshState::kInvisible;
+    instance_count_ = 0;
+  } else if (placed) {
+    Update(*delegate, bits);
   } else {
     Convert(*delegate);
   }
   *dirty_bits &= ~pxr::HdChangeTracker::AllSceneDirtyBits;
-  phase_->Add(1);
-  if (state_ == MeshState::kConverted) {
-    const std::size_t triangles = mesh_.triangles.size();
-    const std::size_t instances = instances_.size();
-    UMBRA_LOG_TRACE(kUsd, "synced {} ({} triangle{}, {} instance{})",
-                    GetId().GetString(), core::FormatCount(triangles),
-                    triangles == 1 ? "" : "s", core::FormatCount(instances),
-                    instances == 1 ? "" : "s");
-  } else {
+  counter_->Add(1);
+  LogSync();
+}
+
+void MeshPrim::LogSync() const {
+  if (state_ != MeshState::kConverted || changes_ != kWholeMesh) {
     UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
+    return;
   }
+  const std::size_t triangles = mesh_.triangles.size();
+  UMBRA_LOG_TRACE(kUsd, "synced {} ({} triangle{}, {} instance{})",
+                  GetId().GetString(), core::FormatCount(triangles),
+                  triangles == 1 ? "" : "s", core::FormatCount(instance_count_),
+                  instance_count_ == 1 ? "" : "s");
 }
 
 void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
+  ConvertGeometry(delegate);
+  if (state_ != MeshState::kConverted) {
+    return;
+  }
+  Place(delegate);
+  changes_ = kWholeMesh;
+}
+
+void MeshPrim::Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits) {
+  constexpr pxr::HdDirtyBits kPlacementBits =
+      pxr::HdChangeTracker::DirtyTransform |
+      pxr::HdChangeTracker::DirtyInstancer |
+      pxr::HdChangeTracker::DirtyInstanceIndex;
+  const MotionOutcome outcome = points_outcome_;
+  const std::optional<device::ChangeFlags> geometry =
+      UpdateGeometry(delegate, bits);
+  if (!geometry.has_value()) {
+    return;
+  }
+  device::ChangeFlags flags = *geometry;
+  // Points whose topology changes within the shutter leave the instances
+  // without blur, and points that stop changing give it back.
+  if ((bits & kPlacementBits) != 0U || points_outcome_ != outcome) {
+    Place(delegate);
+    flags = flags | device::ChangeFlags::kPlacement;
+  }
+  changes_ = changes_ | flags;
+  KeepChanged();
+}
+
+device::ChangeFlags MeshPrim::DirtiedOf(pxr::HdDirtyBits bits) const {
+  using Tracker = pxr::HdChangeTracker;
+  using device::ChangeFlags;
+  ChangeFlags flags = ChangeFlags::kNone;
+  if ((bits & (Tracker::DirtyTopology | Tracker::DirtyDoubleSided)) != 0U) {
+    flags = flags | ChangeFlags::kTopology;
+  }
+  if ((bits & Tracker::DirtyPoints) != 0U) {
+    flags = flags | ChangeFlags::kPoints;
+    // Computed normals follow the points.
+    if (normals_ == NormalsSource::kComputed) {
+      flags = flags | ChangeFlags::kPrimvars;
+    }
+  }
+  if ((bits & (Tracker::DirtyPrimvar | Tracker::DirtyNormals)) != 0U) {
+    flags = flags | ChangeFlags::kPrimvars;
+  }
+  if ((bits & Tracker::DirtyMaterialId) != 0U) {
+    flags = flags | ChangeFlags::kMaterials;
+  }
+  return flags;
+}
+
+std::optional<device::ChangeFlags> MeshPrim::UpdateGeometry(
+    pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits) {
+  using device::ChangeFlags;
+  using device::HasAny;
+  const ChangeFlags dirtied = DirtiedOf(bits);
+  // The materials of the triangles of subsets need the triangles.
+  const bool whole =
+      HasAny(dirtied, ChangeFlags::kTopology | ChangeFlags::kPrimvars) ||
+      (HasAny(dirtied, ChangeFlags::kMaterials) && !material_subsets_.empty());
+  if (whole) {
+    return ReconvertGeometry(delegate, dirtied);
+  }
+  const ChangeFlags materials = HasAny(dirtied, ChangeFlags::kMaterials)
+                                    ? ChangeFlags::kMaterials
+                                    : ChangeFlags::kNone;
+  if (!HasAny(dirtied, ChangeFlags::kPoints)) {
+    return materials;
+  }
+  if (ConvertPointsAlone(delegate) == PointsConversion::kConverted) {
+    return materials | ChangeFlags::kPoints;
+  }
+  return ReconvertGeometry(delegate, dirtied | ChangeFlags::kTopology);
+}
+
+std::optional<device::ChangeFlags> MeshPrim::ReconvertGeometry(
+    pxr::HdSceneDelegate& delegate, device::ChangeFlags dirtied) {
+  using device::ChangeFlags;
+  const std::size_t point_count = point_count_;
+  const DisplayColor display_color = display_color_;
+  ConvertGeometry(delegate);
+  if (state_ != MeshState::kConverted) {
+    return std::nullopt;
+  }
+  if (device::HasAny(dirtied, ChangeFlags::kTopology) ||
+      point_count_ != point_count) {
+    return ChangeFlags::kTopology | ChangeFlags::kPrimvars |
+           ChangeFlags::kMaterials;
+  }
+  // A mesh with no material of its own gets the display color material
+  // when it has a displayColor, and the fallback one otherwise.
+  if (display_color_ != display_color) {
+    return dirtied | ChangeFlags::kMaterials;
+  }
+  return dirtied;
+}
+
+void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
   SourceMesh source{
       .path = GetId().GetString(),
       .topology = GetMeshTopology(&delegate),
@@ -361,33 +475,90 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   Motion<pxr::VtVec3fArray> motion =
       SamplePoints(delegate, GetId(), source.points, *shutter_);
   source.point_motion = std::move(motion.samples);
-  motion_outcome_ = motion.outcome;
-  if (IsSubdivided(source.topology)) {
-    subdivision_scheme_ = source.topology.GetScheme().GetString();
-  }
-  auto mesh = ConvertMesh(source, meters_per_unit_);
-  if (!mesh.has_value()) {
+  points_outcome_ = motion.outcome;
+  subdivision_scheme_ = IsSubdivided(source.topology)
+                            ? source.topology.GetScheme().GetString()
+                            : std::string();
+  auto converted = ConvertMesh(source, meters_per_unit_);
+  if (!converted.has_value()) {
     state_ = MeshState::kInvalid;
-    invalid_reason_ = std::move(mesh.error());
+    instance_count_ = 0;
+    invalid_reason_ = std::move(converted.error());
     return;
   }
   state_ = MeshState::kConverted;
-  mesh_ = std::move(*mesh);
+  mesh_ = std::move(converted->mesh);
+  normals_ = converted->normals;
+  point_count_ = mesh_.points.front().size();
   ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
+  display_color_ = std::ranges::any_of(mesh_.primvars,
+                                       [](const host::Primvar& primvar) {
+                                         return primvar.name == kDisplayColor;
+                                       })
+                       ? DisplayColor::kPresent
+                       : DisplayColor::kAbsent;
   emission_ = internal::IsMeshLight(delegate, GetId()) ? Emission::kMeshLight
                                                        : Emission::kNone;
   material_subsets_ = MaterialSubsets(source.topology);
-  // A mesh whose topology changes within the shutter has no blur at all.
-  Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges
-                      ? host::Shutter{}
-                      : *shutter_);
+  AssignTriangleMaterials();
 }
 
-void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
-                     const host::Shutter& shutter) {
+MeshPrim::PointsConversion MeshPrim::ConvertPointsAlone(
+    pxr::HdSceneDelegate& delegate) {
+  const pxr::VtValue frame = GetPoints(&delegate);
+  Motion<pxr::VtVec3fArray> motion =
+      SamplePoints(delegate, GetId(), frame, *shutter_);
+  if (motion.outcome != points_outcome_) {
+    return PointsConversion::kWholeNeeded;
+  }
+  auto points = ConvertPoints(frame, motion.samples, meters_per_unit_);
+  if (!points.has_value() || points->front().size() != point_count_) {
+    return PointsConversion::kWholeNeeded;
+  }
+  mesh_.points = std::move(*points);
+  return PointsConversion::kConverted;
+}
+
+namespace {
+
+// Gives the faces of `subset` the material `index` in `face_materials`,
+// those out of range left out.
+void MarkFaces(const MaterialSubset& subset, std::uint32_t index,
+               std::vector<std::uint32_t>& face_materials) {
+  for (const std::uint32_t face : subset.faces) {
+    if (face < face_materials.size()) {
+      face_materials.at(face) = index;
+    }
+  }
+}
+
+}  // namespace
+
+void MeshPrim::AssignTriangleMaterials() {
+  mesh_.triangle_materials.clear();
+  if (material_subsets_.empty()) {
+    return;
+  }
+  // The material of each source face, an index into the mesh's materials.
+  std::vector<std::uint32_t> face_materials(mesh_.face_vertex_counts.size(), 0);
+  std::uint32_t index = 0;
+  for (const MaterialSubset& subset : material_subsets_) {
+    MarkFaces(subset, ++index, face_materials);
+  }
+  mesh_.triangle_materials.reserve(mesh_.source_faces.size());
+  for (const std::uint32_t face : mesh_.source_faces) {
+    mesh_.triangle_materials.push_back(face_materials.at(face));
+  }
+}
+
+void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
+  // A mesh whose topology changes within the shutter has no blur at all.
+  const host::Shutter shutter =
+      points_outcome_ == MotionOutcome::kTopologyChanges ? host::Shutter{}
+                                                         : *shutter_;
   Placement placement =
       PlaceInstances(delegate, GetId(), GetInstancerId(), shutter);
-  motion_outcome_ = std::max(motion_outcome_, placement.outcome);
+  placement_outcome_ = placement.outcome;
   instances_.clear();
   instances_.reserve(placement.instances.size());
   for (FlatInstance& placed : placement.instances) {
@@ -397,11 +568,39 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
         .primvars = std::move(placed.primvars),
     });
   }
+  instance_count_ = instances_.size();
+}
+
+void MeshPrim::KeepChanged() {
+  using device::ChangeFlags;
+  using device::HasAny;
+  if (!HasAny(changes_, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
+    mesh_.points = {};
+  }
+  if (!HasAny(changes_, ChangeFlags::kTopology)) {
+    mesh_.triangles = {};
+    mesh_.source_faces = {};
+    mesh_.face_vertex_counts = {};
+  }
+  if (!HasAny(changes_, ChangeFlags::kPrimvars)) {
+    mesh_.normals = {};
+    mesh_.primvars = {};
+  }
+  if (!HasAny(changes_, ChangeFlags::kMaterials)) {
+    mesh_.triangle_materials = {};
+  }
+  if (!HasAny(changes_, ChangeFlags::kPlacement)) {
+    instances_ = {};
+  }
 }
 
 void MeshPrim::FreeHostCopy() {
+  // Its path stays: an update names its prim.
+  std::string path = std::move(mesh_.path);
   mesh_ = {};
+  mesh_.path = std::move(path);
   instances_ = {};
+  changes_ = device::ChangeFlags::kNone;
 }
 
 pxr::HdDirtyBits MeshPrim::_PropagateDirtyBits(pxr::HdDirtyBits bits) const {
@@ -415,8 +614,8 @@ void MeshPrim::_InitRepr(const pxr::TfToken& /*repr*/,
 
 UnsupportedPrim::UnsupportedPrim(pxr::TfToken type_id,
                                  const pxr::SdfPath& prim_id,
-                                 core::ProgressPhase& phase)
-    : pxr::HdRprim(prim_id), type_(std::move(type_id)), phase_(&phase) {}
+                                 SyncCounter& counter)
+    : pxr::HdRprim(prim_id), type_(std::move(type_id)), counter_(&counter) {}
 
 pxr::HdDirtyBits UnsupportedPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdChangeTracker::AllSceneDirtyBits;
@@ -428,7 +627,7 @@ void UnsupportedPrim::Sync(pxr::HdSceneDelegate* /*delegate*/,
                            const pxr::TfToken& /*repr*/) {
   *dirty_bits &= ~pxr::HdChangeTracker::AllSceneDirtyBits;
   synced_ = Synced::kSynced;
-  CountSync(phase_, GetId());
+  CountSync(counter_, GetId());
 }
 
 const pxr::TfTokenVector& UnsupportedPrim::GetBuiltinPrimvarNames() const {
@@ -446,9 +645,9 @@ void UnsupportedPrim::_InitRepr(const pxr::TfToken& /*repr*/,
   // umbra draws no repr: it only counts.
 }
 
-RenderDelegate::RenderDelegate(core::ProgressPhase& phase,
-                               double meters_per_unit, Committer committer)
-    : phase_(&phase),
+RenderDelegate::RenderDelegate(SyncCounter& counter, double meters_per_unit,
+                               Committer committer)
+    : counter_(&counter),
       meters_per_unit_(meters_per_unit),
       committer_(std::move(committer)),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {}
@@ -462,32 +661,49 @@ std::size_t RenderDelegate::PrimCount() const {
          prims_.lights.size();
 }
 
-void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
-  prims_.shutter = {};
+host::Shutter RenderDelegate::ShutterOf(const pxr::SdfPath& settings) const {
   const auto found = prims_.settings.find(settings);
   if (found == prims_.settings.end() ||
       found->second->base().motion_blur == MotionBlur::kDisabled) {
-    return;
+    return {};
   }
   const auto camera = prims_.cameras.find(found->second->CameraPath());
   if (camera == prims_.cameras.end()) {
-    return;
+    return {};
   }
   const host::Shutter shutter{
       .open = camera->second->GetShutterOpen(),
       .close = camera->second->GetShutterClose(),
   };
-  if (IsMotionBlurred(shutter)) {
-    prims_.shutter = shutter;
+  return IsMotionBlurred(shutter) ? shutter : host::Shutter{};
+}
+
+void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings,
+                                   pxr::HdChangeTracker& tracker) {
+  prims_.shutter = ShutterOf(settings);
+  const std::optional<host::Shutter> last =
+      std::exchange(last_shutter_, prims_.shutter);
+  if (!last.has_value() || *last == prims_.shutter) {
+    return;
   }
+  UMBRA_LOG_DEBUG(kUsd, "shutter {}..{}, from {}..{}: every prim sampled again",
+                  prims_.shutter.open, prims_.shutter.close, last->open,
+                  last->close);
+  tracker.MarkAllRprimsDirty(pxr::HdChangeTracker::AllSceneDirtyBits);
+  for (const auto& [path, instancer] : prims_.instancers) {
+    tracker.MarkInstancerDirty(path, pxr::HdChangeTracker::AllSceneDirtyBits);
+  }
+  for (const auto& [path, light] : prims_.lights) {
+    tracker.MarkSprimDirty(path, pxr::HdLight::AllDirty);
+  }
+  pass_ = Pass::kAnotherNeeded;
 }
 
 void RenderDelegate::Place(const pxr::TfTokenVector& render_tags) {
-  for (const auto& [path, camera] : prims_.cameras) {
-    camera->Place(prims_.shutter);
-  }
   for (const auto& [path, light] : prims_.lights) {
-    light->Place(prims_.shutter, render_tags);
+    if (light->IsChanged()) {
+      light->Place(prims_.shutter, render_tags);
+    }
   }
 }
 
@@ -568,7 +784,7 @@ pxr::HdRenderPassSharedPtr RenderDelegate::CreateRenderPass(
 
 pxr::HdInstancer* RenderDelegate::CreateInstancer(
     pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id) {
-  auto instancer = std::make_unique<InstancerPrim>(delegate, prim_id, *phase_,
+  auto instancer = std::make_unique<InstancerPrim>(delegate, prim_id, *counter_,
                                                    prims_.shutter);
   prims_.instancers[prim_id] = instancer.get();
   return Release<pxr::HdInstancer>(std::move(instancer));
@@ -582,14 +798,15 @@ void RenderDelegate::DestroyInstancer(pxr::HdInstancer* instancer) {
 pxr::HdRprim* UMBRA_NULLABLE RenderDelegate::CreateRprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
   if (type_id == pxr::HdPrimTypeTokens->mesh) {
-    auto mesh = std::make_unique<MeshPrim>(prim_id, *phase_, meters_per_unit_,
+    auto mesh = std::make_unique<MeshPrim>(prim_id, *counter_, meters_per_unit_,
                                            prims_.shutter);
     prims_.meshes[prim_id] = mesh.get();
     return Release<pxr::HdRprim>(std::move(mesh));
   }
   for (const pxr::TfToken& unsupported : UnsupportedRprimTypes()) {
     if (type_id == unsupported) {
-      auto prim = std::make_unique<UnsupportedPrim>(type_id, prim_id, *phase_);
+      auto prim =
+          std::make_unique<UnsupportedPrim>(type_id, prim_id, *counter_);
       prims_.unsupported[prim_id] = prim.get();
       return Release<pxr::HdRprim>(std::move(prim));
     }
@@ -606,20 +823,21 @@ void RenderDelegate::DestroyRprim(pxr::HdRprim* rprim) {
 pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
   if (IsLightPrimType(type_id)) {
-    auto light =
-        std::make_unique<LightPrim>(type_id, prim_id, phase_, meters_per_unit_);
+    auto light = std::make_unique<LightPrim>(type_id, prim_id, counter_,
+                                             meters_per_unit_);
     prims_.lights[prim_id] = light.get();
     return Release<pxr::HdSprim>(std::move(light));
   }
   if (type_id == pxr::HdPrimTypeTokens->material) {
-    auto material = std::make_unique<MaterialPrim>(prim_id, phase_);
+    auto material = std::make_unique<MaterialPrim>(prim_id, counter_);
     prims_.materials[prim_id] = material.get();
     return Release<pxr::HdSprim>(std::move(material));
   }
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
-  auto camera = std::make_unique<CameraPrim>(prim_id, phase_, meters_per_unit_);
+  auto camera =
+      std::make_unique<CameraPrim>(prim_id, counter_, meters_per_unit_);
   prims_.cameras[prim_id] = camera.get();
   return Release<pxr::HdSprim>(std::move(camera));
 }
@@ -660,7 +878,7 @@ pxr::HdBprim* UMBRA_NULLABLE RenderDelegate::CreateBprim(
     return Release<pxr::HdBprim>(
         std::make_unique<RenderSettingsPrim>(prim_id, nullptr));
   }
-  auto settings = std::make_unique<RenderSettingsPrim>(prim_id, phase_);
+  auto settings = std::make_unique<RenderSettingsPrim>(prim_id, counter_);
   prims_.settings[prim_id] = settings.get();
   return Release<pxr::HdBprim>(std::move(settings));
 }
@@ -682,17 +900,17 @@ void RenderDelegate::DestroyBprim(pxr::HdBprim* bprim) {
 void RenderDelegate::CountNotSynced() {
   for (const auto& [path, mesh] : prims_.meshes) {
     if (mesh->state() == MeshState::kNotSynced) {
-      phase_->Add(1);
+      counter_->Add(1);
     }
   }
   for (const auto& [path, instancer] : prims_.instancers) {
     if (!instancer->IsSynced()) {
-      phase_->Add(1);
+      counter_->Add(1);
     }
   }
   for (const auto& [path, prim] : prims_.unsupported) {
     if (!prim->IsSynced()) {
-      phase_->Add(1);
+      counter_->Add(1);
     }
   }
 }
@@ -713,15 +931,24 @@ void RenderDelegate::FreeHostCopies() {
 }
 
 void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
-  CountNotSynced();
+  if (std::exchange(pass_, Pass::kFinal) == Pass::kAnotherNeeded) {
+    // The host copies stay until the pass that commits them.
+    return;
+  }
+  if (commits_ == 0) {
+    CountNotSynced();
+  }
   committed_ = committer_(prims_);
+  ++commits_;
   // No host copy outlives the commit, whether it succeeds or not.
   FreeHostCopies();
 }
 
-SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
+SyncTask::SyncTask(RenderDelegate& delegate, pxr::HdRenderIndex& index,
+                   pxr::SdfPath settings)
     : pxr::HdTask(SyncTaskPath()),
       delegate_(&delegate),
+      index_(&index),
       settings_(std::move(settings)) {}
 
 void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
@@ -730,7 +957,7 @@ void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
   // The sprims (the render settings, the cameras, the lights) are synced
   // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
-  delegate_->ChooseShutter(settings_);
+  delegate_->ChooseShutter(settings_, index_->GetChangeTracker());
   delegate_->Place(render_tags_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }

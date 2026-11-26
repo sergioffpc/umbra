@@ -21,12 +21,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <expected>
 #include <format>
 #include <functional>
 #include <map>
 #include <numeric>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <string>
@@ -58,6 +60,23 @@ using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
 using Product = pxr::HdRenderSettings::RenderProduct;
 using Var = Product::RenderVar;
+
+// The warnings of the commits, each logged once: a commit that finds the
+// same prims at fault as an earlier one does not log them again.
+class Warnings {
+ public:
+  explicit Warnings(std::set<std::string>& logged UMBRA_LIFETIMEBOUND)
+      : logged_(&logged) {}
+
+  void Warn(std::string message) {
+    if (logged_->insert(message).second) {
+      UMBRA_LOG_WARNING(kUsd, "{}", message);
+    }
+  }
+
+ private:
+  std::set<std::string>* logged_;
+};
 
 // The prims of one kind a warning reports: their count and the first.
 class Tally {
@@ -112,24 +131,22 @@ class MotionTallies {
   // without motion blur (first /World/fluid)", and "warning: usd: 2 prims
   // have more than 16 motion samples within the shutter, resampled down to
   // 16 (first /World/sim)".
-  void Report() const {
+  void Report(Warnings& warnings) const {
     if (changing_.count() > 0) {
-      UMBRA_LOG_WARNING(
-          kUsd,
+      warnings.Warn(std::format(
           "{} {} topology within the shutter, rendered without motion blur "
           "({})",
           changing_.count(),
           Plural(changing_.count(), "prim changes", "prims change"),
-          changing_.First());
+          changing_.First()));
     }
     if (resampled_.count() > 0) {
-      UMBRA_LOG_WARNING(kUsd,
-                        "{} {} more than {} motion samples within the "
-                        "shutter, resampled down to {} ({})",
-                        resampled_.count(),
-                        Plural(resampled_.count(), "prim has", "prims have"),
-                        kMaxMotionSamples, kMaxMotionSamples,
-                        resampled_.First());
+      warnings.Warn(std::format(
+          "{} {} more than {} motion samples within the "
+          "shutter, resampled down to {} ({})",
+          resampled_.count(),
+          Plural(resampled_.count(), "prim has", "prims have"),
+          kMaxMotionSamples, kMaxMotionSamples, resampled_.First()));
     }
   }
 
@@ -138,25 +155,44 @@ class MotionTallies {
   Tally resampled_;
 };
 
-// The cameras the settings and their products see through, each added
-// once.
+// Whether the shutter changed since the last commit: every camera is then
+// placed again.
+enum class ShutterChange : std::uint8_t {
+  kSame,
+  kChanged,
+};
+
+// The cameras the settings and their products see through: each added the
+// first commit it is, updated when it synced or the shutter changed, and
+// removed once it is not.
 class Cameras {
  public:
   Cameras(const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
+          Ledger& ledger UMBRA_LIFETIMEBOUND,
           MotionTallies& motion UMBRA_LIFETIMEBOUND,
-          ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
-      : prims_(&prims), motion_(&motion), changes_(&changes) {}
+          ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND, ShutterChange shutter)
+      : prims_(&prims),
+        ledger_(&ledger),
+        motion_(&motion),
+        changes_(&changes),
+        shutter_(shutter) {}
 
   // The id of the camera at `path`, which `owner` names: fails when there
   // is none, or it is not a Camera.
   std::expected<device::CameraId, Error> Index(const pxr::SdfPath& path,
                                                std::string_view owner);
 
+  // Removes the cameras held that no longer are seen through.
+  void RemoveUnseen();
+
  private:
   const SyncedPrims* prims_;
+  Ledger* ledger_;
   MotionTallies* motion_;
   ChangeSetBuilder* changes_;
-  std::map<pxr::SdfPath, device::CameraId> ids_;
+  ShutterChange shutter_;
+  // The cameras seen through by this commit.
+  std::map<pxr::SdfPath, device::CameraId> seen_;
 };
 
 std::expected<device::CameraId, Error> Cameras::Index(const pxr::SdfPath& path,
@@ -165,7 +201,7 @@ std::expected<device::CameraId, Error> Cameras::Index(const pxr::SdfPath& path,
     return std::unexpected(Error(ErrorCode::kInvalidArgument,
                                  std::format("{} have no camera", owner)));
   }
-  if (const auto known = ids_.find(path); known != ids_.end()) {
+  if (const auto known = seen_.find(path); known != seen_.end()) {
     return known->second;
   }
   const auto synced = prims_->cameras.find(path);
@@ -175,11 +211,35 @@ std::expected<device::CameraId, Error> Cameras::Index(const pxr::SdfPath& path,
               std::format("{}: the camera {} is not a Camera", owner,
                           path.GetString())));
   }
-  const CameraPrim& camera = *synced->second;
+  CameraPrim& camera = *synced->second;
+  const auto held = ledger_->cameras.find(path);
+  device::CameraId camera_id{};
+  if (held == ledger_->cameras.end()) {
+    camera.Place(prims_->shutter);
+    camera_id = ledger_->camera_ids.Take();
+    ledger_->cameras.emplace(path, camera_id);
+    changes_->AddCamera(camera_id, camera.camera());
+  } else {
+    camera_id = held->second;
+    if (camera.IsChanged() || shutter_ == ShutterChange::kChanged) {
+      camera.Place(prims_->shutter);
+      changes_->UpdateCamera(camera_id, camera.camera());
+    }
+  }
   motion_->Add(path, camera.motion_outcome());
-  const device::CameraId camera_id = changes_->AddCamera(camera.camera());
-  ids_.emplace(path, camera_id);
+  seen_.emplace(path, camera_id);
   return camera_id;
+}
+
+void Cameras::RemoveUnseen() {
+  std::erase_if(ledger_->cameras, [this](const auto& held) {
+    if (seen_.contains(held.first)) {
+      return false;
+    }
+    changes_->RemoveCamera(held.second);
+    ledger_->camera_ids.Free(held.second);
+    return true;
+  });
 }
 
 // The render vars left out, for the one warning that reports them.
@@ -195,16 +255,16 @@ class UnsupportedVars {
 
   // "warning: usd: 3 render vars not supported (lpe:C<RD>L, first in
   // /Render/beauty); left out".
-  void Report() const {
+  void Report(Warnings& warnings) const {
     if (count_ == 1) {
-      UMBRA_LOG_WARNING(kUsd,
-                        "1 render var not supported ({}, in {}); left out",
-                        first_name_, first_product_);
+      warnings.Warn(
+          std::format("1 render var not supported ({}, in {}); left out",
+                      first_name_, first_product_));
     } else if (count_ > 1) {
-      UMBRA_LOG_WARNING(kUsd,
-                        "{} render vars not supported ({}, first in {}); left "
-                        "out",
-                        count_, first_name_, first_product_);
+      warnings.Warn(
+          std::format("{} render vars not supported ({}, first in {}); left "
+                      "out",
+                      count_, first_name_, first_product_));
     }
   }
 
@@ -213,92 +273,6 @@ class UnsupportedVars {
   std::string first_name_;
   std::string first_product_;
 };
-
-// Whether a mesh has a displayColor primvar.
-enum class DisplayColor : std::uint8_t {
-  kAbsent,
-  kPresent,
-};
-
-// The materials of the prototypes, each added once: those that translate,
-// and umbra's two for the meshes whose material does not, or that have none.
-class Materials {
- public:
-  Materials(const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
-            ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
-      : prims_(&prims), changes_(&changes) {}
-
-  // The id of the material bound to a mesh, or to one of its GeomSubsets,
-  // at `material`: that material when it translates; else the fallback
-  // material; for no material, the display color material when the mesh
-  // has a displayColor, and the fallback material otherwise.
-  device::MaterialId IdOf(const pxr::SdfPath& material,
-                          DisplayColor display_color);
-
-  // The error that stops the render: the first of the materials indexed.
-  [[nodiscard]] const std::optional<Error>& fatal() const UMBRA_LIFETIMEBOUND {
-    return fatal_;
-  }
-
-  // "warning: usd: 2 materials do not translate, rendered with the fallback
-  // material (first /World/Looks/Skin: ...)", "warning: usd: 3 textures do
-  // not resolve, rendered with their node's fallback value (first
-  // /World/Looks/Car/Albedo: ./tex/a.exr)", and one per terminal umbra does
-  // not take.
-  void Report() const;
-
- private:
-  // A material of umbra's, made once, and its id.
-  struct Own {
-    host::MaterialNetwork network;
-    device::MaterialId id{};
-  };
-
-  // The id of umbra's material in `slot`, which `make` makes once.
-  device::MaterialId IdOf(std::optional<Own>& slot,
-                          host::MaterialNetwork (*make)());
-
-  const SyncedPrims* prims_;
-  ChangeSetBuilder* changes_;
-  std::map<pxr::SdfPath, device::MaterialId> ids_;
-  std::optional<Own> fallback_;
-  std::optional<Own> display_color_;
-  std::optional<Error> fatal_;
-};
-
-device::MaterialId Materials::IdOf(const pxr::SdfPath& material,
-                                   DisplayColor display_color) {
-  const auto synced = prims_->materials.find(material);
-  if (synced == prims_->materials.end()) {
-    return display_color == DisplayColor::kPresent
-               ? IdOf(display_color_, DisplayColorMaterial)
-               : IdOf(fallback_, FallbackMaterial);
-  }
-  if (const auto known = ids_.find(material); known != ids_.end()) {
-    return known->second;
-  }
-  const MaterialPrim& prim = *synced->second;
-  if (!prim.translation().has_value() && !fatal_.has_value()) {
-    fatal_ = prim.translation().error();
-  }
-  const host::MaterialNetwork* network = prim.network();
-  if (network == nullptr) {
-    return IdOf(fallback_, FallbackMaterial);
-  }
-  const device::MaterialId material_id = changes_->AddMaterial(*network);
-  ids_.emplace(material, material_id);
-  return material_id;
-}
-
-device::MaterialId Materials::IdOf(std::optional<Own>& slot,
-                                   host::MaterialNetwork (*make)()) {
-  if (!slot.has_value()) {
-    // The network is in place before the builder views it.
-    slot.emplace(make(), device::MaterialId{});
-    slot->id = changes_->AddMaterial(slot->network);
-  }
-  return slot->id;
-}
 
 // The materials, the textures and the terminals the warnings about
 // materials report.
@@ -316,88 +290,312 @@ class MaterialTallies {
     }
   }
 
-  void Report() const {
-    ReportUntranslated();
-    ReportUnresolved();
-    ReportTerminals();
+  void Report(Warnings& warnings) const {
+    ReportUntranslated(warnings);
+    ReportUnresolved(warnings);
+    ReportTerminals(warnings);
   }
 
  private:
-  void ReportUntranslated() const;
-  void ReportUnresolved() const;
-  void ReportTerminals() const;
+  void ReportUntranslated(Warnings& warnings) const;
+  void ReportUnresolved(Warnings& warnings) const;
+  void ReportTerminals(Warnings& warnings) const;
 
   Tally untranslated_;
   Tally unresolved_;
   std::map<std::string, Tally> terminals_;
 };
 
-void MaterialTallies::ReportUntranslated() const {
+void MaterialTallies::ReportUntranslated(Warnings& warnings) const {
   if (untranslated_.count() > 0) {
-    UMBRA_LOG_WARNING(
-        kUsd,
+    warnings.Warn(std::format(
         "{} {} not translate, rendered with the fallback material ({}: "
         "{})",
         untranslated_.count(),
         Plural(untranslated_.count(), "material does", "materials do"),
-        untranslated_.First(), untranslated_.detail());
+        untranslated_.First(), untranslated_.detail()));
   }
 }
 
-void MaterialTallies::ReportUnresolved() const {
+void MaterialTallies::ReportUnresolved(Warnings& warnings) const {
   if (unresolved_.count() > 0) {
-    UMBRA_LOG_WARNING(
-        kUsd,
-        "{} {} not resolve, rendered with {} node's fallback value "
-        "({}: {})",
-        unresolved_.count(),
-        Plural(unresolved_.count(), "texture does", "textures do"),
-        Plural(unresolved_.count(), "its", "their"), unresolved_.First(),
-        unresolved_.detail());
+    warnings.Warn(
+        std::format("{} {} not resolve, rendered with {} node's fallback value "
+                    "({}: {})",
+                    unresolved_.count(),
+                    Plural(unresolved_.count(), "texture does", "textures do"),
+                    Plural(unresolved_.count(), "its", "their"),
+                    unresolved_.First(), unresolved_.detail()));
   }
 }
 
-void MaterialTallies::ReportTerminals() const {
+void MaterialTallies::ReportTerminals(Warnings& warnings) const {
   for (const auto& [terminal, tally] : terminals_) {
-    UMBRA_LOG_WARNING(
-        kUsd,
+    warnings.Warn(std::format(
         "{} {} a {}, which umbra does not render yet; {} "
         "surface is rendered ({})",
         tally.count(),
         Plural(tally.count(), "material connects", "materials connect"),
-        terminal, Plural(tally.count(), "its", "their"), tally.First());
+        terminal, Plural(tally.count(), "its", "their"), tally.First()));
   }
 }
 
-void Materials::Report() const {
+// The textures the materials and the lights read: each added when the
+// first reads it, and removed when the last stops.
+class Textures {
+ public:
+  Textures(Ledger& ledger UMBRA_LIFETIMEBOUND,
+           ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
+      : ledger_(&ledger), changes_(&changes) {}
+
+  // Counts a reader of each of `textures`.
+  void Read(const std::vector<host::Texture>& textures);
+  // Counts a reader less of each of `textures`.
+  void Unread(const std::vector<host::Texture>& textures);
+
+ private:
+  Ledger* ledger_;
+  ChangeSetBuilder* changes_;
+};
+
+void Textures::Read(const std::vector<host::Texture>& textures) {
+  for (const host::Texture& texture : textures) {
+    if (++ledger_->texture_readers[texture] > 1) {
+      continue;
+    }
+    const device::TextureId texture_id = ledger_->texture_ids.Take();
+    // The change set views the ledger's copy, which outlives the commit.
+    const host::Texture& held =
+        ledger_->textures.emplace(texture, texture_id).first->first;
+    changes_->AddTexture(texture_id, held);
+  }
+}
+
+void Textures::Unread(const std::vector<host::Texture>& textures) {
+  for (const host::Texture& texture : textures) {
+    const auto readers = ledger_->texture_readers.find(texture);
+    if (readers == ledger_->texture_readers.end() || --readers->second > 0) {
+      continue;
+    }
+    ledger_->texture_readers.erase(readers);
+    const auto held = ledger_->textures.find(texture);
+    changes_->RemoveTexture(held->second);
+    ledger_->texture_ids.Free(held->second);
+    ledger_->textures.erase(held);
+  }
+}
+
+// The textures the parameters of `node` read, in order.
+auto TexturesOf(const host::MaterialNode& node) {
+  return node.parameters |
+         std::views::transform([](const host::Parameter& parameter) {
+           return std::get_if<host::Texture>(&parameter.value);
+         }) |
+         std::views::filter(
+             [](const host::Texture* texture) { return texture != nullptr; }) |
+         std::views::transform(
+             [](const host::Texture* texture) { return *texture; });
+}
+
+// The textures the parameters of `network` read, in order.
+std::vector<host::Texture> TexturesOf(const host::MaterialNetwork& network) {
+  return std::ranges::to<std::vector>(
+      network.nodes | std::views::transform([](const host::MaterialNode& node) {
+        return TexturesOf(node);
+      }) |
+      std::views::join);
+}
+
+// The texture of `light`'s shape, if any.
+std::vector<host::Texture> TexturesOf(const host::Light& light) {
+  std::optional<host::Texture> texture;
+  if (const auto* rect = std::get_if<host::Light::Rect>(&light.shape)) {
+    texture = rect->texture;
+  } else if (const auto* dome = std::get_if<host::Light::Dome>(&light.shape)) {
+    texture = dome->texture;
+  }
+  if (!texture.has_value()) {
+    return {};
+  }
+  return {std::move(*texture)};
+}
+
+// The materials: every material prim, from its first sync to its
+// destruction, and umbra's two while a prototype reads them. A material
+// prim a prototype still reads outlives its prim until none does.
+class Materials {
+ public:
+  Materials(const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
+            Ledger& ledger UMBRA_LIFETIMEBOUND,
+            ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND,
+            Textures& textures UMBRA_LIFETIMEBOUND)
+      : prims_(&prims),
+        ledger_(&ledger),
+        changes_(&changes),
+        textures_(&textures) {}
+  Materials(const Materials&) = delete;
+  Materials& operator=(const Materials&) = delete;
+  Materials(Materials&&) = delete;
+  Materials& operator=(Materials&&) = delete;
+  ~Materials() = default;
+
+  // Adds or updates the material prims that synced since the last commit:
+  // their networks when they translate, the fallback material otherwise.
+  void CommitPrims();
+
+  // The key of the material bound to a mesh, or to one of its GeomSubsets,
+  // at `material`: its path when a material prim is there; else, the
+  // display color material when the mesh has a displayColor, and the
+  // fallback material otherwise.
+  [[nodiscard]] std::string KeyOf(const pxr::SdfPath& material,
+                                  DisplayColor display_color) const;
+
+  // Counts a prototype reading each material of `keys`, adding umbra's
+  // when first read, and gives their ids.
+  std::vector<device::MaterialId> Read(const std::vector<std::string>& keys);
+  // Counts a prototype less reading each material of `keys`.
+  void Unread(const std::vector<std::string>& keys);
+
+  // Removes the materials whose prim is gone, and umbra's, once no
+  // prototype reads them.
+  void RemoveUnread();
+
+  // The id of the display color material, when it is held.
+  [[nodiscard]] std::optional<device::MaterialId> DisplayColorId() const;
+
+  // The error that stops the render: the first of the material prims
+  // committed.
+  [[nodiscard]] const std::optional<Error>& fatal() const UMBRA_LIFETIMEBOUND {
+    return fatal_;
+  }
+
+  // "warning: usd: 2 materials do not translate, rendered with the fallback
+  // material (first /World/Looks/Skin: ...)", "warning: usd: 3 textures do
+  // not resolve, rendered with their node's fallback value (first
+  // /World/Looks/Car/Albedo: ./tex/a.exr)", and one per terminal umbra does
+  // not take.
+  void Report(Warnings& warnings) const;
+
+ private:
+  // Adds or updates the material of `key`, as `network`, which must
+  // outlive the commit.
+  void Commit(const std::string& key, const host::MaterialNetwork& network);
+  // Adds or updates the material prim `prim`, at `path`.
+  void CommitPrim(const pxr::SdfPath& path, const MaterialPrim& prim);
+
+  const SyncedPrims* prims_;
+  Ledger* ledger_;
+  ChangeSetBuilder* changes_;
+  Textures* textures_;
+  // The networks the commit makes: umbra's, and the fallback material of
+  // each material prim that does not translate. A deque keeps them in
+  // place.
+  std::deque<host::MaterialNetwork> made_;
+  std::optional<Error> fatal_;
+};
+
+void Materials::Commit(const std::string& key,
+                       const host::MaterialNetwork& network) {
+  std::vector<host::Texture> read = TexturesOf(network);
+  textures_->Read(read);
+  const auto [held, added] = ledger_->materials.try_emplace(key);
+  if (added) {
+    held->second.id = ledger_->material_ids.Take();
+    changes_->AddMaterial(held->second.id, network);
+  } else {
+    changes_->UpdateMaterial(held->second.id, network);
+  }
+  textures_->Unread(std::exchange(held->second.textures, std::move(read)));
+}
+
+void Materials::CommitPrim(const pxr::SdfPath& path, const MaterialPrim& prim) {
+  if (!prim.translation().has_value()) {
+    if (!fatal_.has_value()) {
+      fatal_ = prim.translation().error();
+    }
+    return;
+  }
+  const host::MaterialNetwork* network = prim.network();
+  if (network == nullptr) {
+    host::MaterialNetwork& fallback = made_.emplace_back(FallbackMaterial());
+    fallback.path = path.GetString();
+    network = &fallback;
+  }
+  Commit(path.GetString(), *network);
+}
+
+void Materials::CommitPrims() {
+  for (const auto& [path, prim] : prims_->materials) {
+    if (prim->IsChanged()) {
+      CommitPrim(path, *prim);
+    }
+  }
+}
+
+std::string Materials::KeyOf(const pxr::SdfPath& material,
+                             DisplayColor display_color) const {
+  if (prims_->materials.contains(material)) {
+    return material.GetString();
+  }
+  return std::string(display_color == DisplayColor::kPresent
+                         ? kDisplayColorMaterial
+                         : kFallbackMaterial);
+}
+
+std::vector<device::MaterialId> Materials::Read(
+    const std::vector<std::string>& keys) {
+  std::vector<device::MaterialId> ids;
+  ids.reserve(keys.size());
+  for (const std::string& key : keys) {
+    if (!ledger_->materials.contains(key)) {
+      Commit(key, made_.emplace_back(key == kDisplayColorMaterial
+                                         ? DisplayColorMaterial()
+                                         : FallbackMaterial()));
+    }
+    HeldMaterial& held = ledger_->materials.at(key);
+    ++held.readers;
+    ids.push_back(held.id);
+  }
+  return ids;
+}
+
+void Materials::Unread(const std::vector<std::string>& keys) {
+  for (const std::string& key : keys) {
+    --ledger_->materials.at(key).readers;
+  }
+}
+
+void Materials::RemoveUnread() {
+  std::erase_if(ledger_->materials, [this](const auto& entry) {
+    const auto& [key, held] = entry;
+    const bool kept =
+        held.readers > 0 || prims_->materials.contains(pxr::SdfPath(key));
+    if (kept) {
+      return false;
+    }
+    textures_->Unread(held.textures);
+    changes_->RemoveMaterial(held.id);
+    ledger_->material_ids.Free(held.id);
+    return true;
+  });
+}
+
+std::optional<device::MaterialId> Materials::DisplayColorId() const {
+  const auto held = ledger_->materials.find(std::string(kDisplayColorMaterial));
+  if (held == ledger_->materials.end()) {
+    return std::nullopt;
+  }
+  return held->second.id;
+}
+
+void Materials::Report(Warnings& warnings) const {
   MaterialTallies tallies;
   for (const auto& [path, material] : prims_->materials) {
-    if (material->translation().has_value()) {
+    if (material->IsChanged() && material->translation().has_value()) {
       tallies.Add(path, *material->translation());
     }
   }
-  tallies.Report();
-}
-
-// Whether `primvars` holds a displayColor.
-DisplayColor DisplayColorOf(const std::vector<host::Primvar>& primvars) {
-  return std::ranges::any_of(primvars,
-                             [](const host::Primvar& primvar) {
-                               return primvar.name == kDisplayColor;
-                             })
-             ? DisplayColor::kPresent
-             : DisplayColor::kAbsent;
-}
-
-// Gives `faces`, those of a GeomSubset, the material `index` in
-// `face_materials`, skipping those out of its range.
-void MarkFaces(const std::vector<std::uint32_t>& faces, std::uint32_t index,
-               std::vector<std::uint32_t>& face_materials) {
-  for (const std::uint32_t face : faces) {
-    if (face < face_materials.size()) {
-      face_materials.at(face) = index;
-    }
-  }
+  tallies.Report(warnings);
 }
 
 // "1 mesh asks", "120 meshes ask".
@@ -407,26 +605,53 @@ std::string Meshes(std::size_t count, std::string_view singular_verb,
                     : std::format("{} meshes {}", count, plural_verb);
 }
 
-// The meshes committed, as prototypes with their instances and their
-// materials, and the tallies of those that are not, for their warnings.
+// The meshes, as prototypes with their instances and their materials, and
+// the tallies of those that are not, for their warnings.
 class Geometry {
  public:
-  Geometry(MotionTallies& motion UMBRA_LIFETIMEBOUND,
+  Geometry(Ledger& ledger UMBRA_LIFETIMEBOUND,
+           MotionTallies& motion UMBRA_LIFETIMEBOUND,
            Materials& materials UMBRA_LIFETIMEBOUND,
            ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
-      : motion_(&motion), materials_(&materials), changes_(&changes) {}
+      : ledger_(&ledger),
+        motion_(&motion),
+        materials_(&materials),
+        changes_(&changes) {}
 
-  void Add(const pxr::SdfPath& path, MeshPrim& mesh);
+  // Adds, updates or removes the prototype of `mesh`.
+  void Commit(const pxr::SdfPath& path, MeshPrim& mesh);
   void Add(const UnsupportedPrim& prim);
+  // Removes the prototypes whose mesh is gone.
+  void RemoveGone(const SyncedPrims& prims);
 
   // "warning: usd: 120 meshes ask for catmullClark subdivision, rendered
   // as their cage (first /World/Car/Body)", and so on.
-  void Report() const {
-    ReportMeshes();
-    ReportUnsupported();
+  void Report(Warnings& warnings) const {
+    ReportMeshes(warnings);
+    ReportUnsupported(warnings);
   }
 
  private:
+  // The keys of the materials of `mesh`: its own first, then those of its
+  // GeomSubsets.
+  [[nodiscard]] std::vector<std::string> MaterialKeys(
+      const MeshPrim& mesh) const;
+  // Gives the host copy of `mesh` its materials, and `held` their keys.
+  void AssignMaterials(MeshPrim& mesh, HeldPrototype& held);
+  // Removes the prototype `held`.
+  void Remove(const HeldPrototype& held);
+  // Updates the prototype `held` with what changed in `mesh`.
+  void Update(HeldPrototype& held, MeshPrim& mesh);
+  // Counts `mesh` in the tallies it belongs to.
+  void Count(const pxr::SdfPath& path, const MeshPrim& mesh);
+  // Whether `mesh` is a prototype: converted, with an instance or more.
+  [[nodiscard]] static bool IsPlaced(const MeshPrim& mesh) {
+    return mesh.state() == MeshState::kConverted && mesh.instance_count() > 0;
+  }
+  void ReportMeshes(Warnings& warnings) const;
+  void ReportUnsupported(Warnings& warnings) const;
+
+  Ledger* ledger_;
   MotionTallies* motion_;
   Materials* materials_;
   ChangeSetBuilder* changes_;
@@ -434,49 +659,37 @@ class Geometry {
   Tally invalid_;
   std::map<pxr::TfToken, Tally> unsupported_;
   Tally mesh_lights_;
-
-  // Gives `prototype`, the host copy of `mesh`, its materials and those of
-  // its triangles.
-  void AssignMaterials(const MeshPrim& mesh, host::Mesh& prototype);
-  void ReportMeshes() const;
-  void ReportUnsupported() const;
 };
 
-void Geometry::AssignMaterials(const MeshPrim& mesh, host::Mesh& prototype) {
-  const DisplayColor display_color = DisplayColorOf(prototype.primvars);
-  prototype.materials.push_back(
-      materials_->IdOf(mesh.GetMaterialId(), display_color));
-  const std::vector<MaterialSubset>& subsets = mesh.material_subsets();
-  if (subsets.empty()) {
-    return;
+std::vector<std::string> Geometry::MaterialKeys(const MeshPrim& mesh) const {
+  const DisplayColor display_color = mesh.display_color();
+  std::vector<std::string> keys = {
+      materials_->KeyOf(mesh.GetMaterialId(), display_color),
+  };
+  for (const MaterialSubset& subset : mesh.material_subsets()) {
+    keys.push_back(materials_->KeyOf(subset.material, display_color));
   }
-  // The material of each source face, an index into prototype.materials.
-  std::vector<std::uint32_t> face_materials(prototype.face_vertex_counts.size(),
-                                            0);
-  for (const MaterialSubset& subset : subsets) {
-    const auto index = static_cast<std::uint32_t>(prototype.materials.size());
-    prototype.materials.push_back(
-        materials_->IdOf(subset.material, display_color));
-    MarkFaces(subset.faces, index, face_materials);
-  }
-  prototype.triangle_materials.reserve(prototype.source_faces.size());
-  for (const std::uint32_t face : prototype.source_faces) {
-    prototype.triangle_materials.push_back(face_materials.at(face));
-  }
+  return keys;
 }
 
-void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
-  switch (mesh.state()) {
-    case MeshState::kNotSynced:
-    case MeshState::kInvisible:
-      return;
-    case MeshState::kInvalid:
-      invalid_.Add(path, mesh.invalid_reason());
-      return;
-    case MeshState::kConverted:
-      break;
+void Geometry::AssignMaterials(MeshPrim& mesh, HeldPrototype& held) {
+  std::vector<std::string> keys = MaterialKeys(mesh);
+  const std::vector<device::MaterialId> ids = materials_->Read(keys);
+  materials_->Unread(std::exchange(held.materials, std::move(keys)));
+  mesh.mesh().materials.assign(ids.begin(), ids.end());
+}
+
+void Geometry::Remove(const HeldPrototype& held) {
+  materials_->Unread(held.materials);
+  changes_->RemovePrototype(held.id);
+  ledger_->prototype_ids.Free(held.id);
+}
+
+void Geometry::Count(const pxr::SdfPath& path, const MeshPrim& mesh) {
+  if (mesh.state() == MeshState::kInvalid) {
+    invalid_.Add(path, mesh.invalid_reason());
   }
-  if (mesh.instances().empty()) {
+  if (!IsPlaced(mesh)) {
     return;
   }
   if (!mesh.subdivision_scheme().empty()) {
@@ -486,8 +699,47 @@ void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
     mesh_lights_.Add(path);
   }
   motion_->Add(path, mesh.motion_outcome());
-  AssignMaterials(mesh, mesh.mesh());
-  changes_->AddPrototype(mesh.mesh(), mesh.instances());
+}
+
+void Geometry::Update(HeldPrototype& held, MeshPrim& mesh) {
+  const device::ChangeFlags flags = mesh.changes();
+  if (flags == device::ChangeFlags::kNone) {
+    return;
+  }
+  if (device::HasAny(flags, device::ChangeFlags::kMaterials)) {
+    AssignMaterials(mesh, held);
+  }
+  changes_->UpdatePrototype(held.id, mesh.mesh(), mesh.instances(), flags);
+}
+
+void Geometry::Commit(const pxr::SdfPath& path, MeshPrim& mesh) {
+  Count(path, mesh);
+  const auto held = ledger_->prototypes.find(path);
+  if (!IsPlaced(mesh)) {
+    if (held != ledger_->prototypes.end()) {
+      Remove(held->second);
+      ledger_->prototypes.erase(held);
+    }
+    return;
+  }
+  if (held != ledger_->prototypes.end()) {
+    Update(held->second, mesh);
+    return;
+  }
+  HeldPrototype& added = ledger_->prototypes[path];
+  added.id = ledger_->prototype_ids.Take();
+  AssignMaterials(mesh, added);
+  changes_->AddPrototype(added.id, mesh.mesh(), mesh.instances());
+}
+
+void Geometry::RemoveGone(const SyncedPrims& prims) {
+  std::erase_if(ledger_->prototypes, [&](const auto& entry) {
+    if (prims.meshes.contains(entry.first)) {
+      return false;
+    }
+    Remove(entry.second);
+    return true;
+  });
 }
 
 void Geometry::Add(const UnsupportedPrim& prim) {
@@ -496,32 +748,34 @@ void Geometry::Add(const UnsupportedPrim& prim) {
   }
 }
 
-void Geometry::ReportMeshes() const {
+void Geometry::ReportMeshes(Warnings& warnings) const {
   for (const auto& [scheme, tally] : subdivided_) {
-    UMBRA_LOG_WARNING(kUsd, "{} for {} subdivision, rendered as {} cage ({})",
-                      Meshes(tally.count(), "asks", "ask"), scheme,
-                      Plural(tally.count(), "its", "their"), tally.First());
+    warnings.Warn(std::format("{} for {} subdivision, rendered as {} cage ({})",
+                              Meshes(tally.count(), "asks", "ask"), scheme,
+                              Plural(tally.count(), "its", "their"),
+                              tally.First()));
   }
   if (invalid_.count() > 0) {
-    UMBRA_LOG_WARNING(kUsd, "{} invalid, dropped ({}: {})",
-                      Meshes(invalid_.count(), "is", "are"), invalid_.First(),
-                      invalid_.detail());
+    warnings.Warn(std::format("{} invalid, dropped ({}: {})",
+                              Meshes(invalid_.count(), "is", "are"),
+                              invalid_.First(), invalid_.detail()));
   }
 }
 
-void Geometry::ReportUnsupported() const {
+void Geometry::ReportUnsupported(Warnings& warnings) const {
   for (const auto& [type, tally] : unsupported_) {
-    UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
-                      tally.count(), type.GetString(),
-                      Plural(tally.count(), "prim", "prims"), tally.First());
+    warnings.Warn(std::format("{} {} {} not supported yet; left out ({})",
+                              tally.count(), type.GetString(),
+                              Plural(tally.count(), "prim", "prims"),
+                              tally.First()));
   }
   if (mesh_lights_.count() > 0) {
-    UMBRA_LOG_WARNING(
-        kUsd, "{} not supported yet; {} rendered without emission ({})",
-        Plural(mesh_lights_.count(), "1 mesh light",
-               std::format("{} mesh lights", mesh_lights_.count())),
-        Plural(mesh_lights_.count(), "its mesh", "their meshes"),
-        mesh_lights_.First());
+    warnings.Warn(
+        std::format("{} not supported yet; {} rendered without emission ({})",
+                    Plural(mesh_lights_.count(), "1 mesh light",
+                           std::format("{} mesh lights", mesh_lights_.count())),
+                    Plural(mesh_lights_.count(), "its mesh", "their meshes"),
+                    mesh_lights_.First()));
   }
 }
 
@@ -629,55 +883,83 @@ constexpr std::array<IssueWords, 9> kIssueWords = {
 
 // "warning: usd: 2 lights have light filters, which umbra does not take
 // yet; ignored (first /World/key)", and so on.
-void ReportLightIssue(LightIssue issue, const Tally& tally) {
+void ReportLightIssue(LightIssue issue, const Tally& tally,
+                      Warnings& warnings) {
   const auto* words = std::ranges::find(kIssueWords, issue, &IssueWords::issue);
   if (words == kIssueWords.end()) {
     return;
   }
   const std::size_t form = tally.count() == 1 ? 0 : 1;
-  UMBRA_LOG_WARNING(kUsd, "{} {} {} ({}{}{})", tally.count(),
-                    words->subject.at(form), words->predicate.at(form),
-                    tally.First(), tally.detail().empty() ? "" : ": ",
-                    tally.detail());
+  warnings.Warn(std::format("{} {} {} ({}{}{})", tally.count(),
+                            words->subject.at(form), words->predicate.at(form),
+                            tally.First(), tally.detail().empty() ? "" : ": ",
+                            tally.detail()));
 }
 
-// The lights committed, those converted with an instance or more, and the
-// tallies of those that are not and of what they author that umbra does
-// not take, for their warnings.
+// The lights, those converted with an instance or more, updated whole when
+// they sync, and the tallies of those that are not and of what they author
+// that umbra does not take, for their warnings.
 class Lights {
  public:
-  Lights(MotionTallies& motion UMBRA_LIFETIMEBOUND,
+  Lights(Ledger& ledger UMBRA_LIFETIMEBOUND,
+         MotionTallies& motion UMBRA_LIFETIMEBOUND,
+         Textures& textures UMBRA_LIFETIMEBOUND,
          ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
-      : motion_(&motion), changes_(&changes) {}
+      : ledger_(&ledger),
+        motion_(&motion),
+        textures_(&textures),
+        changes_(&changes) {}
 
-  void Add(const pxr::SdfPath& path, const LightPrim& light);
+  // Adds, updates or removes `light`.
+  void Commit(const pxr::SdfPath& path, const LightPrim& light);
+  // Removes the lights whose prim is gone.
+  void RemoveGone(const SyncedPrims& prims);
 
   // "warning: usd: 2 lights have light filters, which umbra does not take
   // yet; ignored (first /World/key)", and so on.
-  void Report() const;
+  void Report(Warnings& warnings) const;
 
-  // The error that stops the render: the first of the lights added.
+  // The error that stops the render: the first of the lights committed.
   [[nodiscard]] const std::optional<Error>& fatal() const UMBRA_LIFETIMEBOUND {
     return fatal_;
   }
 
  private:
+  // Removes the light `held`.
+  void Remove(const HeldLight& held);
+  // Counts `light` in the tallies it belongs to, and its fatal error.
+  void Count(const pxr::SdfPath& path, const LightPrim& light);
+  // Whether `light` is committed: converted, with an instance or more.
+  [[nodiscard]] static bool IsPlaced(const LightPrim& light) {
+    return light.state() == LightState::kConverted &&
+           light.instance_count() > 0;
+  }
+
+  Ledger* ledger_;
   MotionTallies* motion_;
+  Textures* textures_;
   ChangeSetBuilder* changes_;
   std::map<LightIssue, Tally> issues_;
   std::map<std::string, Tally> unsupported_;
   std::optional<Error> fatal_;
 };
 
-void Lights::Add(const pxr::SdfPath& path, const LightPrim& light) {
-  switch (light.state()) {
-    case LightState::kHidden:
-      return;
-    case LightState::kUnsupported:
-      unsupported_[light.unsupported_type()].Add(path);
-      return;
-    case LightState::kConverted:
-      break;
+void Lights::Remove(const HeldLight& held) {
+  textures_->Unread(held.textures);
+  changes_->RemoveLight(held.id);
+  ledger_->light_ids.Free(held.id);
+}
+
+void Lights::Count(const pxr::SdfPath& path, const LightPrim& light) {
+  if (light.state() == LightState::kUnsupported) {
+    unsupported_[light.unsupported_type()].Add(path);
+  }
+  if (!IsPlaced(light)) {
+    return;
+  }
+  motion_->Add(path, light.motion_outcome());
+  if (!light.IsChanged()) {
+    return;
   }
   if (light.fatal().has_value() && !fatal_.has_value()) {
     fatal_ = light.fatal();
@@ -685,20 +967,52 @@ void Lights::Add(const pxr::SdfPath& path, const LightPrim& light) {
   for (const LightNote& note : light.notes()) {
     issues_[note.issue].Add(path, note.detail);
   }
-  motion_->Add(path, light.motion_outcome());
-  if (!light.light().instances.empty()) {
-    changes_->AddLight(light.light());
-  }
 }
 
-void Lights::Report() const {
+void Lights::Commit(const pxr::SdfPath& path, const LightPrim& light) {
+  Count(path, light);
+  const auto held = ledger_->lights.find(path);
+  if (!IsPlaced(light)) {
+    if (held != ledger_->lights.end()) {
+      Remove(held->second);
+      ledger_->lights.erase(held);
+    }
+    return;
+  }
+  if (!light.IsChanged()) {
+    return;
+  }
+  std::vector<host::Texture> read = TexturesOf(light.light());
+  textures_->Read(read);
+  if (held == ledger_->lights.end()) {
+    HeldLight& added = ledger_->lights[path];
+    added.id = ledger_->light_ids.Take();
+    added.textures = std::move(read);
+    changes_->AddLight(added.id, light.light());
+    return;
+  }
+  changes_->UpdateLight(held->second.id, light.light());
+  textures_->Unread(std::exchange(held->second.textures, std::move(read)));
+}
+
+void Lights::RemoveGone(const SyncedPrims& prims) {
+  std::erase_if(ledger_->lights, [&](const auto& entry) {
+    if (prims.lights.contains(entry.first)) {
+      return false;
+    }
+    Remove(entry.second);
+    return true;
+  });
+}
+
+void Lights::Report(Warnings& warnings) const {
   for (const auto& [type, tally] : unsupported_) {
-    UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
-                      tally.count(), type,
-                      Plural(tally.count(), "prim", "prims"), tally.First());
+    warnings.Warn(std::format(
+        "{} {} {} not supported yet; left out ({})", tally.count(), type,
+        Plural(tally.count(), "prim", "prims"), tally.First()));
   }
   for (const auto& [issue, tally] : issues_) {
-    ReportLightIssue(issue, tally);
+    ReportLightIssue(issue, tally, warnings);
   }
 }
 
@@ -724,23 +1038,22 @@ bool IsLinked(const pxr::HdSceneIndexPrim& prim) {
 
 // "warning: usd: 3 lights link geometry, which umbra does not: every light
 // lights everything (first /World/rim)"
-// (docs/adr/0009-lights-light-everything.md).
-void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index) {
+// (docs/adr/0009-lights-light-everything.md): of the lights that synced
+// since the last commit.
+void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index,
+                        const SyncedPrims& prims, Warnings& warnings) {
   Tally linked;
-  for (const pxr::SdfPath& path : pxr::HdSceneIndexPrimView(
-           scene_index, pxr::HdSceneIndexPrimView::Lexicographic)) {
-    const pxr::HdSceneIndexPrim prim = scene_index->GetPrim(path);
-    if (pxr::HdPrimTypeIsLight(prim.primType) && IsLinked(prim)) {
+  for (const auto& [path, light] : prims.lights) {
+    if (light->IsChanged() && IsLinked(scene_index->GetPrim(path))) {
       linked.Add(path);
     }
   }
   if (linked.count() > 0) {
-    UMBRA_LOG_WARNING(kUsd,
-                      "{} {} geometry, which umbra does not: every light "
-                      "lights everything ({})",
-                      linked.count(),
-                      Plural(linked.count(), "light links", "lights link"),
-                      linked.First());
+    warnings.Warn(std::format(
+        "{} {} geometry, which umbra does not: every light lights everything "
+        "({})",
+        linked.count(), Plural(linked.count(), "light links", "lights link"),
+        linked.First()));
   }
 }
 
@@ -876,7 +1189,7 @@ class ProductConverter {
   std::expected<RenderProduct, Error> Implicit(device::CameraId camera,
                                                const SettingsBase& base);
 
-  void Report() const { unsupported_.Report(); }
+  void Report(Warnings& warnings) const { unsupported_.Report(warnings); }
 
  private:
   const CommitInputs* inputs_;
@@ -948,54 +1261,6 @@ std::expected<std::vector<RenderProduct>, Error> Products(
     products.push_back(std::move(*converted));
   }
   return products;
-}
-
-// The lights committed; the warnings about them reported.
-Lights CommitLights(const SyncedPrims& prims, MotionTallies& motion,
-                    ChangeSetBuilder& changes) {
-  Lights lights(motion, changes);
-  for (const auto& [path, light] : prims.lights) {
-    lights.Add(path, *light);
-  }
-  lights.Report();
-  return lights;
-}
-
-// Commits the meshes, with their instances and materials; the warnings
-// about the geometry, its materials and its motion reported.
-void CommitGeometry(const SyncedPrims& prims, MotionTallies& motion,
-                    Materials& materials, ChangeSetBuilder& changes) {
-  Geometry geometry(motion, materials, changes);
-  for (const auto& [path, mesh] : prims.meshes) {
-    geometry.Add(path, *mesh);
-  }
-  for (const auto& [path, prim] : prims.unsupported) {
-    geometry.Add(*prim);
-  }
-  for (const auto& [path, instancer] : prims.instancers) {
-    if (instancer->IsSynced()) {
-      motion.Add(path, instancer->motion_outcome());
-    }
-  }
-  geometry.Report();
-  materials.Report();
-  motion.Report();
-}
-
-// Adds what the frame renders to `changes`, its geometry with its materials
-// and its lights, the warnings about them reported; or gives the error that
-// stops the render.
-std::expected<void, Error> CommitContent(
-    const SyncedPrims& prims, const pxr::HdSceneIndexBaseRefPtr& scene_index,
-    MotionTallies& motion, Materials& materials, ChangeSetBuilder& changes) {
-  const Lights lights = CommitLights(prims, motion, changes);
-  CommitGeometry(prims, motion, materials, changes);
-  if (auto fatal = materials.fatal().or_else([&] { return lights.fatal(); });
-      fatal.has_value()) {
-    return std::unexpected(std::move(*fatal));
-  }
-  ReportLightLinking(scene_index);
-  return {};
 }
 
 // "render/beauty.0012.exr [color, depth]".
@@ -1071,62 +1336,68 @@ std::string DescribeKinds(const MaterialKinds& kinds) {
   return counts;
 }
 
-// The prototypes whose own material is the display color material.
-std::size_t CountOnDisplayColor(const device::ChangeSet& changes) {
-  const std::span<const device::MaterialNetwork> materials =
-      changes.materials.added;
+// The prototypes added whose own material is `display_color`, the display
+// color material.
+std::size_t CountOnDisplayColor(
+    const device::ChangeSet& changes,
+    std::optional<device::MaterialId> display_color) {
   return static_cast<std::size_t>(std::ranges::count_if(
       changes.prototypes.added, [&](const device::Prototype& prototype) {
         return !prototype.materials.empty() &&
-               materials
-                       .subspan(static_cast<std::size_t>(
-                           prototype.materials.front()))
-                       .front()
-                       .path == kDisplayColorMaterial;
+               prototype.materials.front() == display_color;
       }));
 }
 
-// Inserts into `files` those of the `textures` that `node` reads.
-void InsertTextures(const device::MaterialNode& node,
-                    std::span<const device::Texture> textures,
-                    std::set<std::string_view>& files) {
+// Inserts into `read` the ids of the textures `node` reads.
+void InsertTextureIds(const device::MaterialNode& node,
+                      std::set<device::TextureId>& read) {
   for (const device::Parameter& parameter : node.parameters) {
     if (const auto* texture =
             std::get_if<device::TextureId>(&parameter.value)) {
-      files.insert(
-          textures.subspan(static_cast<std::size_t>(*texture)).front().file);
+      read.insert(*texture);
     }
   }
 }
 
-// The files of the textures the materials of `changes` read.
-std::set<std::string_view> MaterialTextures(const device::ChangeSet& changes) {
-  std::set<std::string_view> files;
+// The files of the textures the materials `changes` adds read, by their
+// ids in `textures`.
+std::set<std::string_view> MaterialTextures(const device::ChangeSet& changes,
+                                            const TextureIds& textures) {
+  std::set<device::TextureId> read;
   for (const device::MaterialNetwork& material : changes.materials.added) {
     for (const device::MaterialNode& node : material.nodes) {
-      InsertTextures(node, changes.textures.added, files);
+      InsertTextureIds(node, read);
+    }
+  }
+  std::set<std::string_view> files;
+  for (const auto& [texture, texture_id] : textures) {
+    if (read.contains(texture_id)) {
+      files.insert(texture.file);
     }
   }
   return files;
 }
 
 // "57 materials (MaterialX 40, UsdPreviewSurface 15, OSL 2), 210 textures,
-// 300 meshes on displayColor": the textures counted by file.
-std::string DescribeMaterials(const device::ChangeSet& changes) {
+// 300 meshes on displayColor": those added, the textures counted by file.
+std::string DescribeMaterials(const device::ChangeSet& changes,
+                              const TextureIds& textures,
+                              std::optional<device::MaterialId> display_color) {
   MaterialKinds kinds;
   for (const device::MaterialNetwork& material : changes.materials.added) {
     CountKind(material, kinds);
   }
   const std::string counts = DescribeKinds(kinds);
-  const std::size_t textures = MaterialTextures(changes).size();
+  const std::size_t texture_count = MaterialTextures(changes, textures).size();
   const std::size_t materials = changes.materials.added.size();
-  const std::size_t on_display_color = CountOnDisplayColor(changes);
-  return std::format("{} material{}{}, {} texture{}, {} mesh{} on displayColor",
-                     core::FormatCount(materials), materials == 1 ? "" : "s",
-                     counts.empty() ? "" : std::format(" ({})", counts),
-                     core::FormatCount(textures), textures == 1 ? "" : "s",
-                     core::FormatCount(on_display_color),
-                     on_display_color == 1 ? "" : "es");
+  const std::size_t on_display_color =
+      CountOnDisplayColor(changes, display_color);
+  return std::format(
+      "{} material{}{}, {} texture{}, {} mesh{} on displayColor",
+      core::FormatCount(materials), materials == 1 ? "" : "s",
+      counts.empty() ? "" : std::format(" ({})", counts),
+      core::FormatCount(texture_count), texture_count == 1 ? "" : "s",
+      core::FormatCount(on_display_color), on_display_color == 1 ? "" : "es");
 }
 
 // "14 lights (rect 8, sphere 4, distant 1, dome 1)": the lights counted by
@@ -1194,29 +1465,53 @@ std::string DescribeMotion(const device::ChangeSet& changes,
                      motion.samples == 1 ? "" : "s");
 }
 
+// The number of prims `changes` updates, or removes.
+std::size_t CountUpdated(const device::ChangeSet& changes) {
+  return changes.prototypes.updated.size() + changes.lights.updated.size() +
+         changes.materials.updated.size() + changes.cameras.updated.size();
+}
+
+std::size_t CountRemoved(const device::ChangeSet& changes) {
+  return changes.prototypes.removed.size() + changes.lights.removed.size() +
+         changes.materials.removed.size() + changes.cameras.removed.size() +
+         changes.textures.removed.size();
+}
+
+// What a commit added, which the debug line counts, besides the change set.
+struct Description {
+  // The path of the camera the settings see through.
+  std::string_view camera;
+  const TextureIds* textures;
+  std::optional<device::MaterialId> display_color;
+};
+
 // "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
 // [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
 // instances of 3.4k prototypes, 57 materials (MaterialX 40,
 // UsdPreviewSurface 15, OSL 2), 210 textures, 300 meshes on displayColor,
 // 14 lights (rect 8, sphere 4, distant 1, dome 1), shutter -0.25..0.25, 1.2k
-// moving (max 4 samples)".
+// moving (max 4 samples), 2 prims updated, 0 removed": what it added, then
+// how many prims it updated and removed.
 std::string Describe(const RenderSettings& settings,
                      const device::ChangeSet& changes,
-                     const device::Shutter& shutter) {
+                     const device::Shutter& shutter,
+                     const Description& description) {
   std::string products;
   for (const RenderProduct& product : settings.products) {
     products += (products.empty() ? "" : ", ") + DescribeProduct(product);
   }
   const std::size_t count = settings.products.size();
-  const std::string_view camera =
-      changes.cameras.added.subspan(static_cast<std::size_t>(settings.camera))
-          .front()
-          .path;
-  return std::format("settings {}, camera {}, {} product{}: {}, {}, {}, {}, {}",
-                     settings.path, camera, count, count == 1 ? "" : "s",
-                     products, DescribeGeometry(changes),
-                     DescribeMaterials(changes), DescribeLights(changes),
-                     DescribeMotion(changes, shutter));
+  const std::size_t updated = CountUpdated(changes);
+  return std::format(
+      "settings {}, camera {}, {} product{}: {}, {}, {}, {}, {}, {} prim{} "
+      "updated, {} removed",
+      settings.path, description.camera, count, count == 1 ? "" : "s", products,
+      DescribeGeometry(changes),
+      DescribeMaterials(changes, *description.textures,
+                        description.display_color),
+      DescribeLights(changes), DescribeMotion(changes, shutter),
+      core::FormatCount(updated), updated == 1 ? "" : "s",
+      core::FormatCount(CountRemoved(changes)));
 }
 
 // Commits `changes` to each of `devices`, in order: fails with the error of
@@ -1234,69 +1529,172 @@ std::expected<void, Error> CommitToDevices(
   return {};
 }
 
-// The render settings of `settings`, at the path `inputs` name, seen
-// through `camera`, with their products; `cameras` indexes those of the
-// products.
-std::expected<RenderSettings, Error> SettingsOf(
-    const CommitInputs& inputs, const pxr::UsdStage& stage,
-    const RenderSettingsPrim& settings, device::CameraId camera,
-    Cameras& cameras) {
-  ProductConverter converter(inputs, stage, cameras);
-  auto products = Products(settings, camera, converter);
-  converter.Report();
+// One commit: the change set it builds from the synced prims and the
+// ledger, and the warnings it reports.
+class FrameCommit {
+ public:
+  FrameCommit(const CommitInputs& inputs UMBRA_LIFETIMEBOUND,
+              const CommitScene& scene UMBRA_LIFETIMEBOUND,
+              const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
+              Ledger& ledger UMBRA_LIFETIMEBOUND)
+      : inputs_(&inputs),
+        scene_(&scene),
+        prims_(&prims),
+        ledger_(&ledger),
+        warnings_(ledger.warnings),
+        changes_(ledger.textures),
+        textures_(ledger, changes_),
+        materials_(prims, ledger, changes_, textures_),
+        cameras_(prims, ledger, motion_, changes_,
+                 ledger.shutter == prims.shutter ? ShutterChange::kSame
+                                                 : ShutterChange::kChanged) {}
+  FrameCommit(const FrameCommit&) = delete;
+  FrameCommit& operator=(const FrameCommit&) = delete;
+  FrameCommit(FrameCommit&&) = delete;
+  FrameCommit& operator=(FrameCommit&&) = delete;
+  ~FrameCommit() = default;
+
+  // The render settings of `settings` and the frame parameters, with the
+  // cameras they see through; the description is left empty.
+  std::expected<Committed, Error> CommitSettings(
+      const RenderSettingsPrim& settings);
+
+  // Adds to the change set what changed in what the frame renders, its
+  // geometry with its materials and its lights, the warnings about them
+  // reported; or gives the error that stops the render.
+  std::expected<void, Error> CommitContent();
+
+  // The change set, valid while the committer and the host copies live.
+  [[nodiscard]] device::ChangeSet Build() const UMBRA_LIFETIMEBOUND {
+    return changes_.Build(ledger_->id_counts());
+  }
+
+  // What `change_set` commits, with `settings`: see Describe.
+  [[nodiscard]] std::string DescribeCommit(
+      const RenderSettings& settings,
+      const device::ChangeSet& change_set) const;
+
+ private:
+  // Counts the motion of the instancers that synced.
+  void TallyInstancers();
+
+  const CommitInputs* inputs_;
+  const CommitScene* scene_;
+  const SyncedPrims* prims_;
+  Ledger* ledger_;
+  Warnings warnings_;
+  ChangeSetBuilder changes_;
+  Textures textures_;
+  Materials materials_;
+  MotionTallies motion_;
+  Cameras cameras_;
+  // The path of the camera the settings see through.
+  std::string camera_;
+};
+
+std::expected<Committed, Error> FrameCommit::CommitSettings(
+    const RenderSettingsPrim& settings) {
+  const pxr::SdfPath camera_path = settings.CameraPath();
+  const auto camera = cameras_.Index(
+      camera_path,
+      std::format("render settings {}", inputs_->settings.GetString()));
+  if (!camera.has_value()) {
+    return std::unexpected(camera.error());
+  }
+  ProductConverter converter(*inputs_, *scene_->stage, cameras_);
+  auto products = Products(settings, *camera, converter);
+  converter.Report(warnings_);
   if (!products.has_value()) {
     return std::unexpected(products.error());
   }
-  return RenderSettings{
-      .path = inputs.settings.GetString(),
-      .camera = camera,
-      .products = std::move(*products),
+  cameras_.RemoveUnseen();
+  camera_ = camera_path.GetString();
+  return Committed{
+      .settings =
+          {
+              .path = inputs_->settings.GetString(),
+              .camera = *camera,
+              .products = std::move(*products),
+          },
+      .frame = {.shutter = prims_->shutter, .camera = *camera},
+      .description = {},
   };
+}
+
+void FrameCommit::TallyInstancers() {
+  for (const auto& [path, instancer] : prims_->instancers) {
+    if (instancer->IsSynced()) {
+      motion_.Add(path, instancer->motion_outcome());
+    }
+  }
+}
+
+std::expected<void, Error> FrameCommit::CommitContent() {
+  materials_.CommitPrims();
+  Lights lights(*ledger_, motion_, textures_, changes_);
+  for (const auto& [path, light] : prims_->lights) {
+    lights.Commit(path, *light);
+  }
+  lights.RemoveGone(*prims_);
+  Geometry geometry(*ledger_, motion_, materials_, changes_);
+  for (const auto& [path, mesh] : prims_->meshes) {
+    geometry.Commit(path, *mesh);
+  }
+  geometry.RemoveGone(*prims_);
+  materials_.RemoveUnread();
+  for (const auto& [path, prim] : prims_->unsupported) {
+    geometry.Add(*prim);
+  }
+  TallyInstancers();
+  lights.Report(warnings_);
+  geometry.Report(warnings_);
+  materials_.Report(warnings_);
+  motion_.Report(warnings_);
+  if (auto fatal = materials_.fatal().or_else([&] { return lights.fatal(); });
+      fatal.has_value()) {
+    return std::unexpected(std::move(*fatal));
+  }
+  ReportLightLinking(scene_->scene_index, *prims_, warnings_);
+  return {};
+}
+
+std::string FrameCommit::DescribeCommit(
+    const RenderSettings& settings, const device::ChangeSet& change_set) const {
+  return Describe(settings, change_set, prims_->shutter,
+                  {
+                      .camera = camera_,
+                      .textures = &ledger_->textures,
+                      .display_color = materials_.DisplayColorId(),
+                  });
 }
 
 }  // namespace
 
 std::expected<Committed, Error> Commit(
-    const CommitInputs& inputs, const pxr::UsdStage& stage,
-    const pxr::HdSceneIndexBaseRefPtr& scene_index, SyncedPrims& prims,
-    std::span<device::Device* const> devices) {
+    const CommitInputs& inputs, const CommitScene& scene, SyncedPrims& prims,
+    Ledger& ledger, std::span<device::Device* const> devices) {
   const auto found = prims.settings.find(inputs.settings);
   if (found == prims.settings.end()) {
     return std::unexpected(
         Error(ErrorCode::kNotFound, std::format("no RenderSettings prim at {}",
                                                 inputs.settings.GetString())));
   }
-  const RenderSettingsPrim& settings = *found->second;
-  ChangeSetBuilder changes;
-  Materials materials(prims, changes);
-  MotionTallies motion;
-  Cameras cameras(prims, motion, changes);
-  const auto camera = cameras.Index(
-      settings.CameraPath(),
-      std::format("render settings {}", inputs.settings.GetString()));
-  if (!camera.has_value()) {
-    return std::unexpected(camera.error());
+  FrameCommit commit(inputs, scene, prims, ledger);
+  auto committed = commit.CommitSettings(*found->second);
+  if (!committed.has_value()) {
+    return committed;
   }
-  auto render_settings = SettingsOf(inputs, stage, settings, *camera, cameras);
-  if (!render_settings.has_value()) {
-    return std::unexpected(std::move(render_settings.error()));
-  }
-  Committed committed{
-      .settings = std::move(*render_settings),
-      .frame = {.shutter = prims.shutter, .camera = *camera},
-      .description = {},
-  };
-  if (auto content =
-          CommitContent(prims, scene_index, motion, materials, changes);
-      !content.has_value()) {
+  if (auto content = commit.CommitContent(); !content.has_value()) {
     return std::unexpected(std::move(content.error()));
   }
-  const device::ChangeSet change_set = changes.Build();
-  committed.description =
-      Describe(committed.settings, change_set, prims.shutter);
+  const device::ChangeSet change_set = commit.Build();
+  committed->description =
+      commit.DescribeCommit(committed->settings, change_set);
   if (auto done = CommitToDevices(change_set, devices); !done.has_value()) {
     return std::unexpected(std::move(done.error()));
   }
+  ledger.Recycle();
+  ledger.shutter = prims.shutter;
   return committed;
 }
 

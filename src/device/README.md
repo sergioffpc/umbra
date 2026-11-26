@@ -19,6 +19,9 @@ Public headers (`include/umbra/device/`):
   device's own memory, and the frame parameters a device receives for each
   frame besides render data.
 - `diagnostic_device.h`: a device that renders nothing, and checks each
-  change set it receives instead: ids in range, cross-references that
-  resolve, sizes and alignment. It logs what it received as the `device`
-  component, at debug level.
+  change set it receives instead, against what it holds from the commits
+  before: ids in range, an id removed or updated held and an id added free,
+  an update carrying only the members its change flags name,
+  cross-references that resolve, sizes and alignment. It logs what it
+  received as the `device` component, at debug level, with a digest of what
+  it holds that does not depend on the ids.

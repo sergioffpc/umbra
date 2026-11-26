@@ -24,7 +24,7 @@
 
 #include "host_copy.h"
 #include "motion.h"
-#include "umbra/core/progress.h"
+#include "sync_counter.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -47,9 +47,9 @@ struct FlatInstance {
 // own lock, before the first rprim it places reads it; its parents too.
 class InstancerPrim final : public pxr::HdInstancer {
  public:
-  // Counts its sync into `phase`. `shutter` is chosen before it syncs.
+  // Counts its sync into `counter`. `shutter` is chosen before it syncs.
   InstancerPrim(pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id,
-                core::ProgressPhase& phase,
+                SyncCounter& counter,
                 const host::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
   void Sync(pxr::HdSceneDelegate* delegate,
@@ -83,7 +83,7 @@ class InstancerPrim final : public pxr::HdInstancer {
   // Samples its transform and those of its instances over the shutter.
   void SampleMotion(pxr::HdSceneDelegate& delegate);
 
-  core::ProgressPhase* phase_;
+  SyncCounter* counter_;
   const host::Shutter* shutter_;
   Synced synced_ = Synced::kNotSynced;
   Visibility visibility_ = Visibility::kVisible;

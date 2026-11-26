@@ -40,9 +40,9 @@
 #include "instancer.h"
 #include "material.h"
 #include "mesh.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/ocio/ocio.h"
@@ -383,11 +383,11 @@ bool IsMeshLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
 }
 
 LightPrim::LightPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
-                     core::ProgressPhase* UMBRA_NULLABLE phase,
+                     SyncCounter* UMBRA_NULLABLE counter,
                      double meters_per_unit)
     : pxr::HdLight(prim_id),
       type_(std::move(type_id)),
-      phase_(phase),
+      counter_(counter),
       meters_per_unit_(meters_per_unit) {}
 
 pxr::HdDirtyBits LightPrim::GetInitialDirtyBitsMask() const {
@@ -397,18 +397,24 @@ pxr::HdDirtyBits LightPrim::GetInitialDirtyBitsMask() const {
 void LightPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
                      pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
                      pxr::HdDirtyBits* dirty_bits) {
-  if (phase_ == nullptr) {
+  if (counter_ == nullptr) {
     *dirty_bits = pxr::HdLight::Clean;
     return;
   }
   _UpdateInstancer(scene_delegate, dirty_bits);
   *dirty_bits = pxr::HdLight::Clean;
   delegate_ = scene_delegate;
+  changed_ = Changed::kYes;
+  state_ = LightState::kHidden;
+  instance_count_ = 0;
+  notes_.clear();
+  fatal_.reset();
+  light_ = {};
   render_tag_ = scene_delegate->GetRenderTag(GetId());
   if (scene_delegate->GetVisible(GetId())) {
     Convert(*scene_delegate);
   }
-  phase_->Add(1);
+  counter_->Add(1);
   if (state_ == LightState::kConverted) {
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} light)", GetId().GetString(),
                     device::kLightShapeNames.at(light_.shape.index()));
@@ -447,6 +453,7 @@ void LightPrim::Place(const host::Shutter& shutter,
   }
   if (std::ranges::find(render_tags, render_tag_) == render_tags.end()) {
     state_ = LightState::kHidden;
+    instance_count_ = 0;
     return;
   }
   if (state_ != LightState::kConverted) {
@@ -455,6 +462,7 @@ void LightPrim::Place(const host::Shutter& shutter,
   const Placement placement =
       PlaceInstances(*delegate_, GetId(), GetInstancerId(), shutter);
   motion_outcome_ = placement.outcome;
+  instance_count_ = placement.instances.size();
   light_.instances.clear();
   light_.instances.reserve(placement.instances.size());
   for (const FlatInstance& instance : placement.instances) {
@@ -466,6 +474,9 @@ void LightPrim::Place(const host::Shutter& shutter,
   }
 }
 
-void LightPrim::FreeHostCopy() { light_ = {}; }
+void LightPrim::FreeHostCopy() {
+  light_ = {};
+  changed_ = Changed::kNo;
+}
 
 }  // namespace umbra::ext::usd::internal

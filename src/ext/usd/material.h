@@ -19,6 +19,7 @@
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/path.h>
 
+#include <cstdint>
 #include <expected>
 #include <optional>
 #include <string>
@@ -26,8 +27,8 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -81,9 +82,9 @@ struct TranslatedMaterial {
 // render context, translated.
 class MaterialPrim final : public pxr::HdMaterial {
  public:
-  // Counts its sync into `phase`, unless it is a fallback prim.
+  // Counts its sync into `counter`, unless it is a fallback prim.
   MaterialPrim(const pxr::SdfPath& prim_id,
-               core::ProgressPhase* UMBRA_NULLABLE phase);
+               SyncCounter* UMBRA_NULLABLE counter);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* scene_delegate,
@@ -98,11 +99,16 @@ class MaterialPrim final : public pxr::HdMaterial {
   // Its network, its host copy, when it translates; none otherwise.
   [[nodiscard]] const host::MaterialNetwork* UMBRA_NULLABLE
   network() const UMBRA_LIFETIMEBOUND;
+  // Whether it synced since its host copy was last committed.
+  [[nodiscard]] bool IsChanged() const { return changed_ == Changed::kYes; }
   // Frees its host copy, once committed: it is then as before its sync.
   void FreeHostCopy();
 
  private:
-  core::ProgressPhase* UMBRA_NULLABLE phase_;
+  enum class Changed : std::uint8_t { kNo, kYes };
+
+  SyncCounter* UMBRA_NULLABLE counter_;
+  Changed changed_ = Changed::kNo;
   std::expected<TranslatedMaterial, core::Error> translation_;
 };
 

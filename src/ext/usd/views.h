@@ -23,32 +23,75 @@ UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::ext::usd::internal {
 
-// Builds the change set of a commit in which every prim is added, with the
-// next id of its kind: views of the host copies it is given, which must
-// outlive it, and the arrays of views they need, which it owns. The
-// textures of the materials and lights are added once each, by file and
-// color space.
+// The ids of the textures held, by file and color space.
+using TextureIds = std::map<host::Texture, device::TextureId>;
+
+// The prims of one kind a change set adds, updates and removes.
+template <typename View, typename Id>
+struct ChangeLists {
+  std::vector<View> added;
+  std::vector<View> updated;
+  std::vector<Id> removed;
+};
+
+// Builds the change set of a commit: views of the host copies it is given,
+// which must outlive it, under the ids the commit gives them, and the
+// arrays of views they need, which it owns. A material or a light refers to
+// its textures by the ids `textures` gives them, which must hold them when
+// it is added or updated.
 class ChangeSetBuilder {
  public:
-  ChangeSetBuilder() = default;
+  explicit ChangeSetBuilder(const TextureIds& textures UMBRA_LIFETIMEBOUND)
+      : textures_(&textures) {}
   ChangeSetBuilder(const ChangeSetBuilder&) = delete;
   ChangeSetBuilder& operator=(const ChangeSetBuilder&) = delete;
   ChangeSetBuilder(ChangeSetBuilder&&) = delete;
   ChangeSetBuilder& operator=(ChangeSetBuilder&&) = delete;
   ~ChangeSetBuilder() = default;
 
-  device::CameraId AddCamera(const host::Camera& camera UMBRA_LIFETIMEBOUND);
-  device::MaterialId AddMaterial(
-      const host::MaterialNetwork& network UMBRA_LIFETIMEBOUND);
-  // Adds `mesh`, whose materials are those added, with its `instances`.
-  device::PrototypeId AddPrototype(const host::Mesh& mesh UMBRA_LIFETIMEBOUND,
-                                   std::span<const host::Instance> instances
-                                       UMBRA_LIFETIMEBOUND);
-  // Adds `light`, which has an instance or more.
-  device::LightId AddLight(const host::Light& light UMBRA_LIFETIMEBOUND);
+  void AddTexture(device::TextureId prim_id,
+                  const host::Texture& texture UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void RemoveTexture(device::TextureId prim_id);
 
-  // The change set, valid while the builder and the host copies live.
-  [[nodiscard]] device::ChangeSet Build() const UMBRA_LIFETIMEBOUND;
+  void AddCamera(device::CameraId prim_id,
+                 const host::Camera& camera UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void UpdateCamera(device::CameraId prim_id,
+                    const host::Camera& camera UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void RemoveCamera(device::CameraId prim_id);
+
+  void AddMaterial(device::MaterialId prim_id,
+                   const host::MaterialNetwork& network
+                       UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void UpdateMaterial(device::MaterialId prim_id,
+                      const host::MaterialNetwork& network
+                          UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void RemoveMaterial(device::MaterialId prim_id);
+
+  // Adds `light`, which has an instance or more.
+  void AddLight(device::LightId prim_id,
+                const host::Light& light UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void UpdateLight(device::LightId prim_id,
+                   const host::Light& light UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  void RemoveLight(device::LightId prim_id);
+
+  // Adds `mesh`, with its `instances`.
+  void AddPrototype(device::PrototypeId prim_id,
+                    const host::Mesh& mesh UMBRA_LIFETIME_CAPTURE_BY_THIS,
+                    std::span<const host::Instance> instances
+                        UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  // Updates the members of `mesh`, and its `instances`, that `changes`
+  // names.
+  void UpdatePrototype(device::PrototypeId prim_id,
+                       const host::Mesh& mesh UMBRA_LIFETIME_CAPTURE_BY_THIS,
+                       std::span<const host::Instance> instances
+                           UMBRA_LIFETIME_CAPTURE_BY_THIS,
+                       device::ChangeFlags changes);
+  void RemovePrototype(device::PrototypeId prim_id);
+
+  // The change set, with the id counts `ids`, valid while the builder and
+  // the host copies live.
+  [[nodiscard]] device::ChangeSet Build(const device::IdCounts& ids) const
+      UMBRA_LIFETIMEBOUND;
 
  private:
   // The arrays of views the builder keeps, one list of each type.
@@ -64,11 +107,15 @@ class ChangeSetBuilder {
     return arrays.back();
   }
 
-  // The id of `texture`, added when it is not yet.
-  device::TextureId TextureIdOf(
-      const host::Texture& texture UMBRA_LIFETIMEBOUND);
+  // The id of `texture`, which `textures_` holds.
+  [[nodiscard]] device::TextureId TextureIdOf(
+      const host::Texture& texture) const;
   [[nodiscard]] static device::Primvar PrimvarOf(
       const host::Primvar& primvar UMBRA_LIFETIMEBOUND);
+  // The views of the motion samples of points `samples`.
+  std::span<const std::span<const device::Float3>> PointsOf(
+      const std::vector<host::HostBuffer<device::Float3>>& samples
+          UMBRA_LIFETIMEBOUND);
   std::span<const device::Primvar> PrimvarsOf(
       const std::vector<host::Primvar>& primvars UMBRA_LIFETIMEBOUND);
   std::span<const device::Instance> InstancesOf(
@@ -79,18 +126,32 @@ class ChangeSetBuilder {
       const host::MaterialNode& node UMBRA_LIFETIMEBOUND);
   device::Light::Shape ShapeOf(
       const host::Light::Shape& shape UMBRA_LIFETIMEBOUND);
+  [[nodiscard]] static device::Camera CameraOf(
+      device::CameraId prim_id, const host::Camera& camera UMBRA_LIFETIMEBOUND);
+  device::MaterialNetwork MaterialOf(device::MaterialId prim_id,
+                                     const host::MaterialNetwork& network
+                                         UMBRA_LIFETIMEBOUND);
+  device::Light LightOf(device::LightId prim_id,
+                        const host::Light& light UMBRA_LIFETIMEBOUND);
+  // The view of the members of `mesh` and of its `instances` that
+  // `changes` names.
+  device::Prototype PrototypeOf(
+      device::PrototypeId prim_id, const host::Mesh& mesh UMBRA_LIFETIMEBOUND,
+      std::span<const host::Instance> instances UMBRA_LIFETIMEBOUND,
+      device::ChangeFlags changes);
 
+  const TextureIds* textures_;
   KeptArrays<std::span<const device::Float3>, device::Primvar, device::Instance,
              device::Parameter, device::Connection, device::MaterialNode,
              std::string_view>
       kept_;
-  std::vector<device::Prototype> prototypes_;
-  std::vector<device::Light> lights_;
-  std::vector<device::MaterialNetwork> materials_;
-  std::vector<device::Camera> cameras_;
-  std::vector<device::Texture> textures_;
-  std::map<std::pair<std::string_view, std::string_view>, device::TextureId>
-      texture_ids_;
+  std::vector<device::Prototype> added_prototypes_;
+  std::vector<device::UpdatedPrototype> updated_prototypes_;
+  std::vector<device::PrototypeId> removed_prototypes_;
+  ChangeLists<device::Light, device::LightId> lights_;
+  ChangeLists<device::MaterialNetwork, device::MaterialId> materials_;
+  ChangeLists<device::Camera, device::CameraId> cameras_;
+  ChangeLists<device::Texture, device::TextureId> texture_changes_;
 };
 
 }  // namespace umbra::ext::usd::internal

@@ -28,6 +28,8 @@ namespace umbra::device {
 struct Shutter {
   double open = 0.0;
   double close = 0.0;
+
+  friend bool operator==(const Shutter&, const Shutter&) = default;
 };
 
 // What a frame renders besides render data.

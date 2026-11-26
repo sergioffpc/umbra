@@ -58,9 +58,9 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/ocio/ocio.h"
 
@@ -703,10 +703,13 @@ TranslatedMaterial NotSynced() {
 }  // namespace
 
 MaterialPrim::MaterialPrim(const pxr::SdfPath& prim_id,
-                           core::ProgressPhase* UMBRA_NULLABLE phase)
-    : pxr::HdMaterial(prim_id), phase_(phase), translation_(NotSynced()) {}
+                           SyncCounter* UMBRA_NULLABLE counter)
+    : pxr::HdMaterial(prim_id), counter_(counter), translation_(NotSynced()) {}
 
-void MaterialPrim::FreeHostCopy() { translation_ = NotSynced(); }
+void MaterialPrim::FreeHostCopy() {
+  translation_ = NotSynced();
+  changed_ = Changed::kNo;
+}
 
 pxr::HdDirtyBits MaterialPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdMaterial::AllDirty;
@@ -716,7 +719,7 @@ void MaterialPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
                         pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
                         pxr::HdDirtyBits* dirty_bits) {
   *dirty_bits = pxr::HdMaterial::Clean;
-  if (phase_ == nullptr) {
+  if (counter_ == nullptr) {
     return;
   }
   const pxr::HdSceneIndexBaseRefPtr terminal =
@@ -737,7 +740,8 @@ void MaterialPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
         .unsupported_terminals = {},
     };
   }
-  phase_->Add(1);
+  changed_ = Changed::kYes;
+  counter_->Add(1);
   if (const host::MaterialNetwork* synced = network(); synced != nullptr) {
     const std::size_t nodes = synced->nodes.size();
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} node{})", GetId().GetString(), nodes,

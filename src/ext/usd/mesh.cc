@@ -522,11 +522,12 @@ bool IsNormals(const host::Primvar& primvar) {
 
 // Takes the authored normals, unless they cannot be normals; computes
 // smooth ones from `points` otherwise, or when there are none.
-void SetNormals(std::optional<host::Primvar> authored,
-                const HostBuffer<host::Float3>& points, host::Mesh& mesh) {
+NormalsSource SetNormals(std::optional<host::Primvar> authored,
+                         const HostBuffer<host::Float3>& points,
+                         host::Mesh& mesh) {
   if (authored.has_value() && IsNormals(*authored)) {
     mesh.normals = std::move(*authored);
-    return;
+    return NormalsSource::kAuthored;
   }
   if (authored.has_value()) {
     UMBRA_LOG_DEBUG(kUsd,
@@ -535,6 +536,7 @@ void SetNormals(std::optional<host::Primvar> authored,
                     mesh.path);
   }
   mesh.normals = SmoothNormals(points, mesh.triangles);
+  return NormalsSource::kComputed;
 }
 
 // Converts the primvars of `source` into `mesh`, its normals apart: none
@@ -583,8 +585,8 @@ bool IsSubdivided(const pxr::HdMeshTopology& topology) {
   return !scheme.IsEmpty() && scheme != pxr::PxOsdOpenSubdivTokens->none;
 }
 
-std::expected<host::Mesh, std::string> ConvertMesh(const SourceMesh& source,
-                                                   double meters_per_unit) {
+std::expected<ConvertedMesh, std::string> ConvertMesh(const SourceMesh& source,
+                                                      double meters_per_unit) {
   auto points = PointsInMeters(source.points, meters_per_unit);
   if (!points.has_value()) {
     return std::unexpected(points.error());
@@ -593,7 +595,8 @@ std::expected<host::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   if (!triangulation.has_value()) {
     return std::unexpected(triangulation.error());
   }
-  host::Mesh mesh;
+  ConvertedMesh converted;
+  host::Mesh& mesh = converted.mesh;
   mesh.path = source.path;
   mesh.sidedness = source.sidedness;
   auto normals = ConvertPrimvars(source, *triangulation, mesh);
@@ -603,16 +606,35 @@ std::expected<host::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   mesh.triangles = std::move(triangulation->triangles);
   mesh.source_faces = std::move(triangulation->source_faces);
   mesh.face_vertex_counts = std::move(triangulation->face_vertex_counts);
-  SetNormals(std::move(*normals), *points, mesh);
+  converted.normals = SetNormals(std::move(*normals), *points, mesh);
   if (source.point_motion.empty()) {
     mesh.points.push_back(std::move(*points));
-    return mesh;
+    return converted;
   }
   mesh.points.reserve(source.point_motion.size());
   for (const pxr::VtVec3fArray& sample : source.point_motion) {
     mesh.points.push_back(InMeters(sample, meters_per_unit));
   }
-  return mesh;
+  return converted;
+}
+
+std::expected<std::vector<HostBuffer<host::Float3>>, std::string> ConvertPoints(
+    const pxr::VtValue& points, std::span<const pxr::VtVec3fArray> motion,
+    double meters_per_unit) {
+  std::vector<HostBuffer<host::Float3>> samples;
+  if (motion.empty()) {
+    auto frame = PointsInMeters(points, meters_per_unit);
+    if (!frame.has_value()) {
+      return std::unexpected(frame.error());
+    }
+    samples.push_back(std::move(*frame));
+    return samples;
+  }
+  samples.reserve(motion.size());
+  for (const pxr::VtVec3fArray& sample : motion) {
+    samples.push_back(InMeters(sample, meters_per_unit));
+  }
+  return samples;
 }
 
 std::optional<host::Primvar> ConstantPrimvar(std::string name,
