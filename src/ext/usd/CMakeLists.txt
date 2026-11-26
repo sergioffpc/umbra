@@ -6,7 +6,8 @@ find_package(pxr CONFIG REQUIRED)
 umbra_add_ext_module(
   usd
   SOURCES
-  close_scene.cc
+  commit.cc
+  host_copy.cc
   hydra.cc
   instancer.cc
   light.cc
@@ -15,9 +16,10 @@ umbra_add_ext_module(
   motion.cc
   outputs.cc
   usd.cc
+  views.cc
   DEPENDS
   core
-  scene
+  device
   ext::ocio
   LINK
   tf

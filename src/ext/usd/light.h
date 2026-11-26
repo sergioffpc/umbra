@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// UsdLux lights, as Hydra gives them, synced into the Scene's lights: their
+// UsdLux lights, as Hydra gives them, synced into their host copies: their
 // shapes in meters, their colors in ACEScg
 // (docs/adr/0007-spectral-rendering-from-acescg.md), their textures resolved
 // to absolute files with their color spaces, and their transforms sampled
@@ -23,11 +23,11 @@
 #include <string>
 #include <vector>
 
+#include "host_copy.h"
 #include "motion.h"
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -51,7 +51,7 @@ enum class LightState : std::uint8_t {
   // type with no shape: nothing is taken from it. Every light is, until it
   // syncs.
   kHidden,
-  // It is converted into the Scene's, with its instances.
+  // It is converted into its host copy, with its instances.
   kConverted,
   // It is of a kind umbra does not take (PortalLight, GeometryLight,
   // PluginLight): only counted.
@@ -107,7 +107,7 @@ class LightPrim final : public pxr::HdLight {
 
   // Places it over `shutter`, once synced: hidden when its purpose's render
   // tag is not in `render_tags`.
-  void Place(const scene::Shutter& shutter,
+  void Place(const host::Shutter& shutter,
              const pxr::TfTokenVector& render_tags);
 
   [[nodiscard]] LightState state() const { return state_; }
@@ -128,8 +128,13 @@ class LightPrim final : public pxr::HdLight {
   }
   // What sampling did with its motion, once placed.
   [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
-  // Its lights, once placed, one for each of its instances, moved out.
-  [[nodiscard]] std::vector<scene::Light> TakeLights();
+  // Its host copy, once placed, with one instance for each of its
+  // instancer's; none when it places none.
+  [[nodiscard]] const host::Light& light() const UMBRA_LIFETIMEBOUND {
+    return light_;
+  }
+  // Frees its host copy, once committed.
+  void FreeHostCopy();
 
  private:
   void Convert(pxr::HdSceneDelegate& delegate);
@@ -138,7 +143,7 @@ class LightPrim final : public pxr::HdLight {
   core::ProgressPhase* UMBRA_NULLABLE phase_;
   double meters_per_unit_;
   // The scene delegate it synced with, which Place reads: Hydra's, which
-  // lives as long as the render index, past the sync that closes the Scene.
+  // lives as long as the render index.
   pxr::HdSceneDelegate* UMBRA_NULLABLE delegate_ = nullptr;
   LightState state_ = LightState::kHidden;
   pxr::TfToken render_tag_;
@@ -146,9 +151,7 @@ class LightPrim final : public pxr::HdLight {
   std::vector<LightNote> notes_;
   std::optional<core::Error> fatal_;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
-  // Everything but its transforms.
-  scene::Light light_;
-  std::vector<scene::Light> lights_;
+  host::Light light_;
 };
 
 }  // namespace umbra::ext::usd::internal

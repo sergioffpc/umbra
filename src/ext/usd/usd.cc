@@ -42,39 +42,60 @@
 #include <pxr/usdImaging/usdImaging/stageSceneIndex.h>
 #include <unistd.h>
 
-#include <algorithm>
-#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <exception>
 #include <expected>
 #include <format>
-#include <functional>
 #include <iterator>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
-#include <variant>
 
-#include "close_scene.h"
+#include "commit.h"
 #include "hydra.h"
-#include "material.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/progress.h"
-#include "umbra/scene/scene.h"
+#include "umbra/device/device.h"
+#include "umbra/ext/usd/render_settings.h"
 
 namespace umbra::ext::usd {
-namespace {
 
 namespace pxr = PXR_NS;
+
+struct Session::State {
+  pxr::UsdStageRefPtr stage;
+  // The scene indices from the stage to the render index.
+  pxr::HdSceneIndexBaseRefPtr chain;
+  internal::CommitInputs inputs;
+  std::span<device::Device* const> devices;
+  // The phase the prims count their syncs into: it outlives them.
+  std::unique_ptr<core::ProgressPhase> phase;
+  std::unique_ptr<internal::RenderDelegate> delegate;
+  // Destroyed before the delegate, whose prims it destroys.
+  std::unique_ptr<pxr::HdRenderIndex> index;
+  pxr::HdEngine engine;
+  pxr::HdTaskSharedPtrVector tasks;
+  RenderSettings settings;
+  device::FrameParameters frame;
+};
+
+Session::Session(std::unique_ptr<State> state) : state_(std::move(state)) {}
+
+Session::~Session() = default;
+
+const RenderSettings& Session::settings() const { return state_->settings; }
+
+const device::FrameParameters& Session::frame() const { return state_->frame; }
+
+namespace {
 
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
@@ -342,72 +363,74 @@ struct SyncRequest {
 };
 
 // Builds the render index on umbra's delegate, populated from the chain,
-// syncs it in HdEngine::Execute and takes the Scene the delegate closed.
-std::expected<scene::Scene, Error> ExecuteSync(
-    const pxr::UsdStageRefPtr& stage, pxr::UsdTimeCode time,
-    const internal::CloseInputs& inputs, core::ProgressPhase& phase) {
-  const pxr::HdSceneIndexBaseRefPtr chain =
-      ChainSceneIndices(stage, time, inputs.settings);
-  internal::RenderDelegate delegate(
-      phase, inputs.meters_per_unit,
-      [&inputs, &stage, &chain](const internal::SyncedPrims& prims) {
-        return internal::CloseScene(inputs, *stage, chain, prims);
+// and runs HdEngine::Execute: the prims sync, and the delegate commits them
+// to the devices. Gives what the debug line says was committed.
+std::expected<std::string, Error> ExecuteSync(Session::State& state,
+                                              pxr::UsdTimeCode time) {
+  state.chain = ChainSceneIndices(state.stage, time, state.inputs.settings);
+  state.delegate = std::make_unique<internal::RenderDelegate>(
+      *state.phase, pxr::UsdGeomGetStageMetersPerUnit(state.stage),
+      [&state](internal::SyncedPrims& prims) {
+        return internal::Commit(state.inputs, *state.stage, state.chain, prims,
+                                state.devices);
       });
-  // Destroyed before the delegate, whose prims it destroys.
-  const std::unique_ptr<pxr::HdRenderIndex> index(
-      pxr::HdRenderIndex::New(&delegate, {}));
-  if (index == nullptr) {
+  state.index.reset(pxr::HdRenderIndex::New(state.delegate.get(), {}));
+  if (state.index == nullptr) {
     return std::unexpected(
         Error(ErrorCode::kInternal, "Hydra: no render index"));
   }
-  index->InsertSceneIndex(chain, pxr::SdfPath::AbsoluteRootPath(),
-                          /*needsPrefixing=*/false);
-  phase.SetTotal(delegate.PrimCount());
+  state.index->InsertSceneIndex(state.chain, pxr::SdfPath::AbsoluteRootPath(),
+                                /*needsPrefixing=*/false);
+  state.phase->SetTotal(state.delegate->PrimCount());
   // Hydra syncs the rprims of the collections queued, in their reprs: one
   // collection of every rprim, whose repr umbra never draws.
-  index->EnqueueCollectionToSync(pxr::HdRprimCollection(
+  state.index->EnqueueCollectionToSync(pxr::HdRprimCollection(
       pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->hull)));
-  pxr::HdTaskSharedPtrVector tasks = {
-      std::make_shared<internal::SyncTask>(delegate, inputs.settings),
+  state.tasks = {
+      std::make_shared<internal::SyncTask>(*state.delegate,
+                                           state.inputs.settings),
   };
-  pxr::HdEngine engine;
-  engine.Execute(index.get(), &tasks);
-  auto scene = delegate.TakeScene();
-  if (!scene.has_value()) {
+  state.engine.Execute(state.index.get(), &state.tasks);
+  auto committed = state.delegate->TakeCommitted();
+  if (!committed.has_value()) {
     return std::unexpected(
-        Error(ErrorCode::kInternal, "Hydra did not commit the scene"));
+        Error(ErrorCode::kInternal, "Hydra did not commit the prims"));
   }
-  return std::move(*scene);
+  if (!committed->has_value()) {
+    return std::unexpected(std::move(committed->error()));
+  }
+  state.settings = std::move((*committed)->settings);
+  state.frame = (*committed)->frame;
+  return std::move((*committed)->description);
 }
 
-// Resolves the settings and syncs the stage into the Scene.
-std::expected<scene::Scene, Error> SyncStage(const pxr::UsdStageRefPtr& stage,
-                                             const SyncRequest& request,
-                                             core::ProgressPhase& phase) {
-  const auto settings = SettingsPath(*stage, request.settings);
+// Resolves the settings and syncs the stage, committing its prims to the
+// devices.
+std::expected<std::string, Error> SyncStage(Session::State& state,
+                                            const SyncRequest& request) {
+  const auto settings = SettingsPath(*state.stage, request.settings);
   if (!settings.has_value()) {
     return std::unexpected(settings.error());
   }
-  const internal::CloseInputs inputs{
+  state.inputs = {
       .settings = *settings,
       .scene_path = request.scene_path,
       .frame = FrameOf(request.time),
-      .meters_per_unit = pxr::UsdGeomGetStageMetersPerUnit(stage),
   };
-  return ExecuteSync(stage, request.time, inputs, phase);
+  return ExecuteSync(state, request.time);
 }
 
-// Syncs the stage into the Scene through Hydra, as the render's second
-// phase, "Syncing scene".
-std::expected<scene::Scene, Error> SyncScene(const pxr::UsdStageRefPtr& stage,
-                                             const SyncRequest& request) {
-  core::ProgressPhase phase("Syncing scene", "prims");
+// Syncs the stage through Hydra and commits its prims to the devices, as the
+// render's second phase, "Syncing scene".
+std::expected<std::string, Error> SyncScene(Session::State& state,
+                                            const SyncRequest& request) {
+  state.phase = std::make_unique<core::ProgressPhase>("Syncing scene", "prims");
   try {
-    auto scene = SyncStage(stage, request, phase);
-    if (scene.has_value()) {
-      phase.Finish();
+    auto synced = SyncStage(state, request);
+    if (synced.has_value()) {
+      state.phase->Finish();
     }
-    return scene;
+    return synced;
   } catch (const std::exception& error) {
     return std::unexpected(
         Error(ErrorCode::kInternal, std::format("Hydra: {}", error.what())));
@@ -415,193 +438,6 @@ std::expected<scene::Scene, Error> SyncScene(const pxr::UsdStageRefPtr& stage,
     return std::unexpected(
         Error(ErrorCode::kInternal, "Hydra: an unknown exception"));
   }
-}
-
-// "render/beauty.0012.exr [color, depth]".
-std::string DescribeProduct(const scene::RenderProduct& product) {
-  std::string vars;
-  for (const scene::RenderVar& var : product.vars) {
-    vars += vars.empty() ? var.name : ", " + var.name;
-  }
-  return std::format("{} [{}]", product.file, vars);
-}
-
-// "1.24M triangles in 3.4k meshes, 18 primvars, 2.1M instances of 3.4k
-// prototypes": the primvars counted by name, the normals apart.
-std::string DescribeGeometry(const scene::Scene& scene) {
-  std::size_t triangles = 0;
-  std::set<std::string_view> primvars;
-  for (const scene::Mesh& mesh : scene.prototypes()) {
-    triangles += mesh.triangles.size();
-    for (const scene::Primvar& primvar : mesh.primvars) {
-      primvars.insert(primvar.name);
-    }
-  }
-  const std::size_t meshes = scene.prototypes().size();
-  const std::size_t instances = scene.instances().size();
-  return std::format(
-      "{} triangle{} in {} mesh{}, {} primvar{}, {} instance{} of {} "
-      "prototype{}",
-      core::FormatCount(triangles), triangles == 1 ? "" : "s",
-      core::FormatCount(meshes), meshes == 1 ? "" : "es",
-      core::FormatCount(primvars.size()), primvars.size() == 1 ? "" : "s",
-      core::FormatCount(instances), instances == 1 ? "" : "s",
-      core::FormatCount(meshes), meshes == 1 ? "" : "s");
-}
-
-// The kinds of material the debug line counts.
-struct MaterialKinds {
-  std::size_t materialx = 0;
-  std::size_t preview_surface = 0;
-  std::size_t osl = 0;
-};
-
-// Counts `material` into `kinds`: OSL when a node is an .oso shader,
-// UsdPreviewSurface when its surface is, MaterialX otherwise.
-void CountKind(const scene::MaterialNetwork& material, MaterialKinds& kinds) {
-  if (std::ranges::any_of(material.nodes, [](const scene::MaterialNode& node) {
-        return node.kind == scene::ShaderKind::kOsl;
-      })) {
-    ++kinds.osl;
-  } else if (material.nodes.at(material.surface.node).shader ==
-             "ND_UsdPreviewSurface_surfaceshader") {
-    ++kinds.preview_surface;
-  } else {
-    ++kinds.materialx;
-  }
-}
-
-// Adds the files of the textures of `node` to `files`.
-void AddTextures(const scene::MaterialNode& node,
-                 std::set<std::string_view>& files) {
-  for (const scene::Parameter& parameter : node.parameters) {
-    if (const auto* texture = std::get_if<scene::Texture>(&parameter.value)) {
-      files.insert(texture->file);
-    }
-  }
-}
-
-// "MaterialX 40, UsdPreviewSurface 15, OSL 2": the kinds counted, but those
-// of none.
-std::string DescribeKinds(const MaterialKinds& kinds) {
-  const auto named = std::to_array<std::pair<std::string_view, std::size_t>>({
-      {"MaterialX", kinds.materialx},
-      {"UsdPreviewSurface", kinds.preview_surface},
-      {"OSL", kinds.osl},
-  });
-  std::string counts;
-  for (const auto& [name, count] : named) {
-    if (count > 0) {
-      counts += std::format("{}{} {}", counts.empty() ? "" : ", ", name,
-                            core::FormatCount(count));
-    }
-  }
-  return counts;
-}
-
-// The meshes whose own material is the display color material.
-std::size_t CountOnDisplayColor(const scene::Scene& scene) {
-  return static_cast<std::size_t>(std::ranges::count_if(
-      scene.prototypes(), [&scene](const scene::Mesh& mesh) {
-        return !mesh.materials.empty() &&
-               scene.materials().subspan(mesh.materials.front()).front().path ==
-                   internal::kDisplayColorMaterial;
-      }));
-}
-
-// "57 materials (MaterialX 40, UsdPreviewSurface 15, OSL 2), 210 textures,
-// 300 meshes on displayColor": the textures counted by file.
-std::string DescribeMaterials(const scene::Scene& scene) {
-  MaterialKinds kinds;
-  std::set<std::string_view> textures;
-  for (const scene::MaterialNetwork& material : scene.materials()) {
-    CountKind(material, kinds);
-    for (const scene::MaterialNode& node : material.nodes) {
-      AddTextures(node, textures);
-    }
-  }
-  const std::string counts = DescribeKinds(kinds);
-  const std::size_t materials = scene.materials().size();
-  const std::size_t on_display_color = CountOnDisplayColor(scene);
-  return std::format(
-      "{} material{}{}, {} texture{}, {} mesh{} on displayColor",
-      core::FormatCount(materials), materials == 1 ? "" : "s",
-      counts.empty() ? "" : std::format(" ({})", counts),
-      core::FormatCount(textures.size()), textures.size() == 1 ? "" : "s",
-      core::FormatCount(on_display_color), on_display_color == 1 ? "" : "es");
-}
-
-// "14 lights (rect 8, sphere 4, distant 1, dome 1)": the lights counted by
-// kind, the most first.
-std::string DescribeLights(const scene::Scene& scene) {
-  constexpr std::array<std::string_view, 6> kKinds = scene::kLightShapeNames;
-  std::array<std::size_t, kKinds.size()> counts{};
-  for (const scene::Light& light : scene.lights()) {
-    ++counts.at(light.shape.index());
-  }
-  std::array<std::size_t, kKinds.size()> order{};
-  std::ranges::iota(order, std::size_t{0});
-  std::ranges::stable_sort(
-      order, std::ranges::greater{},
-      [&counts](std::size_t kind) { return counts.at(kind); });
-  std::string kinds;
-  for (const std::size_t kind : order) {
-    if (counts.at(kind) > 0) {
-      kinds += std::format("{}{} {}", kinds.empty() ? "" : ", ",
-                           kKinds.at(kind), core::FormatCount(counts.at(kind)));
-    }
-  }
-  const std::size_t lights = scene.lights().size();
-  return std::format("{} light{}{}", core::FormatCount(lights),
-                     lights == 1 ? "" : "s",
-                     kinds.empty() ? "" : std::format(" ({})", kinds));
-}
-
-// "shutter -0.25..0.25, 1.2k moving (max 4 samples)": the prototypes whose
-// points move and the instances and lights that move, and the most motion
-// samples of any of them or of a camera.
-std::string DescribeMotion(const scene::Scene& scene) {
-  std::size_t moving = 0;
-  std::size_t samples = 1;
-  for (const scene::Mesh& mesh : scene.prototypes()) {
-    moving += mesh.points.size() > 1 ? 1 : 0;
-    samples = std::max(samples, mesh.points.size());
-  }
-  for (const scene::Instance& instance : scene.instances()) {
-    moving += instance.object_to_world.size() > 1 ? 1 : 0;
-    samples = std::max(samples, instance.object_to_world.size());
-  }
-  for (const scene::Light& light : scene.lights()) {
-    moving += light.light_to_world.size() > 1 ? 1 : 0;
-    samples = std::max(samples, light.light_to_world.size());
-  }
-  for (const scene::Camera& camera : scene.cameras()) {
-    samples = std::max(samples, camera.camera_to_world.size());
-  }
-  const scene::Shutter& shutter = scene.shutter();
-  return std::format("shutter {}..{}, {} moving (max {} sample{})",
-                     shutter.open, shutter.close, core::FormatCount(moving),
-                     samples, samples == 1 ? "" : "s");
-}
-
-// "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
-// [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
-// instances of 3.4k prototypes, 57 materials (MaterialX 40,
-// UsdPreviewSurface 15, OSL 2), 210 textures, 300 meshes on displayColor,
-// 14 lights (rect 8, sphere 4, distant 1, dome 1), shutter -0.25..0.25, 1.2k
-// moving (max 4 samples)".
-std::string DescribeScene(const scene::Scene& scene) {
-  const scene::RenderSettings& settings = scene.settings();
-  std::string products;
-  for (const scene::RenderProduct& product : settings.products) {
-    products += (products.empty() ? "" : ", ") + DescribeProduct(product);
-  }
-  const std::size_t count = settings.products.size();
-  return std::format(
-      "settings {}, camera {}, {} product{}: {}, {}, {}, {}, {}", settings.path,
-      scene.cameras().subspan(settings.camera).front().path, count,
-      count == 1 ? "" : "s", products, DescribeGeometry(scene),
-      DescribeMaterials(scene), DescribeLights(scene), DescribeMotion(scene));
 }
 
 }  // namespace
@@ -628,27 +464,33 @@ std::expected<void, Error> Initialize() {
   return {};
 }
 
-std::expected<scene::Scene, Error> LoadScene(std::string_view path,
-                                             const LoadOptions& options) {
-  const auto stage = LoadStage(path, options.frame);
+std::expected<std::unique_ptr<Session>, Error> OpenSession(
+    std::string_view path, const LoadOptions& options,
+    std::span<device::Device* const> devices) {
+  auto stage = LoadStage(path, options.frame);
   if (!stage.has_value()) {
     return std::unexpected(stage.error());
   }
-  const pxr::UsdTimeCode time = LoadTime(**stage, options.frame);
+  auto state = std::make_unique<Session::State>();
+  state->stage = std::move(*stage);
+  state->devices = devices;
+  const pxr::UsdTimeCode time = LoadTime(*state->stage, options.frame);
   const auto start = std::chrono::steady_clock::now();
-  auto scene = SyncScene(*stage, {
-                                     .scene_path = std::string(path),
-                                     .settings = options.settings,
-                                     .time = time,
-                                 });
-  if (!scene.has_value()) {
-    return std::unexpected(scene.error());
+  const auto committed = SyncScene(*state, {
+                                               .scene_path = std::string(path),
+                                               .settings = options.settings,
+                                               .time = time,
+                                           });
+  if (!committed.has_value()) {
+    // The phase ends, failed, before the error is reported.
+    state.reset();
+    return std::unexpected(committed.error());
   }
   const std::chrono::duration<double> elapsed =
       std::chrono::steady_clock::now() - start;
   UMBRA_LOG_DEBUG(kUsd, "scene synced in {} ({})",
-                  core::FormatDuration(elapsed), DescribeScene(*scene));
-  return scene;
+                  core::FormatDuration(elapsed), *committed);
+  return std::make_unique<Session>(std::move(state));
 }
 
 }  // namespace umbra::ext::usd

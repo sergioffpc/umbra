@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// Motion within the shutter (docs/adr/0006-scenes-enter-through-hydra.md):
+// Motion within the shutter (docs/adr/0012-umbra-is-a-hydra-renderer.md):
 // the samples Hydra gives of a transform or of points, those within the
 // shutter and those that bracket it, resampled to equally spaced times over
-// the shutter, as the Scene holds them.
+// the shutter, as the host copies hold them.
 
 #ifndef UMBRA_EXT_USD_MOTION_H_
 #define UMBRA_EXT_USD_MOTION_H_
@@ -27,8 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -40,7 +40,7 @@ namespace pxr = PXR_NS;
 inline constexpr std::size_t kMaxMotionSamples = 16;
 
 // Whether `shutter` spans an interval: whether there is motion blur.
-[[nodiscard]] bool IsMotionBlurred(const scene::Shutter& shutter);
+[[nodiscard]] bool IsMotionBlurred(const host::Shutter& shutter);
 
 // What sampling did with the motion of a prim, for the warnings that report
 // it, from the least to the most severe: a prim's outcome is the most severe
@@ -77,7 +77,7 @@ struct MotionSampleCount {
 // values, authored or not. One when there is no motion blur or a single
 // sample.
 [[nodiscard]] MotionSampleCount CountMotionSamples(
-    std::span<const float> times, const scene::Shutter& shutter);
+    std::span<const float> times, const host::Shutter& shutter);
 
 // The count two values sampled together get: the larger, with the more
 // severe outcome.
@@ -85,7 +85,7 @@ struct MotionSampleCount {
                                       const MotionSampleCount& rhs);
 
 // The time of sample `index` of `count` equally spaced over `shutter`.
-[[nodiscard]] double UniformTime(const scene::Shutter& shutter,
+[[nodiscard]] double UniformTime(const host::Shutter& shutter,
                                  std::size_t index, std::size_t count);
 
 // The transform `weight` of the way from `start` to `end`, interpolated as
@@ -134,7 +134,7 @@ T ValueAt(const TimedSamples<T>& samples, double time, const Blend& blend) {
 // The values of `samples` at `count` equally spaced times over `shutter`.
 template <typename T, typename Blend>
 std::vector<T> Resample(const TimedSamples<T>& samples,
-                        const scene::Shutter& shutter, std::size_t count,
+                        const host::Shutter& shutter, std::size_t count,
                         const Blend& blend) {
   std::vector<T> resampled;
   resampled.reserve(count);
@@ -177,8 +177,8 @@ struct Motion {
 // The motion samples of a value sampled at `samples` over `shutter`,
 // blended by `blend` between them.
 template <typename T, typename Blend>
-Motion<T> MotionOf(const TimedSamples<T>& samples,
-                   const scene::Shutter& shutter, const Blend& blend) {
+Motion<T> MotionOf(const TimedSamples<T>& samples, const host::Shutter& shutter,
+                   const Blend& blend) {
   const MotionSampleCount count = CountMotionSamples(samples.times, shutter);
   if (count.count < 2) {
     return {};
@@ -204,13 +204,13 @@ using TransformMotion = std::vector<pxr::GfMatrix4d>;
 // `shutter`, which spans an interval; none when it has no transform.
 [[nodiscard]] TimedSamples<pxr::GfMatrix4d> SampleTransform(
     pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
-    const scene::Shutter& shutter);
+    const host::Shutter& shutter);
 
 // The samples Hydra gives of the primvar `name` of the prim at `prim_id` over
 // `shutter`, which spans an interval; none when it has no such primvar.
 [[nodiscard]] TimedSamples<pxr::VtValue> SamplePrimvar(
     pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
-    const pxr::TfToken& name, const scene::Shutter& shutter);
+    const pxr::TfToken& name, const host::Shutter& shutter);
 
 // A transform's motion samples, and what sampling did.
 struct SampledTransform {
@@ -223,14 +223,14 @@ struct SampledTransform {
 // does not move.
 [[nodiscard]] SampledTransform ResampleTransform(
     const TimedSamples<pxr::GfMatrix4d>& samples, const pxr::GfMatrix4d& frame,
-    const scene::Shutter& shutter);
+    const host::Shutter& shutter);
 
 // The motion samples of the transform of the prim at `prim_id` over
 // `shutter`: its transform at the frame alone when there is no motion blur or
 // it does not move.
 [[nodiscard]] SampledTransform SampleTransformMotion(
     pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
-    const scene::Shutter& shutter);
+    const host::Shutter& shutter);
 
 }  // namespace umbra::ext::usd::internal
 

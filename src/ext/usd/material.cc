@@ -57,12 +57,12 @@
 #include <variant>
 #include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/ocio/ocio.h"
-#include "umbra/scene/scene.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -160,7 +160,7 @@ std::array<float, N> Floats(const Matrix& matrix) {
 // The value of `value`, a Gf vector or matrix of N components of either
 // `Single` or `Double` precision, as floats; none for another type.
 template <std::size_t N, typename Single, typename Double>
-std::optional<scene::ParameterValue> GfValue(const pxr::VtValue& value) {
+std::optional<host::ParameterValue> GfValue(const pxr::VtValue& value) {
   if (value.IsHolding<Single>()) {
     return Floats<N>(value.UncheckedGet<Single>());
   }
@@ -170,10 +170,10 @@ std::optional<scene::ParameterValue> GfValue(const pxr::VtValue& value) {
   return std::nullopt;
 }
 
-// The elements of a VtArray of T, as a vector of U.
-template <typename U, typename T>
-std::vector<U> Elements(const pxr::VtArray<T>& array) {
-  std::vector<U> elements;
+// The elements of a VtArray of T, as a Container of them.
+template <typename Container, typename T>
+Container Elements(const pxr::VtArray<T>& array) {
+  Container elements;
   elements.reserve(array.size());
   for (const T& element : array) {
     if constexpr (std::is_same_v<T, pxr::TfToken>) {
@@ -186,7 +186,7 @@ std::vector<U> Elements(const pxr::VtArray<T>& array) {
 }
 
 // A scalar or a string; none for another type.
-std::optional<scene::ParameterValue> ScalarValue(const pxr::VtValue& value) {
+std::optional<host::ParameterValue> ScalarValue(const pxr::VtValue& value) {
   if (value.IsHolding<bool>()) {
     return value.UncheckedGet<bool>();
   }
@@ -209,26 +209,30 @@ std::optional<scene::ParameterValue> ScalarValue(const pxr::VtValue& value) {
 }
 
 // An array of integers, floats or strings; none for another type.
-std::optional<scene::ParameterValue> ArrayValue(const pxr::VtValue& value) {
+std::optional<host::ParameterValue> ArrayValue(const pxr::VtValue& value) {
   if (value.IsHolding<pxr::VtIntArray>()) {
-    return Elements<std::int32_t>(value.UncheckedGet<pxr::VtIntArray>());
+    return Elements<host::HostBuffer<std::int32_t>>(
+        value.UncheckedGet<pxr::VtIntArray>());
   }
   if (value.IsHolding<pxr::VtFloatArray>()) {
-    return Elements<float>(value.UncheckedGet<pxr::VtFloatArray>());
+    return Elements<host::HostBuffer<float>>(
+        value.UncheckedGet<pxr::VtFloatArray>());
   }
   if (value.IsHolding<pxr::VtStringArray>()) {
-    return Elements<std::string>(value.UncheckedGet<pxr::VtStringArray>());
+    return Elements<std::vector<std::string>>(
+        value.UncheckedGet<pxr::VtStringArray>());
   }
   if (value.IsHolding<pxr::VtTokenArray>()) {
-    return Elements<std::string>(value.UncheckedGet<pxr::VtTokenArray>());
+    return Elements<std::vector<std::string>>(
+        value.UncheckedGet<pxr::VtTokenArray>());
   }
   return std::nullopt;
 }
 
 // The value of a parameter that is neither a color nor an asset; none for a
 // type umbra does not take.
-std::optional<scene::ParameterValue> PlainValue(const pxr::VtValue& value) {
-  using Reader = std::optional<scene::ParameterValue> (*)(const pxr::VtValue&);
+std::optional<host::ParameterValue> PlainValue(const pxr::VtValue& value) {
+  using Reader = std::optional<host::ParameterValue> (*)(const pxr::VtValue&);
   static constexpr std::array<Reader, 7> kReaders = {
       ScalarValue,
       GfValue<2, pxr::GfVec2f, pxr::GfVec2d>,
@@ -239,7 +243,7 @@ std::optional<scene::ParameterValue> PlainValue(const pxr::VtValue& value) {
       ArrayValue,
   };
   for (const Reader reader : kReaders) {
-    if (std::optional<scene::ParameterValue> read = reader(value);
+    if (std::optional<host::ParameterValue> read = reader(value);
         read.has_value()) {
       return read;
     }
@@ -297,9 +301,9 @@ std::optional<ColorNumbers> ColorComponents(const pxr::VtValue& value) {
 }
 
 // The parameter value of `numbers`, converted.
-scene::ParameterValue ColorValue(ColorNumbers numbers) {
+host::ParameterValue ColorValue(ColorNumbers numbers) {
   if (numbers.shape == ColorShape::kArray) {
-    return std::move(numbers.rgb);
+    return host::HostBuffer<float>(numbers.rgb.begin(), numbers.rgb.end());
   }
   const std::array<float, 3> rgb = {
       numbers.rgb.at(0),
@@ -307,14 +311,14 @@ scene::ParameterValue ColorValue(ColorNumbers numbers) {
       numbers.rgb.at(2),
   };
   if (numbers.alpha.has_value()) {
-    return scene::ColorAlpha{.rgb = rgb, .alpha = *numbers.alpha};
+    return host::ColorAlpha{.rgb = rgb, .alpha = *numbers.alpha};
   }
-  return scene::Color{.rgb = rgb};
+  return host::Color{.rgb = rgb};
 }
 
 // The parameter value of `color`, converted into ACEScg from `color_space`,
 // kDefaultColorSpace when empty.
-std::expected<std::optional<scene::ParameterValue>, std::string> ConvertedColor(
+std::expected<std::optional<host::ParameterValue>, std::string> ConvertedColor(
     ColorNumbers color, const pxr::TfToken& color_space) {
   if (auto converted = ocio::ConvertToAcescg(
           color_space.IsEmpty() ? kDefaultColorSpace : color_space.GetString(),
@@ -354,31 +358,30 @@ class Translator {
   [[nodiscard]] pxr::TfTokenVector SurfaceNodes() const;
   // The nodes the inputs of the node `name` connect to.
   [[nodiscard]] pxr::TfTokenVector Upstream(const pxr::TfToken& name) const;
-  std::expected<scene::MaterialNetwork, std::string> Network(
+  std::expected<host::MaterialNetwork, std::string> Network(
       const pxr::TfTokenVector& names);
   // The output the surface is; fails when there is none.
-  std::expected<scene::NodeOutput, std::string> Surface();
+  std::expected<host::NodeOutput, std::string> Surface();
   // The path of the prim of the node `name`.
   [[nodiscard]] pxr::SdfPath NodePath(const pxr::TfToken& name) const;
-  std::expected<scene::MaterialNode, std::string> Node(
-      const pxr::TfToken& name);
-  [[nodiscard]] std::expected<std::vector<scene::Connection>, std::string>
+  std::expected<host::MaterialNode, std::string> Node(const pxr::TfToken& name);
+  [[nodiscard]] std::expected<std::vector<host::Connection>, std::string>
   Connections(const pxr::TfToken& name) const;
   // The connections of the input `input` of the node `name`.
-  [[nodiscard]] std::expected<std::vector<scene::Connection>, std::string>
+  [[nodiscard]] std::expected<std::vector<host::Connection>, std::string>
   Connect(const pxr::TfToken& name, const pxr::TfToken& input) const;
   // Gives `node` its kind and its shader.
   std::expected<void, std::string> AssignShader(const pxr::TfToken& name,
-                                                scene::MaterialNode& node);
+                                                host::MaterialNode& node);
   std::expected<void, std::string> AssignOslShader(const pxr::TfToken& name,
-                                                   scene::MaterialNode& node);
+                                                   host::MaterialNode& node);
   // The value of the parameter `param` of the node `name`; none when it is
   // dropped.
-  std::expected<std::optional<scene::ParameterValue>, std::string> Value(
-      const pxr::TfToken& name, const scene::MaterialNode& node,
+  std::expected<std::optional<host::ParameterValue>, std::string> Value(
+      const pxr::TfToken& name, const host::MaterialNode& node,
       const pxr::TfToken& param);
-  std::expected<std::optional<scene::ParameterValue>, std::string> Texture(
-      const pxr::TfToken& name, const scene::MaterialNode& node,
+  std::expected<std::optional<host::ParameterValue>, std::string> Texture(
+      const pxr::TfToken& name, const host::MaterialNode& node,
       const pxr::SdfAssetPath& asset, const pxr::TfToken& color_space);
   // The absolute file of an asset of the node `name`, or none when it does
   // not resolve.
@@ -445,9 +448,9 @@ pxr::TfTokenVector Translator::Upstream(const pxr::TfToken& name) const {
   return upstream;
 }
 
-std::expected<scene::MaterialNetwork, std::string> Translator::Network(
+std::expected<host::MaterialNetwork, std::string> Translator::Network(
     const pxr::TfTokenVector& names) {
-  scene::MaterialNetwork network{
+  host::MaterialNetwork network{
       .path = network_->GetMaterialPrimPath().GetString(),
       .nodes = {},
       .surface = {},
@@ -467,14 +470,14 @@ std::expected<scene::MaterialNetwork, std::string> Translator::Network(
   return network;
 }
 
-std::expected<scene::NodeOutput, std::string> Translator::Surface() {
+std::expected<host::NodeOutput, std::string> Translator::Surface() {
   const auto [connected, connection] =
       network_->GetTerminalConnection(pxr::HdMaterialTerminalTokens->surface);
   const auto found = indices_.find(connection.upstreamNodeName);
   if (!connected || found == indices_.end()) {
     return std::unexpected("no surface");
   }
-  return scene::NodeOutput{
+  return host::NodeOutput{
       .node = found->second,
       .name = connection.upstreamOutputName.GetString(),
   };
@@ -485,11 +488,11 @@ pxr::SdfPath Translator::NodePath(const pxr::TfToken& name) const {
       pxr::SdfPath(name.GetString()));
 }
 
-std::expected<scene::MaterialNode, std::string> Translator::Node(
+std::expected<host::MaterialNode, std::string> Translator::Node(
     const pxr::TfToken& name) {
-  scene::MaterialNode node{
+  host::MaterialNode node{
       .name = name.GetString(),
-      .kind = scene::ShaderKind::kMaterialX,
+      .kind = host::ShaderKind::kMaterialX,
       .shader = {},
       .parameters = {},
       .connections = {},
@@ -520,9 +523,9 @@ std::expected<scene::MaterialNode, std::string> Translator::Node(
   return node;
 }
 
-std::expected<std::vector<scene::Connection>, std::string>
+std::expected<std::vector<host::Connection>, std::string>
 Translator::Connections(const pxr::TfToken& name) const {
-  std::vector<scene::Connection> connections;
+  std::vector<host::Connection> connections;
   for (const pxr::TfToken& input :
        network_->GetNodeInputConnectionNames(name)) {
     auto connected = Connect(name, input);
@@ -534,9 +537,9 @@ Translator::Connections(const pxr::TfToken& name) const {
   return connections;
 }
 
-std::expected<std::vector<scene::Connection>, std::string> Translator::Connect(
+std::expected<std::vector<host::Connection>, std::string> Translator::Connect(
     const pxr::TfToken& name, const pxr::TfToken& input) const {
-  std::vector<scene::Connection> connections;
+  std::vector<host::Connection> connections;
   for (const auto& connection : network_->GetNodeInputConnection(name, input)) {
     const auto found = indices_.find(connection.upstreamNodeName);
     if (found == indices_.end()) {
@@ -555,11 +558,11 @@ std::expected<std::vector<scene::Connection>, std::string> Translator::Connect(
 }
 
 std::expected<void, std::string> Translator::AssignShader(
-    const pxr::TfToken& name, scene::MaterialNode& node) {
+    const pxr::TfToken& name, host::MaterialNode& node) {
   // A MaterialX nodedef first, then OSL, as ShaderSourceTypes orders them.
   const pxr::TfToken shader_id = network_->GetNodeType(name);
   if (std::optional<std::string> nodedef = NodeDef(shader_id.GetString())) {
-    node.kind = scene::ShaderKind::kMaterialX;
+    node.kind = host::ShaderKind::kMaterialX;
     node.shader = std::move(*nodedef);
     return {};
   }
@@ -577,7 +580,7 @@ std::expected<void, std::string> Translator::AssignShader(
 }
 
 std::expected<void, std::string> Translator::AssignOslShader(
-    const pxr::TfToken& name, scene::MaterialNode& node) {
+    const pxr::TfToken& name, host::MaterialNode& node) {
   static const pxr::TfToken kOslSourceAsset("OSL:sourceAsset");
   const pxr::VtValue asset =
       network_->GetNodeTypeInfoValue(name, kOslSourceAsset);
@@ -597,7 +600,7 @@ std::expected<void, std::string> Translator::AssignOslShader(
         std::format("{}: the shader {} is not compiled (.oso)",
                     NodePath(name).GetString(), *file));
   }
-  node.kind = scene::ShaderKind::kOsl;
+  node.kind = host::ShaderKind::kOsl;
   node.shader = std::move(*file);
   return {};
 }
@@ -614,8 +617,8 @@ std::optional<std::string> Translator::Resolve(const pxr::TfToken& name,
   return std::move(*file);
 }
 
-std::expected<std::optional<scene::ParameterValue>, std::string>
-Translator::Value(const pxr::TfToken& name, const scene::MaterialNode& node,
+std::expected<std::optional<host::ParameterValue>, std::string>
+Translator::Value(const pxr::TfToken& name, const host::MaterialNode& node,
                   const pxr::TfToken& param) {
   const pxr::HdMaterialNetworkInterface::NodeParamData data =
       network_->GetNodeParameterData(name, param);
@@ -632,7 +635,7 @@ Translator::Value(const pxr::TfToken& name, const scene::MaterialNode& node,
       return ConvertedColor(std::move(*color), data.colorSpace);
     }
   }
-  std::optional<scene::ParameterValue> plain = PlainValue(value);
+  std::optional<host::ParameterValue> plain = PlainValue(value);
   if (!plain.has_value()) {
     return std::unexpected(std::format(
         "a value of type {}, which umbra does not take", value.GetTypeName()));
@@ -640,8 +643,8 @@ Translator::Value(const pxr::TfToken& name, const scene::MaterialNode& node,
   return plain;
 }
 
-std::expected<std::optional<scene::ParameterValue>, std::string>
-Translator::Texture(const pxr::TfToken& name, const scene::MaterialNode& node,
+std::expected<std::optional<host::ParameterValue>, std::string>
+Translator::Texture(const pxr::TfToken& name, const host::MaterialNode& node,
                     const pxr::SdfAssetPath& asset,
                     const pxr::TfToken& color_space) {
   if (asset.GetAssetPath().empty()) {
@@ -662,17 +665,17 @@ Translator::Texture(const pxr::TfToken& name, const scene::MaterialNode& node,
   if (!resolved_space.has_value()) {
     return std::unexpected(resolved_space.error());
   }
-  return scene::Texture{
+  return host::Texture{
       .file = std::move(*file),
       .color_space = std::move(*resolved_space),
   };
 }
 
 // A MaterialX node named `name` of the nodedef `shader`.
-scene::MaterialNode MaterialXNode(std::string name, std::string shader) {
+host::MaterialNode MaterialXNode(std::string name, std::string shader) {
   return {
       .name = std::move(name),
-      .kind = scene::ShaderKind::kMaterialX,
+      .kind = host::ShaderKind::kMaterialX,
       .shader = std::move(shader),
       .parameters = {},
       .connections = {},
@@ -686,15 +689,24 @@ std::expected<TranslatedMaterial, Error> TranslateMaterial(
   return Translator(network).Translate();
 }
 
+namespace {
+
+// The translation of a material prim before it syncs.
+TranslatedMaterial NotSynced() {
+  return {
+      .network = std::unexpected("not synced"),
+      .unresolved = {},
+      .unsupported_terminals = {},
+  };
+}
+
+}  // namespace
+
 MaterialPrim::MaterialPrim(const pxr::SdfPath& prim_id,
                            core::ProgressPhase* UMBRA_NULLABLE phase)
-    : pxr::HdMaterial(prim_id),
-      phase_(phase),
-      translation_(TranslatedMaterial{
-          .network = std::unexpected("not synced"),
-          .unresolved = {},
-          .unsupported_terminals = {},
-      }) {}
+    : pxr::HdMaterial(prim_id), phase_(phase), translation_(NotSynced()) {}
+
+void MaterialPrim::FreeHostCopy() { translation_ = NotSynced(); }
 
 pxr::HdDirtyBits MaterialPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdMaterial::AllDirty;
@@ -726,7 +738,7 @@ void MaterialPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
     };
   }
   phase_->Add(1);
-  if (const scene::MaterialNetwork* synced = network(); synced != nullptr) {
+  if (const host::MaterialNetwork* synced = network(); synced != nullptr) {
     const std::size_t nodes = synced->nodes.size();
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} node{})", GetId().GetString(), nodes,
                     nodes == 1 ? "" : "s");
@@ -735,7 +747,7 @@ void MaterialPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   }
 }
 
-const scene::MaterialNetwork* UMBRA_NULLABLE MaterialPrim::network() const {
+const host::MaterialNetwork* UMBRA_NULLABLE MaterialPrim::network() const {
   if (!translation_.has_value() || !translation_->network.has_value()) {
     return nullptr;
   }
@@ -758,14 +770,14 @@ const pxr::TfTokenVector& ShaderSourceTypes() {
   return kTypes;
 }
 
-scene::MaterialNetwork FallbackMaterial() {
-  scene::MaterialNode bsdf =
+host::MaterialNetwork FallbackMaterial() {
+  host::MaterialNode bsdf =
       MaterialXNode("diffuse", "ND_oren_nayar_diffuse_bsdf");
   bsdf.parameters.push_back({
       .name = "color",
-      .value = scene::Color{.rgb = {kGray, kGray, kGray}},
+      .value = host::Color{.rgb = {kGray, kGray, kGray}},
   });
-  scene::MaterialNode surface = MaterialXNode("surface", "ND_surface");
+  host::MaterialNode surface = MaterialXNode("surface", "ND_surface");
   surface.connections.push_back({.input = "bsdf", .node = 0, .output = "out"});
   return {
       .path = std::string(kFallbackMaterial),
@@ -774,8 +786,8 @@ scene::MaterialNetwork FallbackMaterial() {
   };
 }
 
-scene::MaterialNetwork DisplayColorMaterial() {
-  scene::MaterialNode reader =
+host::MaterialNetwork DisplayColorMaterial() {
+  host::MaterialNode reader =
       MaterialXNode("displayColor", "ND_UsdPrimvarReader_vector3");
   reader.parameters.push_back(
       {.name = "varname", .value = std::string(kDisplayColor)});
@@ -784,10 +796,10 @@ scene::MaterialNetwork DisplayColorMaterial() {
       .value = std::array<float, 3>{kGray, kGray, kGray},
   });
   // The reader gives a vector3, which MaterialX does not connect to a color.
-  scene::MaterialNode color =
+  host::MaterialNode color =
       MaterialXNode("color", "ND_convert_vector3_color3");
   color.connections.push_back({.input = "in", .node = 0, .output = "out"});
-  scene::MaterialNode surface =
+  host::MaterialNode surface =
       MaterialXNode("surface", "ND_UsdPreviewSurface_surfaceshader");
   surface.connections.push_back(
       {.input = "diffuseColor", .node = 1, .output = "out"});
@@ -842,9 +854,9 @@ std::expected<std::string, std::string> TextureColorSpace(
 
 void ConvertDisplayColor(pxr::HdSceneDelegate& delegate,
                          const pxr::SdfPath& prim_id,
-                         std::vector<scene::Primvar>& primvars) {
+                         std::vector<host::Primvar>& primvars) {
   const auto display =
-      std::ranges::find_if(primvars, [](const scene::Primvar& primvar) {
+      std::ranges::find_if(primvars, [](const host::Primvar& primvar) {
         return primvar.name == kDisplayColor && primvar.components == 3 &&
                std::holds_alternative<std::vector<float>>(primvar.values);
       });

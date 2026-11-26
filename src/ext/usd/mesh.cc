@@ -43,13 +43,14 @@
 #include <variant>
 #include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/log.h"
-#include "umbra/scene/scene.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
 
-using Numbers = std::variant<std::vector<float>, std::vector<std::int32_t>>;
+using host::HostBuffer;
+using host::Numbers;
 using Point = std::array<float, 3>;
 
 // The numbers of a primvar's value, `components` per element.
@@ -86,12 +87,12 @@ constexpr std::uint32_t ComponentsOf() {
   }
 }
 
-// The numbers the Scene holds an element of type T in: integers for
+// The numbers a host copy holds an element of type T in: integers for
 // integers, floats otherwise.
 template <typename T>
 using NumbersOf =
     std::conditional_t<std::is_same_v<typename ScalarOf<T>::Type, int>,
-                       std::vector<std::int32_t>, std::vector<float>>;
+                       HostBuffer<std::int32_t>, HostBuffer<float>>;
 
 // Appends the components of `element` to `out`.
 template <typename T>
@@ -162,10 +163,10 @@ std::optional<Values> NumericValues(const pxr::VtValue& value) {
 // The numbers of the elements of `numbers`, `components` each, at
 // `indices`, in their order.
 template <typename Number>
-std::vector<Number> GatherNumbers(std::span<const Number> numbers,
-                                  std::size_t components,
-                                  std::span<const std::uint32_t> indices) {
-  std::vector<Number> gathered;
+HostBuffer<Number> GatherNumbers(std::span<const Number> numbers,
+                                 std::size_t components,
+                                 std::span<const std::uint32_t> indices) {
+  HostBuffer<Number> gathered;
   gathered.reserve(indices.size() * components);
   for (const std::uint32_t index : indices) {
     const std::span<const Number> element = numbers.subspan(
@@ -201,9 +202,9 @@ std::expected<std::vector<std::uint32_t>, std::string> CheckedIndices(
 
 // A polygon mesh's topology, checked, and fanned into triangles.
 struct Triangulation {
-  std::vector<std::uint32_t> face_vertex_counts;
-  std::vector<std::array<std::uint32_t, 3>> triangles;
-  std::vector<std::uint32_t> source_faces;
+  HostBuffer<std::uint32_t> face_vertex_counts;
+  HostBuffer<host::Triangle> triangles;
+  HostBuffer<std::uint32_t> source_faces;
   // The face-vertex of each triangle corner, three per triangle.
   std::vector<std::uint32_t> corners;
   std::size_t face_vertices = 0;
@@ -212,9 +213,9 @@ struct Triangulation {
 
 // The face-vertex counts, checked: three or more each, adding up to
 // `index_count`.
-std::expected<std::vector<std::uint32_t>, std::string> CheckedCounts(
+std::expected<HostBuffer<std::uint32_t>, std::string> CheckedCounts(
     const pxr::VtIntArray& counts, std::size_t index_count) {
-  std::vector<std::uint32_t> checked;
+  HostBuffer<std::uint32_t> checked;
   checked.reserve(counts.size());
   std::size_t total = 0;
   for (const int count : counts) {
@@ -294,32 +295,32 @@ std::expected<Triangulation, std::string> Triangulate(
 }
 
 // The rate of an interpolation, or none for one a mesh does not take.
-std::optional<scene::PrimvarRate> RateOf(pxr::HdInterpolation interpolation) {
+std::optional<host::PrimvarRate> RateOf(pxr::HdInterpolation interpolation) {
   switch (interpolation) {
     case pxr::HdInterpolationConstant:
-      return scene::PrimvarRate::kConstant;
+      return host::PrimvarRate::kConstant;
     case pxr::HdInterpolationUniform:
-      return scene::PrimvarRate::kPerFace;
+      return host::PrimvarRate::kPerFace;
     case pxr::HdInterpolationVertex:
     case pxr::HdInterpolationVarying:
-      return scene::PrimvarRate::kPerVertex;
+      return host::PrimvarRate::kPerVertex;
     case pxr::HdInterpolationFaceVarying:
-      return scene::PrimvarRate::kPerCorner;
+      return host::PrimvarRate::kPerCorner;
     default:
       return std::nullopt;
   }
 }
 
 // The elements a primvar at `rate` needs on a mesh.
-std::size_t Needed(scene::PrimvarRate rate, const Triangulation& shape) {
+std::size_t Needed(host::PrimvarRate rate, const Triangulation& shape) {
   switch (rate) {
-    case scene::PrimvarRate::kConstant:
+    case host::PrimvarRate::kConstant:
       return 1;
-    case scene::PrimvarRate::kPerFace:
+    case host::PrimvarRate::kPerFace:
       return shape.face_vertex_counts.size();
-    case scene::PrimvarRate::kPerVertex:
+    case host::PrimvarRate::kPerVertex:
       return shape.points;
-    case scene::PrimvarRate::kPerCorner:
+    case host::PrimvarRate::kPerCorner:
       return shape.face_vertices;
   }
   return 0;
@@ -337,7 +338,7 @@ std::string WrongCount(const SourcePrimvar& source, std::size_t given,
 // constant one.
 std::expected<Values, std::string> Elements(Values values,
                                             const SourcePrimvar& source,
-                                            scene::PrimvarRate rate,
+                                            host::PrimvarRate rate,
                                             std::size_t needed) {
   const std::string what = std::format("primvar {}", source.name.GetString());
   if (!source.indices.empty()) {
@@ -348,7 +349,7 @@ std::expected<Values, std::string> Elements(Values values,
     values.numbers = Gather(values, *indices);
     values.count = indices->size();
   }
-  const bool matches = rate == scene::PrimvarRate::kConstant
+  const bool matches = rate == host::PrimvarRate::kConstant
                            ? values.count >= needed
                            : values.count == needed;
   if (!matches) {
@@ -358,7 +359,7 @@ std::expected<Values, std::string> Elements(Values values,
 }
 
 // The index of the value of each triangle corner of a face-varying primvar.
-std::expected<std::vector<std::uint32_t>, std::string> CornerIndices(
+std::expected<HostBuffer<std::uint32_t>, std::string> CornerIndices(
     const Values& values, const SourcePrimvar& source,
     const Triangulation& shape) {
   const std::string what = std::format("primvar {}", source.name.GetString());
@@ -376,7 +377,7 @@ std::expected<std::vector<std::uint32_t>, std::string> CornerIndices(
     }
     face_vertex_values = std::move(*checked);
   }
-  std::vector<std::uint32_t> indices;
+  HostBuffer<std::uint32_t> indices;
   indices.reserve(shape.corners.size());
   for (const std::uint32_t corner : shape.corners) {
     indices.push_back(
@@ -385,8 +386,8 @@ std::expected<std::vector<std::uint32_t>, std::string> CornerIndices(
   return indices;
 }
 
-// A primvar at the Scene's rates; none for one it drops.
-std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvar(
+// A primvar at the rates devices take; none for one it drops.
+std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvar(
     const SourcePrimvar& source, const Triangulation& shape,
     std::string_view path) {
   const auto rate = RateOf(source.interpolation);
@@ -396,10 +397,10 @@ std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvar(
                     path, source.name.GetString(), source.value.GetTypeName());
     return std::nullopt;
   }
-  scene::Primvar primvar;
+  host::Primvar primvar;
   primvar.name = source.name.GetString();
   primvar.rate = *rate;
-  if (*rate == scene::PrimvarRate::kPerCorner) {
+  if (*rate == host::PrimvarRate::kPerCorner) {
     auto indices = CornerIndices(*values, source, shape);
     if (!indices.has_value()) {
       return std::unexpected(indices.error());
@@ -419,19 +420,24 @@ std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvar(
 }
 
 // `source`, points in scene units, in meters.
-std::vector<Point> InMeters(const pxr::VtVec3fArray& source,
-                            double meters_per_unit) {
+HostBuffer<host::Float3> InMeters(const pxr::VtVec3fArray& source,
+                                  double meters_per_unit) {
   const auto scale = static_cast<float>(meters_per_unit);
-  std::vector<Point> points;
+  HostBuffer<host::Float3> points;
   points.reserve(source.size());
   for (const pxr::GfVec3f& point : source) {
-    points.push_back({point.x * scale, point.y * scale, point.z * scale});
+    points.push_back({
+        .x = point.x * scale,
+        .y = point.y * scale,
+        .z = point.z * scale,
+        .padding = 0.0F,
+    });
   }
   return points;
 }
 
 // The points of a mesh at the frame, in meters.
-std::expected<std::vector<Point>, std::string> PointsInMeters(
+std::expected<HostBuffer<host::Float3>, std::string> PointsInMeters(
     const pxr::VtValue& value, double meters_per_unit) {
   if (!value.IsHolding<pxr::VtVec3fArray>()) {
     return std::unexpected(
@@ -439,6 +445,9 @@ std::expected<std::vector<Point>, std::string> PointsInMeters(
   }
   return InMeters(value.UncheckedGet<pxr::VtVec3fArray>(), meters_per_unit);
 }
+
+// The point of `point`, without its padding.
+Point PointOf(const host::Float3& point) { return {point.x, point.y, point.z}; }
 
 Point Add(const Point& lhs, const Point& rhs) {
   return {
@@ -477,19 +486,18 @@ Point Normalized(const Point& vector) {
 
 // Smooth per-vertex normals: the unit sum of the area-weighted normals of
 // the triangles around each point; zero for a point on none.
-scene::Primvar SmoothNormals(
-    const std::vector<Point>& points,
-    const std::vector<std::array<std::uint32_t, 3>>& triangles) {
+host::Primvar SmoothNormals(const HostBuffer<host::Float3>& points,
+                            const HostBuffer<host::Triangle>& triangles) {
   std::vector<Point> sums(points.size(), Point{});
   for (const auto& [first, second, third] : triangles) {
-    const Point& origin = points.at(first);
-    const Point normal =
-        Cross(Sub(points.at(second), origin), Sub(points.at(third), origin));
+    const Point origin = PointOf(points.at(first));
+    const Point normal = Cross(Sub(PointOf(points.at(second)), origin),
+                               Sub(PointOf(points.at(third)), origin));
     for (const std::uint32_t vertex : {first, second, third}) {
       sums.at(vertex) = Add(sums.at(vertex), normal);
     }
   }
-  std::vector<float> numbers;
+  HostBuffer<float> numbers;
   numbers.reserve(sums.size() * 3);
   for (const Point& sum : sums) {
     const Point normal = Normalized(sum);
@@ -497,7 +505,7 @@ scene::Primvar SmoothNormals(
   }
   return {
       .name = "normals",
-      .rate = scene::PrimvarRate::kPerVertex,
+      .rate = host::PrimvarRate::kPerVertex,
       .components = 3,
       .values = std::move(numbers),
       .indices = {},
@@ -506,16 +514,16 @@ scene::Primvar SmoothNormals(
 
 // Whether `primvar` can be a mesh's normals: floats, three components, not
 // constant.
-bool IsNormals(const scene::Primvar& primvar) {
-  return primvar.rate != scene::PrimvarRate::kConstant &&
+bool IsNormals(const host::Primvar& primvar) {
+  return primvar.rate != host::PrimvarRate::kConstant &&
          primvar.components == 3 &&
-         std::holds_alternative<std::vector<float>>(primvar.values);
+         std::holds_alternative<HostBuffer<float>>(primvar.values);
 }
 
 // Takes the authored normals, unless they cannot be normals; computes
 // smooth ones from `points` otherwise, or when there are none.
-void SetNormals(std::optional<scene::Primvar> authored,
-                const std::vector<Point>& points, scene::Mesh& mesh) {
+void SetNormals(std::optional<host::Primvar> authored,
+                const HostBuffer<host::Float3>& points, host::Mesh& mesh) {
   if (authored.has_value() && IsNormals(*authored)) {
     mesh.normals = std::move(*authored);
     return;
@@ -531,9 +539,9 @@ void SetNormals(std::optional<scene::Primvar> authored,
 
 // Converts the primvars of `source` into `mesh`, its normals apart: none
 // when the mesh asks for subdivision, which ignores them.
-std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvars(
-    const SourceMesh& source, const Triangulation& shape, scene::Mesh& mesh) {
-  std::optional<scene::Primvar> normals;
+std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvars(
+    const SourceMesh& source, const Triangulation& shape, host::Mesh& mesh) {
+  std::optional<host::Primvar> normals;
   const bool ignores_normals = IsSubdivided(source.topology);
   for (const SourcePrimvar& primvar : source.primvars) {
     if (primvar.name == pxr::HdTokens->points ||
@@ -558,9 +566,9 @@ std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvars(
 
 // A transform in scene units, in meters: row-major, for row vectors, its
 // translation (the last row) scaled by `meters_per_unit`.
-std::array<double, 16> TransformInMeters(const pxr::GfMatrix4d& transform,
-                                         double meters_per_unit) {
-  std::array<double, 16> converted = RowMajor(transform);
+host::Matrix TransformInMeters(const pxr::GfMatrix4d& transform,
+                               double meters_per_unit) {
+  host::Matrix converted = RowMajor(transform);
   // The translation, in the last row, is a length; the rest is not.
   for (std::size_t column = 0; column < 3; ++column) {
     converted.at(12 + column) *= meters_per_unit;
@@ -575,8 +583,8 @@ bool IsSubdivided(const pxr::HdMeshTopology& topology) {
   return !scheme.IsEmpty() && scheme != pxr::PxOsdOpenSubdivTokens->none;
 }
 
-std::expected<scene::Mesh, std::string> ConvertMesh(const SourceMesh& source,
-                                                    double meters_per_unit) {
+std::expected<host::Mesh, std::string> ConvertMesh(const SourceMesh& source,
+                                                   double meters_per_unit) {
   auto points = PointsInMeters(source.points, meters_per_unit);
   if (!points.has_value()) {
     return std::unexpected(points.error());
@@ -585,7 +593,7 @@ std::expected<scene::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   if (!triangulation.has_value()) {
     return std::unexpected(triangulation.error());
   }
-  scene::Mesh mesh;
+  host::Mesh mesh;
   mesh.path = source.path;
   mesh.sidedness = source.sidedness;
   auto normals = ConvertPrimvars(source, *triangulation, mesh);
@@ -607,15 +615,15 @@ std::expected<scene::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   return mesh;
 }
 
-std::optional<scene::Primvar> ConstantPrimvar(std::string name,
-                                              const pxr::VtValue& value) {
+std::optional<host::Primvar> ConstantPrimvar(std::string name,
+                                             const pxr::VtValue& value) {
   auto values = NumericValues(value);
   if (!values.has_value()) {
     return std::nullopt;
   }
-  return scene::Primvar{
+  return host::Primvar{
       .name = std::move(name),
-      .rate = scene::PrimvarRate::kConstant,
+      .rate = host::PrimvarRate::kConstant,
       .components = values->components,
       .values = std::move(values->numbers),
       .indices = {},
@@ -635,9 +643,9 @@ std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform) {
   return converted;
 }
 
-std::vector<std::array<double, 16>> TransformsInMeters(
+HostBuffer<host::Matrix> TransformsInMeters(
     std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit) {
-  std::vector<std::array<double, 16>> converted;
+  HostBuffer<host::Matrix> converted;
   converted.reserve(transforms.size());
   for (const pxr::GfMatrix4d& transform : transforms) {
     converted.push_back(TransformInMeters(transform, meters_per_unit));

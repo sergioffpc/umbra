@@ -31,7 +31,8 @@ namespace umbra::core {
 namespace {
 
 constexpr std::array<std::string_view, kLogComponentCount> kComponentNames = {
-    "core", "gpu", "usd", "osl", "oiio", "ocio", "vdb", "osd", "embree",
+    "core", "gpu", "usd", "osl",    "oiio",
+    "ocio", "vdb", "osd", "embree", "device",
 };
 
 // The levels UMBRA_LOG enables; the others are always shown.
@@ -166,8 +167,8 @@ std::expected<void, Error> ApplyEntry(std::string_view entry,
   if (split.component.has_value() && !component.has_value()) {
     return std::unexpected(
         BadEntry(entry,
-                 "components are core, gpu, usd, osl, oiio, ocio, vdb, osd and "
-                 "embree"));
+                 "components are core, gpu, usd, osl, oiio, ocio, vdb, osd, "
+                 "embree and device"));
   }
   Apply(split, *level, component, filter);
   return {};

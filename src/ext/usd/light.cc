@@ -36,6 +36,7 @@
 #include <utility>
 #include <vector>
 
+#include "host_copy.h"
 #include "instancer.h"
 #include "material.h"
 #include "mesh.h"
@@ -43,8 +44,8 @@
 #include "umbra/core/log.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/render_data.h"
 #include "umbra/ext/ocio/ocio.h"
-#include "umbra/scene/scene.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -137,9 +138,9 @@ class Params {
   pxr::HdContainerDataSourceHandle prim_;
 };
 
-scene::DomeTextureFormat DomeFormat(const pxr::TfToken& format) {
-  using enum scene::DomeTextureFormat;
-  static const std::array<std::pair<pxr::TfToken, scene::DomeTextureFormat>, 4>
+host::DomeTextureFormat DomeFormat(const pxr::TfToken& format) {
+  using enum host::DomeTextureFormat;
+  static const std::array<std::pair<pxr::TfToken, host::DomeTextureFormat>, 4>
       kFormats = {
           {
               {pxr::TfToken("latlong"), kLatlong},
@@ -156,7 +157,7 @@ scene::DomeTextureFormat DomeFormat(const pxr::TfToken& format) {
   return kAutomatic;
 }
 
-// Reads one light into the Scene's, noting what it authors that umbra
+// Reads one light into its host copy, noting what it authors that umbra
 // does not take.
 class Reader {
  public:
@@ -170,12 +171,12 @@ class Reader {
 
   // Its shape, for a light of the sprim type `type`, noting a texture that
   // is not read; none for an unknown type.
-  std::optional<scene::Light::Shape> Shape(const pxr::TfToken& type);
+  std::optional<host::Light::Shape> Shape(const pxr::TfToken& type);
   // Reads its emission into `light`: intensity, exposure, normalization,
   // color and color temperature.
-  void ReadEmission(scene::Light& light);
+  void ReadEmission(host::Light& light);
   // Reads its cone into `light`, noting its filters and IES profile.
-  void ReadShaping(scene::Light& light);
+  void ReadShaping(host::Light& light);
   // Notes the controls umbra does not take
   // (docs/adr/0010-lights-are-physical.md).
   void NoteArtisticControls();
@@ -191,8 +192,8 @@ class Reader {
   }
   // The light's texture, resolved with its color space; none when it has
   // none or it is not read.
-  std::optional<scene::Texture> Texture();
-  scene::Light::Dome Dome();
+  std::optional<host::Texture> Texture();
+  host::Light::Dome Dome();
 
   const Params* params_;
   pxr::SdfPath prim_id_;
@@ -201,30 +202,30 @@ class Reader {
   std::optional<Error> fatal_;
 };
 
-std::optional<scene::Light::Shape> Reader::Shape(const pxr::TfToken& type) {
+std::optional<host::Light::Shape> Reader::Shape(const pxr::TfToken& type) {
   const pxr::HdPrimTypeTokens_StaticTokenType& types = *pxr::HdPrimTypeTokens;
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
   if (type == types.sphereLight) {
-    return scene::Light::Sphere{.radius = Meters(tokens.radius, 0.5F)};
+    return host::Light::Sphere{.radius = Meters(tokens.radius, 0.5F)};
   }
   if (type == types.rectLight) {
-    return scene::Light::Rect{
+    return host::Light::Rect{
         .width = Meters(tokens.width, 1.0F),
         .height = Meters(tokens.height, 1.0F),
         .texture = Texture(),
     };
   }
   if (type == types.diskLight) {
-    return scene::Light::Disk{.radius = Meters(tokens.radius, 0.5F)};
+    return host::Light::Disk{.radius = Meters(tokens.radius, 0.5F)};
   }
   if (type == types.cylinderLight) {
-    return scene::Light::Cylinder{
+    return host::Light::Cylinder{
         .length = Meters(tokens.length, 1.0F),
         .radius = Meters(tokens.radius, 0.5F),
     };
   }
   if (type == types.distantLight) {
-    return scene::Light::Distant{
+    return host::Light::Distant{
         .angle = static_cast<double>(params_->Get(tokens.angle, 0.53F)),
     };
   }
@@ -234,8 +235,8 @@ std::optional<scene::Light::Shape> Reader::Shape(const pxr::TfToken& type) {
   return std::nullopt;
 }
 
-scene::Light::Dome Reader::Dome() {
-  scene::Light::Dome dome{
+host::Light::Dome Reader::Dome() {
+  host::Light::Dome dome{
       .texture = Texture(),
       .format = DomeFormat(
           params_->Get(pxr::HdLightTokens->textureFormat, pxr::TfToken())),
@@ -249,7 +250,7 @@ scene::Light::Dome Reader::Dome() {
   return dome;
 }
 
-std::optional<scene::Texture> Reader::Texture() {
+std::optional<host::Texture> Reader::Texture() {
   const pxr::TfToken& name = pxr::HdLightTokens->textureFile;
   const auto asset = params_->Get(name, pxr::SdfAssetPath());
   if (asset.GetAssetPath().empty()) {
@@ -280,19 +281,19 @@ std::optional<scene::Texture> Reader::Texture() {
          std::format("{}: {}", asset.GetAssetPath(), color_space.error()));
     return std::nullopt;
   }
-  return scene::Texture{
+  return host::Texture{
       .file = std::move(**file),
       .color_space = std::move(*color_space),
   };
 }
 
-void Reader::ReadEmission(scene::Light& light) {
+void Reader::ReadEmission(host::Light& light) {
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
   light.intensity = params_->Get(tokens.intensity, light.intensity);
   light.exposure = params_->Get(tokens.exposure, light.exposure);
   light.normalization = params_->Flag(tokens.normalize) == true
-                            ? scene::Normalization::kNormalized
-                            : scene::Normalization::kUnnormalized;
+                            ? host::Normalization::kNormalized
+                            : host::Normalization::kUnnormalized;
   const pxr::GfVec3f color =
       params_->Get(tokens.color, pxr::GfVec3f(1.0F, 1.0F, 1.0F));
   std::array<float, 3> rgb = {color.x, color.y, color.z};
@@ -318,7 +319,7 @@ void Reader::ReadEmission(scene::Light& light) {
   }
 }
 
-void Reader::ReadShaping(scene::Light& light) {
+void Reader::ReadShaping(host::Light& light) {
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
   // Without ShapingAPI a light has no cone.
   light.cone_angle = std::clamp(
@@ -410,7 +411,7 @@ void LightPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   phase_->Add(1);
   if (state_ == LightState::kConverted) {
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} light)", GetId().GetString(),
-                    scene::kLightShapeNames.at(light_.shape.index()));
+                    device::kLightShapeNames.at(light_.shape.index()));
   } else {
     UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
   }
@@ -426,7 +427,7 @@ void LightPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   const Params params(delegate, GetId(), prim);
   Reader reader(params, GetId(), meters_per_unit_, notes_);
-  std::optional<scene::Light::Shape> shape = reader.Shape(type_);
+  std::optional<host::Light::Shape> shape = reader.Shape(type_);
   if (!shape.has_value()) {
     return;
   }
@@ -439,7 +440,7 @@ void LightPrim::Convert(pxr::HdSceneDelegate& delegate) {
   state_ = LightState::kConverted;
 }
 
-void LightPrim::Place(const scene::Shutter& shutter,
+void LightPrim::Place(const host::Shutter& shutter,
                       const pxr::TfTokenVector& render_tags) {
   if (state_ == LightState::kHidden || delegate_ == nullptr) {
     return;
@@ -454,16 +455,17 @@ void LightPrim::Place(const scene::Shutter& shutter,
   const Placement placement =
       PlaceInstances(*delegate_, GetId(), GetInstancerId(), shutter);
   motion_outcome_ = placement.outcome;
-  lights_.clear();
-  lights_.reserve(placement.instances.size());
+  light_.instances.clear();
+  light_.instances.reserve(placement.instances.size());
   for (const FlatInstance& instance : placement.instances) {
-    scene::Light light = light_;
-    light.light_to_world =
-        TransformsInMeters(instance.transforms, meters_per_unit_);
-    lights_.push_back(std::move(light));
+    light_.instances.push_back({
+        .object_to_world =
+            TransformsInMeters(instance.transforms, meters_per_unit_),
+        .primvars = {},
+    });
   }
 }
 
-std::vector<scene::Light> LightPrim::TakeLights() { return std::move(lights_); }
+void LightPrim::FreeHostCopy() { light_ = {}; }
 
 }  // namespace umbra::ext::usd::internal

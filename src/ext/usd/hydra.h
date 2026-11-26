@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// umbra's side of Hydra (docs/adr/0006-scenes-enter-through-hydra.md): the
+// umbra's side of Hydra (docs/adr/0012-umbra-is-a-hydra-renderer.md): the
 // render delegate, created directly rather than as a plugin, its prims, which
-// sync what the Scene needs, and the task that runs in HdEngine::Execute and
-// only syncs. Hydra syncs rprims in parallel, each into its own prim. The
-// delegate's CommitResources closes the Scene.
+// convert what they sync into their host copies, and the task that runs in
+// HdEngine::Execute and only syncs. Hydra syncs rprims in parallel, each into
+// its own prim. The delegate's CommitResources commits the host copies to the
+// devices, then frees them
+// (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 #ifndef UMBRA_EXT_USD_HYDRA_H_
 #define UMBRA_EXT_USD_HYDRA_H_
@@ -37,6 +39,7 @@
 #include <string>
 #include <vector>
 
+#include "host_copy.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
@@ -44,7 +47,8 @@
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
+#include "umbra/device/device.h"
+#include "umbra/ext/usd/render_settings.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -81,8 +85,8 @@ struct SettingsBase {
   float pixel_aspect_ratio = 1.0F;
   pxr::TfToken aspect_ratio_conform_policy;
   std::array<float, 4> data_window_ndc{0.0F, 0.0F, 1.0F, 1.0F};
-  scene::MotionBlur motion_blur = scene::MotionBlur::kEnabled;
-  scene::DepthOfField depth_of_field = scene::DepthOfField::kEnabled;
+  MotionBlur motion_blur = MotionBlur::kEnabled;
+  DepthOfField depth_of_field = DepthOfField::kEnabled;
 };
 
 // A RenderSettings prim, synced: Hydra's flattened products, and the
@@ -113,27 +117,40 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
 };
 
 // A Camera prim, synced, with the samples of its transform over its own
-// shutter: the cameras sync before the shutter of the scene is known.
+// shutter: the cameras sync before the shutter the render uses is known.
+// Once it is, the camera is placed: converted into its host copy, in
+// meters, its transform resampled over that shutter.
 class CameraPrim final : public pxr::HdCamera {
  public:
-  // Counts its sync into `phase`, unless it is a fallback prim.
+  // Counts its sync into `phase`, unless it is a fallback prim; its lengths
+  // are scaled by `meters_per_unit`.
   CameraPrim(const pxr::SdfPath& prim_id,
-             core::ProgressPhase* UMBRA_NULLABLE phase);
+             core::ProgressPhase* UMBRA_NULLABLE phase, double meters_per_unit);
 
   void Sync(pxr::HdSceneDelegate* scene_delegate,
             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
             pxr::HdDirtyBits* dirty_bits) override;
 
-  // The samples of its transform over its shutter, in scene units: its
-  // transform at the frame alone when the shutter spans no interval.
-  [[nodiscard]] const TimedSamples<pxr::GfMatrix4d>& transform_samples() const
-      UMBRA_LIFETIMEBOUND {
-    return transform_samples_;
+  // Converts it into its host copy, its transform resampled over `shutter`.
+  void Place(const host::Shutter& shutter);
+
+  // Its host copy, once placed.
+  [[nodiscard]] const host::Camera& camera() const UMBRA_LIFETIMEBOUND {
+    return camera_;
   }
+  // What resampling did with its motion, once placed.
+  [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
+  // Frees its host copy, once committed.
+  void FreeHostCopy();
 
  private:
   core::ProgressPhase* UMBRA_NULLABLE phase_;
+  double meters_per_unit_;
+  // The samples of its transform over its own shutter, in scene units: its
+  // transform at the frame alone when that shutter spans no interval.
   TimedSamples<pxr::GfMatrix4d> transform_samples_;
+  MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
+  host::Camera camera_;
 };
 
 // What the sync of a mesh gave.
@@ -142,7 +159,7 @@ enum class MeshState : std::uint8_t {
   kNotSynced,
   // It is invisible.
   kInvisible,
-  // It is converted into the Scene's, with its instances.
+  // It is converted into its host copy, with its instances.
   kConverted,
   // It is invalid, and dropped.
   kInvalid,
@@ -155,7 +172,7 @@ struct MaterialSubset {
   std::vector<std::uint32_t> faces;
 };
 
-// A Mesh prim, synced into the Scene's mesh when it is visible and valid,
+// A Mesh prim, synced into its host copy when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
 // own when it has no instancer. Implicit surfaces reach it as meshes. Its
 // points and its transform are sampled over the shutter, and its
@@ -167,7 +184,7 @@ class MeshPrim final : public pxr::HdMesh {
   // `meters_per_unit`. `shutter` is chosen before it syncs.
   MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
            double meters_per_unit,
-           const scene::Shutter& shutter UMBRA_LIFETIMEBOUND);
+           const host::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* delegate,
@@ -190,17 +207,23 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] bool IsMeshLight() const {
     return emission_ == Emission::kMeshLight;
   }
-  // Its mesh, once converted, moved out.
-  [[nodiscard]] scene::Mesh TakeMesh();
+  // Its mesh, once converted: the host copy, whose materials the commit
+  // gives.
+  [[nodiscard]] host::Mesh& mesh() UMBRA_LIFETIMEBOUND { return mesh_; }
   // Its GeomSubsets bound to a material, once converted.
   [[nodiscard]] const std::vector<MaterialSubset>& material_subsets() const
       UMBRA_LIFETIMEBOUND {
     return material_subsets_;
   }
-  // Its instances, once converted, moved out: their object-to-world
-  // transforms in meters, one per motion sample, and their own primvars;
-  // their prototype is not set. None when its instancer places none.
-  [[nodiscard]] std::vector<scene::Instance> TakeInstances();
+  // Its instances, once converted: their object-to-world transforms in
+  // meters, one per motion sample, and their own primvars. None when its
+  // instancer places none.
+  [[nodiscard]] const std::vector<host::Instance>& instances() const
+      UMBRA_LIFETIMEBOUND {
+    return instances_;
+  }
+  // Frees its host copy, once committed.
+  void FreeHostCopy();
 
  protected:
   // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
@@ -214,7 +237,7 @@ class MeshPrim final : public pxr::HdMesh {
  private:
   void Convert(pxr::HdSceneDelegate& delegate);
   // Its instances, from its transform and its instancer's, over `shutter`.
-  void Place(pxr::HdSceneDelegate& delegate, const scene::Shutter& shutter);
+  void Place(pxr::HdSceneDelegate& delegate, const host::Shutter& shutter);
 
   // Whether it is a light, which umbra does not take: its mesh is rendered
   // without emission.
@@ -222,19 +245,19 @@ class MeshPrim final : public pxr::HdMesh {
 
   core::ProgressPhase* phase_;
   double meters_per_unit_;
-  const scene::Shutter* shutter_;
+  const host::Shutter* shutter_;
   MeshState state_ = MeshState::kNotSynced;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
   Emission emission_ = Emission::kNone;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
-  scene::Mesh mesh_;
+  host::Mesh mesh_;
   std::vector<MaterialSubset> material_subsets_;
-  std::vector<scene::Instance> instances_;
+  std::vector<host::Instance> instances_;
 };
 
-// An rprim of a type the Scene does not take (basisCurves, points,
-// volume): synced only to be counted, so that it is reported.
+// An rprim of a type umbra does not take (basisCurves, points, volume):
+// synced only to be counted, so that it is reported.
 class UnsupportedPrim final : public pxr::HdRprim {
  public:
   // Counts its sync into `phase`.
@@ -274,31 +297,40 @@ class UnsupportedPrim final : public pxr::HdRprim {
 // The prims the delegate synced, by path, as CommitResources sees them, and
 // the shutter they were sampled over.
 struct SyncedPrims {
-  scene::Shutter shutter;
+  host::Shutter shutter;
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
-  std::map<pxr::SdfPath, const CameraPrim*> cameras;
-  std::map<pxr::SdfPath, const MaterialPrim*> materials;
+  std::map<pxr::SdfPath, CameraPrim*> cameras;
+  std::map<pxr::SdfPath, MaterialPrim*> materials;
   std::map<pxr::SdfPath, MeshPrim*> meshes;
   std::map<pxr::SdfPath, const InstancerPrim*> instancers;
   std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
   std::map<pxr::SdfPath, LightPrim*> lights;
 };
 
-// What closes the Scene from the synced prims: the Scene, or the error that
-// stops the render.
-using SceneCloser = std::function<std::expected<scene::Scene, core::Error>(
-    const SyncedPrims& prims)>;
+// What a commit gives the host: the render settings, the parameters of the
+// frame, and a description of what it committed, for the debug line that
+// counts the prims.
+struct Committed {
+  RenderSettings settings;
+  device::FrameParameters frame;
+  std::string description;
+};
+
+// What commits the host copies of the synced prims to the devices: what it
+// gives the host, or the error that stops the render.
+using Committer =
+    std::function<std::expected<Committed, core::Error>(SyncedPrims& prims)>;
 
 // umbra's render delegate. It syncs cameras, render settings, materials,
 // meshes and their instancers, and lights, with their lengths scaled by
 // `meters_per_unit` and the meshes bound to their materials for the full
-// purpose, and counts the rprims and lights of the types the Scene does not
+// purpose, and counts the rprims and lights of the types umbra does not
 // take; its prims count their syncs into the phase. Hydra creates and
 // destroys its prims on one thread.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(core::ProgressPhase& phase UMBRA_LIFETIMEBOUND,
-                 double meters_per_unit, SceneCloser closer);
+                 double meters_per_unit, Committer committer);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
   RenderDelegate(RenderDelegate&&) = delete;
@@ -319,13 +351,13 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // spans no interval.
   void ChooseShutter(const pxr::SdfPath& settings);
 
-  // Places the lights over the shutter chosen, hiding those whose render
-  // tag is not in `render_tags`.
-  void PlaceLights(const pxr::TfTokenVector& render_tags);
+  // Places the cameras and the lights over the shutter chosen, hiding the
+  // lights whose render tag is not in `render_tags`.
+  void Place(const pxr::TfTokenVector& render_tags);
 
-  // The Scene CommitResources closed, or its error; none before.
-  [[nodiscard]] std::optional<std::expected<scene::Scene, core::Error>>
-  TakeScene();
+  // What CommitResources committed, or its error; none before.
+  [[nodiscard]] std::optional<std::expected<Committed, core::Error>>
+  TakeCommitted();
 
   [[nodiscard]] const pxr::TfTokenVector& GetSupportedRprimTypes()
       const override;
@@ -363,13 +395,15 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // Counts the rprims Hydra did not sync into the phase, which then ends
   // complete.
   void CountNotSynced();
+  // Frees the host copies of every prim.
+  void FreeHostCopies();
 
   core::ProgressPhase* phase_;
   double meters_per_unit_;
-  SceneCloser closer_;
+  Committer committer_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;
-  std::optional<std::expected<scene::Scene, core::Error>> scene_;
+  std::optional<std::expected<Committed, core::Error>> committed_;
 };
 
 // The task of umbra's that runs in HdEngine::Execute: it only syncs, the
