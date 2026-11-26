@@ -47,8 +47,10 @@ struct CloseInputs {
 // warning. Each mesh converted with an instance or more becomes a prototype
 // with its instances; one warning each reports the meshes that ask for a
 // subdivision scheme, the invalid ones, the rprims of each type not
-// supported, and the lights of `scene_index`, the terminal scene index,
-// that link geometry, with their count and the first.
+// supported, the lights of `scene_index`, the terminal scene index, that
+// link geometry, the prims whose topology changes within the shutter and
+// those resampled down to kMaxMotionSamples, with their count and the
+// first. The Scene's shutter is that the prims were sampled over.
 [[nodiscard]] std::expected<scene::Scene, core::Error> CloseScene(
     const CloseInputs& inputs, const pxr::UsdStage& stage,
     const pxr::HdSceneIndexBaseRefPtr& scene_index, const SyncedPrims& prims);

@@ -10,6 +10,7 @@ umbra_add_ext_module(
   hydra.cc
   instancer.cc
   mesh.cc
+  motion.cc
   outputs.cc
   usd.cc
   DEPENDS

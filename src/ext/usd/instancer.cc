@@ -24,7 +24,9 @@
 #include <pxr/usd/sdf/path.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -33,6 +35,7 @@
 #include <vector>
 
 #include "mesh.h"
+#include "motion.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/progress.h"
@@ -80,44 +83,151 @@ std::vector<Matrix> Matrices(const pxr::VtValue& value, const Make& make) {
   return matrices;
 }
 
-// The transform of each instance of the instancer at `prim_id`, from its
-// hydra:instance* primvars, in their order: transform, scale, rotation,
-// then translation. An instance an array is too short for has the identity
-// in it.
-std::vector<Matrix> InstanceTransforms(pxr::HdSceneDelegate& delegate,
-                                       const pxr::SdfPath& prim_id) {
-  const auto get = [&](const pxr::TfToken& name) {
-    return delegate.Get(prim_id, name);
-  };
-  const std::vector<std::vector<Matrix>> parts = {
-      Matrices<pxr::GfMatrix4d, pxr::GfMatrix4f>(
-          get(pxr::HdInstancerTokens->instanceTransforms),
-          [](const auto& matrix) { return Matrix(matrix); }),
-      Matrices<pxr::GfVec3f, pxr::GfVec3d, pxr::GfVec3h>(
-          get(pxr::HdInstancerTokens->instanceScales),
-          [](const auto& scale) { return Scale(pxr::GfVec3d(scale)); }),
-      Matrices<pxr::GfQuath, pxr::GfQuatf, pxr::GfQuatd>(
-          get(pxr::HdInstancerTokens->instanceRotations),
-          [](const auto& rotation) {
+// The hydra:instance* primvars that place the instances, in the order they
+// apply: transform, scale, rotation, then translation.
+enum class Part : std::uint8_t {
+  kTransforms,
+  kScales,
+  kRotations,
+  kTranslations,
+};
+constexpr std::array kParts = {
+    Part::kTransforms,
+    Part::kScales,
+    Part::kRotations,
+    Part::kTranslations,
+};
+
+// One part of the placement of each instance, as a transform.
+using PartTransforms = std::vector<Matrix>;
+// The samples of each part, in the order of kParts.
+using PartSamples = std::array<TimedSamples<PartTransforms>, kParts.size()>;
+
+// The name of the primvar of `part`.
+const pxr::TfToken& NameOf(Part part) {
+  switch (part) {
+    case Part::kTransforms:
+      return pxr::HdInstancerTokens->instanceTransforms;
+    case Part::kScales:
+      return pxr::HdInstancerTokens->instanceScales;
+    case Part::kRotations:
+      return pxr::HdInstancerTokens->instanceRotations;
+    case Part::kTranslations:
+      break;
+  }
+  return pxr::HdInstancerTokens->instanceTranslations;
+}
+
+// `value`, the primvar of `part`, as a transform per instance; none for a
+// value of another type.
+PartTransforms TransformsOf(Part part, const pxr::VtValue& value) {
+  switch (part) {
+    case Part::kTransforms:
+      return Matrices<pxr::GfMatrix4d, pxr::GfMatrix4f>(
+          value, [](const auto& matrix) { return Matrix(matrix); });
+    case Part::kScales:
+      return Matrices<pxr::GfVec3f, pxr::GfVec3d, pxr::GfVec3h>(
+          value, [](const auto& scale) { return Scale(pxr::GfVec3d(scale)); });
+    case Part::kRotations:
+      return Matrices<pxr::GfQuath, pxr::GfQuatf, pxr::GfQuatd>(
+          value, [](const auto& rotation) {
             return Rotation(pxr::GfQuatd(rotation));
-          }),
-      Matrices<pxr::GfVec3f, pxr::GfVec3d, pxr::GfVec3h>(
-          get(pxr::HdInstancerTokens->instanceTranslations),
-          [](const auto& translation) {
-            return Translation(pxr::GfVec3d(translation));
-          }),
+          });
+    case Part::kTranslations:
+      break;
+  }
+  return Matrices<pxr::GfVec3f, pxr::GfVec3d, pxr::GfVec3h>(
+      value, [](const auto& translation) {
+        return Translation(pxr::GfVec3d(translation));
+      });
+}
+
+// The samples of `part` of the instancer at `prim_id` over `shutter`: its
+// value at the frame alone when the shutter spans no interval.
+TimedSamples<PartTransforms> SamplePart(pxr::HdSceneDelegate& delegate,
+                                        const pxr::SdfPath& prim_id, Part part,
+                                        const scene::Shutter& shutter) {
+  TimedSamples<pxr::VtValue> values;
+  if (IsMotionBlurred(shutter)) {
+    values = SamplePrimvar(delegate, prim_id, NameOf(part), shutter);
+  }
+  if (values.values.empty()) {
+    values = {.times = {0.0F}, .values = {delegate.Get(prim_id, NameOf(part))}};
+  }
+  TimedSamples<PartTransforms> samples{
+      .times = std::move(values.times),
+      .values = {},
   };
+  samples.values.reserve(values.values.size());
+  for (const pxr::VtValue& value : values.values) {
+    samples.values.push_back(TransformsOf(part, value));
+  }
+  return samples;
+}
+
+PartSamples SampleParts(pxr::HdSceneDelegate& delegate,
+                        const pxr::SdfPath& prim_id,
+                        const scene::Shutter& shutter) {
+  PartSamples samples;
+  for (const Part part : kParts) {
+    samples.at(static_cast<std::size_t>(part)) =
+        SamplePart(delegate, prim_id, part, shutter);
+  }
+  return samples;
+}
+
+// Whether the number of instances some part places changes among its
+// samples.
+bool HasChangingCount(const PartSamples& samples) {
+  return std::ranges::any_of(
+      samples, [](const auto& part) { return !HasSameSizes(part.values); });
+}
+
+// The transform of each instance, from the parts of its placement at one
+// time. An instance a part is too short for has the identity in it.
+std::vector<Matrix> InstanceTransforms(
+    const std::array<PartTransforms, kParts.size()>& parts) {
   std::size_t count = 0;
-  for (const std::vector<Matrix>& part : parts) {
+  for (const PartTransforms& part : parts) {
     count = std::max(count, part.size());
   }
   std::vector<Matrix> transforms(count, Matrix(1.0));
-  for (const std::vector<Matrix>& part : parts) {
+  for (const PartTransforms& part : parts) {
     for (std::size_t i = 0; i < part.size(); ++i) {
       transforms.at(i) *= part.at(i);
     }
   }
   return transforms;
+}
+
+// The transform of each instance at `time`.
+std::vector<Matrix> InstanceTransformsAt(const PartSamples& samples,
+                                         double time) {
+  std::array<PartTransforms, kParts.size()> parts;
+  for (std::size_t part = 0; part < kParts.size(); ++part) {
+    parts.at(part) = ValueAt(samples.at(part), time, BlendTransformArrays);
+  }
+  return InstanceTransforms(parts);
+}
+
+// The motion samples of each instance's transform: `count` equally spaced
+// over `shutter`, or one when it does not move.
+std::vector<TransformMotion> InstanceMotion(const PartSamples& samples,
+                                            const scene::Shutter& shutter,
+                                            std::size_t count) {
+  std::vector<TransformMotion> motion;
+  for (std::size_t index = 0; index < count; ++index) {
+    const std::vector<Matrix> transforms =
+        InstanceTransformsAt(samples, UniformTime(shutter, index, count));
+    motion.resize(std::max(motion.size(), transforms.size()));
+    for (std::size_t instance = 0; instance < transforms.size(); ++instance) {
+      motion.at(instance).push_back(transforms.at(instance));
+    }
+  }
+  for (TransformMotion& instance : motion) {
+    CollapseStill(instance);
+  }
+  return motion;
 }
 
 // Whether `name` is one of the hydra:instance* primvars, which place the
@@ -184,7 +294,7 @@ bool HasPrimvar(const std::vector<scene::Primvar>& primvars,
 // `outer` that `inner` does not give.
 FlatInstance Compose(const FlatInstance& inner, const FlatInstance& outer) {
   FlatInstance composed{
-      .transform = inner.transform * outer.transform,
+      .transforms = ComposeMotion(inner.transforms, outer.transforms),
       .primvars = inner.primvars,
   };
   for (const scene::Primvar& primvar : outer.primvars) {
@@ -212,8 +322,9 @@ std::vector<FlatInstance> Flatten(const std::vector<FlatInstance>& inner,
 
 InstancerPrim::InstancerPrim(pxr::HdSceneDelegate* delegate,
                              const pxr::SdfPath& prim_id,
-                             core::ProgressPhase& phase)
-    : pxr::HdInstancer(delegate, prim_id), phase_(&phase) {}
+                             core::ProgressPhase& phase,
+                             const scene::Shutter& shutter)
+    : pxr::HdInstancer(delegate, prim_id), phase_(&phase), shutter_(&shutter) {}
 
 void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
                          pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
@@ -221,8 +332,7 @@ void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
   _UpdateInstancer(delegate, dirty_bits);
   visibility_ = delegate->GetVisible(GetId()) ? Visibility::kVisible
                                               : Visibility::kInvisible;
-  transform_ = delegate->GetInstancerTransform(GetId());
-  instance_transforms_ = InstanceTransforms(*delegate, GetId());
+  SampleMotion(*delegate);
   primvars_ = InstancePrimvars(*delegate, GetId());
   if (synced_ == Synced::kNotSynced) {
     synced_ = Synced::kSynced;
@@ -230,6 +340,38 @@ void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
     const std::size_t instances = CountInstances();
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} instance{})", GetId().GetString(),
                     core::FormatCount(instances), instances == 1 ? "" : "s");
+  }
+}
+
+void InstancerPrim::SampleMotion(pxr::HdSceneDelegate& delegate) {
+  scene::Shutter shutter = *shutter_;
+  motion_outcome_ = MotionOutcome::kSampled;
+  PartSamples parts = SampleParts(delegate, GetId(), shutter);
+  // Instances that appear or vanish within the shutter have no blur, nor
+  // has any other of the instancer's.
+  if (HasChangingCount(parts)) {
+    motion_outcome_ = MotionOutcome::kTopologyChanges;
+    shutter = {};
+    parts = SampleParts(delegate, GetId(), shutter);
+  }
+  const pxr::GfMatrix4d frame = delegate.GetInstancerTransform(GetId());
+  TimedSamples<pxr::GfMatrix4d> transform{.times = {0.0F}, .values = {frame}};
+  if (IsMotionBlurred(shutter)) {
+    transform = SampleTransform(delegate, GetId(), shutter);
+  }
+  MotionSampleCount count = CountMotionSamples(transform.times, shutter);
+  for (const auto& part : parts) {
+    count = Merge(count, CountMotionSamples(part.times, shutter));
+  }
+  transform_ = ResampleTransform(transform, frame, shutter).motion;
+  instance_transforms_ = InstanceMotion(parts, shutter, count.count);
+  const bool moves =
+      transform_.size() > 1 ||
+      std::ranges::any_of(instance_transforms_, [](const auto& instance) {
+        return instance.size() > 1;
+      });
+  if (motion_outcome_ == MotionOutcome::kSampled && moves) {
+    motion_outcome_ = count.outcome;
   }
 }
 
@@ -244,9 +386,10 @@ std::size_t InstancerPrim::CountInstances() const {
 
 FlatInstance InstancerPrim::Instance(std::size_t index) const {
   FlatInstance instance;
-  instance.transform = index < instance_transforms_.size()
-                           ? instance_transforms_.at(index) * transform_
-                           : transform_;
+  instance.transforms =
+      index < instance_transforms_.size()
+          ? ComposeMotion(instance_transforms_.at(index), transform_)
+          : transform_;
   for (const scene::Primvar& primvar : primvars_) {
     if (index < primvar.Count()) {
       instance.primvars.push_back(ValueAt(primvar, index));

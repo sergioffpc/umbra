@@ -42,6 +42,7 @@
 #include <pxr/usdImaging/usdImaging/stageSceneIndex.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
@@ -443,9 +444,33 @@ std::string DescribeGeometry(const scene::Scene& scene) {
       core::FormatCount(meshes), meshes == 1 ? "" : "s");
 }
 
+// "shutter -0.25..0.25, 1.2k moving (max 4 samples)": the prototypes whose
+// points move and the instances that move, and the most motion samples of
+// any of them or of a camera.
+std::string DescribeMotion(const scene::Scene& scene) {
+  std::size_t moving = 0;
+  std::size_t samples = 1;
+  for (const scene::Mesh& mesh : scene.prototypes()) {
+    moving += mesh.points.size() > 1 ? 1 : 0;
+    samples = std::max(samples, mesh.points.size());
+  }
+  for (const scene::Instance& instance : scene.instances()) {
+    moving += instance.object_to_world.size() > 1 ? 1 : 0;
+    samples = std::max(samples, instance.object_to_world.size());
+  }
+  for (const scene::Camera& camera : scene.cameras()) {
+    samples = std::max(samples, camera.camera_to_world.size());
+  }
+  const scene::Shutter& shutter = scene.shutter();
+  return std::format("shutter {}..{}, {} moving (max {} sample{})",
+                     shutter.open, shutter.close, core::FormatCount(moving),
+                     samples, samples == 1 ? "" : "s");
+}
+
 // "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
 // [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
-// instances of 3.4k prototypes".
+// instances of 3.4k prototypes, shutter -0.25..0.25, 1.2k moving (max 4
+// samples)".
 std::string DescribeScene(const scene::Scene& scene) {
   const scene::RenderSettings& settings = scene.settings();
   std::string products;
@@ -453,10 +478,11 @@ std::string DescribeScene(const scene::Scene& scene) {
     products += (products.empty() ? "" : ", ") + DescribeProduct(product);
   }
   const std::size_t count = settings.products.size();
-  return std::format(
-      "settings {}, camera {}, {} product{}: {}, {}", settings.path,
-      scene.cameras().subspan(settings.camera).front().path, count,
-      count == 1 ? "" : "s", products, DescribeGeometry(scene));
+  return std::format("settings {}, camera {}, {} product{}: {}, {}, {}",
+                     settings.path,
+                     scene.cameras().subspan(settings.camera).front().path,
+                     count, count == 1 ? "" : "s", products,
+                     DescribeGeometry(scene), DescribeMotion(scene));
 }
 
 }  // namespace

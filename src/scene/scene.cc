@@ -16,9 +16,11 @@ std::size_t Primvar::Count() const {
   return components == 0 ? 0 : numbers / components;
 }
 
-Scene::Scene(RenderSettings settings, std::vector<Camera> cameras,
-             std::vector<Mesh> prototypes, std::vector<Instance> instances)
+Scene::Scene(RenderSettings settings, Shutter shutter,
+             std::vector<Camera> cameras, std::vector<Mesh> prototypes,
+             std::vector<Instance> instances)
     : settings_(std::move(settings)),
+      shutter_(shutter),
       cameras_(std::move(cameras)),
       prototypes_(std::move(prototypes)),
       instances_(std::move(instances)) {}
