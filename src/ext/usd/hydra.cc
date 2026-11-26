@@ -13,6 +13,8 @@
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/enums.h>
+#include <pxr/imaging/hd/extComputation.h>
+#include <pxr/imaging/hd/extComputationUtils.h>
 #include <pxr/imaging/hd/geomSubset.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/light.h>
@@ -37,11 +39,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
+#include <format>
 #include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -132,6 +137,14 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
   for (const pxr::HdInterpolation interpolation : kInterpolations) {
     for (const pxr::HdPrimvarDescriptor& descriptor :
          delegate.GetPrimvarDescriptors(prim_id, interpolation)) {
+      UMBRA_LOG_DEBUG(
+          kUsd, "research {}: primvar {} (interpolation {}, elementSize {})",
+          prim_id.GetString(), descriptor.name.GetString(),
+          static_cast<int>(interpolation), descriptor.elementSize);
+      if (std::getenv("UMBRA_RESEARCH_SKIPSKEL") != nullptr &&
+          descriptor.name.GetString().starts_with("skel:")) {
+        continue;
+      }
       SourcePrimvar primvar{
           .name = descriptor.name,
           .interpolation = interpolation,
@@ -148,6 +161,63 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
   return primvars;
 }
 
+// RESEARCH (#99): the points of a skinned mesh, which usdSkelImaging hands
+// over as an ext computation primvar.
+bool ResearchComputed() {
+  return std::getenv("UMBRA_RESEARCH_EXTCOMP") != nullptr;
+}
+
+pxr::HdExtComputationPrimvarDescriptorVector PointsComputations(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
+  pxr::HdExtComputationPrimvarDescriptorVector found;
+  for (const auto& descriptor : delegate.GetExtComputationPrimvarDescriptors(
+           prim_id, pxr::HdInterpolationVertex)) {
+    if (descriptor.name == pxr::HdTokens->points) {
+      found.push_back(descriptor);
+    }
+  }
+  return found;
+}
+
+std::string ResearchPoints(const pxr::VtValue& value) {
+  if (!value.IsHolding<pxr::VtVec3fArray>()) {
+    return std::format("<{}>", value.GetTypeName());
+  }
+  std::string text;
+  const auto& points = value.UncheckedGet<pxr::VtVec3fArray>();
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    text += std::format(" {}:({:.4f},{:.4f},{:.4f})", i, points[i][0],
+                        points[i][1], points[i][2]);
+  }
+  return text;
+}
+
+pxr::VtValue ResearchGetPoints(pxr::HdSceneDelegate& delegate,
+                               const pxr::SdfPath& prim_id,
+                               pxr::VtValue authored) {
+  const auto computations = PointsComputations(delegate, prim_id);
+  UMBRA_LOG_DEBUG(kUsd,
+                  "research {}: points primvar <{}>, {} ext computation "
+                  "primvar(s) for points",
+                  prim_id.GetString(), authored.GetTypeName(),
+                  computations.size());
+  for (const auto& d : computations) {
+    UMBRA_LOG_DEBUG(kUsd, "research {}:   computation {} output {}",
+                    prim_id.GetString(), d.sourceComputationId.GetString(),
+                    d.sourceComputationOutputName.GetString());
+  }
+  if (!ResearchComputed() || computations.empty()) {
+    return authored;
+  }
+  const auto values = pxr::HdExtComputationUtils::GetComputedPrimvarValues(
+      computations, &delegate);
+  const auto found = values.find(pxr::HdTokens->points);
+  pxr::VtValue result = found == values.end() ? pxr::VtValue() : found->second;
+  UMBRA_LOG_DEBUG(kUsd, "research {}: frame points{}", prim_id.GetString(),
+                  ResearchPoints(result));
+  return result;
+}
+
 // The motion samples of the points of the mesh at `prim_id`, whose points at
 // the frame are `frame`, over `shutter`: none when their count changes within
 // it.
@@ -158,8 +228,31 @@ Motion<pxr::VtVec3fArray> SamplePoints(pxr::HdSceneDelegate& delegate,
   if (!IsMotionBlurred(shutter) || !frame.IsHolding<pxr::VtVec3fArray>()) {
     return {};
   }
-  const TimedSamples<pxr::VtValue> sampled =
+  TimedSamples<pxr::VtValue> sampled =
       SamplePrimvar(delegate, prim_id, pxr::HdTokens->points, shutter);
+  if (ResearchComputed()) {
+    const auto computations = PointsComputations(delegate, prim_id);
+    if (!computations.empty()) {
+      pxr::HdExtComputationUtils::SampledValueStore<kMaxMotionSamples> store;
+      pxr::HdExtComputationUtils::SampleComputedPrimvarValues<
+          kMaxMotionSamples>(
+          computations, &delegate, static_cast<float>(shutter.open),
+          static_cast<float>(shutter.close), kMaxMotionSamples, &store);
+      sampled = {};
+      if (const auto found = store.find(pxr::HdTokens->points);
+          found != store.end()) {
+        for (std::size_t i = 0; i < found->second.count; ++i) {
+          sampled.times.push_back(found->second.times[i]);
+          sampled.values.push_back(found->second.values[i]);
+        }
+      }
+    }
+  }
+  for (std::size_t i = 0; i < sampled.times.size(); ++i) {
+    UMBRA_LOG_DEBUG(kUsd, "research {}: sample {} at {:+.4f}:{}",
+                    prim_id.GetString(), i, sampled.times[i],
+                    ResearchPoints(sampled.values[i]));
+  }
   const std::size_t count = frame.UncheckedGet<pxr::VtVec3fArray>().size();
   TimedSamples<pxr::VtVec3fArray> samples{
       .times = sampled.times,
@@ -466,7 +559,7 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
   SourceMesh source{
       .path = GetId().GetString(),
       .topology = GetMeshTopology(&delegate),
-      .points = GetPoints(&delegate),
+      .points = ResearchGetPoints(delegate, GetId(), GetPoints(&delegate)),
       .point_motion = {},
       .primvars = ReadPrimvars(delegate, GetId()),
       .sidedness = IsDoubleSided(&delegate) ? host::Sidedness::kDoubleSided
@@ -490,6 +583,15 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
   mesh_ = std::move(converted->mesh);
   normals_ = converted->normals;
   point_count_ = mesh_.points.front().size();
+  for (std::size_t m = 0; m < mesh_.points.size(); ++m) {  // RESEARCH (#99)
+    std::string text;
+    for (std::size_t i = 0; i < mesh_.points[m].size(); ++i) {
+      const auto& p = mesh_.points[m][i];
+      text += std::format(" {}:({:.4f},{:.4f},{:.4f})", i, p.x, p.y, p.z);
+    }
+    UMBRA_LOG_DEBUG(kUsd, "research {}: host copy motion sample {}/{}:{}",
+                    GetId().GetString(), m, mesh_.points.size(), text);
+  }
   ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
   display_color_ = std::ranges::any_of(mesh_.primvars,
                                        [](const host::Primvar& primvar) {
@@ -505,7 +607,8 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
 
 MeshPrim::PointsConversion MeshPrim::ConvertPointsAlone(
     pxr::HdSceneDelegate& delegate) {
-  const pxr::VtValue frame = GetPoints(&delegate);
+  const pxr::VtValue frame =
+      ResearchGetPoints(delegate, GetId(), GetPoints(&delegate));
   Motion<pxr::VtVec3fArray> motion =
       SamplePoints(delegate, GetId(), frame, *shutter_);
   if (motion.outcome != points_outcome_) {
@@ -743,6 +846,7 @@ const pxr::TfTokenVector& RenderDelegate::GetSupportedSprimTypes() const {
     pxr::TfTokenVector types = {
         pxr::HdPrimTypeTokens->camera,
         pxr::HdPrimTypeTokens->material,
+        pxr::HdPrimTypeTokens->extComputation,
     };
     const pxr::TfTokenVector& lights = LightPrimTypes();
     types.insert(types.end(), lights.begin(), lights.end());
@@ -828,6 +932,9 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     prims_.lights[prim_id] = light.get();
     return Release<pxr::HdSprim>(std::move(light));
   }
+  if (type_id == pxr::HdPrimTypeTokens->extComputation) {
+    return new pxr::HdExtComputation(prim_id);  // RESEARCH (#99)
+  }
   if (type_id == pxr::HdPrimTypeTokens->material) {
     auto material = std::make_unique<MaterialPrim>(prim_id, counter_);
     prims_.materials[prim_id] = material.get();
@@ -847,6 +954,9 @@ RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
   if (IsLightPrimType(type_id)) {
     return Release<pxr::HdSprim>(std::make_unique<LightPrim>(
         type_id, pxr::SdfPath::EmptyPath(), nullptr, meters_per_unit_));
+  }
+  if (type_id == pxr::HdPrimTypeTokens->extComputation) {
+    return new pxr::HdExtComputation(pxr::SdfPath::EmptyPath());
   }
   if (type_id == pxr::HdPrimTypeTokens->material) {
     return Release<pxr::HdSprim>(
