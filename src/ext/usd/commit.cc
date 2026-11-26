@@ -253,7 +253,7 @@ class UnsupportedVars {
     ++count_;
   }
 
-  // "warning: usd: 3 render vars not supported (lpe:C<RD>L, first in
+  // "warning: usd: 3 render vars not supported (primId, first in
   // /Render/beauty); left out".
   void Report(Warnings& warnings) const {
     if (count_ == 1) {
@@ -1077,6 +1077,24 @@ std::optional<RenderVarSource> RawSource(std::string_view name) {
   return std::nullopt;
 }
 
+// The quantity of a var of `source_type` whose source is `source_name`, or
+// none when umbra has no such var: an lpe or primvar var, unchecked, or a
+// raw var umbra knows. An intrinsic var, which UsdRender leaves
+// unimplemented, has none.
+std::optional<RenderVarSource> SourceOf(const pxr::TfToken& source_type,
+                                        std::string_view source_name) {
+  if (source_type == pxr::UsdRenderTokens->lpe) {
+    return RenderVarSource::kLpe;
+  }
+  if (source_type == pxr::UsdRenderTokens->primvar) {
+    return RenderVarSource::kPrimvar;
+  }
+  if (source_type == pxr::UsdRenderTokens->raw) {
+    return RawSource(source_name);
+  }
+  return std::nullopt;
+}
+
 // Whether `data_type` has half components: half, half3, color3h, ...
 bool IsHalfType(std::string_view data_type) {
   return data_type.starts_with("half") || data_type.ends_with('h');
@@ -1102,16 +1120,17 @@ std::vector<RenderVar> ProductVars(const Product& product,
     const std::string name = var.varPath.GetName();
     const std::string source_name =
         var.sourceName.empty() ? name : var.sourceName;
-    const auto source = var.sourceType == pxr::UsdRenderTokens->raw
-                            ? RawSource(source_name)
-                            : std::nullopt;
+    const auto source = SourceOf(var.sourceType, source_name);
     if (!source.has_value()) {
       unsupported.Add(source_name, product.productPath);
       continue;
     }
+    const bool named = *source == RenderVarSource::kLpe ||
+                       *source == RenderVarSource::kPrimvar;
     vars.push_back({
         .name = name,
         .source = *source,
+        .source_name = named ? source_name : std::string(),
         .type = ChannelTypeOf(var, stage),
     });
   }
@@ -1235,6 +1254,7 @@ std::expected<RenderProduct, Error> ProductConverter::Implicit(
   product.vars.push_back({
       .name = "color",
       .source = RenderVarSource::kColor,
+      .source_name = {},
       .type = ChannelType::kHalf,
   });
   return product;

@@ -31,6 +31,10 @@ enum class RenderVarSource : std::uint8_t {
   kNormal,
   // The diffuse reflectance of the first hit.
   kAlbedo,
+  // The radiance of the light paths a light path expression matches.
+  kLpe,
+  // A primvar of the first hit, interpolated.
+  kPrimvar,
 };
 
 // The type of the channels of a render var in its file.
@@ -44,6 +48,10 @@ enum class ChannelType : std::uint8_t {
 struct RenderVar {
   std::string name;
   RenderVarSource source = RenderVarSource::kColor;
+  // The light path expression of a kLpe var ("C<RD>L"), or the name of the
+  // primvar of a kPrimvar var ("st"): its sourceName, or its name when it has
+  // none; empty for the others.
+  std::string source_name;
   ChannelType type = ChannelType::kHalf;
 };
 
