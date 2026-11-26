@@ -28,7 +28,7 @@ enable_testing()
 
 add_subdirectory(src/core)
 add_subdirectory(src/gpu)
-add_subdirectory(src/scene)
+add_subdirectory(src/device)
 add_subdirectory(src/ext/ocio)
 add_subdirectory(src/ext/oiio)
 add_subdirectory(src/ext/openvdb)

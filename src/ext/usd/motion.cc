@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#include "umbra/scene/scene.h"
+#include "host_copy.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -88,8 +88,8 @@ TransformMotion ResampleUniform(const TransformMotion& motion,
   if (motion.size() == count) {
     return motion;
   }
-  return Resample(Unit(motion), scene::Shutter{.open = 0.0, .close = 1.0},
-                  count, BlendTransforms);
+  return Resample(Unit(motion), host::Shutter{.open = 0.0, .close = 1.0}, count,
+                  BlendTransforms);
 }
 
 // The samples of a Hydra time sample array.
@@ -110,12 +110,12 @@ TimedSamples<T> FromArray(
 
 }  // namespace
 
-bool IsMotionBlurred(const scene::Shutter& shutter) {
+bool IsMotionBlurred(const host::Shutter& shutter) {
   return shutter.open < shutter.close;
 }
 
 MotionSampleCount CountMotionSamples(std::span<const float> times,
-                                     const scene::Shutter& shutter) {
+                                     const host::Shutter& shutter) {
   if (!IsMotionBlurred(shutter) || times.size() < 2) {
     return {};
   }
@@ -146,7 +146,7 @@ MotionSampleCount Merge(const MotionSampleCount& lhs,
   };
 }
 
-double UniformTime(const scene::Shutter& shutter, std::size_t index,
+double UniformTime(const host::Shutter& shutter, std::size_t index,
                    std::size_t count) {
   if (count < 2) {
     return 0.0;
@@ -221,7 +221,7 @@ TransformMotion ComposeMotion(const TransformMotion& inner,
 
 TimedSamples<pxr::GfMatrix4d> SampleTransform(pxr::HdSceneDelegate& delegate,
                                               const pxr::SdfPath& prim_id,
-                                              const scene::Shutter& shutter) {
+                                              const host::Shutter& shutter) {
   pxr::HdTimeSampleArray<pxr::GfMatrix4d, kMaxMotionSamples> sampled;
   delegate.SampleTransform(prim_id, static_cast<float>(shutter.open),
                            static_cast<float>(shutter.close), &sampled);
@@ -231,7 +231,7 @@ TimedSamples<pxr::GfMatrix4d> SampleTransform(pxr::HdSceneDelegate& delegate,
 TimedSamples<pxr::VtValue> SamplePrimvar(pxr::HdSceneDelegate& delegate,
                                          const pxr::SdfPath& prim_id,
                                          const pxr::TfToken& name,
-                                         const scene::Shutter& shutter) {
+                                         const host::Shutter& shutter) {
   pxr::HdTimeSampleArray<pxr::VtValue, kMaxMotionSamples> sampled;
   delegate.SamplePrimvar(prim_id, name, static_cast<float>(shutter.open),
                          static_cast<float>(shutter.close), &sampled);
@@ -240,7 +240,7 @@ TimedSamples<pxr::VtValue> SamplePrimvar(pxr::HdSceneDelegate& delegate,
 
 SampledTransform ResampleTransform(const TimedSamples<pxr::GfMatrix4d>& samples,
                                    const pxr::GfMatrix4d& frame,
-                                   const scene::Shutter& shutter) {
+                                   const host::Shutter& shutter) {
   Motion<pxr::GfMatrix4d> motion = MotionOf(samples, shutter, BlendTransforms);
   if (motion.samples.empty()) {
     return {.motion = {frame}, .outcome = MotionOutcome::kSampled};
@@ -250,7 +250,7 @@ SampledTransform ResampleTransform(const TimedSamples<pxr::GfMatrix4d>& samples,
 
 SampledTransform SampleTransformMotion(pxr::HdSceneDelegate& delegate,
                                        const pxr::SdfPath& prim_id,
-                                       const scene::Shutter& shutter) {
+                                       const host::Shutter& shutter) {
   const pxr::GfMatrix4d frame = delegate.GetTransform(prim_id);
   if (!IsMotionBlurred(shutter)) {
     return {.motion = {frame}, .outcome = MotionOutcome::kSampled};

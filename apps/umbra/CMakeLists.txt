@@ -6,7 +6,7 @@
 
 umbra_add_executable(umbra
                      SOURCES main.cc cli/parser.cc cpu_check.cc devices.cc
-                     DEPENDS core gpu ext::ocio ext::oiio ext::openvdb
+                     DEPENDS core device gpu ext::ocio ext::oiio ext::openvdb
                              ext::opensubdiv ext::embree ext::usd ext::osl)
 # The CPU check runs before anything else, on any x86-64 CPU (cpu_check.cc):
 # the last -march wins over the one of every build.

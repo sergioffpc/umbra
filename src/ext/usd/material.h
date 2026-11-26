@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// Materials, as Hydra gives them, translated into the Scene's neutral
+// Materials, as Hydra gives them, translated into their host copies, neutral
 // material networks (docs/adr/0008-materials-cross-as-neutral-networks.md):
 // nodes that are MaterialX nodedefs or .oso shaders, their parameters as
 // umbra values, with colors in ACEScg
@@ -25,10 +25,10 @@
 #include <string_view>
 #include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -58,7 +58,7 @@ struct UnresolvedTexture {
 // textures that do not resolve, and the terminals other than the surface
 // that are connected (displacement, volume), which umbra does not take.
 struct TranslatedMaterial {
-  std::expected<scene::MaterialNetwork, std::string> network;
+  std::expected<host::MaterialNetwork, std::string> network;
   std::vector<UnresolvedTexture> unresolved;
   std::vector<std::string> unsupported_terminals;
 };
@@ -95,9 +95,11 @@ class MaterialPrim final : public pxr::HdMaterial {
   translation() const UMBRA_LIFETIMEBOUND {
     return translation_;
   }
-  // Its network, when it translates; none otherwise.
-  [[nodiscard]] const scene::MaterialNetwork* UMBRA_NULLABLE
+  // Its network, its host copy, when it translates; none otherwise.
+  [[nodiscard]] const host::MaterialNetwork* UMBRA_NULLABLE
   network() const UMBRA_LIFETIMEBOUND;
+  // Frees its host copy, once committed: it is then as before its sync.
+  void FreeHostCopy();
 
  private:
   core::ProgressPhase* UMBRA_NULLABLE phase_;
@@ -112,12 +114,12 @@ class MaterialPrim final : public pxr::HdMaterial {
 [[nodiscard]] const pxr::TfTokenVector& ShaderSourceTypes();
 
 // The fallback material: an 18% gray diffuse.
-[[nodiscard]] scene::MaterialNetwork FallbackMaterial();
+[[nodiscard]] host::MaterialNetwork FallbackMaterial();
 
 // The material of meshes without one that have a display color: a
 // UsdPreviewSurface whose diffuseColor is their displayColor primvar, 18%
 // gray where it has none.
-[[nodiscard]] scene::MaterialNetwork DisplayColorMaterial();
+[[nodiscard]] host::MaterialNetwork DisplayColorMaterial();
 
 // The absolute file `asset` resolves to, through Ar, or none when it does
 // not resolve. Fails with kInvalidArgument, naming `owner`, when it is
@@ -144,7 +146,7 @@ ResolveAsset(const pxr::SdfAssetPath& asset, const pxr::SdfPath& owner);
 // convert.
 void ConvertDisplayColor(pxr::HdSceneDelegate& delegate,
                          const pxr::SdfPath& prim_id,
-                         std::vector<scene::Primvar>& primvars);
+                         std::vector<host::Primvar>& primvars);
 
 }  // namespace umbra::ext::usd::internal
 

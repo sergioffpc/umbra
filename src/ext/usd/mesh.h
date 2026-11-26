@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// A mesh as Hydra gives it, converted into the Scene's: triangulated, wound
-// one way, in meters, with its primvars at the Scene's rates
-// (docs/adr/0006-scenes-enter-through-hydra.md).
+// A mesh as Hydra gives it, converted into its host copy: triangulated,
+// wound one way, in meters, with its primvars at the rates devices take
+// (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 #ifndef UMBRA_EXT_USD_MESH_H_
 #define UMBRA_EXT_USD_MESH_H_
@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -52,30 +52,30 @@ struct SourceMesh {
   // move within the shutter; none otherwise.
   std::vector<pxr::VtVec3fArray> point_motion;
   std::vector<SourcePrimvar> primvars;
-  scene::Sidedness sidedness = scene::Sidedness::kSingleSided;
+  host::Sidedness sidedness = host::Sidedness::kSingleSided;
 };
 
 // Whether a mesh's topology asks for subdivision: any subdivisionScheme but
 // none.
 [[nodiscard]] bool IsSubdivided(const pxr::HdMeshTopology& topology);
 
-// Converts `source` into the Scene's mesh, with its lengths scaled by
+// Converts `source` into its host copy, with its lengths scaled by
 // `meters_per_unit`: its polygons fanned into triangles, but for its holes,
 // wound counterclockwise (leftHanded ones flipped); its points one array per
-// motion sample; its numeric primvars at the Scene's rates, the others
+// motion sample; its numeric primvars at the rates devices take, the others
 // dropped with a debug message. Authored normals are kept unless the mesh
 // asks for subdivision; smooth ones are computed otherwise, from its points
 // at the frame. Fails with the reason the mesh is invalid: points
 // that are not point3f[], a face of fewer than three vertices, counts that
 // do not add up to its indices, an index out of range, or a primvar whose
 // size does not match its interpolation.
-[[nodiscard]] std::expected<scene::Mesh, std::string> ConvertMesh(
+[[nodiscard]] std::expected<host::Mesh, std::string> ConvertMesh(
     const SourceMesh& source, double meters_per_unit);
 
 // The elements of `value`, a numeric value or array, as a constant primvar
 // named `name` holding them all, one after another; none for a value of
 // another type.
-[[nodiscard]] std::optional<scene::Primvar> ConstantPrimvar(
+[[nodiscard]] std::optional<host::Primvar> ConstantPrimvar(
     std::string name, const pxr::VtValue& value);
 
 // A transform with no unit, row-major, for row vectors.
@@ -84,7 +84,7 @@ struct SourceMesh {
 // The motion samples of a transform in scene units, each in meters:
 // row-major, for row vectors, its translation (the last row) scaled by
 // `meters_per_unit`.
-[[nodiscard]] std::vector<std::array<double, 16>> TransformsInMeters(
+[[nodiscard]] host::HostBuffer<host::Matrix> TransformsInMeters(
     std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit);
 
 }  // namespace umbra::ext::usd::internal

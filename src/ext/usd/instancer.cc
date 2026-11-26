@@ -34,6 +34,7 @@
 #include <variant>
 #include <vector>
 
+#include "host_copy.h"
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
@@ -41,7 +42,6 @@
 #include "umbra/core/number_format.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -147,7 +147,7 @@ PartTransforms TransformsOf(Part part, const pxr::VtValue& value) {
 // value at the frame alone when the shutter spans no interval.
 TimedSamples<PartTransforms> SamplePart(pxr::HdSceneDelegate& delegate,
                                         const pxr::SdfPath& prim_id, Part part,
-                                        const scene::Shutter& shutter) {
+                                        const host::Shutter& shutter) {
   TimedSamples<pxr::VtValue> values;
   if (IsMotionBlurred(shutter)) {
     values = SamplePrimvar(delegate, prim_id, NameOf(part), shutter);
@@ -168,7 +168,7 @@ TimedSamples<PartTransforms> SamplePart(pxr::HdSceneDelegate& delegate,
 
 PartSamples SampleParts(pxr::HdSceneDelegate& delegate,
                         const pxr::SdfPath& prim_id,
-                        const scene::Shutter& shutter) {
+                        const host::Shutter& shutter) {
   PartSamples samples;
   for (const Part part : kParts) {
     samples.at(static_cast<std::size_t>(part)) =
@@ -214,7 +214,7 @@ std::vector<Matrix> InstanceTransformsAt(const PartSamples& samples,
 // The motion samples of each instance's transform: `count` equally spaced
 // over `shutter`, or one when it does not move.
 std::vector<TransformMotion> InstanceMotion(const PartSamples& samples,
-                                            const scene::Shutter& shutter,
+                                            const host::Shutter& shutter,
                                             std::size_t count) {
   std::vector<TransformMotion> motion;
   for (std::size_t index = 0; index < count; ++index) {
@@ -242,9 +242,9 @@ bool IsPlacement(const pxr::TfToken& name) {
 
 // The numeric primvars the instancer at `prim_id` gives per instance, its
 // displayColor in ACEScg; the others are dropped with a debug message.
-std::vector<scene::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
-                                             const pxr::SdfPath& prim_id) {
-  std::vector<scene::Primvar> primvars;
+std::vector<host::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
+                                            const pxr::SdfPath& prim_id) {
+  std::vector<host::Primvar> primvars;
   for (const pxr::HdPrimvarDescriptor& descriptor :
        delegate.GetPrimvarDescriptors(prim_id, pxr::HdInterpolationInstance)) {
     if (IsPlacement(descriptor.name)) {
@@ -265,10 +265,10 @@ std::vector<scene::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
 }
 
 // The value at `index` of `primvar`, as a primvar of one value.
-scene::Primvar ValueAt(const scene::Primvar& primvar, std::size_t index) {
-  scene::Primvar element{
+host::Primvar ValueAt(const host::Primvar& primvar, std::size_t index) {
+  host::Primvar element{
       .name = primvar.name,
-      .rate = scene::PrimvarRate::kConstant,
+      .rate = host::PrimvarRate::kConstant,
       .components = primvar.components,
       .values = {},
       .indices = {},
@@ -285,9 +285,9 @@ scene::Primvar ValueAt(const scene::Primvar& primvar, std::size_t index) {
 }
 
 // Whether `primvars` holds one named `name`.
-bool HasPrimvar(const std::vector<scene::Primvar>& primvars,
+bool HasPrimvar(const std::vector<host::Primvar>& primvars,
                 const std::string& name) {
-  return std::ranges::any_of(primvars, [&](const scene::Primvar& primvar) {
+  return std::ranges::any_of(primvars, [&](const host::Primvar& primvar) {
     return primvar.name == name;
   });
 }
@@ -299,7 +299,7 @@ FlatInstance Compose(const FlatInstance& inner, const FlatInstance& outer) {
       .transforms = ComposeMotion(inner.transforms, outer.transforms),
       .primvars = inner.primvars,
   };
-  for (const scene::Primvar& primvar : outer.primvars) {
+  for (const host::Primvar& primvar : outer.primvars) {
     if (!HasPrimvar(composed.primvars, primvar.name)) {
       composed.primvars.push_back(primvar);
     }
@@ -325,7 +325,7 @@ std::vector<FlatInstance> Flatten(const std::vector<FlatInstance>& inner,
 InstancerPrim::InstancerPrim(pxr::HdSceneDelegate* delegate,
                              const pxr::SdfPath& prim_id,
                              core::ProgressPhase& phase,
-                             const scene::Shutter& shutter)
+                             const host::Shutter& shutter)
     : pxr::HdInstancer(delegate, prim_id), phase_(&phase), shutter_(&shutter) {}
 
 void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
@@ -346,7 +346,7 @@ void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
 }
 
 void InstancerPrim::SampleMotion(pxr::HdSceneDelegate& delegate) {
-  scene::Shutter shutter = *shutter_;
+  host::Shutter shutter = *shutter_;
   motion_outcome_ = MotionOutcome::kSampled;
   PartSamples parts = SampleParts(delegate, GetId(), shutter);
   // Instances that appear or vanish within the shutter have no blur, nor
@@ -392,7 +392,7 @@ FlatInstance InstancerPrim::Instance(std::size_t index) const {
       index < instance_transforms_.size()
           ? ComposeMotion(instance_transforms_.at(index), transform_)
           : transform_;
-  for (const scene::Primvar& primvar : primvars_) {
+  for (const host::Primvar& primvar : primvars_) {
     if (index < primvar.Count()) {
       instance.primvars.push_back(ValueAt(primvar, index));
     }
@@ -445,7 +445,7 @@ std::vector<FlatInstance> InstancerPrim::Instances(
 Placement PlaceInstances(pxr::HdSceneDelegate& delegate,
                          const pxr::SdfPath& prim_id,
                          const pxr::SdfPath& instancer_id,
-                         const scene::Shutter& shutter) {
+                         const host::Shutter& shutter) {
   const SampledTransform prim_to_instance =
       SampleTransformMotion(delegate, prim_id, shutter);
   Placement placement{.instances = {}, .outcome = prim_to_instance.outcome};

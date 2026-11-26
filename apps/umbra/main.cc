@@ -7,8 +7,9 @@
 //
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
-// [--frame=<n>] <scene>` chooses among them, shows them on stderr and loads
-// the scene, and renders nothing yet. `umbra version
+// [--frame=<n>] <scene>` chooses among them, shows them on stderr, and syncs
+// the scene through Hydra and commits it to the diagnostic device, which
+// checks it; it renders nothing yet. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -47,6 +48,8 @@
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
+#include "umbra/device/device.h"
+#include "umbra/device/diagnostic_device.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/ocio/ocio.h"
 #include "umbra/ext/oiio/oiio.h"
@@ -317,8 +320,8 @@ std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
   return request;
 }
 
-// `umbra render`: resolves the devices, shows them and loads the scene. It
-// renders nothing yet.
+// `umbra render`: resolves the devices, shows them, and syncs the scene and
+// commits it to the diagnostic device. It renders nothing yet.
 int Render(const ParsedCommand& global, const ParsedCommand& render,
            const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
@@ -335,9 +338,13 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
   if (global.Count("quiet") == 0) {
     PrintRenderBlock(*hardware, *chosen);
   }
-  const auto scene = umbra::ext::usd::LoadScene(request.scene, request.options);
-  if (!scene.has_value()) {
-    return Failure(scene.error());
+  // The only device until devices render: it checks what it receives.
+  umbra::device::DiagnosticDevice diagnostic;
+  const std::array<umbra::device::Device*, 1> committed_to = {&diagnostic};
+  const auto session = umbra::ext::usd::OpenSession(
+      request.scene, request.options, committed_to);
+  if (!session.has_value()) {
+    return Failure(session.error());
   }
   return kExitSuccess;
 }

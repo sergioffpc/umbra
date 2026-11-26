@@ -4,6 +4,7 @@
 #include "hydra.h"
 
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/range1f.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/base/vt/value.h>
@@ -43,6 +44,7 @@
 #include <utility>
 #include <vector>
 
+#include "host_copy.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
@@ -53,7 +55,7 @@
 #include "umbra/core/number_format.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
+#include "umbra/ext/usd/render_settings.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -96,10 +98,10 @@ SettingsBase ReadSettingsBase(const pxr::HdContainerDataSourceHandle& prim) {
     base.data_window_ndc = Components<float, 4>(window->GetTypedValue(0.0F));
   }
   if (ValueOr(schema.GetDisableMotionBlur(), false)) {
-    base.motion_blur = scene::MotionBlur::kDisabled;
+    base.motion_blur = MotionBlur::kDisabled;
   }
   if (ValueOr(schema.GetDisableDepthOfField(), false)) {
-    base.depth_of_field = scene::DepthOfField::kDisabled;
+    base.depth_of_field = DepthOfField::kDisabled;
   }
   return base;
 }
@@ -150,7 +152,7 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
 Motion<pxr::VtVec3fArray> SamplePoints(pxr::HdSceneDelegate& delegate,
                                        const pxr::SdfPath& prim_id,
                                        const pxr::VtValue& frame,
-                                       const scene::Shutter& shutter) {
+                                       const host::Shutter& shutter) {
   if (!IsMotionBlurred(shutter) || !frame.IsHolding<pxr::VtVec3fArray>()) {
     return {};
   }
@@ -200,7 +202,7 @@ void Forget(std::map<pxr::SdfPath, Prim*>& prims, const Base& prim) {
   }
 }
 
-// The rprim types the Scene does not take, which are only counted.
+// The rprim types umbra does not take, which are only counted.
 const pxr::TfTokenVector& UnsupportedRprimTypes() {
   static const pxr::TfTokenVector kTypes = {
       pxr::HdPrimTypeTokens->basisCurves,
@@ -246,14 +248,17 @@ pxr::SdfPath RenderSettingsPrim::CameraPath() const {
 }
 
 CameraPrim::CameraPrim(const pxr::SdfPath& prim_id,
-                       core::ProgressPhase* UMBRA_NULLABLE phase)
-    : pxr::HdCamera(prim_id), phase_(phase) {}
+                       core::ProgressPhase* UMBRA_NULLABLE phase,
+                       double meters_per_unit)
+    : pxr::HdCamera(prim_id),
+      phase_(phase),
+      meters_per_unit_(meters_per_unit) {}
 
 void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
                       pxr::HdRenderParam* UMBRA_NULLABLE render_param,
                       pxr::HdDirtyBits* dirty_bits) {
   pxr::HdCamera::Sync(scene_delegate, render_param, dirty_bits);
-  const scene::Shutter shutter{
+  const host::Shutter shutter{
       .open = GetShutterOpen(),
       .close = GetShutterClose(),
   };
@@ -268,8 +273,44 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   CountSync(phase_, GetId());
 }
 
+void CameraPrim::Place(const host::Shutter& shutter) {
+  // Lengths are in scene units, the apertures and focal length too once
+  // Hydra has read them.
+  const auto meters = [this](float length) {
+    return static_cast<double>(length) * meters_per_unit_;
+  };
+  const SampledTransform camera_to_world =
+      ResampleTransform(transform_samples_, GetTransform(), shutter);
+  motion_outcome_ = camera_to_world.outcome;
+  const pxr::GfRange1f& clipping = GetClippingRange();
+  camera_ = {
+      .path = GetId().GetString(),
+      .projection = GetProjection() == pxr::HdCamera::Orthographic
+                        ? host::Projection::kOrthographic
+                        : host::Projection::kPerspective,
+      .camera_to_world =
+          TransformsInMeters(camera_to_world.motion, meters_per_unit_),
+      .focal_length = meters(GetFocalLength()),
+      .aperture =
+          {
+              meters(GetHorizontalAperture()),
+              meters(GetVerticalAperture()),
+          },
+      .aperture_offset =
+          {
+              meters(GetHorizontalApertureOffset()),
+              meters(GetVerticalApertureOffset()),
+          },
+      .clipping_range = {meters(clipping.GetMin()), meters(clipping.GetMax())},
+      .f_stop = static_cast<double>(GetFStop()),
+      .focus_distance = meters(GetFocusDistance()),
+  };
+}
+
+void CameraPrim::FreeHostCopy() { camera_ = {}; }
+
 MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
-                   double meters_per_unit, const scene::Shutter& shutter)
+                   double meters_per_unit, const host::Shutter& shutter)
     : pxr::HdMesh(prim_id),
       phase_(&phase),
       meters_per_unit_(meters_per_unit),
@@ -314,8 +355,8 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
       .points = GetPoints(&delegate),
       .point_motion = {},
       .primvars = ReadPrimvars(delegate, GetId()),
-      .sidedness = IsDoubleSided(&delegate) ? scene::Sidedness::kDoubleSided
-                                            : scene::Sidedness::kSingleSided,
+      .sidedness = IsDoubleSided(&delegate) ? host::Sidedness::kDoubleSided
+                                            : host::Sidedness::kSingleSided,
   };
   Motion<pxr::VtVec3fArray> motion =
       SamplePoints(delegate, GetId(), source.points, *shutter_);
@@ -338,12 +379,12 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   material_subsets_ = MaterialSubsets(source.topology);
   // A mesh whose topology changes within the shutter has no blur at all.
   Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges
-                      ? scene::Shutter{}
+                      ? host::Shutter{}
                       : *shutter_);
 }
 
 void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
-                     const scene::Shutter& shutter) {
+                     const host::Shutter& shutter) {
   Placement placement =
       PlaceInstances(delegate, GetId(), GetInstancerId(), shutter);
   motion_outcome_ = std::max(motion_outcome_, placement.outcome);
@@ -351,7 +392,6 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
   instances_.reserve(placement.instances.size());
   for (FlatInstance& placed : placement.instances) {
     instances_.push_back({
-        .prototype = 0,
         .object_to_world =
             TransformsInMeters(placed.transforms, meters_per_unit_),
         .primvars = std::move(placed.primvars),
@@ -359,10 +399,9 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
   }
 }
 
-scene::Mesh MeshPrim::TakeMesh() { return std::move(mesh_); }
-
-std::vector<scene::Instance> MeshPrim::TakeInstances() {
-  return std::move(instances_);
+void MeshPrim::FreeHostCopy() {
+  mesh_ = {};
+  instances_ = {};
 }
 
 pxr::HdDirtyBits MeshPrim::_PropagateDirtyBits(pxr::HdDirtyBits bits) const {
@@ -408,10 +447,10 @@ void UnsupportedPrim::_InitRepr(const pxr::TfToken& /*repr*/,
 }
 
 RenderDelegate::RenderDelegate(core::ProgressPhase& phase,
-                               double meters_per_unit, SceneCloser closer)
+                               double meters_per_unit, Committer committer)
     : phase_(&phase),
       meters_per_unit_(meters_per_unit),
-      closer_(std::move(closer)),
+      committer_(std::move(committer)),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {}
 
 RenderDelegate::~RenderDelegate() = default;
@@ -427,14 +466,14 @@ void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
   prims_.shutter = {};
   const auto found = prims_.settings.find(settings);
   if (found == prims_.settings.end() ||
-      found->second->base().motion_blur == scene::MotionBlur::kDisabled) {
+      found->second->base().motion_blur == MotionBlur::kDisabled) {
     return;
   }
   const auto camera = prims_.cameras.find(found->second->CameraPath());
   if (camera == prims_.cameras.end()) {
     return;
   }
-  const scene::Shutter shutter{
+  const host::Shutter shutter{
       .open = camera->second->GetShutterOpen(),
       .close = camera->second->GetShutterClose(),
   };
@@ -443,7 +482,10 @@ void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
   }
 }
 
-void RenderDelegate::PlaceLights(const pxr::TfTokenVector& render_tags) {
+void RenderDelegate::Place(const pxr::TfTokenVector& render_tags) {
+  for (const auto& [path, camera] : prims_.cameras) {
+    camera->Place(prims_.shutter);
+  }
   for (const auto& [path, light] : prims_.lights) {
     light->Place(prims_.shutter, render_tags);
   }
@@ -465,9 +507,9 @@ pxr::TfTokenVector RenderDelegate::RenderTags(
   return tags;
 }
 
-std::optional<std::expected<scene::Scene, core::Error>>
-RenderDelegate::TakeScene() {
-  return std::exchange(scene_, std::nullopt);
+std::optional<std::expected<Committed, core::Error>>
+RenderDelegate::TakeCommitted() {
+  return std::exchange(committed_, std::nullopt);
 }
 
 const pxr::TfTokenVector& RenderDelegate::GetSupportedRprimTypes() const {
@@ -577,7 +619,7 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
-  auto camera = std::make_unique<CameraPrim>(prim_id, phase_);
+  auto camera = std::make_unique<CameraPrim>(prim_id, phase_, meters_per_unit_);
   prims_.cameras[prim_id] = camera.get();
   return Release<pxr::HdSprim>(std::move(camera));
 }
@@ -595,8 +637,8 @@ RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
-  return Release<pxr::HdSprim>(
-      std::make_unique<CameraPrim>(pxr::SdfPath::EmptyPath(), nullptr));
+  return Release<pxr::HdSprim>(std::make_unique<CameraPrim>(
+      pxr::SdfPath::EmptyPath(), nullptr, meters_per_unit_));
 }
 
 void RenderDelegate::DestroySprim(pxr::HdSprim* sprim) {
@@ -655,12 +697,26 @@ void RenderDelegate::CountNotSynced() {
   }
 }
 
-void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
-  // The Scene is closed once: it is immutable once loaded.
-  if (!scene_.has_value()) {
-    CountNotSynced();
-    scene_ = closer_(prims_);
+void RenderDelegate::FreeHostCopies() {
+  for (const auto& [path, camera] : prims_.cameras) {
+    camera->FreeHostCopy();
   }
+  for (const auto& [path, material] : prims_.materials) {
+    material->FreeHostCopy();
+  }
+  for (const auto& [path, mesh] : prims_.meshes) {
+    mesh->FreeHostCopy();
+  }
+  for (const auto& [path, light] : prims_.lights) {
+    light->FreeHostCopy();
+  }
+}
+
+void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
+  CountNotSynced();
+  committed_ = committer_(prims_);
+  // No host copy outlives the commit, whether it succeeds or not.
+  FreeHostCopies();
 }
 
 SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
@@ -675,7 +731,7 @@ void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
   // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
   delegate_->ChooseShutter(settings_);
-  delegate_->PlaceLights(render_tags_);
+  delegate_->Place(render_tags_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }
 

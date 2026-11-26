@@ -4,8 +4,8 @@
 // Instancing as Hydra 2.0 delivers it, native instances and PointInstancers
 // alike: instancer prims, which place their prototypes, rprims or other
 // instancers. The prototypes stay held once
-// (docs/adr/0006-scenes-enter-through-hydra.md); nested instancers are
-// composed into one level of instances of them.
+// (docs/adr/0013-devices-render-from-their-own-memory.md); nested instancers
+// are composed into one level of instances of them.
 
 #ifndef UMBRA_EXT_USD_INSTANCER_H_
 #define UMBRA_EXT_USD_INSTANCER_H_
@@ -22,10 +22,10 @@
 #include <cstdint>
 #include <vector>
 
+#include "host_copy.h"
 #include "motion.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
-#include "umbra/scene/scene.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -39,7 +39,7 @@ struct FlatInstance {
   // vectors, one per motion sample: those of the instancers, composed.
   TransformMotion transforms{pxr::GfMatrix4d(1.0)};
   // Its own primvars, one value each: the innermost instancer's first.
-  std::vector<scene::Primvar> primvars;
+  std::vector<host::Primvar> primvars;
 };
 
 // An instancer prim, synced: its transform, those of its instances, both
@@ -50,7 +50,7 @@ class InstancerPrim final : public pxr::HdInstancer {
   // Counts its sync into `phase`. `shutter` is chosen before it syncs.
   InstancerPrim(pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id,
                 core::ProgressPhase& phase,
-                const scene::Shutter& shutter UMBRA_LIFETIMEBOUND);
+                const host::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
   void Sync(pxr::HdSceneDelegate* delegate,
             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
@@ -84,7 +84,7 @@ class InstancerPrim final : public pxr::HdInstancer {
   void SampleMotion(pxr::HdSceneDelegate& delegate);
 
   core::ProgressPhase* phase_;
-  const scene::Shutter* shutter_;
+  const host::Shutter* shutter_;
   Synced synced_ = Synced::kNotSynced;
   Visibility visibility_ = Visibility::kVisible;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
@@ -93,7 +93,7 @@ class InstancerPrim final : public pxr::HdInstancer {
   // per motion sample.
   std::vector<TransformMotion> instance_transforms_;
   // The primvars given per instance, every instance's value in each.
-  std::vector<scene::Primvar> primvars_;
+  std::vector<host::Primvar> primvars_;
 };
 
 // The instances of a prim, and what sampling did with its own transform.
@@ -111,7 +111,7 @@ struct Placement {
 [[nodiscard]] Placement PlaceInstances(pxr::HdSceneDelegate& delegate,
                                        const pxr::SdfPath& prim_id,
                                        const pxr::SdfPath& instancer_id,
-                                       const scene::Shutter& shutter);
+                                       const host::Shutter& shutter);
 
 }  // namespace umbra::ext::usd::internal
 

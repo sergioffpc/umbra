@@ -57,9 +57,10 @@ enum class LogComponent : std::uint8_t {
   kVdb,
   kOsd,
   kEmbree,
+  kDevice,
 };
 
-inline constexpr std::size_t kLogComponentCount = 9;
+inline constexpr std::size_t kLogComponentCount = 10;
 
 // The name of a level as it appears in a line and in a filter ("warning").
 [[nodiscard]] std::string_view LogLevelName(LogLevel level);
