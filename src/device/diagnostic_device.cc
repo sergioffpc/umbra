@@ -4,12 +4,15 @@
 #include "umbra/device/diagnostic_device.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -21,6 +24,7 @@
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
+#include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/render_data.h"
 
@@ -31,7 +35,91 @@ using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
 
 using Checked = std::expected<void, Error>;
-using Held = std::vector<std::uint8_t>;
+using Digest = std::uint64_t;
+
+// A 64-bit FNV-1a hash of what it is given, in order.
+class Hasher {
+ public:
+  // Hashes the number of `values`, then their bytes: those of a type with
+  // no padding, or Float3's, which is always zero.
+  template <typename T>
+  void Span(std::span<const T> values) {
+    static_assert(std::is_trivially_copyable_v<T>);
+    Value(values.size());
+    Raw(std::as_bytes(values));
+  }
+
+  template <typename T>
+  void Value(const T& value) {
+    static_assert(std::is_trivially_copyable_v<T>);
+    Raw(std::as_bytes(std::span<const T, 1>(&value, 1)));
+  }
+
+  void Text(std::string_view text) {
+    Span(std::span<const char>(text.data(), text.size()));
+  }
+
+  [[nodiscard]] Digest digest() const { return digest_; }
+
+ private:
+  static constexpr Digest kOffset = 14695981039346656037ULL;
+  static constexpr Digest kPrime = 1099511628211ULL;
+
+  void Raw(std::span<const std::byte> bytes) {
+    for (const std::byte byte : bytes) {
+      digest_ = (digest_ ^ static_cast<Digest>(byte)) * kPrime;
+    }
+  }
+
+  Digest digest_ = kOffset;
+};
+
+// What the device keeps of a prototype: its path, the sizes its updates are
+// checked against, its materials, and a digest of each part an update
+// replaces.
+struct PrototypeRecord {
+  std::string path;
+  std::size_t points = 0;
+  std::size_t faces = 0;
+  std::size_t triangles = 0;
+  std::vector<MaterialId> materials;
+  Digest placement = 0;
+  Digest point_values = 0;
+  Digest topology = 0;
+  Digest primvars = 0;
+  Digest triangle_materials = 0;
+};
+
+// What the device keeps of a light: its path, its texture, and a digest of
+// the rest.
+struct LightRecord {
+  std::string path;
+  std::optional<TextureId> texture;
+  Digest digest = 0;
+};
+
+// What the device keeps of a material: its path, the textures its
+// parameters read in order, and a digest of the rest.
+struct MaterialRecord {
+  std::string path;
+  std::vector<TextureId> textures;
+  Digest digest = 0;
+};
+
+struct CameraRecord {
+  std::string path;
+  Digest digest = 0;
+};
+
+struct TextureRecord {
+  std::string file;
+  std::string color_space;
+};
+
+// The prims of one kind the device holds, by id: none for an id it does not
+// hold.
+template <typename Record>
+using Table = std::vector<std::optional<Record>>;
 
 // The error of an inconsistency of the change set.
 std::unexpected<Error> Inconsistent(std::string message) {
@@ -57,9 +145,30 @@ Checked CheckAligned(std::span<const T> numbers, std::string_view owner,
   return {};
 }
 
-// Whether `held` holds the id `index`.
-bool IsHeld(const Held& held, std::uint32_t index) {
-  return index < held.size() && held.at(index) != 0;
+// Whether `table` holds the id `index`.
+template <typename Record>
+bool IsHeld(const Table<Record>& table, std::uint32_t index) {
+  return index < table.size() && table.at(index).has_value();
+}
+
+// The record at `index` in `table`, or null when none is held there.
+template <typename Record>
+Record* UMBRA_NULLABLE Find(Table<Record>& table, std::uint32_t index) {
+  if (index >= table.size()) {
+    return nullptr;
+  }
+  std::optional<Record>& held = table.at(index);
+  return held.has_value() ? &*held : nullptr;
+}
+
+template <typename Record>
+const Record* UMBRA_NULLABLE Find(const Table<Record>& table,
+                                  std::uint32_t index) {
+  if (index >= table.size()) {
+    return nullptr;
+  }
+  const std::optional<Record>& held = table.at(index);
+  return held.has_value() ? &*held : nullptr;
 }
 
 // The ids a change set gives one kind.
@@ -106,58 +215,69 @@ std::unexpected<Error> OutOfRange(std::string_view kind, std::uint32_t index,
                                   kind, index, count));
 }
 
-// Unholds the ids `removed` in `held`, which must hold them.
+// Drops the ids `removed` from `table`, which must hold them.
+template <typename Record>
 Checked Remove(std::string_view kind, std::uint32_t count,
-               std::span<const std::uint32_t> removed, Held& held) {
+               std::span<const std::uint32_t> removed, Table<Record>& table) {
   for (const std::uint32_t index : removed) {
     if (index >= count) {
       return OutOfRange(kind, index, count);
     }
-    if (!IsHeld(held, index)) {
+    if (!IsHeld(table, index)) {
       return Inconsistent(
           std::format("{} {}: removed, and not held", kind, index));
     }
-    held.at(index) = 0;
+    table.at(index).reset();
   }
   return {};
 }
 
-// Checks that `held` holds the ids `updated`.
+// Checks that `table` holds the ids `updated`, once.
+template <typename Record>
 Checked CheckUpdated(std::string_view kind, std::uint32_t count,
-                     std::span<const std::uint32_t> updated, const Held& held) {
+                     std::span<const std::uint32_t> updated,
+                     const Table<Record>& table) {
+  std::vector<std::uint8_t> seen(count, 0);
   for (const std::uint32_t index : updated) {
     if (index >= count) {
       return OutOfRange(kind, index, count);
     }
-    if (!IsHeld(held, index)) {
+    if (!IsHeld(table, index)) {
       return Inconsistent(
           std::format("{} {}: updated, and not held or removed", kind, index));
     }
+    if (seen.at(index) != 0) {
+      return Inconsistent(std::format("{} {}: updated twice", kind, index));
+    }
+    seen.at(index) = 1;
   }
   return {};
 }
 
-// Holds the ids `added` in `held`, which must not hold them yet.
+// Holds the ids `added` in `table`, which must not hold them yet, with an
+// empty record each.
+template <typename Record>
 Checked Add(std::string_view kind, std::uint32_t count,
-            std::span<const std::uint32_t> added, Held& held) {
+            std::span<const std::uint32_t> added, Table<Record>& table) {
   for (const std::uint32_t index : added) {
     if (index >= count) {
       return OutOfRange(kind, index, count);
     }
-    if (IsHeld(held, index)) {
+    if (IsHeld(table, index)) {
       return Inconsistent(
           std::format("{} {}: added, and already held", kind, index));
     }
-    held.at(index) = 1;
+    table.at(index).emplace();
   }
   return {};
 }
 
-// Checks that `held` holds no id not below `count`.
+// Checks that `table` holds no id not below `count`.
+template <typename Record>
 Checked CheckBelow(std::string_view kind, std::uint32_t count,
-                   const Held& held) {
-  for (std::size_t index = count; index < held.size(); ++index) {
-    if (held.at(index) != 0) {
+                   const Table<Record>& table) {
+  for (std::size_t index = count; index < table.size(); ++index) {
+    if (table.at(index).has_value()) {
       return Inconsistent(std::format(
           "{} {}: still held, and its id is not below their count, {}", kind,
           index, count));
@@ -166,26 +286,42 @@ Checked CheckBelow(std::string_view kind, std::uint32_t count,
   return {};
 }
 
-// The ids of one kind held once `ids` are applied to `held`: its removals,
-// then its additions. Fails when an id is not below `count`, an id is
-// removed or updated that `held` does not hold, or added that it does, or
-// an id not below `count` is still held once they are applied.
-std::expected<Held, Error> ApplyIds(std::string_view kind, std::uint32_t count,
-                                    const KindIds& ids, Held held) {
-  if (held.size() < count) {
-    held.resize(count, 0);
+// Applies `ids` to `table`: its removals, then its additions. Fails when an
+// id is not below `count`, an id is removed or updated that `table` does not
+// hold, or added that it does, or an id not below `count` is still held once
+// they are applied.
+template <typename Record>
+std::expected<Table<Record>, Error> ApplyIds(std::string_view kind,
+                                             std::uint32_t count,
+                                             const KindIds& ids,
+                                             Table<Record> table) {
+  if (table.size() < count) {
+    table.resize(count);
   }
   if (auto applied =
-          Remove(kind, count, ids.removed, held)
+          Remove(kind, count, ids.removed, table)
               .and_then(
-                  [&] { return CheckUpdated(kind, count, ids.updated, held); })
-              .and_then([&] { return Add(kind, count, ids.added, held); })
-              .and_then([&] { return CheckBelow(kind, count, held); });
+                  [&] { return CheckUpdated(kind, count, ids.updated, table); })
+              .and_then([&] { return Add(kind, count, ids.added, table); })
+              .and_then([&] { return CheckBelow(kind, count, table); });
       !applied.has_value()) {
     return std::unexpected(std::move(applied.error()));
   }
-  held.resize(count);
-  return held;
+  table.resize(count);
+  return table;
+}
+
+// Applies `ids` to `table`, which keeps what it held when they do not
+// apply.
+template <typename Record>
+Checked Apply(std::string_view kind, std::uint32_t count, const KindIds& ids,
+              Table<Record>& table) {
+  auto applied = ApplyIds(kind, count, ids, table);
+  if (!applied.has_value()) {
+    return std::unexpected(std::move(applied.error()));
+  }
+  table = std::move(*applied);
+  return {};
 }
 
 // What the primvars of a mesh are counted against.
@@ -389,9 +525,10 @@ Checked CheckTriangles(const Prototype& prototype, std::string_view owner) {
       });
 }
 
-// Checks the materials of a prototype: one or more, each held, and those
-// of its triangles.
-Checked CheckMaterials(const Prototype& prototype, const Held& materials,
+// Checks the materials of a prototype of `triangles` triangles: one or
+// more, each held, and those of its triangles.
+Checked CheckMaterials(const Prototype& prototype, std::size_t triangles,
+                       const Table<MaterialRecord>& materials,
                        std::string_view owner) {
   if (prototype.materials.empty()) {
     return Inconsistent(std::format("{}: no material", owner));
@@ -402,21 +539,22 @@ Checked CheckMaterials(const Prototype& prototype, const Held& materials,
                                       std::to_underlying(material)));
     }
   }
-  const std::span<const std::uint32_t> triangles = prototype.triangle_materials;
-  if (!triangles.empty() && triangles.size() != prototype.triangles.size()) {
+  const std::span<const std::uint32_t> per_triangle =
+      prototype.triangle_materials;
+  if (!per_triangle.empty() && per_triangle.size() != triangles) {
     return Inconsistent(
-        std::format("{}: {} triangle materials, for {} "
-                    "triangles",
-                    owner, triangles.size(), prototype.triangles.size()));
+        std::format("{}: {} triangle materials, for {} triangles", owner,
+                    per_triangle.size(), triangles));
   }
   const std::size_t count = prototype.materials.size();
-  if (std::ranges::any_of(
-          triangles, [count](std::uint32_t index) { return index >= count; })) {
+  if (std::ranges::any_of(per_triangle, [count](std::uint32_t index) {
+        return index >= count;
+      })) {
     return Inconsistent(
         std::format("{}: a triangle's material not below {}", owner, count));
   }
   return CheckAligned(prototype.materials, owner, "materials").and_then([&] {
-    return CheckAligned(triangles, owner, "triangle materials");
+    return CheckAligned(per_triangle, owner, "triangle materials");
   });
 }
 
@@ -432,27 +570,205 @@ Checked CheckNormals(const Primvar& normals, const MeshShape& shape,
   return CheckPrimvar(normals, shape, owner);
 }
 
-// Checks a prototype added or updated.
-Checked CheckPrototype(const Prototype& prototype, const Held& materials) {
-  const std::string owner = std::format(
-      "prototype {} ({})", std::to_underlying(prototype.id), prototype.path);
-  if (auto points = CheckPoints(prototype, owner); !points.has_value()) {
-    return points;
-  }
-  const MeshShape shape{
+// "prototype 3 (/World/Car/Body)".
+std::string PrototypeName(const Prototype& prototype) {
+  return std::format("prototype {} ({})", std::to_underlying(prototype.id),
+                     prototype.path);
+}
+
+// The shape of a prototype whose points and triangles are given.
+MeshShape ShapeOf(const Prototype& prototype) {
+  return {
       .points = prototype.points.front().size(),
       .faces = prototype.face_vertex_counts.size(),
       .triangles = prototype.triangles.size(),
   };
+}
+
+// Checks a prototype added.
+Checked CheckPrototype(const Prototype& prototype,
+                       const Table<MaterialRecord>& materials) {
+  const std::string owner = PrototypeName(prototype);
+  if (auto points = CheckPoints(prototype, owner); !points.has_value()) {
+    return points;
+  }
+  const MeshShape shape = ShapeOf(prototype);
   return CheckTriangles(prototype, owner)
       .and_then([&] { return CheckNormals(prototype.normals, shape, owner); })
       .and_then([&] { return CheckPrimvars(prototype.primvars, shape, owner); })
-      .and_then([&] { return CheckMaterials(prototype, materials, owner); })
+      .and_then([&] {
+        return CheckMaterials(prototype, shape.triangles, materials, owner);
+      })
       .and_then([&] { return CheckInstances(prototype.instances, owner); });
 }
 
+// Whether `primvar` gives nothing.
+bool IsEmpty(const Primvar& primvar) {
+  return primvar.floats.empty() && primvar.integers.empty() &&
+         primvar.indices.empty();
+}
+
+// A member of an updated prototype, with the flags that name it.
+struct Member {
+  std::string_view name;
+  ChangeFlags flags;
+};
+
+// The members of an updated prototype, in the order MemberSizes gives them.
+constexpr std::array<Member, 9> kMembers = {
+    Member{.name = "instances", .flags = ChangeFlags::kPlacement},
+    Member{
+        .name = "points",
+        .flags = ChangeFlags::kPoints | ChangeFlags::kTopology,
+    },
+    Member{.name = "triangles", .flags = ChangeFlags::kTopology},
+    Member{.name = "source faces", .flags = ChangeFlags::kTopology},
+    Member{.name = "face vertex counts", .flags = ChangeFlags::kTopology},
+    Member{.name = "normals", .flags = ChangeFlags::kPrimvars},
+    Member{.name = "primvars", .flags = ChangeFlags::kPrimvars},
+    Member{.name = "materials", .flags = ChangeFlags::kMaterials},
+    Member{.name = "triangle materials", .flags = ChangeFlags::kMaterials},
+};
+
+// How many elements `prototype` gives of each of kMembers.
+std::array<std::size_t, kMembers.size()> MemberSizes(
+    const Prototype& prototype) {
+  return {
+      prototype.instances.size(),          prototype.points.size(),
+      prototype.triangles.size(),          prototype.source_faces.size(),
+      prototype.face_vertex_counts.size(), IsEmpty(prototype.normals) ? 0U : 1U,
+      prototype.primvars.size(),           prototype.materials.size(),
+      prototype.triangle_materials.size(),
+  };
+}
+
+// Checks that an updated prototype gives only the members its flags name.
+Checked CheckOnlyNamed(const UpdatedPrototype& updated,
+                       std::string_view owner) {
+  for (const auto& [member, given] :
+       std::views::zip(kMembers, MemberSizes(updated.prototype))) {
+    if (given > 0 && !HasAny(updated.changes, member.flags)) {
+      return Inconsistent(
+          std::format("{}: updated with its {}, which its flags do not name",
+                      owner, member.name));
+    }
+  }
+  return {};
+}
+
+// Checks the flags of an updated prototype: some, kTopology with kPrimvars
+// and kMaterials, and not with kPoints.
+Checked CheckFlags(ChangeFlags flags, std::string_view owner) {
+  if (flags == ChangeFlags::kNone) {
+    return Inconsistent(std::format("{}: updated with no change", owner));
+  }
+  if (!HasAny(flags, ChangeFlags::kTopology)) {
+    return {};
+  }
+  if (HasAny(flags, ChangeFlags::kPoints) ||
+      !HasAny(flags, ChangeFlags::kPrimvars) ||
+      !HasAny(flags, ChangeFlags::kMaterials)) {
+    return Inconsistent(
+        std::format("{}: its topology changed, without its primvars and its "
+                    "materials, or with its points alone",
+                    owner));
+  }
+  return {};
+}
+
+// Checks the points and triangles of an updated prototype against `held`,
+// and gives its shape once updated.
+std::expected<MeshShape, Error> CheckShape(const UpdatedPrototype& updated,
+                                           const PrototypeRecord& held,
+                                           std::string_view owner) {
+  const Prototype& prototype = updated.prototype;
+  if (HasAny(updated.changes, ChangeFlags::kTopology)) {
+    if (auto checked = CheckPoints(prototype, owner).and_then([&] {
+          return CheckTriangles(prototype, owner);
+        });
+        !checked.has_value()) {
+      return std::unexpected(std::move(checked.error()));
+    }
+    return ShapeOf(prototype);
+  }
+  const MeshShape shape{
+      .points = held.points,
+      .faces = held.faces,
+      .triangles = held.triangles,
+  };
+  if (HasAny(updated.changes, ChangeFlags::kPoints)) {
+    if (auto points = CheckPoints(prototype, owner); !points.has_value()) {
+      return std::unexpected(std::move(points.error()));
+    }
+    if (prototype.points.front().size() != held.points) {
+      return std::unexpected(Error(
+          ErrorCode::kInternal,
+          std::format("{}: its points changed from {} to {}, and its "
+                      "topology did not",
+                      owner, held.points, prototype.points.front().size())));
+    }
+  }
+  return shape;
+}
+
+// Checks the primvars, materials and instances of a prototype updated,
+// `shape` once updated, against what the device holds of it.
+Checked CheckUpdatedValues(const UpdatedPrototype& updated,
+                           const MeshShape& shape, const PrototypeRecord& held,
+                           const Table<MaterialRecord>& materials,
+                           std::string_view owner) {
+  const Prototype& prototype = updated.prototype;
+  if (HasAny(updated.changes, ChangeFlags::kPrimvars)) {
+    if (auto checked =
+            CheckNormals(prototype.normals, shape, owner).and_then([&] {
+              return CheckPrimvars(prototype.primvars, shape, owner);
+            });
+        !checked.has_value()) {
+      return checked;
+    }
+  }
+  if (HasAny(updated.changes, ChangeFlags::kMaterials)) {
+    if (auto checked =
+            CheckMaterials(prototype, shape.triangles, materials, owner);
+        !checked.has_value()) {
+      return checked;
+    }
+  } else if (shape.triangles != held.triangles) {
+    return Inconsistent(std::format(
+        "{}: its triangles changed, and its materials did not", owner));
+  }
+  if (HasAny(updated.changes, ChangeFlags::kPlacement)) {
+    return CheckInstances(prototype.instances, owner);
+  }
+  return {};
+}
+
+// Checks a prototype updated, against what the device holds of it.
+Checked CheckUpdate(const UpdatedPrototype& updated,
+                    const PrototypeRecord& held,
+                    const Table<MaterialRecord>& materials) {
+  const Prototype& prototype = updated.prototype;
+  const std::string owner = PrototypeName(prototype);
+  if (prototype.path != held.path) {
+    return Inconsistent(
+        std::format("{}: updated, and held as {}", owner, held.path));
+  }
+  if (auto checked = CheckFlags(updated.changes, owner).and_then([&] {
+        return CheckOnlyNamed(updated, owner);
+      });
+      !checked.has_value()) {
+    return checked;
+  }
+  const auto shape = CheckShape(updated, held, owner);
+  if (!shape.has_value()) {
+    return std::unexpected(shape.error());
+  }
+  return CheckUpdatedValues(updated, *shape, held, materials, owner);
+}
+
 // Fails, naming `owner`, when `texture` is not held.
-Checked CheckTextureHeld(TextureId texture, const Held& textures,
+Checked CheckTextureHeld(TextureId texture,
+                         const Table<TextureRecord>& textures,
                          std::string_view owner) {
   if (!IsHeld(textures, std::to_underlying(texture))) {
     return Inconsistent(std::format("{}: texture {} is not held", owner,
@@ -462,7 +778,8 @@ Checked CheckTextureHeld(TextureId texture, const Held& textures,
 }
 
 // Checks a parameter of a node.
-Checked CheckParameter(const Parameter& parameter, const Held& textures,
+Checked CheckParameter(const Parameter& parameter,
+                       const Table<TextureRecord>& textures,
                        std::string_view owner) {
   const std::string what = std::format("parameter {}", parameter.name);
   return std::visit(
@@ -482,7 +799,7 @@ Checked CheckParameter(const Parameter& parameter, const Held& textures,
 // Checks a node, named `name`, of a material of `nodes` nodes: its inputs
 // come from nodes of the material, and its textures are held.
 Checked CheckNode(const MaterialNode& node, std::size_t nodes,
-                  const Held& textures, std::string_view name) {
+                  const Table<TextureRecord>& textures, std::string_view name) {
   for (const Connection& connection : node.connections) {
     if (connection.node >= nodes) {
       return Inconsistent(std::format("{}: input {} comes from node {}, of {}",
@@ -500,7 +817,8 @@ Checked CheckNode(const MaterialNode& node, std::size_t nodes,
 }
 
 // Checks a material added or updated.
-Checked CheckMaterial(const MaterialNetwork& material, const Held& textures) {
+Checked CheckMaterial(const MaterialNetwork& material,
+                      const Table<TextureRecord>& textures) {
   const std::string owner = std::format(
       "material {} ({})", std::to_underlying(material.id), material.path);
   const std::size_t nodes = material.nodes.size();
@@ -530,7 +848,7 @@ std::optional<TextureId> TextureOf(const Light::Shape& shape) {
 }
 
 // Checks a light added or updated.
-Checked CheckLight(const Light& light, const Held& textures) {
+Checked CheckLight(const Light& light, const Table<TextureRecord>& textures) {
   const std::string owner =
       std::format("light {} ({})", std::to_underlying(light.id), light.path);
   if (const std::optional<TextureId> texture = TextureOf(light.shape)) {
@@ -557,7 +875,7 @@ Checked CheckCamera(const Camera& camera) {
   return CheckAligned(camera.camera_to_world, owner, "transforms");
 }
 
-// Checks a texture added or updated: an absolute file, with a color space.
+// Checks a texture added: an absolute file, with a color space.
 Checked CheckTexture(const Texture& texture) {
   const std::string owner = std::format(
       "texture {} ({})", std::to_underlying(texture.id), texture.file);
@@ -570,103 +888,529 @@ Checked CheckTexture(const Texture& texture) {
   return {};
 }
 
-// Checks each of `views`, added or updated, with `check`.
-template <typename View, typename Check>
-Checked CheckEach(std::span<const View> views, const Check& check) {
-  for (const View& view : views) {
-    if (auto checked = check(view); !checked.has_value()) {
-      return checked;
+// Hashes a primvar into `hasher`.
+void HashPrimvar(const Primvar& primvar, Hasher& hasher) {
+  hasher.Text(primvar.name);
+  hasher.Value(primvar.rate);
+  hasher.Value(primvar.components);
+  hasher.Span(primvar.floats);
+  hasher.Span(primvar.integers);
+  hasher.Span(primvar.indices);
+}
+
+Digest PlacementDigest(std::span<const Instance> instances) {
+  Hasher hasher;
+  hasher.Value(instances.size());
+  for (const Instance& instance : instances) {
+    hasher.Span(instance.object_to_world);
+    hasher.Value(instance.primvars.size());
+    for (const Primvar& primvar : instance.primvars) {
+      HashPrimvar(primvar, hasher);
     }
   }
-  return {};
+  return hasher.digest();
 }
 
-// Checks the content of the views of `changes`, added and updated, with
-// `check`.
-template <typename View, typename Id, typename Check>
-Checked CheckViews(const Changes<View, Id>& changes, const Check& check) {
-  return CheckEach(changes.added, check).and_then([&] {
-    return CheckEach(changes.updated, check);
-  });
-}
-
-// What a commit holds of every kind, once applied.
-struct Tables {
-  Held prototypes;
-  Held lights;
-  Held materials;
-  Held cameras;
-  Held textures;
-};
-
-// Applies the ids of one kind to `held`, which keeps what it held when they
-// do not apply.
-Checked Apply(std::string_view kind, std::uint32_t count, const KindIds& ids,
-              Held& held) {
-  auto applied = ApplyIds(kind, count, ids, held);
-  if (!applied.has_value()) {
-    return std::unexpected(std::move(applied.error()));
+Digest PointsDigest(const Prototype& prototype) {
+  Hasher hasher;
+  hasher.Value(prototype.points.size());
+  for (const std::span<const Float3> sample : prototype.points) {
+    hasher.Span(sample);
   }
-  held = std::move(*applied);
-  return {};
+  return hasher.digest();
 }
 
-// Applies the ids of `changes` to `tables`.
-Checked ApplyAll(const ChangeSet& changes, Tables& tables) {
-  return Apply("prototype", changes.ids.prototypes, IdsOf(changes.prototypes),
-               tables.prototypes)
-      .and_then([&] {
-        return Apply("light", changes.ids.lights, IdsOf(changes.lights),
-                     tables.lights);
-      })
-      .and_then([&] {
-        return Apply("material", changes.ids.materials,
-                     IdsOf(changes.materials), tables.materials);
-      })
-      .and_then([&] {
-        return Apply("camera", changes.ids.cameras, IdsOf(changes.cameras),
-                     tables.cameras);
-      })
-      .and_then([&] {
-        return Apply("texture", changes.ids.textures, IdsOf(changes.textures),
-                     tables.textures);
-      });
+Digest TopologyDigest(const Prototype& prototype) {
+  Hasher hasher;
+  hasher.Span(prototype.triangles);
+  hasher.Span(prototype.source_faces);
+  hasher.Span(prototype.face_vertex_counts);
+  hasher.Value(prototype.sidedness);
+  return hasher.digest();
 }
 
-// Checks the content of every view of `changes` against `tables`, the ids
-// held once they are applied.
-Checked CheckAll(const ChangeSet& changes, const Tables& tables) {
-  return CheckViews(changes.textures, CheckTexture)
-      .and_then([&] { return CheckViews(changes.cameras, CheckCamera); })
-      .and_then([&] {
-        return CheckViews(changes.materials,
-                          [&](const MaterialNetwork& material) {
-                            return CheckMaterial(material, tables.textures);
-                          });
-      })
-      .and_then([&] {
-        return CheckViews(changes.lights, [&](const Light& light) {
-          return CheckLight(light, tables.textures);
-        });
-      })
-      .and_then([&] {
-        return CheckEach(changes.prototypes.added,
-                         [&](const Prototype& prototype) {
-                           return CheckPrototype(prototype, tables.materials);
-                         });
-      })
-      .and_then([&] {
-        return CheckEach(
-            changes.prototypes.updated, [&](const UpdatedPrototype& updated) {
-              return CheckPrototype(updated.prototype, tables.materials);
-            });
-      });
+Digest PrimvarsDigest(const Prototype& prototype) {
+  Hasher hasher;
+  HashPrimvar(prototype.normals, hasher);
+  hasher.Value(prototype.primvars.size());
+  for (const Primvar& primvar : prototype.primvars) {
+    HashPrimvar(primvar, hasher);
+  }
+  return hasher.digest();
+}
+
+Digest TriangleMaterialsDigest(const Prototype& prototype) {
+  Hasher hasher;
+  hasher.Span(prototype.triangle_materials);
+  return hasher.digest();
+}
+
+// Applies to `record` the members of `prototype` that `changes` names.
+void Record(const Prototype& prototype, ChangeFlags changes,
+            PrototypeRecord& record) {
+  record.path = prototype.path;
+  if (HasAny(changes, ChangeFlags::kPlacement)) {
+    record.placement = PlacementDigest(prototype.instances);
+  }
+  if (HasAny(changes, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
+    record.points = prototype.points.front().size();
+    record.point_values = PointsDigest(prototype);
+  }
+  if (HasAny(changes, ChangeFlags::kTopology)) {
+    record.faces = prototype.face_vertex_counts.size();
+    record.triangles = prototype.triangles.size();
+    record.topology = TopologyDigest(prototype);
+  }
+  if (HasAny(changes, ChangeFlags::kPrimvars)) {
+    record.primvars = PrimvarsDigest(prototype);
+  }
+  if (HasAny(changes, ChangeFlags::kMaterials)) {
+    record.materials.assign(prototype.materials.begin(),
+                            prototype.materials.end());
+    record.triangle_materials = TriangleMaterialsDigest(prototype);
+  }
+}
+
+constexpr ChangeFlags kWhole = ChangeFlags::kPlacement |
+                               ChangeFlags::kTopology | ChangeFlags::kPrimvars |
+                               ChangeFlags::kMaterials;
+
+// Hashes `texts`, their count first.
+void HashTexts(std::span<const std::string_view> texts, Hasher& hasher) {
+  hasher.Value(texts.size());
+  for (const std::string_view text : texts) {
+    hasher.Text(text);
+  }
+}
+
+// Hashes a parameter's value, a texture as its place in `textures`, which it
+// is appended to.
+void HashValue(const ParameterValue& value, std::vector<TextureId>& textures,
+               Hasher& hasher) {
+  hasher.Value(value.index());
+  std::visit(
+      [&]<typename T>(const T& held) {
+        if constexpr (std::is_same_v<T, TextureId>) {
+          hasher.Value(textures.size());
+          textures.push_back(held);
+        } else if constexpr (std::is_same_v<T, std::string_view>) {
+          hasher.Text(held);
+        } else if constexpr (std::is_same_v<T, std::span<const std::int32_t>> ||
+                             std::is_same_v<T, std::span<const float>>) {
+          hasher.Span(held);
+        } else if constexpr (std::is_same_v<
+                                 T, std::span<const std::string_view>>) {
+          HashTexts(held, hasher);
+        } else {
+          hasher.Value(held);
+        }
+      },
+      value);
+}
+
+MaterialRecord RecordOf(const MaterialNetwork& material) {
+  MaterialRecord record{
+      .path = std::string(material.path),
+      .textures = {},
+      .digest = 0,
+  };
+  Hasher hasher;
+  hasher.Value(material.nodes.size());
+  for (const MaterialNode& node : material.nodes) {
+    hasher.Text(node.name);
+    hasher.Value(node.kind);
+    hasher.Text(node.shader);
+    hasher.Value(node.parameters.size());
+    for (const Parameter& parameter : node.parameters) {
+      hasher.Text(parameter.name);
+      HashValue(parameter.value, record.textures, hasher);
+    }
+    hasher.Value(node.connections.size());
+    for (const Connection& connection : node.connections) {
+      hasher.Text(connection.input);
+      hasher.Value(connection.node);
+      hasher.Text(connection.output);
+    }
+  }
+  hasher.Value(material.surface.node);
+  hasher.Text(material.surface.name);
+  record.digest = hasher.digest();
+  return record;
+}
+
+LightRecord RecordOf(const Light& light) {
+  LightRecord record{
+      .path = std::string(light.path),
+      .texture = TextureOf(light.shape),
+      .digest = 0,
+  };
+  Hasher hasher;
+  hasher.Value(light.shape.index());
+  std::visit(
+      [&]<typename T>(const T& shape) {
+        if constexpr (std::is_same_v<T, Light::Sphere> ||
+                      std::is_same_v<T, Light::Disk>) {
+          hasher.Value(shape.radius);
+        } else if constexpr (std::is_same_v<T, Light::Rect>) {
+          hasher.Value(shape.width);
+          hasher.Value(shape.height);
+        } else if constexpr (std::is_same_v<T, Light::Cylinder>) {
+          hasher.Value(shape.length);
+          hasher.Value(shape.radius);
+        } else if constexpr (std::is_same_v<T, Light::Distant>) {
+          hasher.Value(shape.angle);
+        } else {
+          static_assert(std::is_same_v<T, Light::Dome>);
+          hasher.Value(shape.format);
+          hasher.Value(shape.orientation);
+        }
+      },
+      light.shape);
+  hasher.Value(light.intensity);
+  hasher.Value(light.exposure);
+  hasher.Value(light.normalization);
+  hasher.Value(light.color.rgb);
+  hasher.Value(light.color_temperature.has_value());
+  hasher.Value(light.color_temperature.value_or(0.0F));
+  hasher.Value(light.cone_angle);
+  record.digest = PlacementDigest(light.instances) ^ hasher.digest();
+  return record;
+}
+
+CameraRecord RecordOf(const Camera& camera) {
+  Hasher hasher;
+  hasher.Value(camera.projection);
+  hasher.Span(camera.camera_to_world);
+  hasher.Value(camera.focal_length);
+  hasher.Value(camera.aperture);
+  hasher.Value(camera.aperture_offset);
+  hasher.Value(camera.clipping_range);
+  hasher.Value(camera.f_stop);
+  hasher.Value(camera.focus_distance);
+  return {.path = std::string(camera.path), .digest = hasher.digest()};
+}
+
+TextureRecord RecordOf(const Texture& texture) {
+  return {
+      .file = std::string(texture.file),
+      .color_space = std::string(texture.color_space),
+  };
+}
+
+// "prototype", "light", ... : the kind of `View`, as messages name it.
+template <typename View>
+constexpr std::string_view KindName() {
+  if constexpr (std::is_same_v<View, Light>) {
+    return "light";
+  } else if constexpr (std::is_same_v<View, MaterialNetwork>) {
+    return "material";
+  } else if constexpr (std::is_same_v<View, Camera>) {
+    return "camera";
+  } else {
+    static_assert(std::is_same_v<View, Texture>);
+    return "texture";
+  }
+}
+
+// The flags of `changes`, by name: "placement, points".
+std::string FlagNames(ChangeFlags changes) {
+  struct FlagName {
+    ChangeFlags flag;
+    std::string_view name;
+  };
+  static constexpr std::array<FlagName, 5> kNames = {
+      FlagName{.flag = ChangeFlags::kPlacement, .name = "placement"},
+      FlagName{.flag = ChangeFlags::kPoints, .name = "points"},
+      FlagName{.flag = ChangeFlags::kTopology, .name = "topology"},
+      FlagName{.flag = ChangeFlags::kPrimvars, .name = "primvars"},
+      FlagName{.flag = ChangeFlags::kMaterials, .name = "materials"},
+  };
+  std::string names;
+  for (const auto& [flag, name] : kNames) {
+    if (HasAny(changes, flag)) {
+      names += std::format("{}{}", names.empty() ? "" : ", ", name);
+    }
+  }
+  return names;
 }
 
 // "1 camera", "12 prototypes".
 std::string Counted(std::size_t count, std::string_view noun) {
   return std::format("{} {}{}", core::FormatCount(count), noun,
                      count == 1 ? "" : "s");
+}
+
+// The number of prims `table` holds.
+template <typename Record>
+std::size_t CountHeld(const Table<Record>& table) {
+  return static_cast<std::size_t>(std::ranges::count_if(
+      table,
+      [](const std::optional<Record>& held) { return held.has_value(); }));
+}
+
+}  // namespace
+
+// What the device holds of every kind.
+struct DiagnosticDevice::State {
+  Table<PrototypeRecord> prototypes;
+  Table<LightRecord> lights;
+  Table<MaterialRecord> materials;
+  Table<CameraRecord> cameras;
+  Table<TextureRecord> textures;
+};
+
+namespace {
+
+using State = DiagnosticDevice::State;
+
+// Applies the ids of `changes` to `state`.
+Checked ApplyAll(const ChangeSet& changes, State& state) {
+  return Apply("prototype", changes.ids.prototypes, IdsOf(changes.prototypes),
+               state.prototypes)
+      .and_then([&] {
+        return Apply("light", changes.ids.lights, IdsOf(changes.lights),
+                     state.lights);
+      })
+      .and_then([&] {
+        return Apply("material", changes.ids.materials,
+                     IdsOf(changes.materials), state.materials);
+      })
+      .and_then([&] {
+        return Apply("camera", changes.ids.cameras, IdsOf(changes.cameras),
+                     state.cameras);
+      })
+      .and_then([&] {
+        return Apply("texture", changes.ids.textures, IdsOf(changes.textures),
+                     state.textures);
+      });
+}
+
+// Checks each of `views` with `check`, then records it in `table`.
+template <typename View, typename Record, typename Check>
+Checked CheckAndRecord(std::span<const View> views, const Check& check,
+                       Table<Record>& table) {
+  for (const View& view : views) {
+    if (auto checked = check(view); !checked.has_value()) {
+      return checked;
+    }
+    table.at(std::to_underlying(view.id)) = RecordOf(view);
+  }
+  return {};
+}
+
+// Checks the views of `changes`, added and updated, with `check`, and
+// records them in `table`. A texture is never updated.
+template <typename View, typename Id, typename Record, typename Check>
+Checked CheckKind(const Changes<View, Id>& changes, const Check& check,
+                  Table<Record>& table) {
+  if constexpr (std::is_same_v<View, Texture>) {
+    if (!changes.updated.empty()) {
+      return Inconsistent(
+          std::format("texture {}: updated, and a texture is never updated",
+                      std::to_underlying(changes.updated.front().id)));
+    }
+  }
+  return CheckAndRecord(changes.added, check, table).and_then([&] {
+    return CheckAndRecord(changes.updated, check, table);
+  });
+}
+
+// The record of the prototype `prototype` in `state`, which its ids,
+// applied, hold.
+std::expected<PrototypeRecord*, Error> RecordFor(const Prototype& prototype,
+                                                 State& state) {
+  PrototypeRecord* record =
+      Find(state.prototypes, std::to_underlying(prototype.id));
+  if (record == nullptr) {
+    return std::unexpected(Error(
+        ErrorCode::kInternal,
+        std::format("{}: not held once applied", PrototypeName(prototype))));
+  }
+  return record;
+}
+
+// Checks the prototypes of `changes`, and records them in `state`.
+Checked CheckPrototypes(const PrototypeChanges& changes, State& state) {
+  for (const Prototype& prototype : changes.added) {
+    auto record = CheckPrototype(prototype, state.materials).and_then([&] {
+      return RecordFor(prototype, state);
+    });
+    if (!record.has_value()) {
+      return std::unexpected(std::move(record.error()));
+    }
+    Record(prototype, kWhole, **record);
+  }
+  for (const UpdatedPrototype& updated : changes.updated) {
+    auto held = RecordFor(updated.prototype, state);
+    if (!held.has_value()) {
+      return std::unexpected(std::move(held.error()));
+    }
+    if (auto checked = CheckUpdate(updated, **held, state.materials);
+        !checked.has_value()) {
+      return checked;
+    }
+    Record(updated.prototype, updated.changes, **held);
+  }
+  return {};
+}
+
+// Checks that `prototype`, at `index`, reads only materials of `materials`.
+Checked CheckReadsHeld(const PrototypeRecord& prototype, std::size_t index,
+                       const Table<MaterialRecord>& materials) {
+  for (const MaterialId material : prototype.materials) {
+    if (!IsHeld(materials, std::to_underlying(material))) {
+      return Inconsistent(
+          std::format("prototype {} ({}): reads material {}, "
+                      "not held",
+                      index, prototype.path, std::to_underlying(material)));
+    }
+  }
+  return {};
+}
+
+// Checks that the prototypes `state` holds read only materials it holds: a
+// material removed must not be read by one kept.
+Checked CheckHeldReferences(const State& state) {
+  for (std::size_t index = 0; index < state.prototypes.size(); ++index) {
+    const std::optional<PrototypeRecord>& prototype =
+        state.prototypes.at(index);
+    if (!prototype.has_value()) {
+      continue;
+    }
+    if (auto checked = CheckReadsHeld(*prototype, index, state.materials);
+        !checked.has_value()) {
+      return checked;
+    }
+  }
+  return {};
+}
+
+// Checks the content of every view of `changes` against `state`, the ids
+// held once they are applied, and records it.
+Checked CheckAll(const ChangeSet& changes, State& state) {
+  return CheckKind(changes.textures, CheckTexture, state.textures)
+      .and_then([&] {
+        return CheckKind(changes.cameras, CheckCamera, state.cameras);
+      })
+      .and_then([&] {
+        return CheckKind(
+            changes.materials,
+            [&](const MaterialNetwork& material) {
+              return CheckMaterial(material, state.textures);
+            },
+            state.materials);
+      })
+      .and_then([&] {
+        return CheckKind(
+            changes.lights,
+            [&](const Light& light) {
+              return CheckLight(light, state.textures);
+            },
+            state.lights);
+      })
+      .and_then([&] { return CheckPrototypes(changes.prototypes, state); })
+      .and_then([&] { return CheckHeldReferences(state); });
+}
+
+// The key of a texture held, which names it whatever its id.
+std::string TextureKey(const State& state, TextureId texture) {
+  const TextureRecord* record =
+      Find(state.textures, std::to_underlying(texture));
+  return record == nullptr ? std::string()
+                           : record->file + '\n' + record->color_space;
+}
+
+// The path of the material `material` in `state`.
+std::string_view MaterialPath(const State& state, MaterialId material) {
+  const MaterialRecord* record =
+      Find(state.materials, std::to_underlying(material));
+  return record == nullptr ? std::string_view() : record->path;
+}
+
+// Each prim of `table`, by `key`, with its digest, the references to
+// other prims resolved by `resolve`, sorted by key.
+template <typename Record, typename Resolve>
+std::vector<std::pair<std::string, Digest>> Entries(const Table<Record>& table,
+                                                    const Resolve& resolve) {
+  std::vector<std::pair<std::string, Digest>> entries;
+  for (const std::optional<Record>& record : table) {
+    if (record.has_value()) {
+      entries.push_back(resolve(*record));
+    }
+  }
+  std::ranges::sort(entries);
+  return entries;
+}
+
+// Hashes `entries`, their count first.
+void HashEntries(std::span<const std::pair<std::string, Digest>> entries,
+                 Hasher& hasher) {
+  hasher.Value(entries.size());
+  for (const auto& [key, digest] : entries) {
+    hasher.Text(key);
+    hasher.Value(digest);
+  }
+}
+
+// The entry of `record`, its textures resolved by `state`.
+std::pair<std::string, Digest> EntryOf(const MaterialRecord& record,
+                                       const State& state) {
+  Hasher resolved;
+  resolved.Value(record.digest);
+  for (const TextureId texture : record.textures) {
+    resolved.Text(TextureKey(state, texture));
+  }
+  return {record.path, resolved.digest()};
+}
+
+std::pair<std::string, Digest> EntryOf(const LightRecord& record,
+                                       const State& state) {
+  Hasher resolved;
+  resolved.Value(record.digest);
+  if (record.texture.has_value()) {
+    resolved.Text(TextureKey(state, *record.texture));
+  }
+  return {record.path, resolved.digest()};
+}
+
+std::pair<std::string, Digest> EntryOf(const PrototypeRecord& record,
+                                       const State& state) {
+  Hasher resolved;
+  resolved.Value(record.placement);
+  resolved.Value(record.point_values);
+  resolved.Value(record.topology);
+  resolved.Value(record.primvars);
+  resolved.Value(record.triangle_materials);
+  for (const MaterialId material : record.materials) {
+    resolved.Text(MaterialPath(state, material));
+  }
+  return {record.path, resolved.digest()};
+}
+
+// A digest of the prims `state` holds, by their paths and texture files,
+// whatever their ids.
+Digest StateDigest(const State& state) {
+  Hasher hasher;
+  const auto resolve = [&state](const auto& record) {
+    return EntryOf(record, state);
+  };
+  HashEntries(Entries(state.textures,
+                      [](const TextureRecord& record) {
+                        return std::pair{
+                            record.file + '\n' + record.color_space,
+                            Digest{0},
+                        };
+                      }),
+              hasher);
+  HashEntries(Entries(state.cameras,
+                      [](const CameraRecord& record) {
+                        return std::pair{record.path, record.digest};
+                      }),
+              hasher);
+  HashEntries(Entries(state.materials, resolve), hasher);
+  HashEntries(Entries(state.lights, resolve), hasher);
+  HashEntries(Entries(state.prototypes, resolve), hasher);
+  return hasher.digest();
 }
 
 // "12 prototypes (2.1M instances, 1.24M triangles), 14 lights, 57
@@ -726,37 +1470,87 @@ void TraceAdded(const ChangeSet& changes) {
   }
 }
 
+// Logs at debug each prim of one kind `changes` updates, with its path.
+template <typename View, typename Id>
+void LogUpdated(const Changes<View, Id>& changes) {
+  for (const View& view : changes.updated) {
+    UMBRA_LOG_DEBUG(kDevice, "diagnostic: updated {} {} ({})", KindName<View>(),
+                    std::to_underlying(view.id), view.path);
+  }
+}
+
+// The name of a record in the debug log: its file for a texture, its path
+// otherwise.
+std::string_view NameOf(const TextureRecord& record) { return record.file; }
+template <typename Record>
+std::string_view NameOf(const Record& record) {
+  return record.path;
+}
+
+// Logs at debug each prim of one kind `changes` removes, with the path
+// `held` has for it.
+template <typename Id, typename Record>
+void LogRemoved(std::string_view kind, std::span<const Id> removed,
+                const Table<Record>& held) {
+  for (const Id removed_id : removed) {
+    const std::uint32_t index = std::to_underlying(removed_id);
+    const Record* record = Find(held, index);
+    UMBRA_LOG_DEBUG(kDevice, "diagnostic: removed {} {} ({})", kind, index,
+                    record == nullptr ? std::string_view() : NameOf(*record));
+  }
+}
+
+// Logs at debug each prim `changes` updates or removes; `held` is the state
+// before the commit.
+void LogChanges(const ChangeSet& changes, const State& held) {
+  for (const UpdatedPrototype& updated : changes.prototypes.updated) {
+    UMBRA_LOG_DEBUG(kDevice, "diagnostic: updated prototype {} ({}): {}",
+                    std::to_underlying(updated.prototype.id),
+                    updated.prototype.path, FlagNames(updated.changes));
+  }
+  LogUpdated(changes.lights);
+  LogUpdated(changes.materials);
+  LogUpdated(changes.cameras);
+  LogRemoved("prototype", changes.prototypes.removed, held.prototypes);
+  LogRemoved("light", changes.lights.removed, held.lights);
+  LogRemoved("material", changes.materials.removed, held.materials);
+  LogRemoved("camera", changes.cameras.removed, held.cameras);
+  LogRemoved("texture", changes.textures.removed, held.textures);
+}
+
 }  // namespace
+
+DiagnosticDevice::DiagnosticDevice() : state_(std::make_unique<State>()) {}
+
+DiagnosticDevice::~DiagnosticDevice() = default;
 
 std::string_view DiagnosticDevice::name() const { return "diagnostic"; }
 
 std::expected<void, Error> DiagnosticDevice::Commit(const ChangeSet& changes) {
   ++commits_;
   UMBRA_LOG_DEBUG(kDevice,
-                  "diagnostic: commit {}: {} added, {} updated, {} "
-                  "removed",
+                  "diagnostic: commit {}: {} added, {} updated, {} removed",
                   commits_, DescribeAdded(changes), CountUpdated(changes),
                   CountRemoved(changes));
   TraceAdded(changes);
-  Tables tables{
-      .prototypes = prototypes_,
-      .lights = lights_,
-      .materials = materials_,
-      .cameras = cameras_,
-      .textures = textures_,
-  };
-  if (auto checked = ApplyAll(changes, tables).and_then([&] {
-        return CheckAll(changes, tables);
+  LogChanges(changes, *state_);
+  auto state = std::make_unique<State>(*state_);
+  if (auto checked = ApplyAll(changes, *state).and_then([&] {
+        return CheckAll(changes, *state);
       });
       !checked.has_value()) {
     return checked;
   }
-  prototypes_ = std::move(tables.prototypes);
-  lights_ = std::move(tables.lights);
-  materials_ = std::move(tables.materials);
-  cameras_ = std::move(tables.cameras);
-  textures_ = std::move(tables.textures);
-  UMBRA_LOG_DEBUG(kDevice, "diagnostic: commit {} is consistent", commits_);
+  state_ = std::move(state);
+  UMBRA_LOG_DEBUG(
+      kDevice,
+      "diagnostic: commit {} is consistent; it holds {}, {}, {}, {}, {} "
+      "(state {:016x})",
+      commits_, Counted(CountHeld(state_->prototypes), "prototype"),
+      Counted(CountHeld(state_->lights), "light"),
+      Counted(CountHeld(state_->materials), "material"),
+      Counted(CountHeld(state_->cameras), "camera"),
+      Counted(CountHeld(state_->textures), "texture"), StateDigest(*state_));
   return {};
 }
 

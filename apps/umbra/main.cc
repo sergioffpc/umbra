@@ -7,8 +7,9 @@
 //
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
-// [--frame=<n>] <scene>` chooses among them, shows them on stderr, and syncs
-// the scene through Hydra and commits it to the diagnostic device, which
+// [--frames=<start>..<end>] [--step=<step>] <scene>` chooses among them,
+// shows them on stderr, and syncs each frame of the scene through Hydra,
+// committing what changed since the last to the diagnostic device, which
 // checks it; it renders nothing yet. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
@@ -25,6 +26,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <expected>
@@ -90,15 +92,17 @@ constexpr CommandSpec kProgram = {
 
 constexpr std::array<OptionSpec, 1> kHelpOnly = {kHelpOption};
 
-constexpr std::array<OptionSpec, 4> kRenderOptions = {
+constexpr std::array<OptionSpec, 5> kRenderOptions = {
     umbra::cli::ValueOption('\0', "devices", "list", {},
                             "the devices to render on (default: all)"),
     umbra::cli::ValueOption('\0', "settings", "prim", {},
                             "the RenderSettings prim to render with "
                             "(default: the stage's)"),
-    umbra::cli::ValueOption('\0', "frame", "n", {},
-                            "the time code to render (default: the stage's "
-                            "start)"),
+    umbra::cli::ValueOption('\0', "frames", "start..end", {},
+                            "the time codes to render, both included, or one "
+                            "(default: the stage's start to end)"),
+    umbra::cli::ValueOption('\0', "step", "step", {},
+                            "the time codes between two frames (default: 1)"),
     kHelpOption,
 };
 
@@ -271,29 +275,132 @@ void PrintRenderBlock(const umbra::devices::Hardware& hardware,
              umbra::devices::FormatRenderDevices(hardware, chosen));
 }
 
-// What `umbra render` renders: its scene, and how to load it.
+using FrameRange = umbra::ext::usd::TimeCodes;
+
+// What `umbra render` renders: its scene, how to load it, and its frames.
 struct RenderRequest {
   std::string_view scene;
   umbra::ext::usd::LoadOptions options;
+  // The frames of --frames, or none for the stage's.
+  std::optional<FrameRange> frames;
+  double step = 1.0;
 };
 
-// The time code of --frame: an integer or a decimal fraction ("12", "12.5"),
-// without an exponent.
-std::expected<double, Error> ParseFrame(std::string_view text) {
-  double frame = 0.0;
+// A time code: an integer or a decimal fraction ("12", "12.5", "-3"),
+// without an exponent. Fails naming `what` and `text`.
+std::expected<double, Error> ParseTimeCode(std::string_view text,
+                                           std::string_view what) {
+  // A digit leads, after the sign: ".5" and "1...3" are malformed.
+  const std::string_view digits = text.starts_with('-') ? text.substr(1) : text;
+  const bool leads_with_digit =
+      !digits.empty() && digits.front() >= '0' && digits.front() <= '9';
+  double value = 0.0;
   const char* const first = std::to_address(text.begin());
   const char* const last = std::to_address(text.end());
   const auto [end, error] =
-      std::from_chars(first, last, frame, std::chars_format::fixed);
+      std::from_chars(first, last, value, std::chars_format::fixed);
   const bool is_whole = end == last;
-  if (error != std::errc() || !is_whole || !std::isfinite(frame)) {
+  if (!leads_with_digit || error != std::errc() || !is_whole ||
+      !std::isfinite(value)) {
     return std::unexpected(
         Error(ErrorCode::kInvalidArgument,
-              std::format("invalid frame '{}': a time code such as 12 or "
-                          "12.5 is expected",
-                          text)));
+              std::format("invalid {} '{}': a time code such as 12 or 12.5 is "
+                          "expected",
+                          what, text)));
   }
-  return frame;
+  return value;
+}
+
+// The frames of --frames: "<start>..<end>", both included, or "<frame>"
+// alone. The start must not follow the end.
+std::expected<FrameRange, Error> ParseFrames(std::string_view text) {
+  constexpr std::string_view kSeparator = "..";
+  const std::size_t separator = text.find(kSeparator);
+  const std::string_view first = text.substr(0, separator);
+  const std::string_view last =
+      separator == std::string_view::npos
+          ? first
+          : text.substr(separator + kSeparator.size());
+  const auto start = ParseTimeCode(first, "first frame");
+  if (!start.has_value()) {
+    return std::unexpected(start.error());
+  }
+  const auto end = ParseTimeCode(last, "last frame");
+  if (!end.has_value()) {
+    return std::unexpected(end.error());
+  }
+  if (*start > *end) {
+    return std::unexpected(Error(
+        ErrorCode::kInvalidArgument,
+        std::format("invalid frames '{}': the first frame follows the last",
+                    text)));
+  }
+  return FrameRange{.start = *start, .end = *end};
+}
+
+// The step of --step: a time code above 0.
+std::expected<double, Error> ParseStep(std::string_view text) {
+  const auto step = ParseTimeCode(text, "step");
+  if (!step.has_value()) {
+    return step;
+  }
+  if (*step <= 0.0) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("invalid step '{}': it must be above 0", text)));
+  }
+  return step;
+}
+
+// The frames a render renders: the time codes from a range's start to its
+// end, both included, `step` apart, or the default time alone. Each is
+// rounded to a nanoframe, so that 0.1 steps give 0.3, not
+// 0.30000000000000004.
+class Frames {
+ public:
+  // The default time alone.
+  Frames() = default;
+  Frames(const FrameRange& range, double step)
+      : range_(range), step_(step), count_(CountOf(range, step)) {}
+
+  // The most frames a range gives: its frame indices stay exact.
+  static constexpr double kMaxCount = 9007199254740992.0;  // 2^53
+
+  // The number of frames a range gives, which may exceed kMaxCount.
+  static double CountOf(const FrameRange& range, double step) {
+    // A step that does not divide the range exactly still reaches its end
+    // when it misses it by rounding alone.
+    constexpr double kTolerance = 1e-9;
+    return std::floor(((range.end - range.start) / step) + kTolerance) + 1.0;
+  }
+
+  // The number of frames, at most kMaxCount.
+  [[nodiscard]] std::uint64_t count() const {
+    return static_cast<std::uint64_t>(std::min(count_, kMaxCount));
+  }
+
+  // The frame at `index`, below count(): none for the default time.
+  [[nodiscard]] std::optional<double> At(std::uint64_t index) const {
+    if (!range_.has_value()) {
+      return std::nullopt;
+    }
+    constexpr double kNanoframes = 1e9;
+    const double frame = range_->start + (static_cast<double>(index) * step_);
+    return std::round(frame * kNanoframes) / kNanoframes;
+  }
+
+ private:
+  std::optional<FrameRange> range_;
+  double step_ = 1.0;
+  double count_ = 1.0;
+};
+
+// The error of a range of `count` frames, more than Frames::kMaxCount.
+Error TooManyFrames(double count) {
+  return {ErrorCode::kInvalidArgument,
+          std::format("{:.3g} frames, more than one process renders; give "
+                      "fewer --frames or a larger --step",
+                      count)};
 }
 
 // The scene and options of `umbra render`: exactly one scene.
@@ -308,20 +415,87 @@ std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
                                      "see 'umbra render -h'",
                                      scenes.size())));
   }
-  RenderRequest request{.scene = scenes.front(), .options = {}};
-  request.options.settings = render.Value("settings");
-  if (render.Count("frame") > 0) {
-    const auto frame = ParseFrame(render.Value("frame"));
-    if (!frame.has_value()) {
-      return std::unexpected(frame.error());
+  RenderRequest request{
+      .scene = scenes.front(),
+      .options = {.settings = std::string(render.Value("settings"))},
+      .frames = std::nullopt,
+      .step = 1.0,
+  };
+  if (render.Count("frames") > 0) {
+    const auto frames = ParseFrames(render.Value("frames"));
+    if (!frames.has_value()) {
+      return std::unexpected(frames.error());
     }
-    request.options.frame = *frame;
+    request.frames = *frames;
+  }
+  if (render.Count("step") > 0) {
+    const auto step = ParseStep(render.Value("step"));
+    if (!step.has_value()) {
+      return std::unexpected(step.error());
+    }
+    request.step = *step;
+  }
+  if (request.frames.has_value()) {
+    if (const double count = Frames::CountOf(*request.frames, request.step);
+        count > Frames::kMaxCount) {
+      return std::unexpected(TooManyFrames(count));
+    }
   }
   return request;
 }
 
-// `umbra render`: resolves the devices, shows them, and syncs the scene and
-// commits it to the diagnostic device. It renders nothing yet.
+// The frames `request` renders of the stage of `session`: those of
+// --frames, else the stage's start to end time codes, else the default time
+// alone. Fails with kInvalidArgument when the stage's end precedes its
+// start, or its range gives more than Frames::kMaxCount frames.
+std::expected<Frames, Error> FramesOf(const RenderRequest& request,
+                                      const umbra::ext::usd::Session& session) {
+  if (request.frames.has_value()) {
+    return Frames(*request.frames, request.step);
+  }
+  const std::optional<umbra::ext::usd::TimeCodes> codes = session.time_codes();
+  if (!codes.has_value()) {
+    return Frames();
+  }
+  if (codes->start > codes->end) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("the stage's endTimeCode, {}, precedes its "
+                          "startTimeCode, {}; give --frames",
+                          codes->end, codes->start)));
+  }
+  if (const double count = Frames::CountOf(*codes, request.step);
+      count > Frames::kMaxCount) {
+    return std::unexpected(TooManyFrames(count));
+  }
+  return Frames(*codes, request.step);
+}
+
+// Syncs each frame `request` renders of its scene, committing what changed
+// to `devices`.
+int SyncFrames(const RenderRequest& request,
+               std::span<umbra::device::Device* const> devices) {
+  const auto session =
+      umbra::ext::usd::OpenSession(request.scene, request.options, devices);
+  if (!session.has_value()) {
+    return Failure(session.error());
+  }
+  const auto frames = FramesOf(request, **session);
+  if (!frames.has_value()) {
+    return Failure(frames.error());
+  }
+  for (std::uint64_t index = 0; index < frames->count(); ++index) {
+    if (auto synced = (*session)->SyncFrame(frames->At(index));
+        !synced.has_value()) {
+      return Failure(synced.error());
+    }
+  }
+  return kExitSuccess;
+}
+
+// `umbra render`: resolves the devices, shows them, and syncs each frame of
+// the scene and commits what changed to the diagnostic device. It renders
+// nothing yet.
 int Render(const ParsedCommand& global, const ParsedCommand& render,
            const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
@@ -341,12 +515,7 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
   // The only device until devices render: it checks what it receives.
   umbra::device::DiagnosticDevice diagnostic;
   const std::array<umbra::device::Device*, 1> committed_to = {&diagnostic};
-  const auto session = umbra::ext::usd::OpenSession(
-      request.scene, request.options, committed_to);
-  if (!session.has_value()) {
-    return Failure(session.error());
-  }
-  return kExitSuccess;
+  return SyncFrames(request, committed_to);
 }
 
 // `umbra help [<command>]`: the help of umbra, or of a command.

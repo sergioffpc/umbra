@@ -17,9 +17,13 @@
 #define UMBRA_LIFETIMEBOUND [[clang::lifetimebound]]
 
 // Marks a parameter whose referent is stored in `entity` (a parameter name,
-// `this`, or `global`), so it must outlive it.
+// or `global`), so it must outlive it.
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage): wraps an attribute.
 #define UMBRA_LIFETIME_CAPTURE_BY(entity) [[clang::lifetime_capture_by(entity)]]
+
+// Marks a parameter of a member function whose referent the object stores,
+// so it must outlive the object.
+#define UMBRA_LIFETIME_CAPTURE_BY_THIS [[clang::lifetime_capture_by_this]]
 
 // Marks a class that owns the data it refers to (a container).
 #define UMBRA_OWNER [[gsl::Owner]]

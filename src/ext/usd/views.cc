@@ -21,12 +21,6 @@
 namespace umbra::ext::usd::internal {
 namespace {
 
-// The next id of a kind of which `views` are added.
-template <typename Id, typename View>
-Id NextId(const std::vector<View>& views) {
-  return static_cast<Id>(views.size());
-}
-
 // `index`, an index into an array of a host copy, as an index of a view.
 std::uint32_t IndexOf(std::size_t index) {
   return static_cast<std::uint32_t>(index);
@@ -34,20 +28,9 @@ std::uint32_t IndexOf(std::size_t index) {
 
 }  // namespace
 
-device::TextureId ChangeSetBuilder::TextureIdOf(const host::Texture& texture) {
-  const std::pair<std::string_view, std::string_view> key = {
-      texture.file, texture.color_space};
-  if (const auto found = texture_ids_.find(key); found != texture_ids_.end()) {
-    return found->second;
-  }
-  const auto texture_id = NextId<device::TextureId>(textures_);
-  textures_.push_back({
-      .id = texture_id,
-      .file = texture.file,
-      .color_space = texture.color_space,
-  });
-  texture_ids_.emplace(key, texture_id);
-  return texture_id;
+device::TextureId ChangeSetBuilder::TextureIdOf(
+    const host::Texture& texture) const {
+  return textures_->at(texture);
 }
 
 device::Primvar ChangeSetBuilder::PrimvarOf(const host::Primvar& primvar) {
@@ -157,10 +140,10 @@ device::Light::Shape ChangeSetBuilder::ShapeOf(
       shape);
 }
 
-device::CameraId ChangeSetBuilder::AddCamera(const host::Camera& camera) {
-  const auto camera_id = NextId<device::CameraId>(cameras_);
-  cameras_.push_back({
-      .id = camera_id,
+device::Camera ChangeSetBuilder::CameraOf(device::CameraId prim_id,
+                                          const host::Camera& camera) {
+  return {
+      .id = prim_id,
       .path = camera.path,
       .projection = camera.projection,
       .camera_to_world = camera.camera_to_world,
@@ -170,8 +153,7 @@ device::CameraId ChangeSetBuilder::AddCamera(const host::Camera& camera) {
       .clipping_range = camera.clipping_range,
       .f_stop = camera.f_stop,
       .focus_distance = camera.focus_distance,
-  });
-  return camera_id;
+  };
 }
 
 device::MaterialNode ChangeSetBuilder::NodeOf(const host::MaterialNode& node) {
@@ -201,16 +183,15 @@ device::MaterialNode ChangeSetBuilder::NodeOf(const host::MaterialNode& node) {
   };
 }
 
-device::MaterialId ChangeSetBuilder::AddMaterial(
-    const host::MaterialNetwork& network) {
+device::MaterialNetwork ChangeSetBuilder::MaterialOf(
+    device::MaterialId prim_id, const host::MaterialNetwork& network) {
   std::vector<device::MaterialNode> nodes;
   nodes.reserve(network.nodes.size());
   for (const host::MaterialNode& node : network.nodes) {
     nodes.push_back(NodeOf(node));
   }
-  const auto material_id = NextId<device::MaterialId>(materials_);
-  materials_.push_back({
-      .id = material_id,
+  return {
+      .id = prim_id,
       .path = network.path,
       .nodes = Keep(std::move(nodes)),
       .surface =
@@ -218,39 +199,13 @@ device::MaterialId ChangeSetBuilder::AddMaterial(
               .node = IndexOf(network.surface.node),
               .name = network.surface.name,
           },
-  });
-  return material_id;
+  };
 }
 
-device::PrototypeId ChangeSetBuilder::AddPrototype(
-    const host::Mesh& mesh, std::span<const host::Instance> instances) {
-  std::vector<std::span<const device::Float3>> points;
-  points.reserve(mesh.points.size());
-  for (const host::HostBuffer<device::Float3>& sample : mesh.points) {
-    points.emplace_back(sample);
-  }
-  const auto prototype_id = NextId<device::PrototypeId>(prototypes_);
-  prototypes_.push_back({
-      .id = prototype_id,
-      .path = mesh.path,
-      .points = Keep(std::move(points)),
-      .triangles = mesh.triangles,
-      .source_faces = mesh.source_faces,
-      .face_vertex_counts = mesh.face_vertex_counts,
-      .normals = PrimvarOf(mesh.normals),
-      .primvars = PrimvarsOf(mesh.primvars),
-      .sidedness = mesh.sidedness,
-      .materials = mesh.materials,
-      .triangle_materials = mesh.triangle_materials,
-      .instances = InstancesOf(instances),
-  });
-  return prototype_id;
-}
-
-device::LightId ChangeSetBuilder::AddLight(const host::Light& light) {
-  const auto light_id = NextId<device::LightId>(lights_);
-  lights_.push_back({
-      .id = light_id,
+device::Light ChangeSetBuilder::LightOf(device::LightId prim_id,
+                                        const host::Light& light) {
+  return {
+      .id = prim_id,
       .path = light.path,
       .shape = ShapeOf(light.shape),
       .intensity = light.intensity,
@@ -260,25 +215,171 @@ device::LightId ChangeSetBuilder::AddLight(const host::Light& light) {
       .color_temperature = light.color_temperature,
       .cone_angle = light.cone_angle,
       .instances = InstancesOf(light.instances),
-  });
-  return light_id;
+  };
 }
 
-device::ChangeSet ChangeSetBuilder::Build() const {
+std::span<const std::span<const device::Float3>> ChangeSetBuilder::PointsOf(
+    const std::vector<host::HostBuffer<device::Float3>>& samples) {
+  std::vector<std::span<const device::Float3>> points;
+  points.reserve(samples.size());
+  for (const host::HostBuffer<device::Float3>& sample : samples) {
+    points.emplace_back(sample);
+  }
+  return Keep(std::move(points));
+}
+
+device::Prototype ChangeSetBuilder::PrototypeOf(
+    device::PrototypeId prim_id, const host::Mesh& mesh,
+    std::span<const host::Instance> instances, device::ChangeFlags changes) {
+  using device::ChangeFlags;
+  using device::HasAny;
+  device::Prototype prototype{
+      .id = prim_id,
+      .path = mesh.path,
+      .points = {},
+      .triangles = {},
+      .source_faces = {},
+      .face_vertex_counts = {},
+      .normals = {},
+      .primvars = {},
+      .sidedness = device::Sidedness::kSingleSided,
+      .materials = {},
+      .triangle_materials = {},
+      .instances = {},
+  };
+  if (HasAny(changes, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
+    prototype.points = PointsOf(mesh.points);
+  }
+  if (HasAny(changes, ChangeFlags::kTopology)) {
+    prototype.triangles = mesh.triangles;
+    prototype.source_faces = mesh.source_faces;
+    prototype.face_vertex_counts = mesh.face_vertex_counts;
+    prototype.sidedness = mesh.sidedness;
+  }
+  if (HasAny(changes, ChangeFlags::kPrimvars)) {
+    prototype.normals = PrimvarOf(mesh.normals);
+    prototype.primvars = PrimvarsOf(mesh.primvars);
+  }
+  if (HasAny(changes, ChangeFlags::kMaterials)) {
+    prototype.materials = mesh.materials;
+    prototype.triangle_materials = mesh.triangle_materials;
+  }
+  if (HasAny(changes, ChangeFlags::kPlacement)) {
+    prototype.instances = InstancesOf(instances);
+  }
+  return prototype;
+}
+
+void ChangeSetBuilder::AddTexture(device::TextureId prim_id,
+                                  const host::Texture& texture) {
+  texture_changes_.added.push_back({
+      .id = prim_id,
+      .file = texture.file,
+      .color_space = texture.color_space,
+  });
+}
+
+void ChangeSetBuilder::RemoveTexture(device::TextureId prim_id) {
+  texture_changes_.removed.push_back(prim_id);
+}
+
+void ChangeSetBuilder::AddCamera(device::CameraId prim_id,
+                                 const host::Camera& camera) {
+  cameras_.added.push_back(CameraOf(prim_id, camera));
+}
+
+void ChangeSetBuilder::UpdateCamera(device::CameraId prim_id,
+                                    const host::Camera& camera) {
+  cameras_.updated.push_back(CameraOf(prim_id, camera));
+}
+
+void ChangeSetBuilder::RemoveCamera(device::CameraId prim_id) {
+  cameras_.removed.push_back(prim_id);
+}
+
+void ChangeSetBuilder::AddMaterial(device::MaterialId prim_id,
+                                   const host::MaterialNetwork& network) {
+  materials_.added.push_back(MaterialOf(prim_id, network));
+}
+
+void ChangeSetBuilder::UpdateMaterial(device::MaterialId prim_id,
+                                      const host::MaterialNetwork& network) {
+  materials_.updated.push_back(MaterialOf(prim_id, network));
+}
+
+void ChangeSetBuilder::RemoveMaterial(device::MaterialId prim_id) {
+  materials_.removed.push_back(prim_id);
+}
+
+void ChangeSetBuilder::AddLight(device::LightId prim_id,
+                                const host::Light& light) {
+  lights_.added.push_back(LightOf(prim_id, light));
+}
+
+void ChangeSetBuilder::UpdateLight(device::LightId prim_id,
+                                   const host::Light& light) {
+  lights_.updated.push_back(LightOf(prim_id, light));
+}
+
+void ChangeSetBuilder::RemoveLight(device::LightId prim_id) {
+  lights_.removed.push_back(prim_id);
+}
+
+void ChangeSetBuilder::AddPrototype(device::PrototypeId prim_id,
+                                    const host::Mesh& mesh,
+                                    std::span<const host::Instance> instances) {
+  added_prototypes_.push_back(PrototypeOf(
+      prim_id, mesh, instances,
+      device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
+          device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials));
+}
+
+void ChangeSetBuilder::UpdatePrototype(
+    device::PrototypeId prim_id, const host::Mesh& mesh,
+    std::span<const host::Instance> instances, device::ChangeFlags changes) {
+  updated_prototypes_.push_back({
+      .prototype = PrototypeOf(prim_id, mesh, instances, changes),
+      .changes = changes,
+  });
+}
+
+void ChangeSetBuilder::RemovePrototype(device::PrototypeId prim_id) {
+  removed_prototypes_.push_back(prim_id);
+}
+
+device::ChangeSet ChangeSetBuilder::Build(const device::IdCounts& ids) const {
   return {
-      .ids =
+      .ids = ids,
+      .prototypes =
           {
-              .prototypes = IndexOf(prototypes_.size()),
-              .lights = IndexOf(lights_.size()),
-              .materials = IndexOf(materials_.size()),
-              .cameras = IndexOf(cameras_.size()),
-              .textures = IndexOf(textures_.size()),
+              .added = added_prototypes_,
+              .updated = updated_prototypes_,
+              .removed = removed_prototypes_,
           },
-      .prototypes = {.added = prototypes_, .updated = {}, .removed = {}},
-      .lights = {.added = lights_, .updated = {}, .removed = {}},
-      .materials = {.added = materials_, .updated = {}, .removed = {}},
-      .cameras = {.added = cameras_, .updated = {}, .removed = {}},
-      .textures = {.added = textures_, .updated = {}, .removed = {}},
+      .lights =
+          {
+              .added = lights_.added,
+              .updated = lights_.updated,
+              .removed = lights_.removed,
+          },
+      .materials =
+          {
+              .added = materials_.added,
+              .updated = materials_.updated,
+              .removed = materials_.removed,
+          },
+      .cameras =
+          {
+              .added = cameras_.added,
+              .updated = cameras_.updated,
+              .removed = cameras_.removed,
+          },
+      .textures =
+          {
+              .added = texture_changes_.added,
+              .updated = texture_changes_.updated,
+              .removed = texture_changes_.removed,
+          },
   };
 }
 

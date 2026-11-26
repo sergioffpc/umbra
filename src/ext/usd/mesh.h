@@ -17,6 +17,7 @@
 #include <pxr/pxr.h>
 
 #include <array>
+#include <cstdint>
 #include <expected>
 #include <optional>
 #include <span>
@@ -59,6 +60,20 @@ struct SourceMesh {
 // none.
 [[nodiscard]] bool IsSubdivided(const pxr::HdMeshTopology& topology);
 
+// Where the normals of a mesh's host copy come from.
+enum class NormalsSource : std::uint8_t {
+  // They are its authored normals.
+  kAuthored,
+  // They are computed from its points: they change with them.
+  kComputed,
+};
+
+// A mesh's host copy, and where its normals come from.
+struct ConvertedMesh {
+  host::Mesh mesh;
+  NormalsSource normals = NormalsSource::kAuthored;
+};
+
 // Converts `source` into its host copy, with its lengths scaled by
 // `meters_per_unit`: its polygons fanned into triangles, but for its holes,
 // wound counterclockwise (leftHanded ones flipped); its points one array per
@@ -69,8 +84,18 @@ struct SourceMesh {
 // that are not point3f[], a face of fewer than three vertices, counts that
 // do not add up to its indices, an index out of range, or a primvar whose
 // size does not match its interpolation.
-[[nodiscard]] std::expected<host::Mesh, std::string> ConvertMesh(
+[[nodiscard]] std::expected<ConvertedMesh, std::string> ConvertMesh(
     const SourceMesh& source, double meters_per_unit);
+
+// The points of a mesh, with their lengths scaled by `meters_per_unit`, one
+// array per motion sample: those of `motion`, each as long as `points`,
+// when they move within the shutter, and `points`, at the frame, otherwise.
+// Fails when `points` are not point3f[].
+[[nodiscard]] std::expected<std::vector<host::HostBuffer<host::Float3>>,
+                            std::string>
+ConvertPoints(const pxr::VtValue& points,
+              std::span<const pxr::VtVec3fArray> motion,
+              double meters_per_unit);
 
 // The elements of `value`, a numeric value or array, as a constant primvar
 // named `name` holding them all, one after another; none for a value of

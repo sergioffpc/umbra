@@ -38,9 +38,9 @@
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
+#include "sync_counter.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 
 namespace umbra::ext::usd::internal {
@@ -323,10 +323,11 @@ std::vector<FlatInstance> Flatten(const std::vector<FlatInstance>& inner,
 }  // namespace
 
 InstancerPrim::InstancerPrim(pxr::HdSceneDelegate* delegate,
-                             const pxr::SdfPath& prim_id,
-                             core::ProgressPhase& phase,
+                             const pxr::SdfPath& prim_id, SyncCounter& counter,
                              const host::Shutter& shutter)
-    : pxr::HdInstancer(delegate, prim_id), phase_(&phase), shutter_(&shutter) {}
+    : pxr::HdInstancer(delegate, prim_id),
+      counter_(&counter),
+      shutter_(&shutter) {}
 
 void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
                          pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
@@ -338,7 +339,7 @@ void InstancerPrim::Sync(pxr::HdSceneDelegate* delegate,
   primvars_ = InstancePrimvars(*delegate, GetId());
   if (synced_ == Synced::kNotSynced) {
     synced_ = Synced::kSynced;
-    phase_->Add(1);
+    counter_->Add(1);
     const std::size_t instances = CountInstances();
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} instance{})", GetId().GetString(),
                     core::FormatCount(instances), instances == 1 ? "" : "s");

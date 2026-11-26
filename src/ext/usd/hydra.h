@@ -20,6 +20,7 @@
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/renderDelegate.h>
+#include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
 #include <pxr/imaging/hd/rprim.h>
@@ -29,6 +30,7 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -43,10 +45,12 @@
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
+#include "mesh.h"
 #include "motion.h"
+#include "sync_counter.h"
 #include "umbra/core/error.h"
-#include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
 
@@ -93,9 +97,9 @@ struct SettingsBase {
 // attributes they inherit.
 class RenderSettingsPrim final : public pxr::HdRenderSettings {
  public:
-  // Counts its sync into `phase`, unless it is a fallback prim.
+  // Counts its sync into `counter`, unless it is a fallback prim.
   RenderSettingsPrim(const pxr::SdfPath& prim_id,
-                     core::ProgressPhase* UMBRA_NULLABLE phase);
+                     SyncCounter* UMBRA_NULLABLE counter);
 
   [[nodiscard]] const SettingsBase& base() const UMBRA_LIFETIMEBOUND {
     return base_;
@@ -112,20 +116,20 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
   // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
  private:
-  core::ProgressPhase* UMBRA_NULLABLE phase_;
+  SyncCounter* UMBRA_NULLABLE counter_;
   SettingsBase base_;
 };
 
 // A Camera prim, synced, with the samples of its transform over its own
 // shutter: the cameras sync before the shutter the render uses is known.
-// Once it is, the camera is placed: converted into its host copy, in
-// meters, its transform resampled over that shutter.
+// Once it is, the commit places the camera: converts it into its host copy,
+// in meters, its transform resampled over that shutter.
 class CameraPrim final : public pxr::HdCamera {
  public:
-  // Counts its sync into `phase`, unless it is a fallback prim; its lengths
+  // Counts its sync into `counter`, unless it is a fallback prim; its lengths
   // are scaled by `meters_per_unit`.
-  CameraPrim(const pxr::SdfPath& prim_id,
-             core::ProgressPhase* UMBRA_NULLABLE phase, double meters_per_unit);
+  CameraPrim(const pxr::SdfPath& prim_id, SyncCounter* UMBRA_NULLABLE counter,
+             double meters_per_unit);
 
   void Sync(pxr::HdSceneDelegate* scene_delegate,
             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
@@ -140,12 +144,17 @@ class CameraPrim final : public pxr::HdCamera {
   }
   // What resampling did with its motion, once placed.
   [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
+  // Whether it synced since its host copy was last committed.
+  [[nodiscard]] bool IsChanged() const { return changed_ == Changed::kYes; }
   // Frees its host copy, once committed.
   void FreeHostCopy();
 
  private:
-  core::ProgressPhase* UMBRA_NULLABLE phase_;
+  enum class Changed : std::uint8_t { kNo, kYes };
+
+  SyncCounter* UMBRA_NULLABLE counter_;
   double meters_per_unit_;
+  Changed changed_ = Changed::kNo;
   // The samples of its transform over its own shutter, in scene units: its
   // transform at the frame alone when that shutter spans no interval.
   TimedSamples<pxr::GfMatrix4d> transform_samples_;
@@ -172,17 +181,39 @@ struct MaterialSubset {
   std::vector<std::uint32_t> faces;
 };
 
+// Whether a mesh has a displayColor primvar.
+enum class DisplayColor : std::uint8_t {
+  kAbsent,
+  kPresent,
+};
+
+// The change flags of a mesh converted whole: every member of its host copy
+// is given.
+inline constexpr device::ChangeFlags kWholeMesh =
+    device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
+    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials;
+
 // A Mesh prim, synced into its host copy when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
 // own when it has no instancer. Implicit surfaces reach it as meshes. Its
 // points and its transform are sampled over the shutter, and its
 // displayColor converted into ACEScg. Its material is the one bound to it,
-// and its GeomSubsets bound to one keep theirs.
+// and its GeomSubsets bound to one keep theirs, each triangle given the
+// index of its material: 0 for its own, i + 1 for that of its i-th subset.
+//
+// A sync that finds it placed, visible with an instance or more, converts
+// only what Hydra marked dirty, as change flags: its transform or its
+// instancer's give kPlacement; its points kPoints, alone, or kPrimvars too
+// when its normals are computed from them; its primvars or its normals
+// kPrimvars, and kMaterials too when it gains or loses a displayColor; its
+// material kMaterials; and its topology or its sidedness kTopology, with
+// kPrimvars and kMaterials. Its host copy then holds only the members those
+// flags name. Any other sync converts all of it.
 class MeshPrim final : public pxr::HdMesh {
  public:
-  // Counts its sync into `phase`; its lengths are scaled by
+  // Counts its sync into `counter`; its lengths are scaled by
   // `meters_per_unit`. `shutter` is chosen before it syncs.
-  MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
+  MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
            double meters_per_unit,
            const host::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
@@ -202,11 +233,19 @@ class MeshPrim final : public pxr::HdMesh {
     return invalid_reason_;
   }
   // What sampling did with its motion, once converted.
-  [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
+  [[nodiscard]] MotionOutcome motion_outcome() const {
+    return std::max(points_outcome_, placement_outcome_);
+  }
   // Whether it is a mesh light (UsdLux's MeshLightAPI), once converted.
   [[nodiscard]] bool IsMeshLight() const {
     return emission_ == Emission::kMeshLight;
   }
+  // Whether it has a displayColor, once converted.
+  [[nodiscard]] DisplayColor display_color() const { return display_color_; }
+  // What its host copy holds since it was last committed: kWholeMesh when a
+  // sync converted all of it, the members of its updates otherwise, and
+  // kNone when it did not sync since.
+  [[nodiscard]] device::ChangeFlags changes() const { return changes_; }
   // Its mesh, once converted: the host copy, whose materials the commit
   // gives.
   [[nodiscard]] host::Mesh& mesh() UMBRA_LIFETIMEBOUND { return mesh_; }
@@ -215,13 +254,16 @@ class MeshPrim final : public pxr::HdMesh {
       UMBRA_LIFETIMEBOUND {
     return material_subsets_;
   }
-  // Its instances, once converted: their object-to-world transforms in
-  // meters, one per motion sample, and their own primvars. None when its
-  // instancer places none.
+  // Its instances, once placed: their object-to-world transforms in meters,
+  // one per motion sample, and their own primvars. None when its instancer
+  // places none.
   [[nodiscard]] const std::vector<host::Instance>& instances() const
       UMBRA_LIFETIMEBOUND {
     return instances_;
   }
+  // The instances it placed when it was last placed, which its host copy no
+  // longer holds once committed.
+  [[nodiscard]] std::size_t instance_count() const { return instance_count_; }
   // Frees its host copy, once committed.
   void FreeHostCopy();
 
@@ -235,20 +277,60 @@ class MeshPrim final : public pxr::HdMesh {
   // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
  private:
+  // Logs its sync at trace level: with its size when converted whole.
+  void LogSync() const;
+  // Converts all of it.
   void Convert(pxr::HdSceneDelegate& delegate);
-  // Its instances, from its transform and its instancer's, over `shutter`.
-  void Place(pxr::HdSceneDelegate& delegate, const host::Shutter& shutter);
+  // Converts what `bits` mark dirty, once placed.
+  void Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
+  // The flags of an update of what `bits` mark dirty, but its placement,
+  // the members they name converted; none when it turns out invalid.
+  // The members of the host copy that `bits` dirty: kPrimvars with
+  // kPoints when its normals are computed.
+  [[nodiscard]] device::ChangeFlags DirtiedOf(pxr::HdDirtyBits bits) const;
+  // Converts its geometry again, `dirtied` dirty, and gives what changed:
+  // none when it no longer converts.
+  std::optional<device::ChangeFlags> ReconvertGeometry(
+      pxr::HdSceneDelegate& delegate, device::ChangeFlags dirtied);
+  std::optional<device::ChangeFlags> UpdateGeometry(
+      pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
+  // What converting its points alone gave.
+  enum class PointsConversion : std::uint8_t {
+    kConverted,
+    // Their count, or the outcome of their sampling, changed: all of it
+    // must be converted.
+    kWholeNeeded,
+  };
+
+  // Converts its geometry, its primvars and the materials of its triangles:
+  // it is then converted, or invalid.
+  void ConvertGeometry(pxr::HdSceneDelegate& delegate);
+  // Converts its points alone.
+  PointsConversion ConvertPointsAlone(pxr::HdSceneDelegate& delegate);
+  // Gives each triangle of its host copy the index of its material, from
+  // its subsets.
+  void AssignTriangleMaterials();
+  // Its instances, from its transform and its instancer's, over the shutter.
+  void Place(pxr::HdSceneDelegate& delegate);
+  // Frees the members of its host copy that its changes do not name.
+  void KeepChanged();
 
   // Whether it is a light, which umbra does not take: its mesh is rendered
   // without emission.
   enum class Emission : std::uint8_t { kNone, kMeshLight };
 
-  core::ProgressPhase* phase_;
+  SyncCounter* counter_;
   double meters_per_unit_;
   const host::Shutter* shutter_;
   MeshState state_ = MeshState::kNotSynced;
-  MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
+  MotionOutcome points_outcome_ = MotionOutcome::kSampled;
+  MotionOutcome placement_outcome_ = MotionOutcome::kSampled;
   Emission emission_ = Emission::kNone;
+  NormalsSource normals_ = NormalsSource::kAuthored;
+  DisplayColor display_color_ = DisplayColor::kAbsent;
+  std::size_t point_count_ = 0;
+  std::size_t instance_count_ = 0;
+  device::ChangeFlags changes_ = device::ChangeFlags::kNone;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
   host::Mesh mesh_;
@@ -260,9 +342,9 @@ class MeshPrim final : public pxr::HdMesh {
 // synced only to be counted, so that it is reported.
 class UnsupportedPrim final : public pxr::HdRprim {
  public:
-  // Counts its sync into `phase`.
+  // Counts its sync into `counter`.
   UnsupportedPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
-                  core::ProgressPhase& phase);
+                  SyncCounter& counter);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* delegate,
@@ -290,7 +372,7 @@ class UnsupportedPrim final : public pxr::HdRprim {
   enum class Synced : std::uint8_t { kNotSynced, kSynced };
 
   pxr::TfToken type_;
-  core::ProgressPhase* phase_;
+  SyncCounter* counter_;
   Synced synced_ = Synced::kNotSynced;
 };
 
@@ -325,11 +407,13 @@ using Committer =
 // meshes and their instancers, and lights, with their lengths scaled by
 // `meters_per_unit` and the meshes bound to their materials for the full
 // purpose, and counts the rprims and lights of the types umbra does not
-// take; its prims count their syncs into the phase. Hydra creates and
-// destroys its prims on one thread.
+// take; its prims count their syncs into the counter. Hydra creates and
+// destroys its prims on one thread. The prims live for the whole render:
+// each HdEngine::Execute syncs those that changed since the last, and
+// commits them.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
-  RenderDelegate(core::ProgressPhase& phase UMBRA_LIFETIMEBOUND,
+  RenderDelegate(SyncCounter& counter UMBRA_LIFETIMEBOUND,
                  double meters_per_unit, Committer committer);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
@@ -348,14 +432,19 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // Chooses the shutter the rprims are sampled over, once the settings and
   // the cameras are synced: that of the settings' camera, or none when the
   // settings disable motion blur, the camera is not synced or its shutter
-  // spans no interval.
-  void ChooseShutter(const pxr::SdfPath& settings);
+  // spans no interval. When it differs from the shutter of the last sync,
+  // every rprim, instancer and light is marked dirty in `tracker`, to be
+  // sampled again: the rprims and the instancers sync in this pass, the
+  // lights in the next, and CommitResources commits nothing until then.
+  void ChooseShutter(const pxr::SdfPath& settings,
+                     pxr::HdChangeTracker& tracker);
 
-  // Places the cameras and the lights over the shutter chosen, hiding the
-  // lights whose render tag is not in `render_tags`.
+  // Places the lights that synced since the last commit over the shutter
+  // chosen, hiding those whose render tag is not in `render_tags`.
   void Place(const pxr::TfTokenVector& render_tags);
 
-  // What CommitResources committed, or its error; none before.
+  // What CommitResources committed, or its error; none before, and none
+  // after a pass that must be followed by another (see ChooseShutter).
   [[nodiscard]] std::optional<std::expected<Committed, core::Error>>
   TakeCommitted();
 
@@ -392,17 +481,27 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   void CommitResources(pxr::HdChangeTracker* tracker) override;
 
  private:
-  // Counts the rprims Hydra did not sync into the phase, which then ends
-  // complete.
+  // The shutter of `settings`: see ChooseShutter.
+  [[nodiscard]] host::Shutter ShutterOf(const pxr::SdfPath& settings) const;
+  // Counts the rprims Hydra did not sync into the counter's phase, which then
+  // ends complete.
   void CountNotSynced();
   // Frees the host copies of every prim.
   void FreeHostCopies();
 
-  core::ProgressPhase* phase_;
+  // Whether the pass that runs must be followed by another before the
+  // prims commit.
+  enum class Pass : std::uint8_t { kFinal, kAnotherNeeded };
+
+  SyncCounter* counter_;
   double meters_per_unit_;
   Committer committer_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;
+  // The shutter of the last pass; none before the first.
+  std::optional<host::Shutter> last_shutter_;
+  Pass pass_ = Pass::kFinal;
+  std::size_t commits_ = 0;
   std::optional<std::expected<Committed, core::Error>> committed_;
 };
 
@@ -410,7 +509,10 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
 // rprims of the purposes the settings include, over the shutter it chooses.
 class SyncTask final : public pxr::HdTask {
  public:
-  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND, pxr::SdfPath settings);
+  // Syncs the prims of `index`, whose render delegate is `delegate`.
+  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
+           pxr::HdRenderIndex& index UMBRA_LIFETIMEBOUND,
+           pxr::SdfPath settings);
 
   void Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE delegate,
             pxr::HdTaskContext* context, pxr::HdDirtyBits* dirty_bits) override;
@@ -420,6 +522,7 @@ class SyncTask final : public pxr::HdTask {
 
  private:
   RenderDelegate* delegate_;
+  pxr::HdRenderIndex* index_;
   pxr::SdfPath settings_;
   pxr::TfTokenVector render_tags_;
 };
