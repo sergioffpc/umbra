@@ -4,7 +4,7 @@
 // The Scene: what umbra renders, in umbra's own types, with no OpenUSD type
 // (docs/adr/0006-scenes-enter-through-hydra.md). The OpenUSD bridge builds it
 // (umbra::ext::usd::LoadScene) and it is immutable once built. Lengths are in
-// meters.
+// meters. A mesh is a prototype, held once, that instances place.
 
 #ifndef UMBRA_SCENE_SCENE_H_
 #define UMBRA_SCENE_SCENE_H_
@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "umbra/core/safety.h"
@@ -129,11 +130,90 @@ struct RenderSettings {
   std::vector<RenderProduct> products;
 };
 
+// How the values of a primvar map onto the triangles of a mesh.
+enum class PrimvarRate : std::uint8_t {
+  // One value, or one array, for the whole mesh.
+  kConstant,
+  // One value per source face, which each of its triangles takes.
+  kPerFace,
+  // One value per point, interpolated across each triangle.
+  kPerVertex,
+  // One value per triangle corner, through Primvar::indices, interpolated
+  // across each triangle; corners that share a value share its index.
+  kPerCorner,
+};
+
+// Values given per point, per face, per corner or for the whole mesh: a
+// mesh's normals, or one of its primvars.
+struct Primvar {
+  std::string name;
+  PrimvarRate rate = PrimvarRate::kConstant;
+  // The components of each value: 1, 2, 3, 4, or 16 for a 4x4 matrix,
+  // row-major.
+  std::uint32_t components = 1;
+  // The values, `components` numbers each, one after another: floats, or
+  // integers for a primvar of integers.
+  std::variant<std::vector<float>, std::vector<std::int32_t>> values;
+  // kPerCorner only: three per triangle, in the triangle's order, each the
+  // index of a value.
+  std::vector<std::uint32_t> indices;
+
+  // The number of values.
+  [[nodiscard]] std::size_t Count() const;
+};
+
+// Whether the back of a mesh's triangles is seen.
+enum class Sidedness : std::uint8_t {
+  kSingleSided,
+  kDoubleSided,
+};
+
+// A triangle mesh, in meters, in its object space. Its triangles are all
+// wound counterclockwise as seen from their front, the side their geometric
+// normal points to by the right-hand rule.
+struct Mesh {
+  // The path of its prim ("/World/Car/Body").
+  std::string path;
+  // The positions of its points, one array per motion sample, each as long
+  // as the others.
+  std::vector<std::vector<std::array<float, 3>>> points;
+  // Its triangles, as indices of points.
+  std::vector<std::array<std::uint32_t, 3>> triangles;
+  // The source face of each triangle: an index into face_vertex_counts.
+  std::vector<std::uint32_t> source_faces;
+  // The number of vertices of each of the mesh's original polygons, in
+  // order, holes included.
+  std::vector<std::uint32_t> face_vertex_counts;
+  // Unit normals, three components, at any rate but kConstant.
+  Primvar normals;
+  // Its other primvars, by name.
+  std::vector<Primvar> primvars;
+  Sidedness sidedness = Sidedness::kSingleSided;
+};
+
+// A mask of light-link or shadow-link categories, one bit per category.
+using LightMask = std::uint64_t;
+// Every category: all the lights.
+inline constexpr LightMask kAllLights = ~LightMask{0};
+
+// A placement of a prototype.
+struct Instance {
+  // Its prototype: an index into Scene::prototypes().
+  std::size_t prototype = 0;
+  // The object-to-world transform, one per motion sample, row-major, for
+  // row vectors: the translation, in meters, is the last row.
+  std::vector<std::array<double, 16>> object_to_world;
+  // The lights that illuminate it, and those it casts shadows from.
+  LightMask light_link = kAllLights;
+  LightMask shadow_link = kAllLights;
+};
+
 // The scene of one frame.
 class Scene {
  public:
   // The cameras are those the settings and their products see through.
-  Scene(RenderSettings settings, std::vector<Camera> cameras);
+  Scene(RenderSettings settings, std::vector<Camera> cameras,
+        std::vector<Mesh> prototypes, std::vector<Instance> instances);
 
   [[nodiscard]] const RenderSettings& settings() const UMBRA_LIFETIMEBOUND {
     return settings_;
@@ -141,10 +221,20 @@ class Scene {
   [[nodiscard]] std::span<const Camera> cameras() const UMBRA_LIFETIMEBOUND {
     return cameras_;
   }
+  // The geometry held once, for every instance of it.
+  [[nodiscard]] std::span<const Mesh> prototypes() const UMBRA_LIFETIMEBOUND {
+    return prototypes_;
+  }
+  [[nodiscard]] std::span<const Instance> instances() const
+      UMBRA_LIFETIMEBOUND {
+    return instances_;
+  }
 
  private:
   RenderSettings settings_;
   std::vector<Camera> cameras_;
+  std::vector<Mesh> prototypes_;
+  std::vector<Instance> instances_;
 };
 
 }  // namespace umbra::scene

@@ -3,7 +3,6 @@
 
 #include "close_scene.h"
 
-#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/range1f.h>
 #include <pxr/base/gf/range2f.h>
 #include <pxr/base/tf/token.h>
@@ -29,6 +28,7 @@
 #include <vector>
 
 #include "hydra.h"
+#include "mesh.h"
 #include "outputs.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -100,17 +100,7 @@ scene::Camera Cameras::Convert(const CameraPrim& prim) const {
   camera.projection = prim.GetProjection() == pxr::HdCamera::Orthographic
                           ? scene::Projection::kOrthographic
                           : scene::Projection::kPerspective;
-  const pxr::GfMatrix4d& transform = prim.GetTransform();
-  for (std::size_t row = 0; row < 4; ++row) {
-    const std::array<double, 4> values =
-        Components<double, 4>(transform.GetRow(static_cast<int>(row)));
-    // The translation, in the last row, is a length; the rest is not.
-    const double row_scale = row == 3 ? scale : 1.0;
-    for (std::size_t column = 0; column < 4; ++column) {
-      camera.camera_to_world.at((row * 4) + column) =
-          values.at(column) * (column < 3 ? row_scale : 1.0);
-    }
-  }
+  camera.camera_to_world = TransformInMeters(prim.GetTransform(), scale);
   camera.focal_length = Meters(prim.GetFocalLength());
   camera.aperture = {
       Meters(prim.GetHorizontalAperture()),
@@ -162,6 +152,132 @@ class UnsupportedVars {
   std::string first_name_;
   std::string first_product_;
 };
+
+// The prims of one kind a warning reports: their count and the first.
+class Tally {
+ public:
+  void Add(const pxr::SdfPath& path, std::string_view detail = {}) {
+    if (count_ == 0) {
+      first_ = path.GetString();
+      detail_ = detail;
+    }
+    ++count_;
+  }
+
+  [[nodiscard]] std::size_t count() const { return count_; }
+  // "/World/Car/Body" for one, "first /World/Car/Body" for more.
+  [[nodiscard]] std::string First() const {
+    return count_ == 1 ? first_ : "first " + first_;
+  }
+  [[nodiscard]] const std::string& detail() const UMBRA_LIFETIMEBOUND {
+    return detail_;
+  }
+
+ private:
+  std::size_t count_ = 0;
+  std::string first_;
+  std::string detail_;
+};
+
+// `singular` for one, `plural` otherwise.
+std::string_view Plural(std::size_t count, std::string_view singular,
+                        std::string_view plural) {
+  return count == 1 ? singular : plural;
+}
+
+// "1 mesh asks", "120 meshes ask".
+std::string Meshes(std::size_t count, std::string_view singular_verb,
+                   std::string_view plural_verb) {
+  return count == 1 ? std::format("1 mesh {}", singular_verb)
+                    : std::format("{} meshes {}", count, plural_verb);
+}
+
+// The meshes the Scene takes, as prototypes with one instance each, and the
+// tallies of those it does not, for their warnings.
+class Geometry {
+ public:
+  void Add(const pxr::SdfPath& path, MeshPrim& mesh);
+  void Add(const UnsupportedPrim& prim);
+
+  // "warning: usd: 120 meshes ask for catmullClark subdivision, rendered
+  // as their cage (first /World/Car/Body)", and so on.
+  void Report() const {
+    ReportMeshes();
+    ReportUnsupported();
+  }
+
+  std::vector<scene::Mesh> TakePrototypes() { return std::move(prototypes_); }
+  std::vector<scene::Instance> TakeInstances() { return std::move(instances_); }
+
+ private:
+  std::vector<scene::Mesh> prototypes_;
+  std::vector<scene::Instance> instances_;
+  std::map<std::string, Tally> subdivided_;
+  Tally invalid_;
+  Tally instanced_;
+  std::map<pxr::TfToken, Tally> unsupported_;
+
+  void ReportMeshes() const;
+  void ReportUnsupported() const;
+};
+
+void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
+  switch (mesh.state()) {
+    case MeshState::kNotSynced:
+    case MeshState::kInvisible:
+      return;
+    case MeshState::kInstanced:
+      instanced_.Add(path);
+      return;
+    case MeshState::kInvalid:
+      invalid_.Add(path, mesh.invalid_reason());
+      return;
+    case MeshState::kConverted:
+      break;
+  }
+  if (!mesh.subdivision_scheme().empty()) {
+    subdivided_[mesh.subdivision_scheme()].Add(path);
+  }
+  instances_.push_back({
+      .prototype = prototypes_.size(),
+      .object_to_world = {mesh.object_to_world()},
+      .light_link = scene::kAllLights,
+      .shadow_link = scene::kAllLights,
+  });
+  prototypes_.push_back(mesh.TakeMesh());
+}
+
+void Geometry::Add(const UnsupportedPrim& prim) {
+  if (prim.IsSynced()) {
+    unsupported_[prim.type()].Add(prim.GetId());
+  }
+}
+
+void Geometry::ReportMeshes() const {
+  for (const auto& [scheme, tally] : subdivided_) {
+    UMBRA_LOG_WARNING(kUsd, "{} for {} subdivision, rendered as {} cage ({})",
+                      Meshes(tally.count(), "asks", "ask"), scheme,
+                      Plural(tally.count(), "its", "their"), tally.First());
+  }
+  if (invalid_.count() > 0) {
+    UMBRA_LOG_WARNING(kUsd, "{} invalid, dropped ({}: {})",
+                      Meshes(invalid_.count(), "is", "are"), invalid_.First(),
+                      invalid_.detail());
+  }
+  if (instanced_.count() > 0) {
+    UMBRA_LOG_WARNING(kUsd, "{} instanced, not supported yet; left out ({})",
+                      Meshes(instanced_.count(), "is", "are"),
+                      instanced_.First());
+  }
+}
+
+void Geometry::ReportUnsupported() const {
+  for (const auto& [type, tally] : unsupported_) {
+    UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
+                      tally.count(), type.GetString(),
+                      Plural(tally.count(), "prim", "prims"), tally.First());
+  }
+}
 
 // The quantity of a raw var named `name`, or none when umbra has no such
 // var.
@@ -409,7 +525,16 @@ std::expected<scene::Scene, Error> CloseScene(const CloseInputs& inputs,
       .camera = *camera,
       .products = std::move(*products),
   };
-  return scene::Scene(std::move(converted), cameras.Take());
+  Geometry geometry;
+  for (const auto& [path, mesh] : prims.meshes) {
+    geometry.Add(path, *mesh);
+  }
+  for (const auto& [path, prim] : prims.unsupported) {
+    geometry.Add(*prim);
+  }
+  geometry.Report();
+  return scene::Scene(std::move(converted), cameras.Take(),
+                      geometry.TakePrototypes(), geometry.TakeInstances());
 }
 
 }  // namespace umbra::ext::usd::internal

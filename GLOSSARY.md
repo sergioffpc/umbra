@@ -21,6 +21,10 @@ A placement of a prototype: its transform, its own material and primvars
 when it has them, and its light-link and shadow-link masks
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
+**Source face**:
+The polygon of a mesh a triangle comes from, as an index into the mesh's
+original faces: per-face texturing (Ptex) maps a hit through it.
+
 **Material network**:
 A material as the Scene holds it: nodes that are MaterialX nodedef ids or
 `.oso` shaders, with their parameters and connections, and no shader code

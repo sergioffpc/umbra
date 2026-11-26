@@ -4,7 +4,8 @@
 // umbra's side of Hydra (docs/adr/0006-scenes-enter-through-hydra.md): the
 // render delegate, created directly rather than as a plugin, its prims, which
 // sync what the Scene needs, and the task that runs in HdEngine::Execute and
-// only syncs. The delegate's CommitResources closes the Scene.
+// only syncs. Hydra syncs rprims in parallel, each into its own prim. The
+// delegate's CommitResources closes the Scene.
 
 #ifndef UMBRA_EXT_USD_HYDRA_H_
 #define UMBRA_EXT_USD_HYDRA_H_
@@ -14,6 +15,7 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
@@ -31,6 +33,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <string>
 
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
@@ -116,10 +119,117 @@ class CameraPrim final : public pxr::HdCamera {
   core::ProgressPhase* UMBRA_NULLABLE phase_;
 };
 
+// What the sync of a mesh gave.
+enum class MeshState : std::uint8_t {
+  // It was not synced: its purpose is not rendered.
+  kNotSynced,
+  // It is invisible.
+  kInvisible,
+  // It has an instancer, which the Scene does not take.
+  kInstanced,
+  // It is converted into the Scene's.
+  kConverted,
+  // It is invalid, and dropped.
+  kInvalid,
+};
+
+// A Mesh prim, synced into the Scene's mesh when it is visible, valid and
+// not instanced. Implicit surfaces reach it as meshes.
+class MeshPrim final : public pxr::HdMesh {
+ public:
+  // Counts its sync into `phase`; its lengths are scaled by
+  // `meters_per_unit`.
+  MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
+           double meters_per_unit);
+
+  [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
+  void Sync(pxr::HdSceneDelegate* delegate,
+            pxr::HdRenderParam* UMBRA_NULLABLE render_param,
+            pxr::HdDirtyBits* dirty_bits, const pxr::TfToken& repr) override;
+
+  [[nodiscard]] MeshState state() const { return state_; }
+  // The subdivisionScheme it asks for, once synced: empty for none.
+  [[nodiscard]] const std::string& subdivision_scheme() const
+      UMBRA_LIFETIMEBOUND {
+    return subdivision_scheme_;
+  }
+  // Why it is invalid.
+  [[nodiscard]] const std::string& invalid_reason() const UMBRA_LIFETIMEBOUND {
+    return invalid_reason_;
+  }
+  // Its object-to-world transform, in meters, once converted.
+  [[nodiscard]] const std::array<double, 16>& object_to_world() const
+      UMBRA_LIFETIMEBOUND {
+    return object_to_world_;
+  }
+  // Its mesh, once converted, moved out.
+  [[nodiscard]] scene::Mesh TakeMesh();
+
+ protected:
+  // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
+  // names of the methods OpenUSD has rprims override.
+  [[nodiscard]] pxr::HdDirtyBits _PropagateDirtyBits(
+      pxr::HdDirtyBits bits) const override;
+  void _InitRepr(const pxr::TfToken& repr,
+                 pxr::HdDirtyBits* dirty_bits) override;
+  // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
+
+ private:
+  void Convert(pxr::HdSceneDelegate& delegate);
+
+  core::ProgressPhase* phase_;
+  double meters_per_unit_;
+  MeshState state_ = MeshState::kNotSynced;
+  std::string subdivision_scheme_;
+  std::string invalid_reason_;
+  std::array<double, 16> object_to_world_{};
+  scene::Mesh mesh_;
+};
+
+// An rprim of a type the Scene does not take (basisCurves, points,
+// volume): synced only to be counted, so that it is reported.
+class UnsupportedPrim final : public pxr::HdRprim {
+ public:
+  // Counts its sync into `phase`.
+  UnsupportedPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
+                  core::ProgressPhase& phase);
+
+  [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
+  void Sync(pxr::HdSceneDelegate* delegate,
+            pxr::HdRenderParam* UMBRA_NULLABLE render_param,
+            pxr::HdDirtyBits* dirty_bits, const pxr::TfToken& repr) override;
+  [[nodiscard]] const pxr::TfTokenVector& GetBuiltinPrimvarNames()
+      const override;
+
+  [[nodiscard]] const pxr::TfToken& type() const UMBRA_LIFETIMEBOUND {
+    return type_;
+  }
+  // Whether Hydra synced it: whether its purpose is rendered.
+  [[nodiscard]] bool IsSynced() const { return synced_ == Synced::kSynced; }
+
+ protected:
+  // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
+  // names of the methods OpenUSD has rprims override.
+  [[nodiscard]] pxr::HdDirtyBits _PropagateDirtyBits(
+      pxr::HdDirtyBits bits) const override;
+  void _InitRepr(const pxr::TfToken& repr,
+                 pxr::HdDirtyBits* dirty_bits) override;
+  // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
+
+ private:
+  enum class Synced : std::uint8_t { kNotSynced, kSynced };
+
+  pxr::TfToken type_;
+  core::ProgressPhase* phase_;
+  Synced synced_ = Synced::kNotSynced;
+};
+
 // The prims the delegate synced, by path, as CommitResources sees them.
 struct SyncedPrims {
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
   std::map<pxr::SdfPath, const CameraPrim*> cameras;
+  std::map<pxr::SdfPath, MeshPrim*> meshes;
+  std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
 };
 
 // What closes the Scene from the synced prims: the Scene, or the error that
@@ -127,13 +237,14 @@ struct SyncedPrims {
 using SceneCloser = std::function<std::expected<scene::Scene, core::Error>(
     const SyncedPrims& prims)>;
 
-// umbra's render delegate. It syncs cameras and render settings; its prims
-// count their syncs into the phase. Hydra creates and destroys its prims on
-// one thread.
+// umbra's render delegate. It syncs cameras, render settings and meshes,
+// with their lengths scaled by `meters_per_unit`, and counts the rprims of
+// the types the Scene does not take; its prims count their syncs into
+// the phase. Hydra creates and destroys its prims on one thread.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(core::ProgressPhase& phase UMBRA_LIFETIMEBOUND,
-                 SceneCloser closer);
+                 double meters_per_unit, SceneCloser closer);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
   RenderDelegate(RenderDelegate&&) = delete;
@@ -182,7 +293,12 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   void CommitResources(pxr::HdChangeTracker* tracker) override;
 
  private:
+  // Counts the rprims Hydra did not sync into the phase, which then ends
+  // complete.
+  void CountNotSynced();
+
   core::ProgressPhase* phase_;
+  double meters_per_unit_;
   SceneCloser closer_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;

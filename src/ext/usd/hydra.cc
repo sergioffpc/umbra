@@ -8,7 +8,9 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSource.h>
+#include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/renderSettings.h>
@@ -24,15 +26,20 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usdImaging/usdImaging/usdRenderSettingsSchema.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
+#include "mesh.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
+#include "umbra/core/number_format.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/scene/scene.h"
@@ -98,6 +105,53 @@ const pxr::TfToken& DefaultPurpose() {
   return kDefault;
 }
 
+// The primvars of the prim at `prim_id`, with their indices when indexed.
+std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
+                                        const pxr::SdfPath& prim_id) {
+  static constexpr std::array kInterpolations = {
+      pxr::HdInterpolationConstant,    pxr::HdInterpolationUniform,
+      pxr::HdInterpolationVarying,     pxr::HdInterpolationVertex,
+      pxr::HdInterpolationFaceVarying,
+  };
+  std::vector<SourcePrimvar> primvars;
+  for (const pxr::HdInterpolation interpolation : kInterpolations) {
+    for (const pxr::HdPrimvarDescriptor& descriptor :
+         delegate.GetPrimvarDescriptors(prim_id, interpolation)) {
+      SourcePrimvar primvar{
+          .name = descriptor.name,
+          .interpolation = interpolation,
+          .value = {},
+          .indices = {},
+      };
+      primvar.value = descriptor.indexed
+                          ? delegate.GetIndexedPrimvar(prim_id, descriptor.name,
+                                                       &primvar.indices)
+                          : delegate.Get(prim_id, descriptor.name);
+      primvars.push_back(std::move(primvar));
+    }
+  }
+  return primvars;
+}
+
+// Forgets `prim`, about to be destroyed, when `prims` holds it.
+template <typename Prim, typename Base>
+void Forget(std::map<pxr::SdfPath, Prim*>& prims, const Base& prim) {
+  const auto found = prims.find(prim.GetId());
+  if (found != prims.end() && found->second == &prim) {
+    prims.erase(found);
+  }
+}
+
+// The rprim types the Scene does not take, which are only counted.
+const pxr::TfTokenVector& UnsupportedRprimTypes() {
+  static const pxr::TfTokenVector kTypes = {
+      pxr::HdPrimTypeTokens->basisCurves,
+      pxr::HdPrimTypeTokens->points,
+      pxr::HdPrimTypeTokens->volume,
+  };
+  return kTypes;
+}
+
 // The path of the task, which is not in the render index.
 const pxr::SdfPath& SyncTaskPath() {
   static const pxr::SdfPath kPath("/__umbraSyncTask");
@@ -133,15 +187,117 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   CountSync(phase_, GetId());
 }
 
-RenderDelegate::RenderDelegate(core::ProgressPhase& phase, SceneCloser closer)
+MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
+                   double meters_per_unit)
+    : pxr::HdMesh(prim_id), phase_(&phase), meters_per_unit_(meters_per_unit) {}
+
+pxr::HdDirtyBits MeshPrim::GetInitialDirtyBitsMask() const {
+  return pxr::HdChangeTracker::AllSceneDirtyBits;
+}
+
+void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
+                    pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
+                    pxr::HdDirtyBits* dirty_bits,
+                    const pxr::TfToken& /*repr*/) {
+  _UpdateVisibility(delegate, dirty_bits);
+  if (!IsVisible()) {
+    state_ = MeshState::kInvisible;
+  } else if (!delegate->GetInstancerId(GetId()).IsEmpty()) {
+    state_ = MeshState::kInstanced;
+  } else {
+    Convert(*delegate);
+  }
+  *dirty_bits &= ~pxr::HdChangeTracker::AllSceneDirtyBits;
+  phase_->Add(1);
+  if (state_ == MeshState::kConverted) {
+    const std::size_t triangles = mesh_.triangles.size();
+    UMBRA_LOG_TRACE(kUsd, "synced {} ({} triangle{})", GetId().GetString(),
+                    core::FormatCount(triangles), triangles == 1 ? "" : "s");
+  } else {
+    UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
+  }
+}
+
+void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
+  const SourceMesh source{
+      .path = GetId().GetString(),
+      .topology = GetMeshTopology(&delegate),
+      .points = GetPoints(&delegate),
+      .primvars = ReadPrimvars(delegate, GetId()),
+      .sidedness = IsDoubleSided(&delegate) ? scene::Sidedness::kDoubleSided
+                                            : scene::Sidedness::kSingleSided,
+  };
+  if (IsSubdivided(source.topology)) {
+    subdivision_scheme_ = source.topology.GetScheme().GetString();
+  }
+  auto mesh = ConvertMesh(source, meters_per_unit_);
+  if (!mesh.has_value()) {
+    state_ = MeshState::kInvalid;
+    invalid_reason_ = std::move(mesh.error());
+    return;
+  }
+  state_ = MeshState::kConverted;
+  mesh_ = std::move(*mesh);
+  object_to_world_ =
+      TransformInMeters(delegate.GetTransform(GetId()), meters_per_unit_);
+}
+
+scene::Mesh MeshPrim::TakeMesh() { return std::move(mesh_); }
+
+pxr::HdDirtyBits MeshPrim::_PropagateDirtyBits(pxr::HdDirtyBits bits) const {
+  return bits;
+}
+
+void MeshPrim::_InitRepr(const pxr::TfToken& /*repr*/,
+                         pxr::HdDirtyBits* /*dirty_bits*/) {
+  // umbra draws no repr: it only syncs.
+}
+
+UnsupportedPrim::UnsupportedPrim(pxr::TfToken type_id,
+                                 const pxr::SdfPath& prim_id,
+                                 core::ProgressPhase& phase)
+    : pxr::HdRprim(prim_id), type_(std::move(type_id)), phase_(&phase) {}
+
+pxr::HdDirtyBits UnsupportedPrim::GetInitialDirtyBitsMask() const {
+  return pxr::HdChangeTracker::AllSceneDirtyBits;
+}
+
+void UnsupportedPrim::Sync(pxr::HdSceneDelegate* /*delegate*/,
+                           pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
+                           pxr::HdDirtyBits* dirty_bits,
+                           const pxr::TfToken& /*repr*/) {
+  *dirty_bits &= ~pxr::HdChangeTracker::AllSceneDirtyBits;
+  synced_ = Synced::kSynced;
+  CountSync(phase_, GetId());
+}
+
+const pxr::TfTokenVector& UnsupportedPrim::GetBuiltinPrimvarNames() const {
+  static const pxr::TfTokenVector kNames;
+  return kNames;
+}
+
+pxr::HdDirtyBits UnsupportedPrim::_PropagateDirtyBits(
+    pxr::HdDirtyBits bits) const {
+  return bits;
+}
+
+void UnsupportedPrim::_InitRepr(const pxr::TfToken& /*repr*/,
+                                pxr::HdDirtyBits* /*dirty_bits*/) {
+  // umbra draws no repr: it only counts.
+}
+
+RenderDelegate::RenderDelegate(core::ProgressPhase& phase,
+                               double meters_per_unit, SceneCloser closer)
     : phase_(&phase),
+      meters_per_unit_(meters_per_unit),
       closer_(std::move(closer)),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {}
 
 RenderDelegate::~RenderDelegate() = default;
 
 std::size_t RenderDelegate::PrimCount() const {
-  return prims_.settings.size() + prims_.cameras.size();
+  return prims_.settings.size() + prims_.cameras.size() + prims_.meshes.size() +
+         prims_.unsupported.size();
 }
 
 pxr::TfTokenVector RenderDelegate::RenderTags(
@@ -166,7 +322,12 @@ RenderDelegate::TakeScene() {
 }
 
 const pxr::TfTokenVector& RenderDelegate::GetSupportedRprimTypes() const {
-  static const pxr::TfTokenVector kTypes;
+  static const pxr::TfTokenVector kTypes = [] {
+    pxr::TfTokenVector types = {pxr::HdPrimTypeTokens->mesh};
+    const pxr::TfTokenVector& unsupported = UnsupportedRprimTypes();
+    types.insert(types.end(), unsupported.begin(), unsupported.end());
+    return types;
+  }();
   return kTypes;
 }
 
@@ -204,12 +365,26 @@ void RenderDelegate::DestroyInstancer(pxr::HdInstancer* instancer) {
 }
 
 pxr::HdRprim* UMBRA_NULLABLE RenderDelegate::CreateRprim(
-    const pxr::TfToken& /*type_id*/, const pxr::SdfPath& /*prim_id*/) {
+    const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
+  if (type_id == pxr::HdPrimTypeTokens->mesh) {
+    auto mesh = std::make_unique<MeshPrim>(prim_id, *phase_, meters_per_unit_);
+    prims_.meshes[prim_id] = mesh.get();
+    return Release<pxr::HdRprim>(std::move(mesh));
+  }
+  for (const pxr::TfToken& unsupported : UnsupportedRprimTypes()) {
+    if (type_id == unsupported) {
+      auto prim = std::make_unique<UnsupportedPrim>(type_id, prim_id, *phase_);
+      prims_.unsupported[prim_id] = prim.get();
+      return Release<pxr::HdRprim>(std::move(prim));
+    }
+  }
   return nullptr;
 }
 
 void RenderDelegate::DestroyRprim(pxr::HdRprim* rprim) {
   const std::unique_ptr<pxr::HdRprim> owned(rprim);
+  Forget(prims_.meshes, *rprim);
+  Forget(prims_.unsupported, *rprim);
 }
 
 pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
@@ -233,10 +408,7 @@ RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
 
 void RenderDelegate::DestroySprim(pxr::HdSprim* sprim) {
   const std::unique_ptr<pxr::HdSprim> owned(sprim);
-  const auto found = prims_.cameras.find(sprim->GetId());
-  if (found != prims_.cameras.end() && found->second == sprim) {
-    prims_.cameras.erase(found);
-  }
+  Forget(prims_.cameras, *sprim);
 }
 
 pxr::HdBprim* UMBRA_NULLABLE RenderDelegate::CreateBprim(
@@ -267,15 +439,26 @@ RenderDelegate::CreateFallbackBprim(const pxr::TfToken& type_id) {
 
 void RenderDelegate::DestroyBprim(pxr::HdBprim* bprim) {
   const std::unique_ptr<pxr::HdBprim> owned(bprim);
-  const auto found = prims_.settings.find(bprim->GetId());
-  if (found != prims_.settings.end() && found->second == bprim) {
-    prims_.settings.erase(found);
+  Forget(prims_.settings, *bprim);
+}
+
+void RenderDelegate::CountNotSynced() {
+  for (const auto& [path, mesh] : prims_.meshes) {
+    if (mesh->state() == MeshState::kNotSynced) {
+      phase_->Add(1);
+    }
+  }
+  for (const auto& [path, prim] : prims_.unsupported) {
+    if (!prim->IsSynced()) {
+      phase_->Add(1);
+    }
   }
 }
 
 void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
   // The Scene is closed once: it is immutable once loaded.
   if (!scene_.has_value()) {
+    CountNotSynced();
     scene_ = closer_(prims_);
   }
 }
