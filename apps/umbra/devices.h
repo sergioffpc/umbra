@@ -82,17 +82,20 @@ struct Device {
 [[nodiscard]] std::expected<std::vector<Device>, core::Error> ResolveDevices(
     std::string_view spec, std::span<const Device> devices);
 
-// The GPU devices of a render, and the GPU module they commit through,
-// which outlives them.
-struct GpuRenderDevices {
+// The devices of a render, and the GPU module the GPU devices are made
+// through, which outlives them.
+struct CreatedDevices {
   std::optional<gpu::Module> module;
   std::vector<std::unique_ptr<device::Device>> devices;
 };
 
-// A device for each GPU of `chosen`, made through the GPU module, which is
-// loaded only when `chosen` has a GPU. Fails with the cause, naming the
-// device, when the module cannot be loaded or a GPU cannot be used.
-[[nodiscard]] std::expected<GpuRenderDevices, core::Error> CreateGpuDevices(
+// The devices that `chosen` names, in its order, which a render commits to:
+// a CPU device for each CPU node, and a GPU device for each GPU, made
+// through the GPU module, which is loaded only when `chosen` has a GPU. When
+// the device component logs at debug level, a diagnostic device follows
+// them, which checks what every commit gives. Fails with the cause, naming
+// the device, when the module cannot be loaded or a GPU cannot be used.
+[[nodiscard]] std::expected<CreatedDevices, core::Error> CreateDevices(
     std::span<const Device> chosen);
 
 }  // namespace umbra::devices

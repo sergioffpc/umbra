@@ -20,6 +20,13 @@ Public headers (`include/umbra/device/`):
   frame besides render data. `kMaxRefits`, 8, is how many refits in a row
   every device makes of a prototype's acceleration structure as its points
   change, before it rebuilds it, since every refit loosens its bounds.
+- `light_shapes.h`: the shapes of the lights that rays meet (sphere, rect,
+  disk and cylinder), in the light's own space: their bounds, and where a
+  ray first meets them. CPU and GPU devices intersect them with the same
+  code.
+- `single_source.h`: `UMBRA_HOST_DEVICE`, which marks the functions written
+  once for the CPU and the GPU: clang compiles them for the CPU devices, and
+  nvcc for the GPU devices.
 - `diagnostic_device.h`: a device that renders nothing, and checks each
   change set it receives instead, against what it holds from the commits
   before: ids in range, an id removed or updated held and an id added free,
