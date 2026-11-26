@@ -4,7 +4,8 @@
 // UsdLux lights, as Hydra gives them, synced into their host copies: their
 // shapes in meters, their colors in ACEScg
 // (docs/adr/0007-spectral-rendering-from-acescg.md), their textures resolved
-// to absolute files with their color spaces, and their transforms sampled
+// to absolute files with their color spaces, their IES profiles read into
+// candela tables, and their transforms sampled
 // over the shutter. The controls without a physical counterpart are not
 // taken, only noted (docs/adr/0010-lights-are-physical.md).
 
@@ -66,8 +67,11 @@ enum class LightState : std::uint8_t {
 enum class LightIssue : std::uint8_t {
   // It has light filters.
   kFilters,
-  // Its emission is shaped by an IES profile.
-  kIesProfile,
+  // Its IES profile is not read: the file does not resolve, cannot be
+  // opened, or is not a valid profile.
+  kIesProfileNotRead,
+  // It rescales the angles of its IES profile (shaping:ies:angleScale).
+  kIesAngleScale,
   // It enables a color temperature that is not above 0 K: its color is used
   // alone.
   kNonPositiveTemperature,

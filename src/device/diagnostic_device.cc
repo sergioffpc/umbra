@@ -853,6 +853,33 @@ std::optional<TextureId> TextureOf(const Light::Shape& shape) {
   return std::nullopt;
 }
 
+// Checks the IES profile of a light, if any: its candelas fill its grid of
+// angles, and its arrays are aligned.
+Checked CheckIesProfile(const std::optional<IesProfile>& profile,
+                        std::string_view owner) {
+  if (!profile.has_value()) {
+    return {};
+  }
+  const std::size_t angles =
+      profile->vertical_angles.size() * profile->horizontal_angles.size();
+  if (profile->candelas.size() != angles) {
+    return Inconsistent(
+        std::format("{}: its IES profile has {} candelas for {} angles", owner,
+                    profile->candelas.size(), angles));
+  }
+  for (const auto& [numbers, what] : {
+           std::pair{profile->vertical_angles, "IES vertical angles"},
+           std::pair{profile->horizontal_angles, "IES horizontal angles"},
+           std::pair{profile->candelas, "IES candelas"},
+       }) {
+    if (auto aligned = CheckAligned(numbers, owner, what);
+        !aligned.has_value()) {
+      return aligned;
+    }
+  }
+  return {};
+}
+
 // Checks a light added or updated.
 Checked CheckLight(const Light& light, const Table<TextureRecord>& textures) {
   const std::string owner =
@@ -867,6 +894,10 @@ Checked CheckLight(const Light& light, const Table<TextureRecord>& textures) {
     if (!instance.primvars.empty()) {
       return Inconsistent(std::format("{}: an instance has primvars", owner));
     }
+  }
+  if (auto checked = CheckIesProfile(light.ies_profile, owner);
+      !checked.has_value()) {
+    return checked;
   }
   return CheckInstances(light.instances, owner);
 }
@@ -1044,6 +1075,19 @@ MaterialRecord RecordOf(const MaterialNetwork& material) {
   return record;
 }
 
+// Hashes the IES profile of a light, if any.
+void HashIesProfile(const std::optional<IesProfile>& profile, Hasher& hasher) {
+  hasher.Value(profile.has_value());
+  if (!profile.has_value()) {
+    return;
+  }
+  hasher.Span(profile->vertical_angles);
+  hasher.Span(profile->horizontal_angles);
+  hasher.Span(profile->candelas);
+  hasher.Value(profile->power);
+  hasher.Value(profile->normalization);
+}
+
 // Hashes a light's shape into `hasher`, but its texture and its portals,
 // which are references.
 void HashShape(const Light::Shape& light_shape, Hasher& hasher) {
@@ -1096,6 +1140,7 @@ LightRecord RecordOf(const Light& light) {
   hasher.Value(light.color_temperature.has_value());
   hasher.Value(light.color_temperature.value_or(0.0F));
   hasher.Value(light.cone_angle);
+  HashIesProfile(light.ies_profile, hasher);
   record.digest = PlacementDigest(light.instances) ^ hasher.digest();
   return record;
 }

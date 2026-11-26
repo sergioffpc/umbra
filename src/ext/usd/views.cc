@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/render_data.h"
 
@@ -24,6 +25,21 @@ namespace {
 // `index`, an index into an array of a host copy, as an index of a view.
 std::uint32_t IndexOf(std::size_t index) {
   return static_cast<std::uint32_t>(index);
+}
+
+// The view of the IES profile `profile`, if any.
+std::optional<device::IesProfile> IesProfileOf(
+    const std::optional<host::IesProfile>& profile UMBRA_LIFETIMEBOUND) {
+  if (!profile.has_value()) {
+    return std::nullopt;
+  }
+  return device::IesProfile{
+      .vertical_angles = profile->vertical_angles,
+      .horizontal_angles = profile->horizontal_angles,
+      .candelas = profile->candelas,
+      .power = profile->power,
+      .normalization = profile->normalization,
+  };
 }
 
 }  // namespace
@@ -219,6 +235,7 @@ device::Light ChangeSetBuilder::LightOf(device::LightId prim_id,
       .color = light.color,
       .color_temperature = light.color_temperature,
       .cone_angle = light.cone_angle,
+      .ies_profile = IesProfileOf(light.ies_profile),
       .instances = InstancesOf(light.instances),
   };
 }

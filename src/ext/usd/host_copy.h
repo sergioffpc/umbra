@@ -156,6 +156,16 @@ struct Mesh {
   HostBuffer<std::uint32_t> triangle_materials;
 };
 
+// An IES profile, in type C photometry, its angles in radians.
+struct IesProfile {
+  HostBuffer<float> vertical_angles;
+  HostBuffer<float> horizontal_angles;
+  // As many as vertical angles for each horizontal angle.
+  HostBuffer<float> candelas;
+  float power = 0.0F;
+  Normalization normalization = Normalization::kUnnormalized;
+};
+
 // A light, an emitter of one of six shapes or a portal, in meters.
 struct Light {
   struct Sphere {
@@ -199,6 +209,7 @@ struct Light {
   Color color{.rgb = {1.0F, 1.0F, 1.0F}};
   std::optional<float> color_temperature;
   float cone_angle = 180.0F;
+  std::optional<IesProfile> ies_profile;
   // Its placements, light-to-world, without primvars.
   std::vector<Instance> instances;
 };

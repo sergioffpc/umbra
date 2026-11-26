@@ -105,9 +105,10 @@ class Session {
   // are committed with their shapes in meters, placed by their instances, their
   // colors converted into ACEScg, their color temperatures kept as such, and
   // their textures resolved as the materials' are, those with no color space
-  // sRGB when the file is and scene-linear otherwise; a DomeLight_1's
-  // orientation follows its poleAxis, the stage's upAxis for "scene". Lights
-  // are physical: their diffuse and specular multipliers, focus, cone softness
+  // sRGB when the file is and scene-linear otherwise, and their IES profiles
+  // read into candela tables; a DomeLight_1's orientation follows its
+  // poleAxis, the stage's upAxis for "scene". Lights are physical: their
+  // diffuse and specular multipliers, focus, cone softness, IES angle scale
   // and shadow controls are not taken. One warning each reports the meshes
   // rendered as the cage of the subdivision they ask for, the invalid ones,
   // dropped, the curves, points and volumes, left out, the materials that do
@@ -115,12 +116,12 @@ class Session {
   // fallback value, the materials that connect a displacement or a volume,
   // not rendered, the lights that link geometry (every light lights
   // everything), the portal, geometry, plugin and mesh lights, left out (a
-  // mesh light's mesh is rendered without emission), the lights' filters and
-  // IES profiles, ignored, their color temperatures not above 0 K, their
-  // colors that do not convert, rendered white, their textures not read, each
-  // artistic control the lights author, the prims whose topology changes
-  // within the shutter, rendered without motion blur, and those resampled
-  // down to 16 samples.
+  // mesh light's mesh is rendered without emission), the lights' filters,
+  // ignored, their IES profiles not read, rendered without them, their color
+  // temperatures not above 0 K, their colors that do not convert, rendered
+  // white, their textures not read, each artistic control the lights
+  // author, the prims whose topology changes within the shutter, rendered
+  // without motion blur, and those resampled down to 16 samples.
   //
   // A warning a frame logged is not logged again by a later one.
   //

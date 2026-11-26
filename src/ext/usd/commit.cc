@@ -789,7 +789,7 @@ struct IssueWords {
   std::array<std::string_view, 2> predicate;
 };
 
-constexpr std::array<IssueWords, 9> kIssueWords = {
+constexpr std::array<IssueWords, 10> kIssueWords = {
     IssueWords{
         .issue = LightIssue::kFilters,
         .subject = {"light has", "lights have"},
@@ -800,14 +800,23 @@ constexpr std::array<IssueWords, 9> kIssueWords = {
             },
     },
     IssueWords{
-        .issue = LightIssue::kIesProfile,
-        .subject = {"light is", "lights are"},
+        .issue = LightIssue::kIesProfileNotRead,
+        .subject = {"light's IES profile is", "lights' IES profiles are"},
         .predicate =
             {
-                "shaped by an IES profile, which umbra does not take yet; "
-                "ignored",
-                "shaped by an IES profile, which umbra does not take yet; "
-                "ignored",
+                "not read, rendered without it",
+                "not read, rendered without them",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kIesAngleScale,
+        .subject = {"light rescales", "lights rescale"},
+        .predicate =
+            {
+                "the angles of its IES profile (shaping:ies:angleScale), "
+                "which umbra does not: lights are physical",
+                "the angles of their IES profiles (shaping:ies:angleScale), "
+                "which umbra does not: lights are physical",
             },
     },
     IssueWords{

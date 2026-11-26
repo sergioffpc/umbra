@@ -262,6 +262,27 @@ enum class DomeTextureFormat : std::uint8_t {
   kCubeMapVerticalCross,
 };
 
+// An IES profile (IESNA LM-63), in type C photometry, symmetries unfolded:
+// the luminous intensity a light emits in each direction, sampled over a
+// grid of vertical and horizontal angles, as the file measures it.
+struct IesProfile {
+  // The vertical angles, in radians, ascending, within 0 and pi: 0 is the
+  // profile's nadir.
+  std::span<const float> vertical_angles;
+  // The horizontal angles, in radians, ascending, within 0 and 2 pi.
+  std::span<const float> horizontal_angles;
+  // The intensity, in candelas, at each angle: as many as vertical angles
+  // for each horizontal angle, one horizontal angle after another.
+  std::span<const float> candelas;
+  // Its power: its mean intensity, in candelas, over the sphere, or over the
+  // hemisphere when its vertical angles span about 90 degrees or less.
+  float power = 0.0F;
+  // kNormalized: what it gives is divided by its power, so that it shapes
+  // the light's emission and keeps its power (shaping:ies:normalize). The
+  // candelas are held as measured either way.
+  Normalization normalization = Normalization::kUnnormalized;
+};
+
 // A light, an emitter of one of six shapes or a portal, placed by its
 // instances. Every light lights every instance and is seen by camera rays
 // (docs/adr/0009-lights-light-everything.md); it has no artistic control
@@ -341,6 +362,8 @@ struct Light {
   // The half-angle, in degrees, of the cone around its -Z axis outside which
   // it emits nothing, from 0 to 180; 180 for no cone.
   float cone_angle = 180.0F;
+  // The IES profile that shapes its emission, if any.
+  std::optional<IesProfile> ies_profile;
   // Its placements, light-to-world, without primvars: at least one.
   std::span<const Instance> instances;
 };
