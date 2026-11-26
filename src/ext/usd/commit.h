@@ -181,11 +181,12 @@ struct CommitScene {
 // the materials that do not translate, the textures that do not resolve,
 // the materials that connect each terminal but the surface, the meshes
 // that ask for a subdivision scheme, the invalid ones, the rprims of each
-// type not supported, the mesh lights, the lights of each type not
-// supported, the PortalLights no dome light targets, the dome lights that
-// target a prim that is not a PortalLight as a portal, each issue of the
-// lights (LightIssue), the lights that synced that link geometry, the prims
-// whose topology changes within the shutter and those resampled down to
+// type not supported, the lights of each type not supported, the
+// PortalLights no dome light targets, the dome lights that target a prim
+// that is not a PortalLight as a portal, each issue of the lights and of
+// the mesh lights (LightIssue), the lights that synced that link geometry,
+// the prims whose topology changes within the shutter and those resampled
+// down to
 // kMaxMotionSamples, with their count and the first; a warning a commit
 // logged before is not logged again. The frame's shutter is that the prims
 // were sampled over. Then every device commits the change set, in

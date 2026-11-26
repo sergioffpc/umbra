@@ -192,7 +192,13 @@ enum class DisplayColor : std::uint8_t {
 // is given.
 inline constexpr device::ChangeFlags kWholeMesh =
     device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
-    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials;
+    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
+    device::ChangeFlags::kEmission;
+
+// The dirty bit of a mesh whose MeshLightAPI changed, which Hydra has none
+// of: the delegate maps a change of a mesh's light data source to it.
+inline constexpr pxr::HdDirtyBits kDirtyEmission =
+    pxr::HdChangeTracker::CustomBitsBegin;
 
 // A Mesh prim, synced into its host copy when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
@@ -201,15 +207,16 @@ inline constexpr device::ChangeFlags kWholeMesh =
 // displayColor converted into ACEScg. Its material is the one bound to it,
 // and its GeomSubsets bound to one keep theirs, each triangle given the
 // index of its material: 0 for its own, i + 1 for that of its i-th subset.
+// A mesh light's emission is read as a light's, and every instance emits it.
 //
 // A sync that finds it placed, visible with an instance or more, converts
 // only what Hydra marked dirty, as change flags: its transform or its
 // instancer's give kPlacement; its points kPoints, alone, or kPrimvars too
 // when its normals are computed from them; its primvars or its normals
 // kPrimvars, and kMaterials too when it gains or loses a displayColor; its
-// material kMaterials; and its topology or its sidedness kTopology, with
-// kPrimvars and kMaterials. Its host copy then holds only the members those
-// flags name. Any other sync converts all of it.
+// material kMaterials; its topology or its sidedness kTopology, with
+// kPrimvars and kMaterials; and its MeshLightAPI kEmission. Its host copy then
+// holds only the members those flags name. Any other sync converts all of it.
 class MeshPrim final : public pxr::HdMesh {
  public:
   // Counts its sync into `counter`; its lengths are scaled by
@@ -237,9 +244,11 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] MotionOutcome motion_outcome() const {
     return std::max(points_outcome_, placement_outcome_);
   }
-  // Whether it is a mesh light (UsdLux's MeshLightAPI), once converted.
-  [[nodiscard]] bool IsMeshLight() const {
-    return emission_ == Emission::kMeshLight;
+  // What its MeshLightAPI authors that umbra does not take, as of its last
+  // reading of its emission.
+  [[nodiscard]] const std::vector<LightNote>& emission_notes() const
+      UMBRA_LIFETIMEBOUND {
+    return emission_notes_;
   }
   // Whether it has a displayColor, once converted.
   [[nodiscard]] DisplayColor display_color() const { return display_color_; }
@@ -315,10 +324,8 @@ class MeshPrim final : public pxr::HdMesh {
   void Place(pxr::HdSceneDelegate& delegate);
   // Frees the members of its host copy that its changes do not name.
   void KeepChanged();
-
-  // Whether it is a light, which umbra does not take: its mesh is rendered
-  // without emission.
-  enum class Emission : std::uint8_t { kNone, kMeshLight };
+  // Reads its emission into its host copy, and its notes.
+  void ReadEmission(pxr::HdSceneDelegate& delegate);
 
   SyncCounter* counter_;
   double meters_per_unit_;
@@ -326,7 +333,6 @@ class MeshPrim final : public pxr::HdMesh {
   MeshState state_ = MeshState::kNotSynced;
   MotionOutcome points_outcome_ = MotionOutcome::kSampled;
   MotionOutcome placement_outcome_ = MotionOutcome::kSampled;
-  Emission emission_ = Emission::kNone;
   NormalsSource normals_ = NormalsSource::kAuthored;
   DisplayColor display_color_ = DisplayColor::kAbsent;
   std::size_t point_count_ = 0;
@@ -337,6 +343,7 @@ class MeshPrim final : public pxr::HdMesh {
   host::Mesh mesh_;
   std::vector<MaterialSubset> material_subsets_;
   std::vector<host::Instance> instances_;
+  std::vector<LightNote> emission_notes_;
 };
 
 // An rprim of a type umbra does not take (basisCurves, points, volume):

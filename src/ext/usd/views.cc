@@ -268,6 +268,7 @@ device::Prototype ChangeSetBuilder::PrototypeOf(
       .materials = {},
       .triangle_materials = {},
       .instances = {},
+      .emission = {},
   };
   if (HasAny(changes, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
     prototype.points = PointsOf(mesh.points);
@@ -288,6 +289,9 @@ device::Prototype ChangeSetBuilder::PrototypeOf(
   }
   if (HasAny(changes, ChangeFlags::kPlacement)) {
     prototype.instances = InstancesOf(instances);
+  }
+  if (HasAny(changes, ChangeFlags::kEmission)) {
+    prototype.emission = mesh.emission;
   }
   return prototype;
 }
@@ -353,7 +357,8 @@ void ChangeSetBuilder::AddPrototype(device::PrototypeId prim_id,
   added_prototypes_.push_back(PrototypeOf(
       prim_id, mesh, instances,
       device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
-          device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials));
+          device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
+          device::ChangeFlags::kEmission));
 }
 
 void ChangeSetBuilder::UpdatePrototype(

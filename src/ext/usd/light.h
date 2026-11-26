@@ -44,11 +44,6 @@ namespace pxr = PXR_NS;
 // PortalLights, and counts the others.
 [[nodiscard]] const pxr::TfTokenVector& LightPrimTypes();
 
-// Whether the mesh at `prim_id` is a mesh light: an emissive mesh, its
-// emission authored by UsdLux's MeshLightAPI.
-[[nodiscard]] bool IsMeshLight(pxr::HdSceneDelegate& delegate,
-                               const pxr::SdfPath& prim_id);
-
 // What the sync of a light gave.
 enum class LightState : std::uint8_t {
   // It is invisible, of a purpose the settings do not include, or of a
@@ -95,6 +90,14 @@ struct LightNote {
   LightIssue issue = LightIssue::kFilters;
   std::string detail;
 };
+
+// The emission of the mesh light at `prim_id`, read as a light's, its color
+// converted into ACEScg, noting in `notes` what it authors that umbra does
+// not take (docs/adr/0010-lights-are-physical.md); none when the mesh is not
+// a mesh light.
+[[nodiscard]] std::optional<host::Emission> ReadMeshLight(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    std::vector<LightNote>& notes);
 
 // A light sprim, synced. It reads its parameters as it syncs, before the
 // settings choose the shutter and the purposes, and is placed once they

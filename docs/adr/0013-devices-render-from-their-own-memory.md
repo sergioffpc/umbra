@@ -50,13 +50,14 @@ and material. Each device keeps its structures in tables indexed by id, and
 gives nothing back.
 
 An updated prim carries umbra's change flags, which the bridge maps from
-Hydra's dirty bits, so dirty bits stay in `src/ext/usd`. A mesh has five:
+Hydra's dirty bits, so dirty bits stay in `src/ext/usd`. A mesh has six:
 
 - `kPlacement`: its instances, or their transforms, changed;
 - `kPoints`: its points changed, and its topology did not;
 - `kTopology`: its triangles changed;
 - `kPrimvars`: its normals or another primvar changed;
-- `kMaterials`: its material, or a material of one of its subsets, changed.
+- `kMaterials`: its material, or a material of one of its subsets, changed;
+- `kEmission`: its emission changed, or it gained or lost `MeshLightAPI`.
 
 A light, a material or a camera is only changed. A device applies a partial
 update to its own copy, which keeps the rest of the prim.
@@ -87,6 +88,8 @@ What a device rebuilds follows the change flags:
   of umbra's, not an option.
 - `kPrimvars` and `kMaterials` rebuild no structure, only the buffers that
   shading reads, and a GPU's shader binding table.
+- `kEmission` rebuilds no structure and no material, only the device's
+  sampling of its emitters.
 - The top level is rebuilt at every commit that changes an instance.
 
 A GPU builds a GAS without `OPTIX_BUILD_FLAG_ALLOW_UPDATE`, which slows

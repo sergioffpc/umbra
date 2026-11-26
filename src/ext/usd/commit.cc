@@ -631,6 +631,7 @@ class Geometry {
   void Report(Warnings& warnings) const {
     ReportMeshes(warnings);
     ReportUnsupported(warnings);
+    ReportEmission(warnings);
   }
 
  private:
@@ -652,6 +653,9 @@ class Geometry {
   }
   void ReportMeshes(Warnings& warnings) const;
   void ReportUnsupported(Warnings& warnings) const;
+  // "warning: usd: 2 mesh lights scale their diffuse or specular
+  // contribution, ...", as the lights' (LightIssue).
+  void ReportEmission(Warnings& warnings) const;
 
   Ledger* ledger_;
   MotionTallies* motion_;
@@ -660,7 +664,8 @@ class Geometry {
   std::map<std::string, Tally> subdivided_;
   Tally invalid_;
   std::map<pxr::TfToken, Tally> unsupported_;
-  Tally mesh_lights_;
+  // The issues of the mesh lights whose emission changed.
+  std::map<LightIssue, Tally> emission_issues_;
 };
 
 std::vector<std::string> Geometry::MaterialKeys(const MeshPrim& mesh) const {
@@ -697,8 +702,10 @@ void Geometry::Count(const pxr::SdfPath& path, const MeshPrim& mesh) {
   if (!mesh.subdivision_scheme().empty()) {
     subdivided_[mesh.subdivision_scheme()].Add(path);
   }
-  if (mesh.IsMeshLight()) {
-    mesh_lights_.Add(path);
+  if (device::HasAny(mesh.changes(), device::ChangeFlags::kEmission)) {
+    for (const LightNote& note : mesh.emission_notes()) {
+      emission_issues_[note.issue].Add(path, note.detail);
+    }
   }
   motion_->Add(path, mesh.motion_outcome());
 }
@@ -770,14 +777,6 @@ void Geometry::ReportUnsupported(Warnings& warnings) const {
                               tally.count(), type.GetString(),
                               Plural(tally.count(), "prim", "prims"),
                               tally.First()));
-  }
-  if (mesh_lights_.count() > 0) {
-    warnings.Warn(
-        std::format("{} not supported yet; {} rendered without emission ({})",
-                    Plural(mesh_lights_.count(), "1 mesh light",
-                           std::format("{} mesh lights", mesh_lights_.count())),
-                    Plural(mesh_lights_.count(), "its mesh", "their meshes"),
-                    mesh_lights_.First()));
   }
 }
 
@@ -893,18 +892,25 @@ constexpr std::array<IssueWords, 10> kIssueWords = {
 };
 
 // "warning: usd: 2 lights have light filters, which umbra does not take
-// yet; ignored (first /World/key)", and so on.
-void ReportLightIssue(LightIssue issue, const Tally& tally,
-                      Warnings& warnings) {
+// yet; ignored (first /World/key)", and so on; with the `prefix` "mesh ",
+// of mesh lights.
+void ReportLightIssue(LightIssue issue, const Tally& tally, Warnings& warnings,
+                      std::string_view prefix = {}) {
   const auto* words = std::ranges::find(kIssueWords, issue, &IssueWords::issue);
   if (words == kIssueWords.end()) {
     return;
   }
   const std::size_t form = tally.count() == 1 ? 0 : 1;
-  warnings.Warn(std::format("{} {} {} ({}{}{})", tally.count(),
+  warnings.Warn(std::format("{} {}{} {} ({}{}{})", tally.count(), prefix,
                             words->subject.at(form), words->predicate.at(form),
                             tally.First(), tally.detail().empty() ? "" : ": ",
                             tally.detail()));
+}
+
+void Geometry::ReportEmission(Warnings& warnings) const {
+  for (const auto& [issue, tally] : emission_issues_) {
+    ReportLightIssue(issue, tally, warnings, "mesh ");
+  }
 }
 
 // The lights, those converted with an instance or more, updated whole when

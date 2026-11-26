@@ -36,6 +36,8 @@ class ChangeFlags {
   static const ChangeFlags kPrimvars;
   // Its material, or a material of one of its subsets, changed.
   static const ChangeFlags kMaterials;
+  // Its emission changed, or it gained or lost one.
+  static const ChangeFlags kEmission;
 
   constexpr ChangeFlags() = default;
 
@@ -62,6 +64,7 @@ inline constexpr ChangeFlags ChangeFlags::kPoints{1U << 1U};
 inline constexpr ChangeFlags ChangeFlags::kTopology{1U << 2U};
 inline constexpr ChangeFlags ChangeFlags::kPrimvars{1U << 3U};
 inline constexpr ChangeFlags ChangeFlags::kMaterials{1U << 4U};
+inline constexpr ChangeFlags ChangeFlags::kEmission{1U << 5U};
 
 // Whether `flags` holds any of `wanted`.
 [[nodiscard]] constexpr bool HasAny(ChangeFlags flags, ChangeFlags wanted) {
@@ -76,7 +79,8 @@ inline constexpr ChangeFlags ChangeFlags::kMaterials{1U << 4U};
 // - kTopology: points, triangles, source_faces, face_vertex_counts and
 //   sidedness;
 // - kPrimvars: normals and primvars;
-// - kMaterials: materials and triangle_materials.
+// - kMaterials: materials and triangle_materials;
+// - kEmission: emission, none when it no longer emits.
 //
 // A device keeps the rest of its copy of the prototype.
 struct UpdatedPrototype {
