@@ -582,6 +582,21 @@ std::expected<scene::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   return mesh;
 }
 
+std::optional<scene::Primvar> ConstantPrimvar(std::string name,
+                                              const pxr::VtValue& value) {
+  auto values = NumericValues(value);
+  if (!values.has_value()) {
+    return std::nullopt;
+  }
+  return scene::Primvar{
+      .name = std::move(name),
+      .rate = scene::PrimvarRate::kConstant,
+      .components = values->components,
+      .values = std::move(values->numbers),
+      .indices = {},
+  };
+}
+
 std::array<double, 16> TransformInMeters(const pxr::GfMatrix4d& transform,
                                          double meters_per_unit) {
   std::array<double, 16> converted{};

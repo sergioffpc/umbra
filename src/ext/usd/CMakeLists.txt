@@ -8,6 +8,7 @@ umbra_add_ext_module(
   SOURCES
   close_scene.cc
   hydra.cc
+  instancer.cc
   mesh.cc
   outputs.cc
   usd.cc

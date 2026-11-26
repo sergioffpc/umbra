@@ -305,14 +305,14 @@ pxr::HdSceneIndexBaseRefPtr ImplicitSurfacesToMeshes(
 // The scene indices from the stage to the render index: usdImaging's, at
 // `time`, then the scene globals, which name the settings and the frame,
 // hdsi's render settings and light linking filters, and its implicit
-// surfaces, as meshes.
+// surfaces, as meshes. The stage is given once the chain is whole: the
+// light linking filter learns the lights' collections only as their prims
+// are added.
 pxr::HdSceneIndexBaseRefPtr ChainSceneIndices(const pxr::UsdStageRefPtr& stage,
                                               pxr::UsdTimeCode time,
                                               const pxr::SdfPath& settings) {
-  pxr::UsdImagingCreateSceneIndicesInfo info;
-  info.stage = stage;
-  const pxr::UsdImagingSceneIndices indices =
-      pxr::UsdImagingCreateSceneIndices(info);
+  const pxr::UsdImagingSceneIndices indices = pxr::UsdImagingCreateSceneIndices(
+      pxr::UsdImagingCreateSceneIndicesInfo());
   indices.stageSceneIndex->SetTime(time);
   const pxr::HdsiSceneGlobalsSceneIndexRefPtr globals =
       pxr::HdsiSceneGlobalsSceneIndex::New(indices.finalSceneIndex);
@@ -324,6 +324,7 @@ pxr::HdSceneIndexBaseRefPtr ChainSceneIndices(const pxr::UsdStageRefPtr& stage,
   chain = pxr::HdsiRenderSettingsFilteringSceneIndex::New(chain, nullptr);
   chain = pxr::HdsiLightLinkingSceneIndex::New(chain, nullptr);
   chain = ImplicitSurfacesToMeshes(chain);
+  indices.stageSceneIndex->SetStage(stage);
   return chain;
 }
 
@@ -339,10 +340,12 @@ struct SyncRequest {
 std::expected<scene::Scene, Error> ExecuteSync(
     const pxr::UsdStageRefPtr& stage, pxr::UsdTimeCode time,
     const internal::CloseInputs& inputs, core::ProgressPhase& phase) {
+  const pxr::HdSceneIndexBaseRefPtr chain =
+      ChainSceneIndices(stage, time, inputs.settings);
   internal::RenderDelegate delegate(
       phase, inputs.meters_per_unit,
-      [&inputs, &stage](const internal::SyncedPrims& prims) {
-        return internal::CloseScene(inputs, *stage, prims);
+      [&inputs, &stage, &chain](const internal::SyncedPrims& prims) {
+        return internal::CloseScene(inputs, *stage, chain, prims);
       });
   // Destroyed before the delegate, whose prims it destroys.
   const std::unique_ptr<pxr::HdRenderIndex> index(
@@ -351,8 +354,7 @@ std::expected<scene::Scene, Error> ExecuteSync(
     return std::unexpected(
         Error(ErrorCode::kInternal, "Hydra: no render index"));
   }
-  index->InsertSceneIndex(ChainSceneIndices(stage, time, inputs.settings),
-                          pxr::SdfPath::AbsoluteRootPath(),
+  index->InsertSceneIndex(chain, pxr::SdfPath::AbsoluteRootPath(),
                           /*needsPrefixing=*/false);
   phase.SetTotal(delegate.PrimCount());
   // Hydra syncs the rprims of the collections queued, in their reprs: one
@@ -418,8 +420,8 @@ std::string DescribeProduct(const scene::RenderProduct& product) {
   return std::format("{} [{}]", product.file, vars);
 }
 
-// "1.24M triangles in 3.4k meshes, 18 primvars": the primvars counted by
-// name, the normals apart.
+// "1.24M triangles in 3.4k meshes, 18 primvars, 2.1M instances of 3.4k
+// prototypes": the primvars counted by name, the normals apart.
 std::string DescribeGeometry(const scene::Scene& scene) {
   std::size_t triangles = 0;
   std::set<std::string_view> primvars;
@@ -430,15 +432,20 @@ std::string DescribeGeometry(const scene::Scene& scene) {
     }
   }
   const std::size_t meshes = scene.prototypes().size();
-  return std::format("{} triangle{} in {} mesh{}, {} primvar{}",
-                     core::FormatCount(triangles), triangles == 1 ? "" : "s",
-                     core::FormatCount(meshes), meshes == 1 ? "" : "es",
-                     core::FormatCount(primvars.size()),
-                     primvars.size() == 1 ? "" : "s");
+  const std::size_t instances = scene.instances().size();
+  return std::format(
+      "{} triangle{} in {} mesh{}, {} primvar{}, {} instance{} of {} "
+      "prototype{}",
+      core::FormatCount(triangles), triangles == 1 ? "" : "s",
+      core::FormatCount(meshes), meshes == 1 ? "" : "es",
+      core::FormatCount(primvars.size()), primvars.size() == 1 ? "" : "s",
+      core::FormatCount(instances), instances == 1 ? "" : "s",
+      core::FormatCount(meshes), meshes == 1 ? "" : "s");
 }
 
 // "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
-// [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars".
+// [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
+// instances of 3.4k prototypes".
 std::string DescribeScene(const scene::Scene& scene) {
   const scene::RenderSettings& settings = scene.settings();
   std::string products;

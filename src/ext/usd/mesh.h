@@ -18,6 +18,7 @@
 
 #include <array>
 #include <expected>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,12 @@ struct SourceMesh {
 // size does not match its interpolation.
 [[nodiscard]] std::expected<scene::Mesh, std::string> ConvertMesh(
     const SourceMesh& source, double meters_per_unit);
+
+// The elements of `value`, a numeric value or array, as a constant primvar
+// named `name` holding them all, one after another; none for a value of
+// another type.
+[[nodiscard]] std::optional<scene::Primvar> ConstantPrimvar(
+    std::string name, const pxr::VtValue& value);
 
 // A transform in scene units, in meters: row-major, for row vectors, its
 // translation (the last row) scaled by `meters_per_unit`.

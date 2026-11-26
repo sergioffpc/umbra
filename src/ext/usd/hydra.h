@@ -34,7 +34,9 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
+#include "instancer.h"
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
@@ -125,16 +127,15 @@ enum class MeshState : std::uint8_t {
   kNotSynced,
   // It is invisible.
   kInvisible,
-  // It has an instancer, which the Scene does not take.
-  kInstanced,
-  // It is converted into the Scene's.
+  // It is converted into the Scene's, with its instances.
   kConverted,
   // It is invalid, and dropped.
   kInvalid,
 };
 
-// A Mesh prim, synced into the Scene's mesh when it is visible, valid and
-// not instanced. Implicit surfaces reach it as meshes.
+// A Mesh prim, synced into the Scene's mesh when it is visible and valid,
+// with its instances: those its instancer places, flattened, or one of its
+// own when it has no instancer. Implicit surfaces reach it as meshes.
 class MeshPrim final : public pxr::HdMesh {
  public:
   // Counts its sync into `phase`; its lengths are scaled by
@@ -157,13 +158,12 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] const std::string& invalid_reason() const UMBRA_LIFETIMEBOUND {
     return invalid_reason_;
   }
-  // Its object-to-world transform, in meters, once converted.
-  [[nodiscard]] const std::array<double, 16>& object_to_world() const
-      UMBRA_LIFETIMEBOUND {
-    return object_to_world_;
-  }
   // Its mesh, once converted, moved out.
   [[nodiscard]] scene::Mesh TakeMesh();
+  // Its instances, once converted, moved out: their object-to-world
+  // transforms in meters, and their own primvars; their prototype is not
+  // set. None when its instancer places none.
+  [[nodiscard]] std::vector<scene::Instance> TakeInstances();
 
  protected:
   // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
@@ -176,14 +176,16 @@ class MeshPrim final : public pxr::HdMesh {
 
  private:
   void Convert(pxr::HdSceneDelegate& delegate);
+  // Its instances, from its transform and its instancer's.
+  void Place(pxr::HdSceneDelegate& delegate);
 
   core::ProgressPhase* phase_;
   double meters_per_unit_;
   MeshState state_ = MeshState::kNotSynced;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
-  std::array<double, 16> object_to_world_{};
   scene::Mesh mesh_;
+  std::vector<scene::Instance> instances_;
 };
 
 // An rprim of a type the Scene does not take (basisCurves, points,
@@ -229,6 +231,7 @@ struct SyncedPrims {
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
   std::map<pxr::SdfPath, const CameraPrim*> cameras;
   std::map<pxr::SdfPath, MeshPrim*> meshes;
+  std::map<pxr::SdfPath, const InstancerPrim*> instancers;
   std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
 };
 
@@ -237,10 +240,11 @@ struct SyncedPrims {
 using SceneCloser = std::function<std::expected<scene::Scene, core::Error>(
     const SyncedPrims& prims)>;
 
-// umbra's render delegate. It syncs cameras, render settings and meshes,
-// with their lengths scaled by `meters_per_unit`, and counts the rprims of
-// the types the Scene does not take; its prims count their syncs into
-// the phase. Hydra creates and destroys its prims on one thread.
+// umbra's render delegate. It syncs cameras, render settings, meshes and
+// their instancers, with their lengths scaled by `meters_per_unit`, and
+// counts the rprims of the types the Scene does not take; its prims count
+// their syncs into the phase. Hydra creates and destroys its prims on one
+// thread.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(core::ProgressPhase& phase UMBRA_LIFETIMEBOUND,

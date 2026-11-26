@@ -47,10 +47,14 @@ struct LoadOptions {
 // writable, their missing directories created. Settings without products
 // write <scene-stem>.<frame>.exr, in the current directory, with the color.
 // Render vars umbra does not render are left out, with one warning. The
-// visible meshes, implicit surfaces among them, become prototypes with one
-// instance each; one warning each reports the meshes rendered as the cage
-// of the subdivision they ask for, the invalid ones, dropped, the instanced
-// ones, and the curves, points and volumes, left out.
+// visible meshes, implicit surfaces among them, become prototypes, held
+// once, with their instances: one for a mesh not instanced, and one for
+// each instance of native instancing and PointInstancers, nested
+// instancers flattened into one level, with the primvars they give per
+// instance. One warning each reports the meshes rendered as the cage of the
+// subdivision they ask for, the invalid ones, dropped, the curves, points
+// and volumes, left out, and the lights that link geometry: every light
+// lights everything.
 //
 // Fails with kNotFound when the file does not exist or no RenderSettings
 // prim is at the settings' path; kInvalidArgument when the file cannot be

@@ -8,13 +8,19 @@
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/camera.h>
+#include <pxr/imaging/hd/dataSource.h>
+#include <pxr/imaging/hd/lightSchema.h>
 #include <pxr/imaging/hd/renderSettings.h>
+#include <pxr/imaging/hd/sceneIndex.h>
+#include <pxr/imaging/hd/sceneIndexPrimView.h>
+#include <pxr/imaging/hd/tokens.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdRender/tokens.h>
 #include <pxr/usd/usdRender/var.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -192,7 +198,7 @@ std::string Meshes(std::size_t count, std::string_view singular_verb,
                     : std::format("{} meshes {}", count, plural_verb);
 }
 
-// The meshes the Scene takes, as prototypes with one instance each, and the
+// The meshes the Scene takes, as prototypes with their instances, and the
 // tallies of those it does not, for their warnings.
 class Geometry {
  public:
@@ -214,7 +220,6 @@ class Geometry {
   std::vector<scene::Instance> instances_;
   std::map<std::string, Tally> subdivided_;
   Tally invalid_;
-  Tally instanced_;
   std::map<pxr::TfToken, Tally> unsupported_;
 
   void ReportMeshes() const;
@@ -226,24 +231,23 @@ void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
     case MeshState::kNotSynced:
     case MeshState::kInvisible:
       return;
-    case MeshState::kInstanced:
-      instanced_.Add(path);
-      return;
     case MeshState::kInvalid:
       invalid_.Add(path, mesh.invalid_reason());
       return;
     case MeshState::kConverted:
       break;
   }
+  std::vector<scene::Instance> instances = mesh.TakeInstances();
+  if (instances.empty()) {
+    return;
+  }
   if (!mesh.subdivision_scheme().empty()) {
     subdivided_[mesh.subdivision_scheme()].Add(path);
   }
-  instances_.push_back({
-      .prototype = prototypes_.size(),
-      .object_to_world = {mesh.object_to_world()},
-      .light_link = scene::kAllLights,
-      .shadow_link = scene::kAllLights,
-  });
+  for (scene::Instance& instance : instances) {
+    instance.prototype = prototypes_.size();
+    instances_.push_back(std::move(instance));
+  }
   prototypes_.push_back(mesh.TakeMesh());
 }
 
@@ -264,11 +268,6 @@ void Geometry::ReportMeshes() const {
                       Meshes(invalid_.count(), "is", "are"), invalid_.First(),
                       invalid_.detail());
   }
-  if (instanced_.count() > 0) {
-    UMBRA_LOG_WARNING(kUsd, "{} instanced, not supported yet; left out ({})",
-                      Meshes(instanced_.count(), "is", "are"),
-                      instanced_.First());
-  }
 }
 
 void Geometry::ReportUnsupported() const {
@@ -276,6 +275,48 @@ void Geometry::ReportUnsupported() const {
     UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
                       tally.count(), type.GetString(),
                       Plural(tally.count(), "prim", "prims"), tally.First());
+  }
+}
+
+// Whether the light `prim` links geometry: whether hdsi gave its lightLink
+// or its shadowLink a category, as it does to any collection but the
+// default one of every prim.
+bool IsLinked(const pxr::HdSceneIndexPrim& prim) {
+  const pxr::HdContainerDataSourceHandle light =
+      pxr::HdLightSchema::GetFromParent(prim.dataSource).GetContainer();
+  if (light == nullptr) {
+    return false;
+  }
+  const std::array<pxr::TfToken, 2> links = {
+      pxr::HdTokens->lightLink,
+      pxr::HdTokens->shadowLink,
+  };
+  return std::ranges::any_of(links, [&](const pxr::TfToken& link) {
+    const auto category =
+        pxr::HdTypedSampledDataSource<pxr::TfToken>::Cast(light->Get(link));
+    return category != nullptr && !category->GetTypedValue(0.0F).IsEmpty();
+  });
+}
+
+// "warning: usd: 3 lights link geometry, which umbra does not: every light
+// lights everything (first /World/rim)"
+// (docs/adr/0009-lights-light-everything.md).
+void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index) {
+  Tally linked;
+  for (const pxr::SdfPath& path : pxr::HdSceneIndexPrimView(
+           scene_index, pxr::HdSceneIndexPrimView::Lexicographic)) {
+    const pxr::HdSceneIndexPrim prim = scene_index->GetPrim(path);
+    if (pxr::HdPrimTypeIsLight(prim.primType) && IsLinked(prim)) {
+      linked.Add(path);
+    }
+  }
+  if (linked.count() > 0) {
+    UMBRA_LOG_WARNING(kUsd,
+                      "{} {} geometry, which umbra does not: every light "
+                      "lights everything ({})",
+                      linked.count(),
+                      Plural(linked.count(), "light links", "lights link"),
+                      linked.First());
   }
 }
 
@@ -497,9 +538,9 @@ std::expected<std::vector<scene::RenderProduct>, Error> Products(
 
 }  // namespace
 
-std::expected<scene::Scene, Error> CloseScene(const CloseInputs& inputs,
-                                              const pxr::UsdStage& stage,
-                                              const SyncedPrims& prims) {
+std::expected<scene::Scene, Error> CloseScene(
+    const CloseInputs& inputs, const pxr::UsdStage& stage,
+    const pxr::HdSceneIndexBaseRefPtr& scene_index, const SyncedPrims& prims) {
   const auto found = prims.settings.find(inputs.settings);
   if (found == prims.settings.end()) {
     return std::unexpected(
@@ -533,6 +574,7 @@ std::expected<scene::Scene, Error> CloseScene(const CloseInputs& inputs,
     geometry.Add(*prim);
   }
   geometry.Report();
+  ReportLightLinking(scene_index);
   return scene::Scene(std::move(converted), cameras.Take(),
                       geometry.TakePrototypes(), geometry.TakeInstances());
 }
