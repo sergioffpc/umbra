@@ -47,7 +47,9 @@ namespace pxr = PXR_NS;
 
 // What the sync of a light gave.
 enum class LightState : std::uint8_t {
-  // It is invisible, or of a purpose the settings do not include.
+  // It is invisible, of a purpose the settings do not include, or of a
+  // type with no shape: nothing is taken from it. Every light is, until it
+  // syncs.
   kHidden,
   // It is converted into the Scene's, with its instances.
   kConverted,

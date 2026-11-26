@@ -350,17 +350,12 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
   instances_.clear();
   instances_.reserve(placement.instances.size());
   for (FlatInstance& placed : placement.instances) {
-    scene::Instance instance{
+    instances_.push_back({
         .prototype = 0,
-        .object_to_world = {},
+        .object_to_world =
+            TransformsInMeters(placed.transforms, meters_per_unit_),
         .primvars = std::move(placed.primvars),
-    };
-    instance.object_to_world.reserve(placed.transforms.size());
-    for (const pxr::GfMatrix4d& transform : placed.transforms) {
-      instance.object_to_world.push_back(
-          TransformInMeters(transform, meters_per_unit_));
-    }
-    instances_.push_back(std::move(instance));
+    });
   }
 }
 

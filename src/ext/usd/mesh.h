@@ -19,6 +19,7 @@
 #include <array>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -77,10 +78,14 @@ struct SourceMesh {
 [[nodiscard]] std::optional<scene::Primvar> ConstantPrimvar(
     std::string name, const pxr::VtValue& value);
 
-// A transform in scene units, in meters: row-major, for row vectors, its
-// translation (the last row) scaled by `meters_per_unit`.
-[[nodiscard]] std::array<double, 16> TransformInMeters(
-    const pxr::GfMatrix4d& transform, double meters_per_unit);
+// A transform with no unit, row-major, for row vectors.
+[[nodiscard]] std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform);
+
+// The motion samples of a transform in scene units, each in meters:
+// row-major, for row vectors, its translation (the last row) scaled by
+// `meters_per_unit`.
+[[nodiscard]] std::vector<std::array<double, 16>> TransformsInMeters(
+    std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit);
 
 }  // namespace umbra::ext::usd::internal
 

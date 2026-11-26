@@ -3,7 +3,6 @@
 
 #include "close_scene.h"
 
-#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/range1f.h>
 #include <pxr/base/gf/range2f.h>
 #include <pxr/base/tf/token.h>
@@ -194,9 +193,7 @@ scene::Camera Cameras::Convert(const CameraPrim& prim) {
   const SampledTransform camera_to_world = ResampleTransform(
       prim.transform_samples(), prim.GetTransform(), prims_->shutter);
   motion_->Add(prim.GetId(), camera_to_world.outcome);
-  for (const pxr::GfMatrix4d& transform : camera_to_world.motion) {
-    camera.camera_to_world.push_back(TransformInMeters(transform, scale));
-  }
+  camera.camera_to_world = TransformsInMeters(camera_to_world.motion, scale);
   camera.focal_length = Meters(prim.GetFocalLength());
   camera.aperture = {
       Meters(prim.GetHorizontalAperture()),

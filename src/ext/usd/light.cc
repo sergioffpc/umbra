@@ -39,7 +39,6 @@
 #include "instancer.h"
 #include "material.h"
 #include "mesh.h"
-#include "motion.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/progress.h"
@@ -93,7 +92,7 @@ std::string UnsupportedType(const pxr::TfToken& type,
   }
   if (type == pxr::HdPrimTypeTokens->light) {
     // Hydra gives PortalLights and GeometryLights as generic lights.
-    return shader_id.empty() ? "light" : shader_id;
+    return shader_id.empty() ? "generic light" : shader_id;
   }
   return {};
 }
@@ -118,6 +117,13 @@ class Params {
     return value.IsHolding<T>() ? value.UncheckedGet<T>() : fallback;
   }
 
+  // The value of the flag `name`, or none when it has no bool value.
+  [[nodiscard]] std::optional<bool> Flag(const pxr::TfToken& name) const {
+    const pxr::VtValue value = pxr::VtValue::Cast<bool>(Value(name));
+    return value.IsHolding<bool>() ? std::optional(value.UncheckedGet<bool>())
+                                   : std::nullopt;
+  }
+
   // The color space authored on the input `name`, or empty.
   [[nodiscard]] pxr::TfToken ColorSpace(const pxr::TfToken& name) const {
     const pxr::HdTokenDataSourceHandle space =
@@ -130,11 +136,6 @@ class Params {
   const pxr::SdfPath* prim_id_;
   pxr::HdContainerDataSourceHandle prim_;
 };
-
-// A transform as the Scene holds it, row-major, with no unit.
-std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform) {
-  return TransformInMeters(transform, 1.0);
-}
 
 scene::DomeTextureFormat DomeFormat(const pxr::TfToken& format) {
   using enum scene::DomeTextureFormat;
@@ -167,11 +168,14 @@ class Reader {
         meters_per_unit_(meters_per_unit),
         notes_(&notes) {}
 
-  // Its shape, for a light of the sprim type `type`; none for an unknown
-  // type.
+  // Its shape, for a light of the sprim type `type`, noting a texture that
+  // is not read; none for an unknown type.
   std::optional<scene::Light::Shape> Shape(const pxr::TfToken& type);
-  void Emission(scene::Light& light);
-  void Shaping(scene::Light& light);
+  // Reads its emission into `light`: intensity, exposure, normalization,
+  // color and color temperature.
+  void ReadEmission(scene::Light& light);
+  // Reads its cone into `light`, noting its filters and IES profile.
+  void ReadShaping(scene::Light& light);
   // Notes the controls umbra does not take
   // (docs/adr/0010-lights-are-physical.md).
   void NoteArtisticControls();
@@ -276,11 +280,11 @@ std::optional<scene::Texture> Reader::Texture() {
   };
 }
 
-void Reader::Emission(scene::Light& light) {
+void Reader::ReadEmission(scene::Light& light) {
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
   light.intensity = params_->Get(tokens.intensity, light.intensity);
   light.exposure = params_->Get(tokens.exposure, light.exposure);
-  light.normalization = params_->Get(tokens.normalize, false)
+  light.normalization = params_->Flag(tokens.normalize) == true
                             ? scene::Normalization::kNormalized
                             : scene::Normalization::kUnnormalized;
   const pxr::GfVec3f color =
@@ -295,7 +299,7 @@ void Reader::Emission(scene::Light& light) {
     Note(LightIssue::kColorNotConverted,
          std::string(converted.error().message()));
   }
-  if (!params_->Get(tokens.enableColorTemperature, false)) {
+  if (params_->Flag(tokens.enableColorTemperature) != true) {
     return;
   }
   // Any temperature above 0 K is kept: UsdLux's 1000 to 10000 K is no limit
@@ -308,7 +312,7 @@ void Reader::Emission(scene::Light& light) {
   }
 }
 
-void Reader::Shaping(scene::Light& light) {
+void Reader::ReadShaping(scene::Light& light) {
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
   // Without ShapingAPI a light has no cone.
   light.cone_angle = std::clamp(
@@ -338,7 +342,7 @@ void Reader::NoteArtisticControls() {
     Note(LightIssue::kConeSoftness);
   }
   const pxr::GfVec3f black(0.0F);
-  if (!params_->Get(tokens.shadowEnable, true) ||
+  if (params_->Flag(tokens.shadowEnable) == false ||
       params_->Get(tokens.shadowColor, black) != black ||
       params_->Get(tokens.shadowDistance, -1.0F) != -1.0F ||
       params_->Get(tokens.shadowFalloff, -1.0F) != -1.0F ||
@@ -422,8 +426,8 @@ void LightPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   light_.path = GetId().GetString();
   light_.shape = std::move(*shape);
-  reader.Emission(light_);
-  reader.Shaping(light_);
+  reader.ReadEmission(light_);
+  reader.ReadShaping(light_);
   reader.NoteArtisticControls();
   fatal_ = reader.TakeFatal();
   state_ = LightState::kConverted;
@@ -448,11 +452,8 @@ void LightPrim::Place(const scene::Shutter& shutter,
   lights_.reserve(placement.instances.size());
   for (const FlatInstance& instance : placement.instances) {
     scene::Light light = light_;
-    light.light_to_world.reserve(instance.transforms.size());
-    for (const pxr::GfMatrix4d& transform : instance.transforms) {
-      light.light_to_world.push_back(
-          TransformInMeters(transform, meters_per_unit_));
-    }
+    light.light_to_world =
+        TransformsInMeters(instance.transforms, meters_per_unit_);
     lights_.push_back(std::move(light));
   }
 }

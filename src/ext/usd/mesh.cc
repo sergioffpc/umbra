@@ -556,6 +556,18 @@ std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvars(
   return normals;
 }
 
+// A transform in scene units, in meters: row-major, for row vectors, its
+// translation (the last row) scaled by `meters_per_unit`.
+std::array<double, 16> TransformInMeters(const pxr::GfMatrix4d& transform,
+                                         double meters_per_unit) {
+  std::array<double, 16> converted = RowMajor(transform);
+  // The translation, in the last row, is a length; the rest is not.
+  for (std::size_t column = 0; column < 3; ++column) {
+    converted.at(12 + column) *= meters_per_unit;
+  }
+  return converted;
+}
+
 }  // namespace
 
 bool IsSubdivided(const pxr::HdMeshTopology& topology) {
@@ -610,18 +622,25 @@ std::optional<scene::Primvar> ConstantPrimvar(std::string name,
   };
 }
 
-std::array<double, 16> TransformInMeters(const pxr::GfMatrix4d& transform,
-                                         double meters_per_unit) {
+std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform) {
   std::array<double, 16> converted{};
   for (int row = 0; row < 4; ++row) {
     const pxr::GfVec4d values = transform.GetRow(row);
-    // The translation, in the last row, is a length; the rest is not.
-    const double scale = row == 3 ? meters_per_unit : 1.0;
     const auto first = static_cast<std::size_t>(row) * 4;
-    converted.at(first) = values.x * scale;
-    converted.at(first + 1) = values.y * scale;
-    converted.at(first + 2) = values.z * scale;
+    converted.at(first) = values.x;
+    converted.at(first + 1) = values.y;
+    converted.at(first + 2) = values.z;
     converted.at(first + 3) = values.w;
+  }
+  return converted;
+}
+
+std::vector<std::array<double, 16>> TransformsInMeters(
+    std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit) {
+  std::vector<std::array<double, 16>> converted;
+  converted.reserve(transforms.size());
+  for (const pxr::GfMatrix4d& transform : transforms) {
+    converted.push_back(TransformInMeters(transform, meters_per_unit));
   }
   return converted;
 }
