@@ -262,10 +262,11 @@ enum class DomeTextureFormat : std::uint8_t {
   kCubeMapVerticalCross,
 };
 
-// A light, an emitter of one of six shapes, placed by its instances. Every
-// light lights every instance and is seen by camera rays
+// A light, an emitter of one of six shapes or a portal, placed by its
+// instances. Every light lights every instance and is seen by camera rays
 // (docs/adr/0009-lights-light-everything.md); it has no artistic control
-// without a physical counterpart (docs/adr/0010-lights-are-physical.md).
+// without a physical counterpart (docs/adr/0010-lights-are-physical.md). A
+// portal keeps the default emission.
 struct Light {
   // A sphere, around its origin.
   struct Sphere {
@@ -306,8 +307,20 @@ struct Light {
         1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     };
+    // The portals that guide its sampling: lights the device holds, whose
+    // shape is a Portal.
+    std::span<const LightId> portals;
   };
-  using Shape = std::variant<Sphere, Rect, Disk, Cylinder, Distant, Dome>;
+  // An opening, such as a window, through which the domes whose portals
+  // hold it shine: a rectangle in its XY plane, centered on its origin,
+  // that transmits towards its -Z axis. It only guides their sampling, and
+  // emits nothing.
+  struct Portal {
+    double width = 0.0;
+    double height = 0.0;
+  };
+  using Shape =
+      std::variant<Sphere, Rect, Disk, Cylinder, Distant, Dome, Portal>;
 
   LightId id{};
   // The path of its prim ("/World/key").
@@ -333,8 +346,8 @@ struct Light {
 };
 
 // The name of each shape of a light, in the order of Light::Shape.
-inline constexpr std::array<std::string_view, 6> kLightShapeNames = {
-    "sphere", "rect", "disk", "cylinder", "distant", "dome",
+inline constexpr std::array<std::string_view, 7> kLightShapeNames = {
+    "sphere", "rect", "disk", "cylinder", "distant", "dome", "portal",
 };
 static_assert(kLightShapeNames.size() == std::variant_size_v<Light::Shape>);
 

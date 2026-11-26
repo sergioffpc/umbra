@@ -38,10 +38,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -212,6 +214,26 @@ const pxr::TfTokenVector& UnsupportedRprimTypes() {
       pxr::HdPrimTypeTokens->volume,
   };
   return kTypes;
+}
+
+// The PortalLights of `lights` that are placed and that a placed dome light
+// targets.
+std::set<pxr::SdfPath> GuidedPortals(
+    const std::map<pxr::SdfPath, LightPrim*>& lights) {
+  const auto is_placed_portal = [&lights](const pxr::SdfPath& target) {
+    const auto portal = lights.find(target);
+    return portal != lights.end() && portal->second->IsPortal() &&
+           portal->second->IsPlaced();
+  };
+  std::set<pxr::SdfPath> guided;
+  for (const auto& [path, light] : lights) {
+    if (light->IsPlaced()) {
+      std::ranges::copy_if(light->portals(),
+                           std::inserter(guided, guided.end()),
+                           is_placed_portal);
+    }
+  }
+  return guided;
 }
 
 // Whether the delegate syncs sprims of `type` as lights.
@@ -703,6 +725,34 @@ void RenderDelegate::Place(const pxr::TfTokenVector& render_tags) {
   for (const auto& [path, light] : prims_.lights) {
     if (light->IsChanged()) {
       light->Place(prims_.shutter, render_tags);
+    }
+  }
+  GuidePortals(render_tags);
+}
+
+void RenderDelegate::GuidePortals(const pxr::TfTokenVector& render_tags) {
+  std::set<pxr::SdfPath> guided = GuidedPortals(prims_.lights);
+  std::vector<pxr::SdfPath> flipped;
+  std::ranges::set_symmetric_difference(guided, prims_.guided_portals,
+                                        std::back_inserter(flipped));
+  prims_.guided_portals = std::move(guided);
+  for (const pxr::SdfPath& portal : flipped) {
+    // A portal committed anew needs its host copy; a dome, the ids of its
+    // portals.
+    const auto found = prims_.lights.find(portal);
+    if (found != prims_.lights.end() &&
+        prims_.guided_portals.contains(portal)) {
+      found->second->ReadAgain(prims_.shutter, render_tags);
+    }
+    ReadDomesAgain(portal, render_tags);
+  }
+}
+
+void RenderDelegate::ReadDomesAgain(const pxr::SdfPath& portal,
+                                    const pxr::TfTokenVector& render_tags) {
+  for (const auto& [path, light] : prims_.lights) {
+    if (light->IsPlaced() && std::ranges::contains(light->portals(), portal)) {
+      light->ReadAgain(prims_.shutter, render_tags);
     }
   }
 }

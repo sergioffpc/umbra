@@ -112,10 +112,10 @@ struct IdCounts {
 
 // What changed since the last commit. A device applies its removals first,
 // then its updates and its additions; an id removed is free, and may be
-// added again at a later commit. Render data refers to prims of other
-// kinds by id (a prototype to its materials, a material or a light to its
-// textures): each refers to a prim the change set adds, or to one a device
-// already holds that it does not remove.
+// added again at a later commit. Render data refers to prims by id (a
+// prototype to its materials, a material or a light to its textures, a
+// dome light to its portals): each refers to a prim the change set adds,
+// or to one a device already holds that it does not remove.
 struct ChangeSet {
   IdCounts ids;
   PrototypeChanges prototypes;

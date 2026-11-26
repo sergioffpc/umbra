@@ -90,13 +90,19 @@ struct PrototypeRecord {
   Digest triangle_materials = 0;
 };
 
-// What the device keeps of a light: its path, its texture, and a digest of
-// the rest.
+// What the device keeps of a light: its path, the index of its shape, its
+// texture, a dome's portals, and a digest of the rest.
 struct LightRecord {
   std::string path;
+  std::size_t shape = 0;
   std::optional<TextureId> texture;
+  std::vector<LightId> portals;
   Digest digest = 0;
 };
+
+// The index of a portal in Light::Shape.
+constexpr std::size_t kPortalShape =
+    Light::Shape(std::in_place_type<Light::Portal>).index();
 
 // What the device keeps of a material: its path, the textures its
 // parameters read in order, and a digest of the rest.
@@ -1038,20 +1044,17 @@ MaterialRecord RecordOf(const MaterialNetwork& material) {
   return record;
 }
 
-LightRecord RecordOf(const Light& light) {
-  LightRecord record{
-      .path = std::string(light.path),
-      .texture = TextureOf(light.shape),
-      .digest = 0,
-  };
-  Hasher hasher;
-  hasher.Value(light.shape.index());
+// Hashes a light's shape into `hasher`, but its texture and its portals,
+// which are references.
+void HashShape(const Light::Shape& light_shape, Hasher& hasher) {
+  hasher.Value(light_shape.index());
   std::visit(
       [&]<typename T>(const T& shape) {
         if constexpr (std::is_same_v<T, Light::Sphere> ||
                       std::is_same_v<T, Light::Disk>) {
           hasher.Value(shape.radius);
-        } else if constexpr (std::is_same_v<T, Light::Rect>) {
+        } else if constexpr (std::is_same_v<T, Light::Rect> ||
+                             std::is_same_v<T, Light::Portal>) {
           hasher.Value(shape.width);
           hasher.Value(shape.height);
         } else if constexpr (std::is_same_v<T, Light::Cylinder>) {
@@ -1065,7 +1068,27 @@ LightRecord RecordOf(const Light& light) {
           hasher.Value(shape.orientation);
         }
       },
-      light.shape);
+      light_shape);
+}
+
+// The portals of a light's shape: a dome's.
+std::vector<LightId> PortalsOf(const Light::Shape& shape) {
+  const auto* dome = std::get_if<Light::Dome>(&shape);
+  return dome == nullptr
+             ? std::vector<LightId>()
+             : std::vector<LightId>(dome->portals.begin(), dome->portals.end());
+}
+
+LightRecord RecordOf(const Light& light) {
+  LightRecord record{
+      .path = std::string(light.path),
+      .shape = light.shape.index(),
+      .texture = TextureOf(light.shape),
+      .portals = PortalsOf(light.shape),
+      .digest = 0,
+  };
+  Hasher hasher;
+  HashShape(light.shape, hasher);
   hasher.Value(light.intensity);
   hasher.Value(light.exposure);
   hasher.Value(light.normalization);
@@ -1268,6 +1291,36 @@ Checked CheckReadsHeld(const PrototypeRecord& prototype, std::size_t index,
   return {};
 }
 
+// Checks that `light`, at `index`, is guided only by portals of `lights`.
+Checked CheckPortalsHeld(const LightRecord& light, std::size_t index,
+                         const Table<LightRecord>& lights) {
+  for (const LightId portal : light.portals) {
+    const LightRecord* held = Find(lights, std::to_underlying(portal));
+    if (held == nullptr || held->shape != kPortalShape) {
+      return Inconsistent(
+          std::format("light {} ({}): its portal {} is not a portal held",
+                      index, light.path, std::to_underlying(portal)));
+    }
+  }
+  return {};
+}
+
+// Checks that the dome lights `state` holds are guided only by portals it
+// holds: a portal removed must not guide a dome kept.
+Checked CheckHeldPortals(const State& state) {
+  for (std::size_t index = 0; index < state.lights.size(); ++index) {
+    const std::optional<LightRecord>& light = state.lights.at(index);
+    if (!light.has_value()) {
+      continue;
+    }
+    if (auto checked = CheckPortalsHeld(*light, index, state.lights);
+        !checked.has_value()) {
+      return checked;
+    }
+  }
+  return {};
+}
+
 // Checks that the prototypes `state` holds read only materials it holds: a
 // material removed must not be read by one kept.
 Checked CheckHeldReferences(const State& state) {
@@ -1309,7 +1362,8 @@ Checked CheckAll(const ChangeSet& changes, State& state) {
             state.lights);
       })
       .and_then([&] { return CheckPrototypes(changes.prototypes, state); })
-      .and_then([&] { return CheckHeldReferences(state); });
+      .and_then([&] { return CheckHeldReferences(state); })
+      .and_then([&] { return CheckHeldPortals(state); });
 }
 
 // The key of a texture held, which names it whatever its id.
@@ -1369,6 +1423,10 @@ std::pair<std::string, Digest> EntryOf(const LightRecord& record,
   resolved.Value(record.digest);
   if (record.texture.has_value()) {
     resolved.Text(TextureKey(state, *record.texture));
+  }
+  for (const LightId portal : record.portals) {
+    const LightRecord* held = Find(state.lights, std::to_underlying(portal));
+    resolved.Text(held == nullptr ? std::string_view() : held->path);
   }
   return {record.path, resolved.digest()};
 }

@@ -898,20 +898,24 @@ void ReportLightIssue(LightIssue issue, const Tally& tally,
 
 // The lights, those converted with an instance or more, updated whole when
 // they sync, and the tallies of those that are not and of what they author
-// that umbra does not take, for their warnings.
+// that umbra does not take, for their warnings. A portal is committed only
+// while a dome guides it, and a dome holds the ids of its portals.
 class Lights {
  public:
-  Lights(Ledger& ledger UMBRA_LIFETIMEBOUND,
+  Lights(const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
+         Ledger& ledger UMBRA_LIFETIMEBOUND,
          MotionTallies& motion UMBRA_LIFETIMEBOUND,
          Textures& textures UMBRA_LIFETIMEBOUND,
          ChangeSetBuilder& changes UMBRA_LIFETIMEBOUND)
-      : ledger_(&ledger),
+      : prims_(&prims),
+        ledger_(&ledger),
         motion_(&motion),
         textures_(&textures),
         changes_(&changes) {}
 
-  // Adds, updates or removes `light`.
-  void Commit(const pxr::SdfPath& path, const LightPrim& light);
+  // Adds, updates or removes every light: the domes with portals last, once
+  // their portals have ids.
+  void CommitAll();
   // Removes the lights whose prim is gone.
   void RemoveGone(const SyncedPrims& prims);
 
@@ -925,22 +929,34 @@ class Lights {
   }
 
  private:
+  // Adds, updates or removes `light`.
+  void Commit(const pxr::SdfPath& path, LightPrim& light);
   // Removes the light `held`.
   void Remove(const HeldLight& held);
   // Counts `light` in the tallies it belongs to, and its fatal error.
   void Count(const pxr::SdfPath& path, const LightPrim& light);
-  // Whether `light` is committed: converted, with an instance or more.
-  [[nodiscard]] static bool IsPlaced(const LightPrim& light) {
-    return light.state() == LightState::kConverted &&
-           light.instance_count() > 0;
+  // Gives the dome `light` the ids of its portals that are committed, and
+  // tallies it when it targets a prim that is not a PortalLight.
+  void AssignPortals(const pxr::SdfPath& path, LightPrim& light);
+  // Whether `light` is committed: converted, with an instance or more,
+  // and guided by a dome if it is a portal.
+  [[nodiscard]] bool IsCommitted(const pxr::SdfPath& path,
+                                 const LightPrim& light) const {
+    return light.IsPlaced() &&
+           (!light.IsPortal() || prims_->guided_portals.contains(path));
   }
 
+  const SyncedPrims* prims_;
   Ledger* ledger_;
   MotionTallies* motion_;
   Textures* textures_;
   ChangeSetBuilder* changes_;
   std::map<LightIssue, Tally> issues_;
   std::map<std::string, Tally> unsupported_;
+  // The portals no dome guides, and the domes that target a prim that is
+  // not a PortalLight as a portal.
+  Tally unguided_;
+  Tally not_portals_;
   std::optional<Error> fatal_;
 };
 
@@ -954,7 +970,10 @@ void Lights::Count(const pxr::SdfPath& path, const LightPrim& light) {
   if (light.state() == LightState::kUnsupported) {
     unsupported_[light.unsupported_type()].Add(path);
   }
-  if (!IsPlaced(light)) {
+  if (!IsCommitted(path, light)) {
+    if (light.IsPortal() && light.IsPlaced()) {
+      unguided_.Add(path);
+    }
     return;
   }
   motion_->Add(path, light.motion_outcome());
@@ -969,10 +988,44 @@ void Lights::Count(const pxr::SdfPath& path, const LightPrim& light) {
   }
 }
 
-void Lights::Commit(const pxr::SdfPath& path, const LightPrim& light) {
+void Lights::AssignPortals(const pxr::SdfPath& path, LightPrim& light) {
+  std::vector<device::LightId> ids;
+  std::optional<pxr::SdfPath> ignored;
+  for (const pxr::SdfPath& target : light.portals()) {
+    const auto portal = prims_->lights.find(target);
+    if (portal == prims_->lights.end() || !portal->second->IsPortal()) {
+      ignored = ignored.value_or(target);
+      continue;
+    }
+    const auto held = ledger_->lights.find(target);
+    if (prims_->guided_portals.contains(target) &&
+        held != ledger_->lights.end()) {
+      ids.push_back(held->second.id);
+    }
+  }
+  if (ignored.has_value()) {
+    not_portals_.Add(path, ignored->GetString());
+  }
+  light.AssignPortals(ids);
+}
+
+void Lights::CommitAll() {
+  for (const auto& [path, light] : prims_->lights) {
+    if (light->portals().empty()) {
+      Commit(path, *light);
+    }
+  }
+  for (const auto& [path, light] : prims_->lights) {
+    if (!light->portals().empty()) {
+      Commit(path, *light);
+    }
+  }
+}
+
+void Lights::Commit(const pxr::SdfPath& path, LightPrim& light) {
   Count(path, light);
   const auto held = ledger_->lights.find(path);
-  if (!IsPlaced(light)) {
+  if (!IsCommitted(path, light)) {
     if (held != ledger_->lights.end()) {
       Remove(held->second);
       ledger_->lights.erase(held);
@@ -982,6 +1035,7 @@ void Lights::Commit(const pxr::SdfPath& path, const LightPrim& light) {
   if (!light.IsChanged()) {
     return;
   }
+  AssignPortals(path, light);
   std::vector<host::Texture> read = TexturesOf(light.light());
   textures_->Read(read);
   if (held == ledger_->lights.end()) {
@@ -1013,6 +1067,21 @@ void Lights::Report(Warnings& warnings) const {
   }
   for (const auto& [issue, tally] : issues_) {
     ReportLightIssue(issue, tally, warnings);
+  }
+  if (unguided_.count() > 0) {
+    warnings.Warn(std::format(
+        "{} {} in no rendered dome light's portals; left out ({})",
+        unguided_.count(),
+        Plural(unguided_.count(), "PortalLight is", "PortalLights are"),
+        unguided_.First()));
+  }
+  if (not_portals_.count() > 0) {
+    warnings.Warn(std::format(
+        "{} {} a prim that is not a PortalLight as a portal; ignored ({}: {})",
+        not_portals_.count(),
+        Plural(not_portals_.count(), "dome light targets",
+               "dome lights target"),
+        not_portals_.First(), not_portals_.detail()));
   }
 }
 
@@ -1423,7 +1492,7 @@ std::string DescribeMaterials(const device::ChangeSet& changes,
 // "14 lights (rect 8, sphere 4, distant 1, dome 1)": the lights counted by
 // kind, one for each instance, the most first.
 std::string DescribeLights(const device::ChangeSet& changes) {
-  constexpr std::array<std::string_view, 6> kKinds = device::kLightShapeNames;
+  constexpr auto kKinds = device::kLightShapeNames;
   std::array<std::size_t, kKinds.size()> counts{};
   std::size_t lights = 0;
   for (const device::Light& light : changes.lights.added) {
@@ -1651,10 +1720,8 @@ void FrameCommit::TallyInstancers() {
 
 std::expected<void, Error> FrameCommit::CommitContent() {
   materials_.CommitPrims();
-  Lights lights(*ledger_, motion_, textures_, changes_);
-  for (const auto& [path, light] : prims_->lights) {
-    lights.Commit(path, *light);
-  }
+  Lights lights(*prims_, *ledger_, motion_, textures_, changes_);
+  lights.CommitAll();
   lights.RemoveGone(*prims_);
   Geometry geometry(*ledger_, motion_, materials_, changes_);
   for (const auto& [path, mesh] : prims_->meshes) {
