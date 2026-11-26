@@ -369,7 +369,7 @@ const pxr::TfTokenVector& LightPrimTypes() {
   return kTypes;
 }
 
-bool IsLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
+bool IsMeshLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
   const pxr::HdContainerDataSourceHandle light =
       pxr::HdLightSchema::GetFromParent(PrimDataSource(delegate, prim_id))
           .GetContainer();
