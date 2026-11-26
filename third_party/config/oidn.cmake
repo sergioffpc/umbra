@@ -10,7 +10,7 @@
 #
 # The weights come from the nested weights submodule, in Git LFS, and
 # CUTLASS from the nested external/cutlass submodule (see
-# forge/checkout_submodules.py). ISPC comes from docker/deps.Dockerfile.
+# forge/checkout_submodules.py). ISPC comes from docker/toolchain.Dockerfile.
 
 set(OIDN_STATIC_LIB OFF CACHE BOOL "")
 set(OIDN_APPS OFF CACHE BOOL "")
