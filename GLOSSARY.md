@@ -36,6 +36,18 @@ What a device receives for each frame besides render data: the shutter,
 the active camera and the render buffers to fill
 (docs/adr/0013-devices-render-from-their-own-memory.md).
 
+**Tile**:
+A block of 64×64 pixels of a render product's data window, smaller on its
+right and bottom edges: the unit of work devices take, in batches, from
+the counter they share while the product renders
+(docs/adr/0014-frames-render-in-tiles-from-one-counter.md).
+
+**Film**:
+Where a device renders its tiles, in its own memory: float32 values of
+every render var over a render product's data window, from which the device
+copies its tiles into the render buffers once the product's tiles are all
+taken (docs/adr/0014-frames-render-in-tiles-from-one-counter.md).
+
 ## What umbra renders
 
 **Prototype**:

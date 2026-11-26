@@ -3,15 +3,19 @@
 This decision revises docs/adr/0012-umbra-is-a-hydra-renderer.md on where
 the geometry lives, docs/adr/0004-render-devices.md on what a CPU device
 shares, and docs/adr/0008-materials-cross-as-neutral-networks.md on where
-shaders compile.
+shaders compile. It is revised by
+docs/adr/0014-frames-render-in-tiles-from-one-counter.md on what devices
+share after the commit.
 
 Every device renders as if it were a machine of its own. A device's hot
 path reads only its own memory: its acceleration structures, its geometry,
 its compiled shaders, its textures, its queues and its film. On a CPU
-device, that memory is its NUMA node's. On a GPU, it is the GPU's. Devices
-touch shared data at two points only: at the commit, when they receive
-what changed, and at the end of a frame, when their films are merged into
-the render buffers.
+device, that memory is its NUMA node's. On a GPU, it is the GPU's. No
+device touches shared data in its hot path. Outside it, devices share data
+at the commit, when they receive what changed, and when a render product is
+rendered, when their films are merged into the render buffers. While a
+product renders, they also share the counter they take tiles from
+(docs/adr/0014-frames-render-in-tiles-from-one-counter.md).
 
 ## Sync, then commit
 
@@ -175,6 +179,7 @@ OpenImageIO.
   once per node.
 - GPUs load whole textures, with no streaming of tiles.
 - Splitting work between devices cannot rely on per-sample synchronization
-  across them, such as a shared atomic counter. Devices take work in large
-  blocks, outside the hot path.
+  across them, such as a shared atomic counter that every sample touches.
+  Devices take work in large blocks, outside the hot path. ADR 0014 has them
+  take batches of tiles from one counter, touched once per batch.
 - Every commit copies what changed once per device, whatever its kind.
