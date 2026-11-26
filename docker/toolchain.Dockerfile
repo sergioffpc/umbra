@@ -20,46 +20,11 @@
 
 ARG UBUNTU=ubuntu:26.04
 
-# Stage 1 compiler (apt.llvm.org clang) and the dependency build run. Discarded.
-FROM ${UBUNTU} AS llvm
-ARG DEBIAN_FRONTEND=noninteractive
-ARG STAGE1_LLVM_MAJOR=23
-SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
-RUN readonly KEY=/etc/apt/keyrings/apt.llvm.org.asc; \
-  apt-get update; \
-  apt-get install -y --no-install-recommends ca-certificates curl; \
-  install -d -m 0755 /etc/apt/keyrings; \
-  curl -fsSLo "${KEY}" https://apt.llvm.org/llvm-snapshot.gpg.key; \
-  source /etc/os-release; \
-  readonly SUITE="llvm-toolchain-${VERSION_CODENAME}-${STAGE1_LLVM_MAJOR}"; \
-  echo "deb [signed-by=${KEY}]" \
-    "http://apt.llvm.org/${VERSION_CODENAME}/ ${SUITE} main" \
-    >/etc/apt/sources.list.d/apt.llvm.org.list; \
-  apt-get update; \
-  apt-get install -y --no-install-recommends \
-    "clang-${STAGE1_LLVM_MAJOR}" "lld-${STAGE1_LLVM_MAJOR}" \
-    "llvm-${STAGE1_LLVM_MAJOR}" \
-    cmake ninja-build python3 git libc6-dev \
-    zlib1g-dev libzstd-dev libedit-dev libncurses-dev liblzma-dev \
-    libxml2-dev; \
-  rm -rf /var/lib/apt/lists/*
-ENV PATH=/usr/lib/llvm-${STAGE1_LLVM_MAJOR}/bin:${PATH} \
-    CC=clang-${STAGE1_LLVM_MAJOR} \
-    CXX=clang++-${STAGE1_LLVM_MAJOR}
-RUN --mount=type=bind,source=third_party,target=/src/third_party,rw \
-  --mount=type=cache,id=umbra-toolchain-build,target=/var/cache/umbra-build,sharing=locked \
-  cmake -S /src/third_party -B /tmp/dependency-build -G Ninja \
-    -DUMBRA_LAYER=toolchain \
-    -DCMAKE_INSTALL_PREFIX=/usr/local \
-    -DUMBRA_STAGING_DIR=/stage \
-    -DUMBRA_BUILD_CACHE_DIR=/var/cache/umbra-build \
-  && cmake --build /tmp/dependency-build --target layer-toolchain
-
 # Release binaries of git-cliff, git-flow-next, actionlint and shellcheck,
 # verified by SHA256. All four are statically linked and need no GCC runtime
 # (for git-cliff that is the musl build). actionlint runs shellcheck on the
 # workflows' scripts when it is on PATH.
-FROM ${UBUNTU} AS tools
+FROM ${UBUNTU} AS build
 ARG DEBIAN_FRONTEND=noninteractive
 ARG GIT_CLIFF_VERSION=2.14.2
 ARG GIT_CLIFF_SHA256=fa21e2fc70046fcfd0e43e5e4613873ab799aff3d9dc8559c00d31b270e417d0
@@ -108,6 +73,41 @@ shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
   install -D -m 0755 actionlint /out/bin/actionlint; \
   install -D -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
     /out/bin/shellcheck
+
+# Stage 1 compiler (apt.llvm.org clang) and the dependency build run. Discarded.
+FROM ${UBUNTU} AS llvm
+ARG DEBIAN_FRONTEND=noninteractive
+ARG STAGE1_LLVM_MAJOR=23
+SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
+RUN readonly KEY=/etc/apt/keyrings/apt.llvm.org.asc; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ca-certificates curl; \
+  install -d -m 0755 /etc/apt/keyrings; \
+  curl -fsSLo "${KEY}" https://apt.llvm.org/llvm-snapshot.gpg.key; \
+  source /etc/os-release; \
+  readonly SUITE="llvm-toolchain-${VERSION_CODENAME}-${STAGE1_LLVM_MAJOR}"; \
+  echo "deb [signed-by=${KEY}]" \
+    "http://apt.llvm.org/${VERSION_CODENAME}/ ${SUITE} main" \
+    >/etc/apt/sources.list.d/apt.llvm.org.list; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    "clang-${STAGE1_LLVM_MAJOR}" "lld-${STAGE1_LLVM_MAJOR}" \
+    "llvm-${STAGE1_LLVM_MAJOR}" \
+    cmake ninja-build python3 git libc6-dev \
+    zlib1g-dev libzstd-dev libedit-dev libncurses-dev liblzma-dev \
+    libxml2-dev; \
+  rm -rf /var/lib/apt/lists/*
+ENV PATH=/usr/lib/llvm-${STAGE1_LLVM_MAJOR}/bin:${PATH} \
+    CC=clang-${STAGE1_LLVM_MAJOR} \
+    CXX=clang++-${STAGE1_LLVM_MAJOR}
+RUN --mount=type=bind,source=third_party,target=/src/third_party,rw \
+  --mount=type=cache,id=umbra-toolchain-build,target=/var/cache/umbra-build,sharing=locked \
+  cmake -S /src/third_party -B /tmp/dependency-build -G Ninja \
+    -DUMBRA_LAYER=toolchain \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DUMBRA_STAGING_DIR=/stage \
+    -DUMBRA_BUILD_CACHE_DIR=/var/cache/umbra-build \
+  && cmake --build /tmp/dependency-build --target layer-toolchain
 
 # ISPC, which compiles the kernels of Open Image Denoise's CPU device: the
 # official release archive, verified by SHA256, statically linked, in
@@ -267,7 +267,7 @@ COPY --from=llvm /stage/ /
 RUN --mount=type=bind,source=third_party/llvm-project/LICENSE.TXT,target=/tmp/LICENSE.TXT \
   install -D -m 0644 /tmp/LICENSE.TXT \
     /usr/local/share/licenses/llvm-project/LICENSE.TXT
-COPY --from=tools /out/bin/ /usr/local/bin/
+COPY --from=build /out/bin/ /usr/local/bin/
 COPY --from=ispc /opt/ispc/ /opt/ispc/
 COPY --from=python /opt/python-tools /opt/python-tools
 COPY --from=nvidia /opt/cuda/ /opt/cuda/
