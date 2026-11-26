@@ -225,6 +225,13 @@ struct SampledTransform {
     const TimedSamples<pxr::GfMatrix4d>& samples, const pxr::GfMatrix4d& frame,
     const scene::Shutter& shutter);
 
+// The motion samples of the transform of the prim at `prim_id` over
+// `shutter`: its transform at the frame alone when there is no motion blur or
+// it does not move.
+[[nodiscard]] SampledTransform SampleTransformMotion(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    const scene::Shutter& shutter);
+
 }  // namespace umbra::ext::usd::internal
 
 UMBRA_ASSUME_NONNULL_END

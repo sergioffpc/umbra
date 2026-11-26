@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <string>
@@ -34,6 +35,7 @@
 #include <vector>
 
 #include "hydra.h"
+#include "light.h"
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
@@ -461,6 +463,7 @@ class Geometry {
   std::map<std::string, Tally> subdivided_;
   Tally invalid_;
   std::map<pxr::TfToken, Tally> unsupported_;
+  Tally mesh_lights_;
 
   // Gives `prototype`, the mesh of `mesh`, its materials and those of its
   // triangles.
@@ -510,6 +513,9 @@ void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
   if (!mesh.subdivision_scheme().empty()) {
     subdivided_[mesh.subdivision_scheme()].Add(path);
   }
+  if (mesh.IsMeshLight()) {
+    mesh_lights_.Add(path);
+  }
   motion_->Add(path, mesh.motion_outcome());
   scene::Mesh prototype = mesh.TakeMesh();
   AssignMaterials(mesh, prototype);
@@ -544,6 +550,192 @@ void Geometry::ReportUnsupported() const {
     UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
                       tally.count(), type.GetString(),
                       Plural(tally.count(), "prim", "prims"), tally.First());
+  }
+  if (mesh_lights_.count() > 0) {
+    UMBRA_LOG_WARNING(
+        kUsd, "{} not supported yet; {} rendered without emission ({})",
+        Plural(mesh_lights_.count(), "1 mesh light",
+               std::format("{} mesh lights", mesh_lights_.count())),
+        Plural(mesh_lights_.count(), "its mesh", "their meshes"),
+        mesh_lights_.First());
+  }
+}
+
+// The words of the warning about one LightIssue: "{count} {subject}
+// {predicate} ({first}{: detail})", each for one light and for more.
+struct IssueWords {
+  LightIssue issue;
+  std::array<std::string_view, 2> subject;
+  std::array<std::string_view, 2> predicate;
+};
+
+constexpr std::array<IssueWords, 9> kIssueWords = {
+    IssueWords{
+        .issue = LightIssue::kFilters,
+        .subject = {"light has", "lights have"},
+        .predicate =
+            {
+                "light filters, which umbra does not take yet; ignored",
+                "light filters, which umbra does not take yet; ignored",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kIesProfile,
+        .subject = {"light is", "lights are"},
+        .predicate =
+            {
+                "shaped by an IES profile, which umbra does not take yet; "
+                "ignored",
+                "shaped by an IES profile, which umbra does not take yet; "
+                "ignored",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kNonPositiveTemperature,
+        .subject = {"light enables", "lights enable"},
+        .predicate =
+            {
+                "a color temperature not above 0 K; its color is used alone",
+                "a color temperature not above 0 K; their color is used alone",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kDiffuseSpecular,
+        .subject = {"light scales", "lights scale"},
+        .predicate =
+            {
+                "its diffuse or specular contribution, which umbra does not: "
+                "lights are physical",
+                "their diffuse or specular contribution, which umbra does not: "
+                "lights are physical",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kFocus,
+        .subject = {"light focuses", "lights focus"},
+        .predicate =
+            {
+                "its emission (shaping:focus), which umbra does not: lights "
+                "are physical",
+                "their emission (shaping:focus), which umbra does not: lights "
+                "are physical",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kConeSoftness,
+        .subject = {"light softens", "lights soften"},
+        .predicate =
+            {
+                "the edge of its cone, which umbra does not: lights are "
+                "physical",
+                "the edge of their cone, which umbra does not: lights are "
+                "physical",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kShadowControls,
+        .subject = {"light authors", "lights author"},
+        .predicate =
+            {
+                "shadow controls (ShadowAPI), which umbra does not take: "
+                "lights are physical",
+                "shadow controls (ShadowAPI), which umbra does not take: "
+                "lights are physical",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kColorNotConverted,
+        .subject = {"light's color does", "lights' colors do"},
+        .predicate =
+            {
+                "not convert into ACEScg, rendered white",
+                "not convert into ACEScg, rendered white",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kTextureNotRead,
+        .subject = {"light texture is", "light textures are"},
+        .predicate =
+            {
+                "not read, rendered with its light's color",
+                "not read, rendered with their light's color",
+            },
+    },
+};
+
+// "warning: usd: 2 lights have light filters, which umbra does not take
+// yet; ignored (first /World/key)", and so on.
+void ReportLightIssue(LightIssue issue, const Tally& tally) {
+  const auto* words = std::ranges::find(kIssueWords, issue, &IssueWords::issue);
+  if (words == kIssueWords.end()) {
+    return;
+  }
+  const std::size_t form = tally.count() == 1 ? 0 : 1;
+  UMBRA_LOG_WARNING(kUsd, "{} {} {} ({}{}{})", tally.count(),
+                    words->subject.at(form), words->predicate.at(form),
+                    tally.First(), tally.detail().empty() ? "" : ": ",
+                    tally.detail());
+}
+
+// The lights the Scene takes, one for each instance of each light converted,
+// and the tallies of those it does not take and of what they author that
+// umbra does not, for their warnings.
+class Lights {
+ public:
+  explicit Lights(MotionTallies& motion UMBRA_LIFETIMEBOUND)
+      : motion_(&motion) {}
+
+  void Add(const pxr::SdfPath& path, LightPrim& light);
+
+  // "warning: usd: 2 lights have light filters, which umbra does not take
+  // yet; ignored (first /World/key)", and so on.
+  void Report() const;
+
+  // The error that stops the render: the first of the lights added.
+  [[nodiscard]] const std::optional<Error>& fatal() const UMBRA_LIFETIMEBOUND {
+    return fatal_;
+  }
+
+  std::vector<scene::Light> Take() { return std::move(lights_); }
+
+ private:
+  MotionTallies* motion_;
+  std::vector<scene::Light> lights_;
+  std::map<LightIssue, Tally> issues_;
+  std::map<std::string, Tally> unsupported_;
+  std::optional<Error> fatal_;
+};
+
+void Lights::Add(const pxr::SdfPath& path, LightPrim& light) {
+  switch (light.state()) {
+    case LightState::kHidden:
+      return;
+    case LightState::kUnsupported:
+      unsupported_[light.unsupported_type()].Add(path);
+      return;
+    case LightState::kConverted:
+      break;
+  }
+  if (light.fatal().has_value() && !fatal_.has_value()) {
+    fatal_ = light.fatal();
+  }
+  for (const LightNote& note : light.notes()) {
+    issues_[note.issue].Add(path, note.detail);
+  }
+  motion_->Add(path, light.motion_outcome());
+  std::vector<scene::Light> lights = light.TakeLights();
+  lights_.insert(lights_.end(), std::make_move_iterator(lights.begin()),
+                 std::make_move_iterator(lights.end()));
+}
+
+void Lights::Report() const {
+  for (const auto& [type, tally] : unsupported_) {
+    UMBRA_LOG_WARNING(kUsd, "{} {} {} not supported yet; left out ({})",
+                      tally.count(), type,
+                      Plural(tally.count(), "prim", "prims"), tally.First());
+  }
+  for (const auto& [issue, tally] : issues_) {
+    ReportLightIssue(issue, tally);
   }
 }
 
@@ -798,6 +990,16 @@ std::expected<std::vector<scene::RenderProduct>, Error> Products(
   return products;
 }
 
+// The lights the Scene takes; the warnings about them reported.
+Lights CloseLights(const SyncedPrims& prims, MotionTallies& motion) {
+  Lights lights(motion);
+  for (const auto& [path, light] : prims.lights) {
+    lights.Add(path, *light);
+  }
+  lights.Report();
+  return lights;
+}
+
 // The meshes the Scene takes, with their instances and materials; the
 // warnings about the geometry, its materials and its motion reported.
 Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion,
@@ -818,6 +1020,26 @@ Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion,
   materials.Report();
   motion.Report();
   return geometry;
+}
+
+// What the Scene renders, its geometry with its materials and its lights,
+// the warnings about them reported; or the error that stops the render.
+std::expected<scene::Content, Error> CloseContent(
+    const SyncedPrims& prims, const pxr::HdSceneIndexBaseRefPtr& scene_index,
+    MotionTallies& motion, Materials& materials) {
+  Lights lights = CloseLights(prims, motion);
+  Geometry geometry = CloseGeometry(prims, motion, materials);
+  if (auto fatal = materials.fatal().or_else([&] { return lights.fatal(); });
+      fatal.has_value()) {
+    return std::unexpected(std::move(*fatal));
+  }
+  ReportLightLinking(scene_index);
+  return scene::Content{
+      .materials = materials.Take(),
+      .prototypes = geometry.TakePrototypes(),
+      .instances = geometry.TakeInstances(),
+      .lights = lights.Take(),
+  };
 }
 
 }  // namespace
@@ -852,17 +1074,12 @@ std::expected<scene::Scene, Error> CloseScene(
       .camera = *camera,
       .products = std::move(*products),
   };
-  Geometry geometry = CloseGeometry(prims, motion, materials);
-  if (materials.fatal().has_value()) {
-    return std::unexpected(*materials.fatal());
+  auto content = CloseContent(prims, scene_index, motion, materials);
+  if (!content.has_value()) {
+    return std::unexpected(std::move(content.error()));
   }
-  ReportLightLinking(scene_index);
   return scene::Scene(std::move(converted), prims.shutter, cameras.Take(),
-                      {
-                          .materials = materials.Take(),
-                          .prototypes = geometry.TakePrototypes(),
-                          .instances = geometry.TakeInstances(),
-                      });
+                      std::move(*content));
 }
 
 }  // namespace umbra::ext::usd::internal

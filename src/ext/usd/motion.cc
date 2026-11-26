@@ -248,4 +248,15 @@ SampledTransform ResampleTransform(const TimedSamples<pxr::GfMatrix4d>& samples,
   return {.motion = std::move(motion.samples), .outcome = motion.outcome};
 }
 
+SampledTransform SampleTransformMotion(pxr::HdSceneDelegate& delegate,
+                                       const pxr::SdfPath& prim_id,
+                                       const scene::Shutter& shutter) {
+  const pxr::GfMatrix4d frame = delegate.GetTransform(prim_id);
+  if (!IsMotionBlurred(shutter)) {
+    return {.motion = {frame}, .outcome = MotionOutcome::kSampled};
+  }
+  return ResampleTransform(SampleTransform(delegate, prim_id, shutter), frame,
+                           shutter);
+}
+
 }  // namespace umbra::ext::usd::internal

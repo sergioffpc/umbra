@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "instancer.h"
+#include "light.h"
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
@@ -170,18 +171,6 @@ Motion<pxr::VtVec3fArray> SamplePoints(pxr::HdSceneDelegate& delegate,
   return MotionOf(samples, shutter, BlendPoints);
 }
 
-// The motion samples of the transform of the prim at `prim_id` over `shutter`.
-SampledTransform SampleTransformMotion(pxr::HdSceneDelegate& delegate,
-                                       const pxr::SdfPath& prim_id,
-                                       const scene::Shutter& shutter) {
-  const pxr::GfMatrix4d frame = delegate.GetTransform(prim_id);
-  if (!IsMotionBlurred(shutter)) {
-    return {.motion = {frame}, .outcome = MotionOutcome::kSampled};
-  }
-  return ResampleTransform(SampleTransform(delegate, prim_id, shutter), frame,
-                           shutter);
-}
-
 // The GeomSubsets of `topology` bound to a material.
 std::vector<MaterialSubset> MaterialSubsets(
     const pxr::HdMeshTopology& topology) {
@@ -219,6 +208,11 @@ const pxr::TfTokenVector& UnsupportedRprimTypes() {
       pxr::HdPrimTypeTokens->volume,
   };
   return kTypes;
+}
+
+// Whether the delegate syncs sprims of `type` as lights.
+bool IsLightPrimType(const pxr::TfToken& type) {
+  return std::ranges::find(LightPrimTypes(), type) != LightPrimTypes().end();
 }
 
 // The path of the task, which is not in the render index.
@@ -339,6 +333,8 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   state_ = MeshState::kConverted;
   mesh_ = std::move(*mesh);
   ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
+  emission_ =
+      IsLight(delegate, GetId()) ? Emission::kMeshLight : Emission::kNone;
   material_subsets_ = MaterialSubsets(source.topology);
   // A mesh whose topology changes within the shutter has no blur at all.
   Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges
@@ -348,36 +344,19 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
 
 void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
                      const scene::Shutter& shutter) {
-  const SampledTransform object_to_instance =
-      SampleTransformMotion(delegate, GetId(), shutter);
-  motion_outcome_ = std::max(motion_outcome_, object_to_instance.outcome);
-  std::vector<FlatInstance> placements;
-  const pxr::SdfPath& instancer_id = GetInstancerId();
-  if (instancer_id.IsEmpty()) {
-    placements.emplace_back();
-  } else {
-    pxr::HdRenderIndex& index = delegate.GetRenderIndex();
-    pxr::HdInstancer::_SyncInstancerAndParents(index, instancer_id);
-    // Instancers are all umbra's: the delegate creates no other.
-    if (const auto* instancer = dynamic_cast<const InstancerPrim*>(
-            index.GetInstancer(instancer_id));
-        instancer != nullptr) {
-      placements = instancer->Instances(GetId());
-    }
-  }
+  Placement placement =
+      PlaceInstances(delegate, GetId(), GetInstancerId(), shutter);
+  motion_outcome_ = std::max(motion_outcome_, placement.outcome);
   instances_.clear();
-  instances_.reserve(placements.size());
-  for (FlatInstance& placement : placements) {
-    TransformMotion object_to_world =
-        ComposeMotion(object_to_instance.motion, placement.transforms);
-    CollapseStill(object_to_world);
+  instances_.reserve(placement.instances.size());
+  for (FlatInstance& placed : placement.instances) {
     scene::Instance instance{
         .prototype = 0,
         .object_to_world = {},
-        .primvars = std::move(placement.primvars),
+        .primvars = std::move(placed.primvars),
     };
-    instance.object_to_world.reserve(object_to_world.size());
-    for (const pxr::GfMatrix4d& transform : object_to_world) {
+    instance.object_to_world.reserve(placed.transforms.size());
+    for (const pxr::GfMatrix4d& transform : placed.transforms) {
       instance.object_to_world.push_back(
           TransformInMeters(transform, meters_per_unit_));
     }
@@ -445,7 +424,8 @@ RenderDelegate::~RenderDelegate() = default;
 std::size_t RenderDelegate::PrimCount() const {
   return prims_.settings.size() + prims_.cameras.size() +
          prims_.materials.size() + prims_.meshes.size() +
-         prims_.instancers.size() + prims_.unsupported.size();
+         prims_.instancers.size() + prims_.unsupported.size() +
+         prims_.lights.size();
 }
 
 void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
@@ -465,6 +445,12 @@ void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
   };
   if (IsMotionBlurred(shutter)) {
     prims_.shutter = shutter;
+  }
+}
+
+void RenderDelegate::PlaceLights(const pxr::TfTokenVector& render_tags) {
+  for (const auto& [path, light] : prims_.lights) {
+    light->Place(prims_.shutter, render_tags);
   }
 }
 
@@ -500,10 +486,15 @@ const pxr::TfTokenVector& RenderDelegate::GetSupportedRprimTypes() const {
 }
 
 const pxr::TfTokenVector& RenderDelegate::GetSupportedSprimTypes() const {
-  static const pxr::TfTokenVector kTypes = {
-      pxr::HdPrimTypeTokens->camera,
-      pxr::HdPrimTypeTokens->material,
-  };
+  static const pxr::TfTokenVector kTypes = [] {
+    pxr::TfTokenVector types = {
+        pxr::HdPrimTypeTokens->camera,
+        pxr::HdPrimTypeTokens->material,
+    };
+    const pxr::TfTokenVector& lights = LightPrimTypes();
+    types.insert(types.end(), lights.begin(), lights.end());
+    return types;
+  }();
   return kTypes;
 }
 
@@ -577,6 +568,12 @@ void RenderDelegate::DestroyRprim(pxr::HdRprim* rprim) {
 
 pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
+  if (IsLightPrimType(type_id)) {
+    auto light =
+        std::make_unique<LightPrim>(type_id, prim_id, phase_, meters_per_unit_);
+    prims_.lights[prim_id] = light.get();
+    return Release<pxr::HdSprim>(std::move(light));
+  }
   if (type_id == pxr::HdPrimTypeTokens->material) {
     auto material = std::make_unique<MaterialPrim>(prim_id, phase_);
     prims_.materials[prim_id] = material.get();
@@ -592,6 +589,10 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
 
 pxr::HdSprim* UMBRA_NULLABLE
 RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
+  if (IsLightPrimType(type_id)) {
+    return Release<pxr::HdSprim>(std::make_unique<LightPrim>(
+        type_id, pxr::SdfPath::EmptyPath(), nullptr, meters_per_unit_));
+  }
   if (type_id == pxr::HdPrimTypeTokens->material) {
     return Release<pxr::HdSprim>(
         std::make_unique<MaterialPrim>(pxr::SdfPath::EmptyPath(), nullptr));
@@ -607,6 +608,7 @@ void RenderDelegate::DestroySprim(pxr::HdSprim* sprim) {
   const std::unique_ptr<pxr::HdSprim> owned(sprim);
   Forget(prims_.cameras, *sprim);
   Forget(prims_.materials, *sprim);
+  Forget(prims_.lights, *sprim);
 }
 
 pxr::HdBprim* UMBRA_NULLABLE RenderDelegate::CreateBprim(
@@ -674,10 +676,11 @@ SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
 void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
                     pxr::HdTaskContext* /*context*/,
                     pxr::HdDirtyBits* dirty_bits) {
-  // The render settings and the cameras are synced before the tasks, and
-  // the rprims after.
+  // The sprims (the render settings, the cameras, the lights) are synced
+  // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
   delegate_->ChooseShutter(settings_);
+  delegate_->PlaceLights(render_tags_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }
 

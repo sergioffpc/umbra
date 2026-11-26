@@ -23,6 +23,7 @@ Scene::Scene(RenderSettings settings, Shutter shutter,
       cameras_(std::move(cameras)),
       materials_(std::move(content.materials)),
       prototypes_(std::move(content.prototypes)),
-      instances_(std::move(content.instances)) {}
+      instances_(std::move(content.instances)),
+      lights_(std::move(content.lights)) {}
 
 }  // namespace umbra::scene

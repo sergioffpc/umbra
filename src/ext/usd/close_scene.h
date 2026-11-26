@@ -3,7 +3,7 @@
 //
 // Closing the Scene, once Hydra has synced the prims: the render settings
 // the render uses, their camera and their products, the meshes and their
-// materials, in umbra's types.
+// materials, and the lights, in umbra's types.
 
 #ifndef UMBRA_EXT_USD_CLOSE_SCENE_H_
 #define UMBRA_EXT_USD_CLOSE_SCENE_H_
@@ -49,13 +49,15 @@ struct CloseInputs {
 // GeomSubsets: the one bound when it translates, else the fallback
 // material; with none bound, the display color material when the mesh has
 // a displayColor, and the fallback material otherwise. The Scene holds the
-// materials of its prototypes, each once. Fails with kInvalidArgument when
-// one of them reads a texture or shader inside a package. One warning each
-// reports the materials that do not translate, the textures that do not
-// resolve, the materials that connect each terminal but the surface, the
-// meshes that ask for a
-// subdivision scheme, the invalid ones, the rprims of each type not
-// supported, the lights of `scene_index`, the terminal scene index, that
+// materials of its prototypes, each once, and the lights converted, one for
+// each of their instances. Fails with kInvalidArgument when one of the
+// materials reads a texture or shader inside a package, or a light a
+// texture. One warning each reports the materials that do not translate,
+// the textures that do not resolve, the materials that connect each
+// terminal but the surface, the meshes that ask for a subdivision scheme,
+// the invalid ones, the rprims of each type not supported, the mesh lights,
+// the lights of each type not supported, each issue of the lights
+// (LightIssue), the lights of `scene_index`, the terminal scene index, that
 // link geometry, the prims whose topology changes within the shutter and
 // those resampled down to kMaxMotionSamples, with their count and the
 // first. The Scene's shutter is that the prims were sampled over.

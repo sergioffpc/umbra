@@ -56,6 +56,10 @@ file paths only.
   a prototype refers to its own and to those of its GeomSubsets, with its
   colors in ACEScg and its textures as absolute files with their color
   spaces (docs/adr/0007-spectral-rendering-from-acescg.md).
+- **Lights**, UsdLux's: each with its shape (a sphere, a rectangle, a
+  disk, a cylinder, a distant light or a dome) in meters, its emission and
+  its transform. Lights are physical: the Scene holds none of UsdLux's
+  artistic controls (docs/adr/0010-lights-are-physical.md).
 - **The shutter**, the interval a frame integrates, from the camera's
   `shutter:open` to its `shutter:close`, relative to the frame, and **motion
   samples** within it: the values of a transform or of a mesh's points at

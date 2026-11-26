@@ -20,6 +20,13 @@ instanced is a prototype with one instance
 A placement of a prototype: its transform, and its own primvars when it
 has them (docs/adr/0006-scenes-enter-through-hydra.md).
 
+**Light**:
+A UsdLux light the Scene holds: its shape (sphere, rect, disk, cylinder,
+distant or dome) in meters, its emission, as an ACEScg color and an
+optional blackbody temperature, and its transform. It lights every
+instance and has no artistic control
+(docs/adr/0010-lights-are-physical.md).
+
 **Source face**:
 The polygon of a mesh a triangle comes from, as an index into the mesh's
 original faces: per-face texturing (Ptex) maps a hit through it.

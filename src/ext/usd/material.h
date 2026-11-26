@@ -16,9 +16,11 @@
 #include <pxr/imaging/hd/materialNetworkInterface.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/pxr.h>
+#include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/path.h>
 
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -116,6 +118,20 @@ class MaterialPrim final : public pxr::HdMaterial {
 // UsdPreviewSurface whose diffuseColor is their displayColor primvar, 18%
 // gray where it has none.
 [[nodiscard]] scene::MaterialNetwork DisplayColorMaterial();
+
+// The absolute file `asset` resolves to, through Ar, or none when it does
+// not resolve. Fails with kInvalidArgument, naming `owner`, when it is
+// inside a package (.usdz), which is not a file.
+[[nodiscard]] std::expected<std::optional<std::string>, core::Error>
+ResolveAsset(const pxr::SdfAssetPath& asset, const pxr::SdfPath& owner);
+
+// The color space of the texels of the texture `file`, by its name in the
+// OpenColorIO config: `authored`, else `fallback`. auto becomes sRGB or
+// raw, as the file tells. Fails with why when the config has no such color
+// space.
+[[nodiscard]] std::expected<std::string, std::string> TextureColorSpace(
+    const pxr::TfToken& authored, const std::string& file,
+    std::string_view fallback);
 
 // Converts the displayColor of `primvars`, those of the prim at `prim_id`,
 // if any, into ACEScg from the color space Hydra gives it,

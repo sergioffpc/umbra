@@ -442,4 +442,31 @@ std::vector<FlatInstance> InstancerPrim::Instances(
   return instances;
 }
 
+Placement PlaceInstances(pxr::HdSceneDelegate& delegate,
+                         const pxr::SdfPath& prim_id,
+                         const pxr::SdfPath& instancer_id,
+                         const scene::Shutter& shutter) {
+  const SampledTransform prim_to_instance =
+      SampleTransformMotion(delegate, prim_id, shutter);
+  Placement placement{.instances = {}, .outcome = prim_to_instance.outcome};
+  if (instancer_id.IsEmpty()) {
+    placement.instances.emplace_back();
+  } else {
+    pxr::HdRenderIndex& index = delegate.GetRenderIndex();
+    pxr::HdInstancer::_SyncInstancerAndParents(index, instancer_id);
+    // Instancers are all umbra's: the delegate creates no other.
+    if (const auto* instancer = dynamic_cast<const InstancerPrim*>(
+            index.GetInstancer(instancer_id));
+        instancer != nullptr) {
+      placement.instances = instancer->Instances(prim_id);
+    }
+  }
+  for (FlatInstance& instance : placement.instances) {
+    instance.transforms =
+        ComposeMotion(prim_to_instance.motion, instance.transforms);
+    CollapseStill(instance.transforms);
+  }
+  return placement;
+}
+
 }  // namespace umbra::ext::usd::internal

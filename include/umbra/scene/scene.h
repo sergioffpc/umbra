@@ -4,7 +4,8 @@
 // The Scene: what umbra renders, in umbra's own types, with no OpenUSD type
 // (docs/adr/0006-scenes-enter-through-hydra.md). The OpenUSD bridge builds it
 // (umbra::ext::usd::LoadScene) and it is immutable once built. Lengths are in
-// meters. A mesh is a prototype, held once, that instances place. Materials
+// meters. A mesh is a prototype, held once, that instances place; a light is
+// an emitter of one of six shapes. Materials
 // are neutral networks (docs/adr/0008-materials-cross-as-neutral-networks.md)
 // and colors are in ACEScg (docs/adr/0007-spectral-rendering-from-acescg.md).
 
@@ -14,8 +15,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -313,12 +316,112 @@ struct Instance {
   std::vector<Primvar> primvars;
 };
 
-// What a scene renders: its materials, its geometry, held once, and the
-// instances that place it.
+// Whether a light's emission is divided by its size, so that its power does
+// not change with it: by the world-space area of an area light, by the
+// solid angle of a distant light.
+enum class Normalization : std::uint8_t {
+  kUnnormalized,
+  kNormalized,
+};
+
+// How the texture of a dome light maps onto the directions around it.
+enum class DomeTextureFormat : std::uint8_t {
+  // As the file tells, latlong when it tells nothing.
+  kAutomatic,
+  // Longitude across, latitude down, as OpenEXR defines it.
+  kLatlong,
+  // An image of the environment reflected in a sphere, seen orthographically.
+  kMirroredBall,
+  // As kMirroredBall, with the radius proportional to the angle.
+  kAngular,
+  // The six faces of a cube, as a vertical cross.
+  kCubeMapVerticalCross,
+};
+
+// A light, an emitter of one of six shapes, in meters. Every light lights every
+// instance and is seen by camera rays
+// (docs/adr/0009-lights-light-everything.md); it has no artistic control
+// without a physical counterpart (docs/adr/0010-lights-are-physical.md).
+struct Light {
+  // A sphere, around its origin.
+  struct Sphere {
+    double radius = 0.0;
+  };
+  // A rectangle in its XY plane, centered on its origin, that emits towards
+  // its -Z axis, with the texture that colors it, if any.
+  struct Rect {
+    double width = 0.0;
+    double height = 0.0;
+    std::optional<Texture> texture;
+  };
+  // A disk in its XY plane, centered on its origin, that emits towards its
+  // -Z axis.
+  struct Disk {
+    double radius = 0.0;
+  };
+  // A cylinder along its X axis, centered on its origin, without caps.
+  struct Cylinder {
+    double length = 0.0;
+    double radius = 0.0;
+  };
+  // A light infinitely far away, towards its +Z axis, that shines towards
+  // -Z: the angle, in degrees, is the diameter it subtends; 0 for parallel
+  // light.
+  struct Distant {
+    double angle = 0.0;
+  };
+  // The environment, infinitely far away, colored by its texture if any.
+  struct Dome {
+    std::optional<Texture> texture;
+    DomeTextureFormat format = DomeTextureFormat::kAutomatic;
+    // The rotation from the dome's own frame, where its top pole is +Y and
+    // its texture maps as its format says, to the light's space, row-major,
+    // for row vectors: the alignment of its pole with the stage's up axis,
+    // when the stage asks for it.
+    std::array<double, 16> orientation{
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    };
+  };
+  using Shape = std::variant<Sphere, Rect, Disk, Cylinder, Distant, Dome>;
+
+  // The path of its prim ("/World/key").
+  std::string path;
+  // The light-to-world transform, one per motion sample, row-major, for row
+  // vectors: the translation, in meters, is the last row. More than one
+  // only when it moves.
+  std::vector<std::array<double, 16>> light_to_world;
+  Shape shape;
+  // Its luminance, in nits, before its color: intensity times 2 to the
+  // power of exposure.
+  float intensity = 1.0F;
+  float exposure = 0.0F;
+  Normalization normalization = Normalization::kUnnormalized;
+  // The color it emits, in ACEScg, of the illuminant kind
+  // (docs/adr/0007-spectral-rendering-from-acescg.md).
+  Color color{.rgb = {1.0F, 1.0F, 1.0F}};
+  // The temperature, in kelvin, of the blackbody whose spectrum, normalized
+  // so that 6500 K is white, multiplies its color; none for its color alone.
+  // It is never turned into RGB.
+  std::optional<float> color_temperature;
+  // The half-angle, in degrees, of the cone around its -Z axis outside which
+  // it emits nothing, from 0 to 180; 180 for no cone.
+  float cone_angle = 180.0F;
+};
+
+// The name of each shape of a light, in the order of Light::Shape.
+inline constexpr std::array<std::string_view, 6> kLightShapeNames = {
+    "sphere", "rect", "disk", "cylinder", "distant", "dome",
+};
+static_assert(kLightShapeNames.size() == std::variant_size_v<Light::Shape>);
+
+// What a scene renders: its materials, its geometry, held once, the
+// instances that place it, and its lights.
 struct Content {
   std::vector<MaterialNetwork> materials;
   std::vector<Mesh> prototypes;
   std::vector<Instance> instances;
+  std::vector<Light> lights;
 };
 
 // The scene of one frame.
@@ -351,6 +454,9 @@ class Scene {
       UMBRA_LIFETIMEBOUND {
     return instances_;
   }
+  [[nodiscard]] std::span<const Light> lights() const UMBRA_LIFETIMEBOUND {
+    return lights_;
+  }
 
  private:
   RenderSettings settings_;
@@ -359,6 +465,7 @@ class Scene {
   std::vector<MaterialNetwork> materials_;
   std::vector<Mesh> prototypes_;
   std::vector<Instance> instances_;
+  std::vector<Light> lights_;
 };
 
 }  // namespace umbra::scene

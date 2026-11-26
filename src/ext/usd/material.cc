@@ -350,28 +350,6 @@ bool IsSrgb(const std::string& file) {
   return image != nullptr && image->IsColorSpaceSRGB();
 }
 
-// The color space of the texture `file` of a node of `shader`, by its name
-// in the OpenColorIO config: the one authored, else auto for
-// ND_UsdUVTexture, as UsdPreviewSurface defines, and kDefaultColorSpace for
-// other nodes. auto becomes sRGB or raw, as the file tells.
-std::expected<std::string, std::string> TextureColorSpace(
-    const pxr::TfToken& authored, const std::string& file,
-    std::string_view shader) {
-  std::string name = authored.GetString();
-  if (name.empty()) {
-    name = shader == "ND_UsdUVTexture" ? "auto" : kDefaultColorSpace;
-  }
-  if (name == "auto") {
-    name = IsSrgb(file) ? "sRGB" : "raw";
-  }
-  // UsdUVTexture's sourceColorSpace names sRGB as no config does.
-  if (name == "sRGB") {
-    name = "srgb_texture";
-  }
-  return ocio::ColorSpaceName(name).transform_error(
-      [](const Error& error) { return std::string(error.message()); });
-}
-
 // Translates the nodes of one network, gathering the textures that do not
 // resolve and the error that stops the render.
 class Translator {
@@ -637,19 +615,14 @@ std::expected<void, std::string> Translator::AssignOslShader(
 
 std::optional<std::string> Translator::Resolve(const pxr::TfToken& name,
                                                const pxr::SdfAssetPath& asset) {
-  const std::string& resolved = asset.GetResolvedPath();
-  if (resolved.empty()) {
-    return std::nullopt;
+  auto file = ResolveAsset(asset, NodePath(name));
+  if (!file.has_value()) {
+    if (!fatal_.has_value()) {
+      fatal_ = std::move(file.error());
+    }
+    return asset.GetResolvedPath();
   }
-  if (pxr::ArIsPackageRelativePath(resolved) && !fatal_.has_value()) {
-    fatal_ = Error(
-        ErrorCode::kInvalidArgument,
-        std::format("{}: {} is inside the package {}, and umbra reads only "
-                    "files on disk",
-                    NodePath(name).GetString(), asset.GetAssetPath(),
-                    pxr::ArSplitPackageRelativePathOuter(resolved).first));
-  }
-  return resolved;
+  return std::move(*file);
 }
 
 std::expected<std::optional<scene::ParameterValue>, std::string>
@@ -693,7 +666,10 @@ Translator::Texture(const pxr::TfToken& name, const scene::MaterialNode& node,
     });
     return std::nullopt;
   }
-  auto resolved_space = TextureColorSpace(color_space, *file, node.shader);
+  // UsdPreviewSurface's texture reader defaults to auto, as it defines.
+  auto resolved_space = TextureColorSpace(
+      color_space, *file,
+      node.shader == "ND_UsdUVTexture" ? "auto" : kDefaultColorSpace);
   if (!resolved_space.has_value()) {
     return std::unexpected(resolved_space.error());
   }
@@ -831,6 +807,39 @@ scene::MaterialNetwork DisplayColorMaterial() {
       .nodes = {std::move(reader), std::move(color), std::move(surface)},
       .surface = {.node = 2, .name = "out"},
   };
+}
+
+std::expected<std::optional<std::string>, Error> ResolveAsset(
+    const pxr::SdfAssetPath& asset, const pxr::SdfPath& owner) {
+  const std::string& resolved = asset.GetResolvedPath();
+  if (resolved.empty()) {
+    return std::nullopt;
+  }
+  if (pxr::ArIsPackageRelativePath(resolved)) {
+    return std::unexpected(Error(
+        ErrorCode::kInvalidArgument,
+        std::format("{}: {} is inside the package {}, and umbra reads only "
+                    "files on disk",
+                    owner.GetString(), asset.GetAssetPath(),
+                    pxr::ArSplitPackageRelativePathOuter(resolved).first)));
+  }
+  return resolved;
+}
+
+std::expected<std::string, std::string> TextureColorSpace(
+    const pxr::TfToken& authored, const std::string& file,
+    std::string_view fallback) {
+  std::string name =
+      authored.IsEmpty() ? std::string(fallback) : authored.GetString();
+  if (name == "auto") {
+    name = IsSrgb(file) ? "sRGB" : "raw";
+  }
+  // UsdUVTexture's sourceColorSpace names sRGB as no config does.
+  if (name == "sRGB") {
+    name = "srgb_texture";
+  }
+  return ocio::ColorSpaceName(name).transform_error(
+      [](const Error& error) { return std::string(error.message()); });
 }
 
 void ConvertDisplayColor(pxr::HdSceneDelegate& delegate,

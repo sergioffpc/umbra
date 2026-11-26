@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "instancer.h"
+#include "light.h"
 #include "material.h"
 #include "motion.h"
 #include "umbra/core/error.h"
@@ -185,6 +186,10 @@ class MeshPrim final : public pxr::HdMesh {
   }
   // What sampling did with its motion, once converted.
   [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
+  // Whether it is a mesh light (UsdLux's MeshLightAPI), once converted.
+  [[nodiscard]] bool IsMeshLight() const {
+    return emission_ == Emission::kMeshLight;
+  }
   // Its mesh, once converted, moved out.
   [[nodiscard]] scene::Mesh TakeMesh();
   // Its GeomSubsets bound to a material, once converted.
@@ -211,11 +216,16 @@ class MeshPrim final : public pxr::HdMesh {
   // Its instances, from its transform and its instancer's, over `shutter`.
   void Place(pxr::HdSceneDelegate& delegate, const scene::Shutter& shutter);
 
+  // Whether it is a light, which umbra does not take: its mesh is rendered
+  // without emission.
+  enum class Emission : std::uint8_t { kNone, kMeshLight };
+
   core::ProgressPhase* phase_;
   double meters_per_unit_;
   const scene::Shutter* shutter_;
   MeshState state_ = MeshState::kNotSynced;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
+  Emission emission_ = Emission::kNone;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
   scene::Mesh mesh_;
@@ -271,6 +281,7 @@ struct SyncedPrims {
   std::map<pxr::SdfPath, MeshPrim*> meshes;
   std::map<pxr::SdfPath, const InstancerPrim*> instancers;
   std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
+  std::map<pxr::SdfPath, LightPrim*> lights;
 };
 
 // What closes the Scene from the synced prims: the Scene, or the error that
@@ -279,12 +290,11 @@ using SceneCloser = std::function<std::expected<scene::Scene, core::Error>(
     const SyncedPrims& prims)>;
 
 // umbra's render delegate. It syncs cameras, render settings, materials,
-// meshes and their instancers, with their lengths scaled by
+// meshes and their instancers, and lights, with their lengths scaled by
 // `meters_per_unit` and the meshes bound to their materials for the full
-// purpose, and
-// counts the rprims of the types the Scene does not take; its prims count
-// their syncs into the phase. Hydra creates and destroys its prims on one
-// thread.
+// purpose, and counts the rprims and lights of the types the Scene does not
+// take; its prims count their syncs into the phase. Hydra creates and
+// destroys its prims on one thread.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(core::ProgressPhase& phase UMBRA_LIFETIMEBOUND,
@@ -308,6 +318,10 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // settings disable motion blur, the camera is not synced or its shutter
   // spans no interval.
   void ChooseShutter(const pxr::SdfPath& settings);
+
+  // Places the lights over the shutter chosen, hiding those whose render
+  // tag is not in `render_tags`.
+  void PlaceLights(const pxr::TfTokenVector& render_tags);
 
   // The Scene CommitResources closed, or its error; none before.
   [[nodiscard]] std::optional<std::expected<scene::Scene, core::Error>>

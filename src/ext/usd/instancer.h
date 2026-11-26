@@ -96,6 +96,23 @@ class InstancerPrim final : public pxr::HdInstancer {
   std::vector<scene::Primvar> primvars_;
 };
 
+// The instances of a prim, and what sampling did with its own transform.
+struct Placement {
+  std::vector<FlatInstance> instances;
+  MotionOutcome outcome = MotionOutcome::kSampled;
+};
+
+// The instances of the prim at `prim_id`, those the instancer at
+// `instancer_id` places, or one of its own when `instancer_id` is empty, each
+// with its prim-to-world transform, in scene units, sampled over `shutter`
+// (one sample when it does not move), and its own primvars. None when the
+// instancer or a parent is invisible. Syncs the instancer and its parents
+// first.
+[[nodiscard]] Placement PlaceInstances(pxr::HdSceneDelegate& delegate,
+                                       const pxr::SdfPath& prim_id,
+                                       const pxr::SdfPath& instancer_id,
+                                       const scene::Shutter& shutter);
+
 }  // namespace umbra::ext::usd::internal
 
 UMBRA_ASSUME_NONNULL_END

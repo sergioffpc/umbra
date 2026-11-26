@@ -50,8 +50,10 @@
 #include <exception>
 #include <expected>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -529,9 +531,35 @@ std::string DescribeMaterials(const scene::Scene& scene) {
       core::FormatCount(on_display_color), on_display_color == 1 ? "" : "es");
 }
 
+// "14 lights (rect 8, sphere 4, distant 1, dome 1)": the lights counted by
+// kind, the most first.
+std::string DescribeLights(const scene::Scene& scene) {
+  constexpr std::array<std::string_view, 6> kKinds = scene::kLightShapeNames;
+  std::array<std::size_t, kKinds.size()> counts{};
+  for (const scene::Light& light : scene.lights()) {
+    ++counts.at(light.shape.index());
+  }
+  std::array<std::size_t, kKinds.size()> order{};
+  std::ranges::iota(order, std::size_t{0});
+  std::ranges::stable_sort(
+      order, std::ranges::greater{},
+      [&counts](std::size_t kind) { return counts.at(kind); });
+  std::string kinds;
+  for (const std::size_t kind : order) {
+    if (counts.at(kind) > 0) {
+      kinds += std::format("{}{} {}", kinds.empty() ? "" : ", ",
+                           kKinds.at(kind), core::FormatCount(counts.at(kind)));
+    }
+  }
+  const std::size_t lights = scene.lights().size();
+  return std::format("{} light{}{}", core::FormatCount(lights),
+                     lights == 1 ? "" : "s",
+                     kinds.empty() ? "" : std::format(" ({})", kinds));
+}
+
 // "shutter -0.25..0.25, 1.2k moving (max 4 samples)": the prototypes whose
-// points move and the instances that move, and the most motion samples of
-// any of them or of a camera.
+// points move and the instances and lights that move, and the most motion
+// samples of any of them or of a camera.
 std::string DescribeMotion(const scene::Scene& scene) {
   std::size_t moving = 0;
   std::size_t samples = 1;
@@ -542,6 +570,10 @@ std::string DescribeMotion(const scene::Scene& scene) {
   for (const scene::Instance& instance : scene.instances()) {
     moving += instance.object_to_world.size() > 1 ? 1 : 0;
     samples = std::max(samples, instance.object_to_world.size());
+  }
+  for (const scene::Light& light : scene.lights()) {
+    moving += light.light_to_world.size() > 1 ? 1 : 0;
+    samples = std::max(samples, light.light_to_world.size());
   }
   for (const scene::Camera& camera : scene.cameras()) {
     samples = std::max(samples, camera.camera_to_world.size());
@@ -556,7 +588,8 @@ std::string DescribeMotion(const scene::Scene& scene) {
 // [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
 // instances of 3.4k prototypes, 57 materials (MaterialX 40,
 // UsdPreviewSurface 15, OSL 2), 210 textures, 300 meshes on displayColor,
-// shutter -0.25..0.25, 1.2k moving (max 4 samples)".
+// 14 lights (rect 8, sphere 4, distant 1, dome 1), shutter -0.25..0.25, 1.2k
+// moving (max 4 samples)".
 std::string DescribeScene(const scene::Scene& scene) {
   const scene::RenderSettings& settings = scene.settings();
   std::string products;
@@ -565,10 +598,10 @@ std::string DescribeScene(const scene::Scene& scene) {
   }
   const std::size_t count = settings.products.size();
   return std::format(
-      "settings {}, camera {}, {} product{}: {}, {}, {}, {}", settings.path,
+      "settings {}, camera {}, {} product{}: {}, {}, {}, {}, {}", settings.path,
       scene.cameras().subspan(settings.camera).front().path, count,
       count == 1 ? "" : "s", products, DescribeGeometry(scene),
-      DescribeMaterials(scene), DescribeMotion(scene));
+      DescribeMaterials(scene), DescribeLights(scene), DescribeMotion(scene));
 }
 
 }  // namespace

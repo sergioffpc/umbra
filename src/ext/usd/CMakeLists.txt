@@ -9,6 +9,7 @@ umbra_add_ext_module(
   close_scene.cc
   hydra.cc
   instancer.cc
+  light.cc
   material.cc
   mesh.cc
   motion.cc

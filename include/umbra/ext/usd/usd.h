@@ -62,23 +62,34 @@ struct LoadOptions {
 // space, and their textures resolved by Ar to absolute files, a UDIM set
 // keeping its <UDIM> token, each with its color space. A material that does
 // not translate is rendered as an 18% gray diffuse; a mesh without one, as
-// its displayColor, converted into ACEScg, when it has one. One
-// warning each reports the meshes rendered as the cage of the subdivision
-// they ask for, the invalid ones, dropped, the curves, points and volumes,
-// left out, the materials that do not translate, the textures that do not
-// resolve, rendered with their node's fallback value, the materials that
-// connect a displacement or a volume, not rendered, the lights that link
-// geometry (every light lights everything), the prims whose topology changes
-// within the shutter, rendered without motion blur, and those resampled down
-// to 16 samples.
+// its displayColor, converted into ACEScg, when it has one. The visible
+// UsdLux lights (sphere, rect, disk, cylinder, distant and dome lights)
+// cross with their shapes in meters, one for each instance, their colors
+// converted into ACEScg, their color temperatures kept as such, and their
+// textures resolved as the materials' are; a DomeLight_1's orientation
+// follows its poleAxis, the stage's upAxis for "scene". Lights are physical:
+// their diffuse and specular multipliers, focus, cone softness and shadow
+// controls are not taken. One warning each reports the meshes rendered as
+// the cage of the subdivision they ask for, the invalid ones, dropped, the
+// curves, points and volumes, left out, the materials that do not
+// translate, the textures that do not resolve, rendered with their node's
+// fallback value, the materials that connect a displacement or a volume,
+// not rendered, the lights that link geometry (every light lights
+// everything), the portal, geometry, plugin and mesh lights, left out (a
+// mesh light's mesh is rendered without emission), the lights' filters and
+// IES profiles, ignored, their color temperatures not above 0 K, their
+// colors that do not convert, rendered white, their textures not read, each
+// artistic control the lights author, the prims whose topology changes
+// within the shutter, rendered without motion blur, and those resampled
+// down to 16 samples.
 //
 // Fails with kNotFound when the file does not exist or no RenderSettings
 // prim is at the settings' path; kInvalidArgument when the file cannot be
 // read or its stage does not open or compose, there are no settings, the
 // settings or a product have no camera or one that is not a Camera, a
 // product has no orderedVars or its file is not .exr, or a material reads a
-// texture or shader inside a package (.usdz); and kUnavailable when
-// a product's file cannot be written.
+// texture or shader, or a light a texture, inside a package (.usdz); and
+// kUnavailable when a product's file cannot be written.
 [[nodiscard]] std::expected<scene::Scene, core::Error> LoadScene(
     std::string_view path, const LoadOptions& options);
 
