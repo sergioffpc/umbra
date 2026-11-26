@@ -656,7 +656,7 @@ podman run --rm --device nvidia.com/gpu=all \
   install.
 - The NVIDIA development stack (CUDA, the OptiX headers) is not a
   submodule: it is prebuilt downloads, each pinned by version and SHA-256 in
-  the `tools` stage of `docker/toolchain.Dockerfile`, and listed under
+  the `nvidia` stage of `docker/toolchain.Dockerfile`, and listed under
   "Proprietary build-time downloads" in `third_party/versions.md`. Nothing of
   it is compiled into umbra except the CUDA runtime, linked statically into
   `libumbra-gpu.so` as its license allows.
