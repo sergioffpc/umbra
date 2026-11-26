@@ -3,10 +3,10 @@
 
 #include "close_scene.h"
 
+#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/range1f.h>
 #include <pxr/base/gf/range2f.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/lightSchema.h>
@@ -35,6 +35,7 @@
 
 #include "hydra.h"
 #include "mesh.h"
+#include "motion.h"
 #include "outputs.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -49,12 +50,92 @@ using ::umbra::core::ErrorCode;
 using Product = pxr::HdRenderSettings::RenderProduct;
 using Var = Product::RenderVar;
 
+// The prims of one kind a warning reports: their count and the first.
+class Tally {
+ public:
+  void Add(const pxr::SdfPath& path, std::string_view detail = {}) {
+    if (count_ == 0) {
+      first_ = path.GetString();
+      detail_ = detail;
+    }
+    ++count_;
+  }
+
+  [[nodiscard]] std::size_t count() const { return count_; }
+  // "/World/Car/Body" for one, "first /World/Car/Body" for more.
+  [[nodiscard]] std::string First() const {
+    return count_ == 1 ? first_ : "first " + first_;
+  }
+  [[nodiscard]] const std::string& detail() const UMBRA_LIFETIMEBOUND {
+    return detail_;
+  }
+
+ private:
+  std::size_t count_ = 0;
+  std::string first_;
+  std::string detail_;
+};
+
+// `singular` for one, `plural` otherwise.
+std::string_view Plural(std::size_t count, std::string_view singular,
+                        std::string_view plural) {
+  return count == 1 ? singular : plural;
+}
+
+// The prims whose motion sampling changed, for the warnings that report
+// them.
+class MotionTallies {
+ public:
+  void Add(const pxr::SdfPath& path, MotionOutcome outcome) {
+    switch (outcome) {
+      case MotionOutcome::kSampled:
+        break;
+      case MotionOutcome::kResampledDown:
+        resampled_.Add(path);
+        break;
+      case MotionOutcome::kTopologyChanges:
+        changing_.Add(path);
+        break;
+    }
+  }
+
+  // "warning: usd: 3 prims change topology within the shutter, rendered
+  // without motion blur (first /World/fluid)", and "warning: usd: 2 prims
+  // have more than 16 motion samples within the shutter, resampled down to
+  // 16 (first /World/sim)".
+  void Report() const {
+    if (changing_.count() > 0) {
+      UMBRA_LOG_WARNING(
+          kUsd,
+          "{} {} topology within the shutter, rendered without motion blur "
+          "({})",
+          changing_.count(),
+          Plural(changing_.count(), "prim changes", "prims change"),
+          changing_.First());
+    }
+    if (resampled_.count() > 0) {
+      UMBRA_LOG_WARNING(kUsd,
+                        "{} {} more than {} motion samples within the "
+                        "shutter, resampled down to {} ({})",
+                        resampled_.count(),
+                        Plural(resampled_.count(), "prim has", "prims have"),
+                        kMaxMotionSamples, kMaxMotionSamples,
+                        resampled_.First());
+    }
+  }
+
+ private:
+  Tally changing_;
+  Tally resampled_;
+};
+
 // The cameras the settings and their products see through, converted once
-// each, in meters.
+// each, in meters, their transforms sampled over the shutter.
 class Cameras {
  public:
-  Cameras(const SyncedPrims& prims UMBRA_LIFETIMEBOUND, double meters_per_unit)
-      : prims_(&prims), meters_per_unit_(meters_per_unit) {}
+  Cameras(const SyncedPrims& prims UMBRA_LIFETIMEBOUND, double meters_per_unit,
+          MotionTallies& motion UMBRA_LIFETIMEBOUND)
+      : prims_(&prims), meters_per_unit_(meters_per_unit), motion_(&motion) {}
 
   // The index of the camera at `path`, which `owner` names: fails when
   // there is none, or it is not a Camera.
@@ -64,7 +145,7 @@ class Cameras {
   std::vector<scene::Camera> Take() { return std::move(cameras_); }
 
  private:
-  [[nodiscard]] scene::Camera Convert(const CameraPrim& prim) const;
+  [[nodiscard]] scene::Camera Convert(const CameraPrim& prim);
   // A length in scene units, in meters.
   [[nodiscard]] double Meters(float length) const {
     return static_cast<double>(length) * meters_per_unit_;
@@ -72,6 +153,7 @@ class Cameras {
 
   const SyncedPrims* prims_;
   double meters_per_unit_;
+  MotionTallies* motion_;
   std::map<pxr::SdfPath, std::size_t> indices_;
   std::vector<scene::Camera> cameras_;
 };
@@ -97,7 +179,7 @@ std::expected<std::size_t, Error> Cameras::Index(const pxr::SdfPath& path,
   return cameras_.size() - 1;
 }
 
-scene::Camera Cameras::Convert(const CameraPrim& prim) const {
+scene::Camera Cameras::Convert(const CameraPrim& prim) {
   const double scale = meters_per_unit_;
   // Lengths are in scene units, the apertures and focal length too once
   // Hydra has read them.
@@ -106,7 +188,12 @@ scene::Camera Cameras::Convert(const CameraPrim& prim) const {
   camera.projection = prim.GetProjection() == pxr::HdCamera::Orthographic
                           ? scene::Projection::kOrthographic
                           : scene::Projection::kPerspective;
-  camera.camera_to_world = TransformInMeters(prim.GetTransform(), scale);
+  const SampledTransform camera_to_world = ResampleTransform(
+      prim.transform_samples(), prim.GetTransform(), prims_->shutter);
+  motion_->Add(prim.GetId(), camera_to_world.outcome);
+  for (const pxr::GfMatrix4d& transform : camera_to_world.motion) {
+    camera.camera_to_world.push_back(TransformInMeters(transform, scale));
+  }
   camera.focal_length = Meters(prim.GetFocalLength());
   camera.aperture = {
       Meters(prim.GetHorizontalAperture()),
@@ -123,7 +210,6 @@ scene::Camera Cameras::Convert(const CameraPrim& prim) const {
   };
   camera.f_stop = static_cast<double>(prim.GetFStop());
   camera.focus_distance = Meters(prim.GetFocusDistance());
-  camera.shutter = {prim.GetShutterOpen(), prim.GetShutterClose()};
   return camera;
 }
 
@@ -159,38 +245,6 @@ class UnsupportedVars {
   std::string first_product_;
 };
 
-// The prims of one kind a warning reports: their count and the first.
-class Tally {
- public:
-  void Add(const pxr::SdfPath& path, std::string_view detail = {}) {
-    if (count_ == 0) {
-      first_ = path.GetString();
-      detail_ = detail;
-    }
-    ++count_;
-  }
-
-  [[nodiscard]] std::size_t count() const { return count_; }
-  // "/World/Car/Body" for one, "first /World/Car/Body" for more.
-  [[nodiscard]] std::string First() const {
-    return count_ == 1 ? first_ : "first " + first_;
-  }
-  [[nodiscard]] const std::string& detail() const UMBRA_LIFETIMEBOUND {
-    return detail_;
-  }
-
- private:
-  std::size_t count_ = 0;
-  std::string first_;
-  std::string detail_;
-};
-
-// `singular` for one, `plural` otherwise.
-std::string_view Plural(std::size_t count, std::string_view singular,
-                        std::string_view plural) {
-  return count == 1 ? singular : plural;
-}
-
 // "1 mesh asks", "120 meshes ask".
 std::string Meshes(std::size_t count, std::string_view singular_verb,
                    std::string_view plural_verb) {
@@ -202,6 +256,9 @@ std::string Meshes(std::size_t count, std::string_view singular_verb,
 // tallies of those it does not, for their warnings.
 class Geometry {
  public:
+  explicit Geometry(MotionTallies& motion UMBRA_LIFETIMEBOUND)
+      : motion_(&motion) {}
+
   void Add(const pxr::SdfPath& path, MeshPrim& mesh);
   void Add(const UnsupportedPrim& prim);
 
@@ -216,6 +273,7 @@ class Geometry {
   std::vector<scene::Instance> TakeInstances() { return std::move(instances_); }
 
  private:
+  MotionTallies* motion_;
   std::vector<scene::Mesh> prototypes_;
   std::vector<scene::Instance> instances_;
   std::map<std::string, Tally> subdivided_;
@@ -244,6 +302,7 @@ void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
   if (!mesh.subdivision_scheme().empty()) {
     subdivided_[mesh.subdivision_scheme()].Add(path);
   }
+  motion_->Add(path, mesh.motion_outcome());
   for (scene::Instance& instance : instances) {
     instance.prototype = prototypes_.size();
     instances_.push_back(std::move(instance));
@@ -506,13 +565,6 @@ std::expected<scene::RenderProduct, Error> ProductConverter::Implicit(
   return product;
 }
 
-// The camera the settings name, an empty path for none.
-pxr::SdfPath SettingsCamera(const RenderSettingsPrim& settings) {
-  const pxr::VtValue& camera = settings.GetCamera();
-  return camera.IsHolding<pxr::SdfPath>() ? camera.UncheckedGet<pxr::SdfPath>()
-                                          : pxr::SdfPath();
-}
-
 // The products of the settings, or their implicit one.
 std::expected<std::vector<scene::RenderProduct>, Error> Products(
     const RenderSettingsPrim& settings, std::size_t camera,
@@ -536,6 +588,26 @@ std::expected<std::vector<scene::RenderProduct>, Error> Products(
   return products;
 }
 
+// The meshes the Scene takes, with their instances; the warnings about the
+// geometry and its motion reported.
+Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion) {
+  Geometry geometry(motion);
+  for (const auto& [path, mesh] : prims.meshes) {
+    geometry.Add(path, *mesh);
+  }
+  for (const auto& [path, prim] : prims.unsupported) {
+    geometry.Add(*prim);
+  }
+  for (const auto& [path, instancer] : prims.instancers) {
+    if (instancer->IsSynced()) {
+      motion.Add(path, instancer->motion_outcome());
+    }
+  }
+  geometry.Report();
+  motion.Report();
+  return geometry;
+}
+
 }  // namespace
 
 std::expected<scene::Scene, Error> CloseScene(
@@ -548,9 +620,10 @@ std::expected<scene::Scene, Error> CloseScene(
                                                 inputs.settings.GetString())));
   }
   const RenderSettingsPrim& settings = *found->second;
-  Cameras cameras(prims, inputs.meters_per_unit);
+  MotionTallies motion;
+  Cameras cameras(prims, inputs.meters_per_unit, motion);
   const auto camera = cameras.Index(
-      SettingsCamera(settings),
+      settings.CameraPath(),
       std::format("render settings {}", inputs.settings.GetString()));
   if (!camera.has_value()) {
     return std::unexpected(camera.error());
@@ -566,16 +639,9 @@ std::expected<scene::Scene, Error> CloseScene(
       .camera = *camera,
       .products = std::move(*products),
   };
-  Geometry geometry;
-  for (const auto& [path, mesh] : prims.meshes) {
-    geometry.Add(path, *mesh);
-  }
-  for (const auto& [path, prim] : prims.unsupported) {
-    geometry.Add(*prim);
-  }
-  geometry.Report();
+  Geometry geometry = CloseGeometry(prims, motion);
   ReportLightLinking(scene_index);
-  return scene::Scene(std::move(converted), cameras.Take(),
+  return scene::Scene(std::move(converted), prims.shutter, cameras.Take(),
                       geometry.TakePrototypes(), geometry.TakeInstances());
 }
 

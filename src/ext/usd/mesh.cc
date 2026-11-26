@@ -418,21 +418,26 @@ std::expected<std::optional<scene::Primvar>, std::string> ConvertPrimvar(
   return primvar;
 }
 
-// The points of a mesh, in meters.
+// `source`, points in scene units, in meters.
+std::vector<Point> InMeters(const pxr::VtVec3fArray& source,
+                            double meters_per_unit) {
+  const auto scale = static_cast<float>(meters_per_unit);
+  std::vector<Point> points;
+  points.reserve(source.size());
+  for (const pxr::GfVec3f& point : source) {
+    points.push_back({point.x * scale, point.y * scale, point.z * scale});
+  }
+  return points;
+}
+
+// The points of a mesh at the frame, in meters.
 std::expected<std::vector<Point>, std::string> PointsInMeters(
     const pxr::VtValue& value, double meters_per_unit) {
   if (!value.IsHolding<pxr::VtVec3fArray>()) {
     return std::unexpected(
         std::format("points of type {}, not point3f[]", value.GetTypeName()));
   }
-  const auto scale = static_cast<float>(meters_per_unit);
-  std::vector<Point> points;
-  const auto& source = value.UncheckedGet<pxr::VtVec3fArray>();
-  points.reserve(source.size());
-  for (const pxr::GfVec3f& point : source) {
-    points.push_back({point.x * scale, point.y * scale, point.z * scale});
-  }
-  return points;
+  return InMeters(value.UncheckedGet<pxr::VtVec3fArray>(), meters_per_unit);
 }
 
 Point Add(const Point& lhs, const Point& rhs) {
@@ -508,8 +513,9 @@ bool IsNormals(const scene::Primvar& primvar) {
 }
 
 // Takes the authored normals, unless they cannot be normals; computes
-// smooth ones otherwise, or when there are none.
-void SetNormals(std::optional<scene::Primvar> authored, scene::Mesh& mesh) {
+// smooth ones from `points` otherwise, or when there are none.
+void SetNormals(std::optional<scene::Primvar> authored,
+                const std::vector<Point>& points, scene::Mesh& mesh) {
   if (authored.has_value() && IsNormals(*authored)) {
     mesh.normals = std::move(*authored);
     return;
@@ -520,7 +526,7 @@ void SetNormals(std::optional<scene::Primvar> authored, scene::Mesh& mesh) {
                     "smooth ones computed",
                     mesh.path);
   }
-  mesh.normals = SmoothNormals(mesh.points.front(), mesh.triangles);
+  mesh.normals = SmoothNormals(points, mesh.triangles);
 }
 
 // Converts the primvars of `source` into `mesh`, its normals apart: none
@@ -574,11 +580,18 @@ std::expected<scene::Mesh, std::string> ConvertMesh(const SourceMesh& source,
   if (!normals.has_value()) {
     return std::unexpected(normals.error());
   }
-  mesh.points.push_back(std::move(*points));
   mesh.triangles = std::move(triangulation->triangles);
   mesh.source_faces = std::move(triangulation->source_faces);
   mesh.face_vertex_counts = std::move(triangulation->face_vertex_counts);
-  SetNormals(std::move(*normals), mesh);
+  SetNormals(std::move(*normals), *points, mesh);
+  if (source.point_motion.empty()) {
+    mesh.points.push_back(std::move(*points));
+    return mesh;
+  }
+  mesh.points.reserve(source.point_motion.size());
+  for (const pxr::VtVec3fArray& sample : source.point_motion) {
+    mesh.points.push_back(InMeters(sample, meters_per_unit));
+  }
   return mesh;
 }
 

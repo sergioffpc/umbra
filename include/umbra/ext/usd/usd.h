@@ -51,10 +51,15 @@ struct LoadOptions {
 // once, with their instances: one for a mesh not instanced, and one for
 // each instance of native instancing and PointInstancers, nested
 // instancers flattened into one level, with the primvars they give per
-// instance. One warning each reports the meshes rendered as the cage of the
-// subdivision they ask for, the invalid ones, dropped, the curves, points
-// and volumes, left out, and the lights that link geometry: every light
-// lights everything.
+// instance. Motion is sampled within the shutter of the settings' camera,
+// none when the settings disable motion blur: the transforms of the
+// instances and cameras, and the points of the meshes, that move get
+// equally spaced samples over it, as many as they have within it, at least
+// 2 and at most 16. One warning each reports the meshes rendered as the cage
+// of the subdivision they ask for, the invalid ones, dropped, the curves,
+// points and volumes, left out, the lights that link geometry (every light
+// lights everything), the prims whose topology changes within the shutter,
+// rendered without motion blur, and those resampled down to 16 samples.
 //
 // Fails with kNotFound when the file does not exist or no RenderSettings
 // prim is at the settings' path; kInvalidArgument when the file cannot be

@@ -10,6 +10,7 @@
 #ifndef UMBRA_EXT_USD_HYDRA_H_
 #define UMBRA_EXT_USD_HYDRA_H_
 
+#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
@@ -37,6 +38,7 @@
 #include <vector>
 
 #include "instancer.h"
+#include "motion.h"
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
@@ -92,6 +94,8 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
   [[nodiscard]] const SettingsBase& base() const UMBRA_LIFETIMEBOUND {
     return base_;
   }
+  // The camera it names, an empty path for none.
+  [[nodiscard]] pxr::SdfPath CameraPath() const;
 
  protected:
   // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
@@ -106,7 +110,8 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
   SettingsBase base_;
 };
 
-// A Camera prim, synced.
+// A Camera prim, synced, with the samples of its transform over its own
+// shutter: the cameras sync before the shutter of the scene is known.
 class CameraPrim final : public pxr::HdCamera {
  public:
   // Counts its sync into `phase`, unless it is a fallback prim.
@@ -117,8 +122,16 @@ class CameraPrim final : public pxr::HdCamera {
             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
             pxr::HdDirtyBits* dirty_bits) override;
 
+  // The samples of its transform over its shutter, in scene units: its
+  // transform at the frame alone when the shutter spans no interval.
+  [[nodiscard]] const TimedSamples<pxr::GfMatrix4d>& transform_samples() const
+      UMBRA_LIFETIMEBOUND {
+    return transform_samples_;
+  }
+
  private:
   core::ProgressPhase* UMBRA_NULLABLE phase_;
+  TimedSamples<pxr::GfMatrix4d> transform_samples_;
 };
 
 // What the sync of a mesh gave.
@@ -135,13 +148,15 @@ enum class MeshState : std::uint8_t {
 
 // A Mesh prim, synced into the Scene's mesh when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
-// own when it has no instancer. Implicit surfaces reach it as meshes.
+// own when it has no instancer. Implicit surfaces reach it as meshes. Its
+// points and its transform are sampled over the shutter.
 class MeshPrim final : public pxr::HdMesh {
  public:
   // Counts its sync into `phase`; its lengths are scaled by
-  // `meters_per_unit`.
+  // `meters_per_unit`. `shutter` is chosen before it syncs.
   MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
-           double meters_per_unit);
+           double meters_per_unit,
+           const scene::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* delegate,
@@ -158,11 +173,13 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] const std::string& invalid_reason() const UMBRA_LIFETIMEBOUND {
     return invalid_reason_;
   }
+  // What sampling did with its motion, once converted.
+  [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
   // Its mesh, once converted, moved out.
   [[nodiscard]] scene::Mesh TakeMesh();
   // Its instances, once converted, moved out: their object-to-world
-  // transforms in meters, and their own primvars; their prototype is not
-  // set. None when its instancer places none.
+  // transforms in meters, one per motion sample, and their own primvars;
+  // their prototype is not set. None when its instancer places none.
   [[nodiscard]] std::vector<scene::Instance> TakeInstances();
 
  protected:
@@ -176,12 +193,14 @@ class MeshPrim final : public pxr::HdMesh {
 
  private:
   void Convert(pxr::HdSceneDelegate& delegate);
-  // Its instances, from its transform and its instancer's.
-  void Place(pxr::HdSceneDelegate& delegate);
+  // Its instances, from its transform and its instancer's, over `shutter`.
+  void Place(pxr::HdSceneDelegate& delegate, const scene::Shutter& shutter);
 
   core::ProgressPhase* phase_;
   double meters_per_unit_;
+  const scene::Shutter* shutter_;
   MeshState state_ = MeshState::kNotSynced;
+  MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
   scene::Mesh mesh_;
@@ -226,8 +245,10 @@ class UnsupportedPrim final : public pxr::HdRprim {
   Synced synced_ = Synced::kNotSynced;
 };
 
-// The prims the delegate synced, by path, as CommitResources sees them.
+// The prims the delegate synced, by path, as CommitResources sees them, and
+// the shutter they were sampled over.
 struct SyncedPrims {
+  scene::Shutter shutter;
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
   std::map<pxr::SdfPath, const CameraPrim*> cameras;
   std::map<pxr::SdfPath, MeshPrim*> meshes;
@@ -262,6 +283,12 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // include, once synced.
   [[nodiscard]] pxr::TfTokenVector RenderTags(
       const pxr::SdfPath& settings) const;
+
+  // Chooses the shutter the rprims are sampled over, once the settings and
+  // the cameras are synced: that of the settings' camera, or none when the
+  // settings disable motion blur, the camera is not synced or its shutter
+  // spans no interval.
+  void ChooseShutter(const pxr::SdfPath& settings);
 
   // The Scene CommitResources closed, or its error; none before.
   [[nodiscard]] std::optional<std::expected<scene::Scene, core::Error>>
@@ -310,11 +337,10 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
 };
 
 // The task of umbra's that runs in HdEngine::Execute: it only syncs, the
-// rprims of the purposes the settings include.
+// rprims of the purposes the settings include, over the shutter it chooses.
 class SyncTask final : public pxr::HdTask {
  public:
-  SyncTask(const RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-           pxr::SdfPath settings);
+  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND, pxr::SdfPath settings);
 
   void Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE delegate,
             pxr::HdTaskContext* context, pxr::HdDirtyBits* dirty_bits) override;
@@ -323,7 +349,7 @@ class SyncTask final : public pxr::HdTask {
   [[nodiscard]] const pxr::TfTokenVector& GetRenderTags() const override;
 
  private:
-  const RenderDelegate* delegate_;
+  RenderDelegate* delegate_;
   pxr::SdfPath settings_;
   pxr::TfTokenVector render_tags_;
 };

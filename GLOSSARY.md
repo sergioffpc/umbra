@@ -51,8 +51,8 @@ _Avoid:_ AOV
 
 **Shutter**:
 The interval of time a frame integrates, from the camera's `shutter:open` to
-its `shutter:close`, relative to the frame
-(docs/adr/0006-scenes-enter-through-hydra.md).
+its `shutter:close`, relative to the frame; none when the render settings
+disable motion blur (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Motion sample**:
 The value of a transform or of a mesh's points at one of the equally spaced

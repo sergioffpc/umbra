@@ -5,6 +5,8 @@
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/token.h>
+#include <pxr/base/vt/types.h>
+#include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
@@ -27,6 +29,7 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usdImaging/usdImaging/usdRenderSettingsSchema.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +42,7 @@
 
 #include "instancer.h"
 #include "mesh.h"
+#include "motion.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
@@ -135,6 +139,45 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
   return primvars;
 }
 
+// The motion samples of the points of the mesh at `prim_id`, whose points at
+// the frame are `frame`, over `shutter`: none when their count changes within
+// it.
+Motion<pxr::VtVec3fArray> SamplePoints(pxr::HdSceneDelegate& delegate,
+                                       const pxr::SdfPath& prim_id,
+                                       const pxr::VtValue& frame,
+                                       const scene::Shutter& shutter) {
+  if (!IsMotionBlurred(shutter) || !frame.IsHolding<pxr::VtVec3fArray>()) {
+    return {};
+  }
+  const TimedSamples<pxr::VtValue> sampled =
+      SamplePrimvar(delegate, prim_id, pxr::HdTokens->points, shutter);
+  const std::size_t count = frame.UncheckedGet<pxr::VtVec3fArray>().size();
+  TimedSamples<pxr::VtVec3fArray> samples{
+      .times = sampled.times,
+      .values = {},
+  };
+  for (const pxr::VtValue& value : sampled.values) {
+    if (!value.IsHolding<pxr::VtVec3fArray>() ||
+        value.UncheckedGet<pxr::VtVec3fArray>().size() != count) {
+      return {.samples = {}, .outcome = MotionOutcome::kTopologyChanges};
+    }
+    samples.values.push_back(value.UncheckedGet<pxr::VtVec3fArray>());
+  }
+  return MotionOf(samples, shutter, BlendPoints);
+}
+
+// The motion samples of the transform of the prim at `prim_id` over `shutter`.
+SampledTransform SampleTransformMotion(pxr::HdSceneDelegate& delegate,
+                                       const pxr::SdfPath& prim_id,
+                                       const scene::Shutter& shutter) {
+  const pxr::GfMatrix4d frame = delegate.GetTransform(prim_id);
+  if (!IsMotionBlurred(shutter)) {
+    return {.motion = {frame}, .outcome = MotionOutcome::kSampled};
+  }
+  return ResampleTransform(SampleTransform(delegate, prim_id, shutter), frame,
+                           shutter);
+}
+
 // Forgets `prim`, about to be destroyed, when `prims` holds it.
 template <typename Prim, typename Base>
 void Forget(std::map<pxr::SdfPath, Prim*>& prims, const Base& prim) {
@@ -178,6 +221,12 @@ void RenderSettingsPrim::_Sync(
   CountSync(phase_, GetId());
 }
 
+pxr::SdfPath RenderSettingsPrim::CameraPath() const {
+  const pxr::VtValue& camera = GetCamera();
+  return camera.IsHolding<pxr::SdfPath>() ? camera.UncheckedGet<pxr::SdfPath>()
+                                          : pxr::SdfPath();
+}
+
 CameraPrim::CameraPrim(const pxr::SdfPath& prim_id,
                        core::ProgressPhase* UMBRA_NULLABLE phase)
     : pxr::HdCamera(prim_id), phase_(phase) {}
@@ -186,12 +235,27 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
                       pxr::HdRenderParam* UMBRA_NULLABLE render_param,
                       pxr::HdDirtyBits* dirty_bits) {
   pxr::HdCamera::Sync(scene_delegate, render_param, dirty_bits);
+  const scene::Shutter shutter{
+      .open = GetShutterOpen(),
+      .close = GetShutterClose(),
+  };
+  transform_samples_ = {.times = {0.0F}, .values = {GetTransform()}};
+  if (IsMotionBlurred(shutter) && !GetId().IsEmpty()) {
+    TimedSamples<pxr::GfMatrix4d> samples =
+        SampleTransform(*scene_delegate, GetId(), shutter);
+    if (!samples.values.empty()) {
+      transform_samples_ = std::move(samples);
+    }
+  }
   CountSync(phase_, GetId());
 }
 
 MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, core::ProgressPhase& phase,
-                   double meters_per_unit)
-    : pxr::HdMesh(prim_id), phase_(&phase), meters_per_unit_(meters_per_unit) {}
+                   double meters_per_unit, const scene::Shutter& shutter)
+    : pxr::HdMesh(prim_id),
+      phase_(&phase),
+      meters_per_unit_(meters_per_unit),
+      shutter_(&shutter) {}
 
 pxr::HdDirtyBits MeshPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdChangeTracker::AllSceneDirtyBits;
@@ -223,14 +287,19 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
 }
 
 void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
-  const SourceMesh source{
+  SourceMesh source{
       .path = GetId().GetString(),
       .topology = GetMeshTopology(&delegate),
       .points = GetPoints(&delegate),
+      .point_motion = {},
       .primvars = ReadPrimvars(delegate, GetId()),
       .sidedness = IsDoubleSided(&delegate) ? scene::Sidedness::kDoubleSided
                                             : scene::Sidedness::kSingleSided,
   };
+  Motion<pxr::VtVec3fArray> motion =
+      SamplePoints(delegate, GetId(), source.points, *shutter_);
+  source.point_motion = std::move(motion.samples);
+  motion_outcome_ = motion.outcome;
   if (IsSubdivided(source.topology)) {
     subdivision_scheme_ = source.topology.GetScheme().GetString();
   }
@@ -242,11 +311,17 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   state_ = MeshState::kConverted;
   mesh_ = std::move(*mesh);
-  Place(delegate);
+  // A mesh whose topology changes within the shutter has no blur at all.
+  Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges
+                      ? scene::Shutter{}
+                      : *shutter_);
 }
 
-void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
-  const pxr::GfMatrix4d object_to_instance = delegate.GetTransform(GetId());
+void MeshPrim::Place(pxr::HdSceneDelegate& delegate,
+                     const scene::Shutter& shutter) {
+  const SampledTransform object_to_instance =
+      SampleTransformMotion(delegate, GetId(), shutter);
+  motion_outcome_ = std::max(motion_outcome_, object_to_instance.outcome);
   std::vector<FlatInstance> placements;
   const pxr::SdfPath& instancer_id = GetInstancerId();
   if (instancer_id.IsEmpty()) {
@@ -264,15 +339,20 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
   instances_.clear();
   instances_.reserve(placements.size());
   for (FlatInstance& placement : placements) {
-    instances_.push_back({
+    TransformMotion object_to_world =
+        ComposeMotion(object_to_instance.motion, placement.transforms);
+    CollapseStill(object_to_world);
+    scene::Instance instance{
         .prototype = 0,
-        .object_to_world =
-            {
-                TransformInMeters(object_to_instance * placement.transform,
-                                  meters_per_unit_),
-            },
+        .object_to_world = {},
         .primvars = std::move(placement.primvars),
-    });
+    };
+    instance.object_to_world.reserve(object_to_world.size());
+    for (const pxr::GfMatrix4d& transform : object_to_world) {
+      instance.object_to_world.push_back(
+          TransformInMeters(transform, meters_per_unit_));
+    }
+    instances_.push_back(std::move(instance));
   }
 }
 
@@ -338,6 +418,26 @@ std::size_t RenderDelegate::PrimCount() const {
          prims_.instancers.size() + prims_.unsupported.size();
 }
 
+void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
+  prims_.shutter = {};
+  const auto found = prims_.settings.find(settings);
+  if (found == prims_.settings.end() ||
+      found->second->base().motion_blur == scene::MotionBlur::kDisabled) {
+    return;
+  }
+  const auto camera = prims_.cameras.find(found->second->CameraPath());
+  if (camera == prims_.cameras.end()) {
+    return;
+  }
+  const scene::Shutter shutter{
+      .open = camera->second->GetShutterOpen(),
+      .close = camera->second->GetShutterClose(),
+  };
+  if (IsMotionBlurred(shutter)) {
+    prims_.shutter = shutter;
+  }
+}
+
 pxr::TfTokenVector RenderDelegate::RenderTags(
     const pxr::SdfPath& settings) const {
   const auto found = prims_.settings.find(settings);
@@ -394,7 +494,8 @@ pxr::HdRenderPassSharedPtr RenderDelegate::CreateRenderPass(
 
 pxr::HdInstancer* RenderDelegate::CreateInstancer(
     pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id) {
-  auto instancer = std::make_unique<InstancerPrim>(delegate, prim_id, *phase_);
+  auto instancer = std::make_unique<InstancerPrim>(delegate, prim_id, *phase_,
+                                                   prims_.shutter);
   prims_.instancers[prim_id] = instancer.get();
   return Release<pxr::HdInstancer>(std::move(instancer));
 }
@@ -407,7 +508,8 @@ void RenderDelegate::DestroyInstancer(pxr::HdInstancer* instancer) {
 pxr::HdRprim* UMBRA_NULLABLE RenderDelegate::CreateRprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
   if (type_id == pxr::HdPrimTypeTokens->mesh) {
-    auto mesh = std::make_unique<MeshPrim>(prim_id, *phase_, meters_per_unit_);
+    auto mesh = std::make_unique<MeshPrim>(prim_id, *phase_, meters_per_unit_,
+                                           prims_.shutter);
     prims_.meshes[prim_id] = mesh.get();
     return Release<pxr::HdRprim>(std::move(mesh));
   }
@@ -508,7 +610,7 @@ void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
   }
 }
 
-SyncTask::SyncTask(const RenderDelegate& delegate, pxr::SdfPath settings)
+SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
     : pxr::HdTask(SyncTaskPath()),
       delegate_(&delegate),
       settings_(std::move(settings)) {}
@@ -516,8 +618,10 @@ SyncTask::SyncTask(const RenderDelegate& delegate, pxr::SdfPath settings)
 void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
                     pxr::HdTaskContext* /*context*/,
                     pxr::HdDirtyBits* dirty_bits) {
-  // The render settings are synced before the tasks, and the rprims after.
+  // The render settings and the cameras are synced before the tasks, and
+  // the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
+  delegate_->ChooseShutter(settings_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }
 

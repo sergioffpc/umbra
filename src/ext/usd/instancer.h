@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "motion.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/scene/scene.h"
@@ -35,20 +36,21 @@ namespace pxr = PXR_NS;
 // An instance of a prototype, through every level of instancing above it.
 struct FlatInstance {
   // The instance-to-world transform, in scene units, row-major, for row
-  // vectors: those of the instancers, composed.
-  pxr::GfMatrix4d transform{1.0};
+  // vectors, one per motion sample: those of the instancers, composed.
+  TransformMotion transforms{pxr::GfMatrix4d(1.0)};
   // Its own primvars, one value each: the innermost instancer's first.
   std::vector<scene::Primvar> primvars;
 };
 
-// An instancer prim, synced: its transform, those of its instances and
-// their primvars. Hydra syncs it, under its own lock, before the first
-// rprim it places reads it; its parents too.
+// An instancer prim, synced: its transform, those of its instances, both
+// sampled over the shutter, and their primvars. Hydra syncs it, under its
+// own lock, before the first rprim it places reads it; its parents too.
 class InstancerPrim final : public pxr::HdInstancer {
  public:
-  // Counts its sync into `phase`.
+  // Counts its sync into `phase`. `shutter` is chosen before it syncs.
   InstancerPrim(pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id,
-                core::ProgressPhase& phase);
+                core::ProgressPhase& phase,
+                const scene::Shutter& shutter UMBRA_LIFETIMEBOUND);
 
   void Sync(pxr::HdSceneDelegate* delegate,
             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
@@ -62,6 +64,8 @@ class InstancerPrim final : public pxr::HdInstancer {
 
   // Whether Hydra synced it: whether an rprim it places was synced.
   [[nodiscard]] bool IsSynced() const { return synced_ == Synced::kSynced; }
+  // What sampling did with its motion, once synced.
+  [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
 
  private:
   enum class Synced : std::uint8_t { kNotSynced, kSynced };
@@ -76,13 +80,18 @@ class InstancerPrim final : public pxr::HdInstancer {
   [[nodiscard]] const InstancerPrim* UMBRA_NULLABLE Parent() const;
   // The number of instances it places, of all its prototypes.
   [[nodiscard]] std::size_t CountInstances() const;
+  // Samples its transform and those of its instances over the shutter.
+  void SampleMotion(pxr::HdSceneDelegate& delegate);
 
   core::ProgressPhase* phase_;
+  const scene::Shutter* shutter_;
   Synced synced_ = Synced::kNotSynced;
   Visibility visibility_ = Visibility::kVisible;
-  pxr::GfMatrix4d transform_{1.0};
-  // The transform of each instance, in the instancer's space, by index.
-  std::vector<pxr::GfMatrix4d> instance_transforms_;
+  MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
+  TransformMotion transform_{pxr::GfMatrix4d(1.0)};
+  // The transform of each instance, in the instancer's space, by index, one
+  // per motion sample.
+  std::vector<TransformMotion> instance_transforms_;
   // The primvars given per instance, every instance's value in each.
   std::vector<scene::Primvar> primvars_;
 };

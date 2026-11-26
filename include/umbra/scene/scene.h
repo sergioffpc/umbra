@@ -29,14 +29,25 @@ enum class Projection : std::uint8_t {
   kOrthographic,
 };
 
+// The interval a frame integrates, in frames relative to the frame: when the
+// shutter opens and when it closes. Both are 0 when there is no motion blur.
+// The motion samples of a prim that moves are equally spaced over it, the
+// first when it opens and the last when it closes; a prim that does not move
+// has one sample, at the frame.
+struct Shutter {
+  double open = 0.0;
+  double close = 0.0;
+};
+
 // A camera, as the stage's Camera prim describes it, in meters.
 struct Camera {
   // The path of its prim ("/World/cam").
   std::string path;
   Projection projection = Projection::kPerspective;
-  // The camera-to-world transform, row-major, for row vectors: the
-  // translation is the last row. The camera looks down its -Z axis, +Y up.
-  std::array<double, 16> camera_to_world{};
+  // The camera-to-world transform, one per motion sample, row-major, for row
+  // vectors: the translation is the last row. The camera looks down its -Z
+  // axis, +Y up.
+  std::vector<std::array<double, 16>> camera_to_world;
   double focal_length = 0.0;
   // The aperture, horizontal then vertical, and its offset from the axis.
   std::array<double, 2> aperture{};
@@ -47,8 +58,6 @@ struct Camera {
   double f_stop = 0.0;
   // The distance in focus, with depth of field.
   double focus_distance = 0.0;
-  // The shutter: when it opens and closes, in frames relative to the frame.
-  std::array<double, 2> shutter{};
 };
 
 // The quantity a render var holds per pixel.
@@ -175,7 +184,7 @@ struct Mesh {
   // The path of its prim ("/World/Car/Body").
   std::string path;
   // The positions of its points, one array per motion sample, each as long
-  // as the others.
+  // as the others: more than one only when they move.
   std::vector<std::vector<std::array<float, 3>>> points;
   // Its triangles, as indices of points.
   std::vector<std::array<std::uint32_t, 3>> triangles;
@@ -197,7 +206,8 @@ struct Instance {
   // Its prototype: an index into Scene::prototypes().
   std::size_t prototype = 0;
   // The object-to-world transform, one per motion sample, row-major, for
-  // row vectors: the translation, in meters, is the last row.
+  // row vectors: the translation, in meters, is the last row. More than one
+  // only when it moves.
   std::vector<std::array<double, 16>> object_to_world;
   // Its own primvars, constant, one value each: they take the place of
   // the prototype's of the same name.
@@ -208,11 +218,15 @@ struct Instance {
 class Scene {
  public:
   // The cameras are those the settings and their products see through.
-  Scene(RenderSettings settings, std::vector<Camera> cameras,
+  Scene(RenderSettings settings, Shutter shutter, std::vector<Camera> cameras,
         std::vector<Mesh> prototypes, std::vector<Instance> instances);
 
   [[nodiscard]] const RenderSettings& settings() const UMBRA_LIFETIMEBOUND {
     return settings_;
+  }
+  // The shutter the motion samples span.
+  [[nodiscard]] const Shutter& shutter() const UMBRA_LIFETIMEBOUND {
+    return shutter_;
   }
   [[nodiscard]] std::span<const Camera> cameras() const UMBRA_LIFETIMEBOUND {
     return cameras_;
@@ -228,6 +242,7 @@ class Scene {
 
  private:
   RenderSettings settings_;
+  Shutter shutter_;
   std::vector<Camera> cameras_;
   std::vector<Mesh> prototypes_;
   std::vector<Instance> instances_;

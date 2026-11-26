@@ -45,7 +45,11 @@ struct SourcePrimvar {
 struct SourceMesh {
   std::string path;
   pxr::HdMeshTopology topology;
+  // Its points at the frame.
   pxr::VtValue points;
+  // The motion samples of its points, each as long as `points`, when they
+  // move within the shutter; none otherwise.
+  std::vector<pxr::VtVec3fArray> point_motion;
   std::vector<SourcePrimvar> primvars;
   scene::Sidedness sidedness = scene::Sidedness::kSingleSided;
 };
@@ -56,10 +60,11 @@ struct SourceMesh {
 
 // Converts `source` into the Scene's mesh, with its lengths scaled by
 // `meters_per_unit`: its polygons fanned into triangles, but for its holes,
-// wound counterclockwise (leftHanded ones flipped); its numeric primvars at
-// the Scene's rates, the others dropped with a debug message. Authored
-// normals are kept unless the mesh asks for subdivision; smooth ones are
-// computed otherwise. Fails with the reason the mesh is invalid: points
+// wound counterclockwise (leftHanded ones flipped); its points one array per
+// motion sample; its numeric primvars at the Scene's rates, the others
+// dropped with a debug message. Authored normals are kept unless the mesh
+// asks for subdivision; smooth ones are computed otherwise, from its points
+// at the frame. Fails with the reason the mesh is invalid: points
 // that are not point3f[], a face of fewer than three vertices, counts that
 // do not add up to its indices, an index out of range, or a primvar whose
 // size does not match its interpolation.
