@@ -1,5 +1,9 @@
 # Materials cross into the Scene as neutral networks
 
+Revised by docs/adr/0013-devices-render-from-their-own-memory.md: the host
+compiles each material at the commit, once for each kind of device the
+render uses, and the devices receive the compiled shaders.
+
 A USD material reaches the render delegate as an `HdMaterialNetwork2`: its
 nodes, their parameters and the connections between them, for MaterialX
 nodedefs or OSL shaders. The OpenUSD bridge translates it into a material

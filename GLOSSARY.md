@@ -2,26 +2,53 @@
 
 Umbra is a physically based path tracer. This glossary fixes the language of its domain.
 
-## Scenes
+## Devices
 
-**Scene**:
-What umbra renders: the render settings, the geometry, the materials and
-the lights of one frame, in umbra's own types, synced from a USD stage
-through Hydra and immutable once loaded
-(docs/adr/0006-scenes-enter-through-hydra.md).
-_Avoid:_ stage (the USD side), render index (Hydra's)
+**Device**:
+What a render runs on: a CPU NUMA node (`cpu0`, `cpu1`, …) or a GPU
+(`gpu0`, `gpu1`, …). In the hot path, it reads only its own memory
+(docs/adr/0004-render-devices.md,
+docs/adr/0013-devices-render-from-their-own-memory.md).
+
+**Render data**:
+What a device builds and renders from: its acceleration structures, and
+the buffers its kernels shade from, in its own memory
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
+_Avoid:_ scene
+
+**Host copy**:
+What a prim of the render delegate converts its sync into, in umbra's
+types, and holds until the end of the commit
+(docs/adr/0013-devices-render-from-their-own-memory.md).
+_Avoid:_ scene, render data
+
+**Change set**:
+The prims added, updated and removed since the last commit, by id, with
+what changed in each (docs/adr/0013-devices-render-from-their-own-memory.md).
+
+**Commit**:
+The hand-off of the change set to every device, between the sync of the
+prims and the render pass
+(docs/adr/0013-devices-render-from-their-own-memory.md).
+
+**Frame parameters**:
+What a device receives for each frame besides render data: the shutter,
+the active camera and the render buffers to fill
+(docs/adr/0013-devices-render-from-their-own-memory.md).
+
+## What umbra renders
 
 **Prototype**:
-Geometry the Scene holds once, for every instance of it; a mesh that is not
+Geometry a device holds once, for every instance of it; a mesh that is not
 instanced is a prototype with one instance
-(docs/adr/0006-scenes-enter-through-hydra.md).
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 **Instance**:
 A placement of a prototype: its transform, and its own primvars when it
-has them (docs/adr/0006-scenes-enter-through-hydra.md).
+has them (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 **Light**:
-A UsdLux light the Scene holds: its shape (sphere, rect, disk, cylinder,
+A UsdLux light, as a device holds it: its shape (sphere, rect, disk, cylinder,
 distant or dome) in meters, given by its parameters, its emission, as an
 ACEScg color and an optional blackbody temperature, and its transform. It
 only emits, lights every instance and has no artistic control
@@ -41,7 +68,7 @@ The polygon of a mesh a triangle comes from, as an index into the mesh's
 original faces: per-face texturing (Ptex) maps a hit through it.
 
 **Material network**:
-A material as the Scene holds it: nodes that are MaterialX nodedef ids or
+A material as it crosses from Hydra: nodes that are MaterialX nodedef ids or
 `.oso` shaders, with their parameters and connections, and no shader code
 (docs/adr/0008-materials-cross-as-neutral-networks.md).
 
@@ -54,31 +81,31 @@ translate, or that has none and no `displayColor`
 
 **Render settings**:
 The `UsdRender` prim a render uses: its camera, resolution and render
-products (docs/adr/0006-scenes-enter-through-hydra.md).
+products (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 **Render product**:
 An image file a render writes, holding render vars
-(docs/adr/0006-scenes-enter-through-hydra.md).
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 **Render var**:
 One quantity per pixel a render product holds, such as the color (`color`)
-(docs/adr/0006-scenes-enter-through-hydra.md).
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
 _Avoid:_ AOV
 
 **Shutter**:
 The interval of time a frame integrates, from the camera's `shutter:open` to
 its `shutter:close`, relative to the frame; none when the render settings
-disable motion blur (docs/adr/0006-scenes-enter-through-hydra.md).
+disable motion blur (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 **Motion sample**:
 The value of a transform or of a mesh's points at one of the equally spaced
 times within the shutter, for a prim that moves
-(docs/adr/0006-scenes-enter-through-hydra.md).
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
 
 ## Color
 
 **Reference color space**:
-ACEScg: the color space of every color value in the Scene, and of every
+ACEScg: the color space of every color value in render data, and of every
 texel once the renderer reads it
 (docs/adr/0007-spectral-rendering-from-acescg.md).
 
