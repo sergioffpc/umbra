@@ -51,6 +51,11 @@ file paths only.
   that is not instanced is a prototype with one instance. Every light
   lights every instance: the Scene holds no light or shadow linking
   (docs/adr/0009-lights-light-everything.md).
+- **Materials**, as neutral material networks
+  (docs/adr/0008-materials-cross-as-neutral-networks.md), each held once:
+  a prototype refers to its own and to those of its GeomSubsets, with its
+  colors in ACEScg and its textures as absolute files with their color
+  spaces (docs/adr/0007-spectral-rendering-from-acescg.md).
 - **The shutter**, the interval a frame integrates, from the camera's
   `shutter:open` to its `shutter:close`, relative to the frame, and **motion
   samples** within it: the values of a transform or of a mesh's points at

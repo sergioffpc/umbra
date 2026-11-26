@@ -17,7 +17,12 @@ coefficient), or illuminant (an emission). The renderer uplifts it to a
 spectrum with the sigmoid polynomials of Jakob and Hanika (2019), which give
 a smooth spectrum per RGB color from one precomputed table for the ACEScg
 gamut; the kind chooses how the uplifted spectrum is scaled. A `UsdLux`
-`colorTemperature` is a blackbody spectrum, not an RGB color.
+`colorTemperature` is a blackbody spectrum, not an RGB color. The kind
+applies to the colors outside material networks, such as a light's: a
+network's colors have none, since a color can reach a closure through any
+number of nodes, and the closure gives it its kind when the integrator
+evaluates it (an emission is illuminant, a BSDF's albedo reflectance, a
+medium's coefficients unbounded).
 
 OSL shaders and MaterialX networks shade in RGB, as they are written; the
 closures they return are uplifted per wavelength when the integrator

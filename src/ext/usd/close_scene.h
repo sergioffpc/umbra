@@ -2,8 +2,8 @@
 // Copyright The Umbra Authors
 //
 // Closing the Scene, once Hydra has synced the prims: the render settings
-// the render uses, their camera and their products, and the meshes, in
-// umbra's types.
+// the render uses, their camera and their products, the meshes and their
+// materials, in umbra's types.
 
 #ifndef UMBRA_EXT_USD_CLOSE_SCENE_H_
 #define UMBRA_EXT_USD_CLOSE_SCENE_H_
@@ -45,7 +45,15 @@ struct CloseInputs {
 // or none umbra renders, or a product's file is not .exr; kUnavailable when
 // a file cannot be written. Unsupported render vars are left out, with one
 // warning. Each mesh converted with an instance or more becomes a prototype
-// with its instances; one warning each reports the meshes that ask for a
+// with its instances and its materials, its own and those of its
+// GeomSubsets: the one bound when it translates, else the fallback
+// material; with none bound, the display color material when the mesh has
+// a displayColor, and the fallback material otherwise. The Scene holds the
+// materials of its prototypes, each once. Fails with kInvalidArgument when
+// one of them reads a texture or shader inside a package. One warning each
+// reports the materials that do not translate, the textures that do not
+// resolve, the materials that connect each terminal but the surface, the
+// meshes that ask for a
 // subdivision scheme, the invalid ones, the rprims of each type not
 // supported, the lights of `scene_index`, the terminal scene index, that
 // link geometry, the prims whose topology changes within the shutter and

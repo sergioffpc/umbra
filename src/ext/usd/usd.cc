@@ -43,6 +43,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
@@ -57,9 +58,11 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 #include "close_scene.h"
 #include "hydra.h"
+#include "material.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
@@ -444,6 +447,88 @@ std::string DescribeGeometry(const scene::Scene& scene) {
       core::FormatCount(meshes), meshes == 1 ? "" : "s");
 }
 
+// The kinds of material the debug line counts.
+struct MaterialKinds {
+  std::size_t materialx = 0;
+  std::size_t preview_surface = 0;
+  std::size_t osl = 0;
+};
+
+// Counts `material` into `kinds`: OSL when a node is an .oso shader,
+// UsdPreviewSurface when its surface is, MaterialX otherwise.
+void CountKind(const scene::MaterialNetwork& material, MaterialKinds& kinds) {
+  if (std::ranges::any_of(material.nodes, [](const scene::MaterialNode& node) {
+        return node.kind == scene::ShaderKind::kOsl;
+      })) {
+    ++kinds.osl;
+  } else if (material.nodes.at(material.surface.node).shader ==
+             "ND_UsdPreviewSurface_surfaceshader") {
+    ++kinds.preview_surface;
+  } else {
+    ++kinds.materialx;
+  }
+}
+
+// Adds the files of the textures of `node` to `files`.
+void AddTextures(const scene::MaterialNode& node,
+                 std::set<std::string_view>& files) {
+  for (const scene::Parameter& parameter : node.parameters) {
+    if (const auto* texture = std::get_if<scene::Texture>(&parameter.value)) {
+      files.insert(texture->file);
+    }
+  }
+}
+
+// "MaterialX 40, UsdPreviewSurface 15, OSL 2": the kinds counted, but those
+// of none.
+std::string DescribeKinds(const MaterialKinds& kinds) {
+  const auto named = std::to_array<std::pair<std::string_view, std::size_t>>({
+      {"MaterialX", kinds.materialx},
+      {"UsdPreviewSurface", kinds.preview_surface},
+      {"OSL", kinds.osl},
+  });
+  std::string counts;
+  for (const auto& [name, count] : named) {
+    if (count > 0) {
+      counts += std::format("{}{} {}", counts.empty() ? "" : ", ", name,
+                            core::FormatCount(count));
+    }
+  }
+  return counts;
+}
+
+// The meshes whose own material is the display color material.
+std::size_t CountOnDisplayColor(const scene::Scene& scene) {
+  return static_cast<std::size_t>(std::ranges::count_if(
+      scene.prototypes(), [&scene](const scene::Mesh& mesh) {
+        return !mesh.materials.empty() &&
+               scene.materials().subspan(mesh.materials.front()).front().path ==
+                   internal::kDisplayColorMaterial;
+      }));
+}
+
+// "57 materials (MaterialX 40, UsdPreviewSurface 15, OSL 2), 210 textures,
+// 300 meshes on displayColor": the textures counted by file.
+std::string DescribeMaterials(const scene::Scene& scene) {
+  MaterialKinds kinds;
+  std::set<std::string_view> textures;
+  for (const scene::MaterialNetwork& material : scene.materials()) {
+    CountKind(material, kinds);
+    for (const scene::MaterialNode& node : material.nodes) {
+      AddTextures(node, textures);
+    }
+  }
+  const std::string counts = DescribeKinds(kinds);
+  const std::size_t materials = scene.materials().size();
+  const std::size_t on_display_color = CountOnDisplayColor(scene);
+  return std::format(
+      "{} material{}{}, {} texture{}, {} mesh{} on displayColor",
+      core::FormatCount(materials), materials == 1 ? "" : "s",
+      counts.empty() ? "" : std::format(" ({})", counts),
+      core::FormatCount(textures.size()), textures.size() == 1 ? "" : "s",
+      core::FormatCount(on_display_color), on_display_color == 1 ? "" : "es");
+}
+
 // "shutter -0.25..0.25, 1.2k moving (max 4 samples)": the prototypes whose
 // points move and the instances that move, and the most motion samples of
 // any of them or of a camera.
@@ -469,8 +554,9 @@ std::string DescribeMotion(const scene::Scene& scene) {
 
 // "settings /Render/main, camera /World/cam, 1 product: render/beauty.0012.exr
 // [color, depth], 1.24M triangles in 3.4k meshes, 18 primvars, 2.1M
-// instances of 3.4k prototypes, shutter -0.25..0.25, 1.2k moving (max 4
-// samples)".
+// instances of 3.4k prototypes, 57 materials (MaterialX 40,
+// UsdPreviewSurface 15, OSL 2), 210 textures, 300 meshes on displayColor,
+// shutter -0.25..0.25, 1.2k moving (max 4 samples)".
 std::string DescribeScene(const scene::Scene& scene) {
   const scene::RenderSettings& settings = scene.settings();
   std::string products;
@@ -478,11 +564,11 @@ std::string DescribeScene(const scene::Scene& scene) {
     products += (products.empty() ? "" : ", ") + DescribeProduct(product);
   }
   const std::size_t count = settings.products.size();
-  return std::format("settings {}, camera {}, {} product{}: {}, {}, {}",
-                     settings.path,
-                     scene.cameras().subspan(settings.camera).front().path,
-                     count, count == 1 ? "" : "s", products,
-                     DescribeGeometry(scene), DescribeMotion(scene));
+  return std::format(
+      "settings {}, camera {}, {} product{}: {}, {}, {}, {}", settings.path,
+      scene.cameras().subspan(settings.camera).front().path, count,
+      count == 1 ? "" : "s", products, DescribeGeometry(scene),
+      DescribeMaterials(scene), DescribeMotion(scene));
 }
 
 }  // namespace

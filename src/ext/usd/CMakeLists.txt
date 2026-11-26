@@ -9,6 +9,7 @@ umbra_add_ext_module(
   close_scene.cc
   hydra.cc
   instancer.cc
+  material.cc
   mesh.cc
   motion.cc
   outputs.cc
@@ -16,17 +17,21 @@ umbra_add_ext_module(
   DEPENDS
   core
   scene
+  ext::ocio
   LINK
   tf
   gf
   vt
   work
   plug
+  ar
   sdf
   usd
   usdGeom
+  usdShade
   usdRender
   hd
+  hio
   pxOsd
   hdsi
   usdImaging)

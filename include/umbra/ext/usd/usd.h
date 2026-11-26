@@ -55,17 +55,29 @@ struct LoadOptions {
 // none when the settings disable motion blur: the transforms of the
 // instances and cameras, and the points of the meshes, that move get
 // equally spaced samples over it, as many as they have within it, at least
-// 2 and at most 16. One warning each reports the meshes rendered as the cage
-// of the subdivision they ask for, the invalid ones, dropped, the curves,
-// points and volumes, left out, the lights that link geometry (every light
-// lights everything), the prims whose topology changes within the shutter,
-// rendered without motion blur, and those resampled down to 16 samples.
+// 2 and at most 16. Materials, those of the meshes and of their
+// GeomSubsets, cross as neutral networks of their surface, of MaterialX
+// nodedefs (UsdPreviewSurface's nodes as MaterialX's) and .oso shaders,
+// their colors converted into ACEScg through OpenColorIO from their color
+// space, and their textures resolved by Ar to absolute files, a UDIM set
+// keeping its <UDIM> token, each with its color space. A material that does
+// not translate is rendered as an 18% gray diffuse; a mesh without one, as
+// its displayColor, converted into ACEScg, when it has one. One
+// warning each reports the meshes rendered as the cage of the subdivision
+// they ask for, the invalid ones, dropped, the curves, points and volumes,
+// left out, the materials that do not translate, the textures that do not
+// resolve, rendered with their node's fallback value, the materials that
+// connect a displacement or a volume, not rendered, the lights that link
+// geometry (every light lights everything), the prims whose topology changes
+// within the shutter, rendered without motion blur, and those resampled down
+// to 16 samples.
 //
 // Fails with kNotFound when the file does not exist or no RenderSettings
 // prim is at the settings' path; kInvalidArgument when the file cannot be
 // read or its stage does not open or compose, there are no settings, the
 // settings or a product have no camera or one that is not a Camera, a
-// product has no orderedVars or its file is not .exr; and kUnavailable when
+// product has no orderedVars or its file is not .exr, or a material reads a
+// texture or shader inside a package (.usdz); and kUnavailable when
 // a product's file cannot be written.
 [[nodiscard]] std::expected<scene::Scene, core::Error> LoadScene(
     std::string_view path, const LoadOptions& options);

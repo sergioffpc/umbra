@@ -17,12 +17,12 @@ std::size_t Primvar::Count() const {
 }
 
 Scene::Scene(RenderSettings settings, Shutter shutter,
-             std::vector<Camera> cameras, std::vector<Mesh> prototypes,
-             std::vector<Instance> instances)
+             std::vector<Camera> cameras, Content content)
     : settings_(std::move(settings)),
       shutter_(shutter),
       cameras_(std::move(cameras)),
-      prototypes_(std::move(prototypes)),
-      instances_(std::move(instances)) {}
+      materials_(std::move(content.materials)),
+      prototypes_(std::move(content.prototypes)),
+      instances_(std::move(content.instances)) {}
 
 }  // namespace umbra::scene
