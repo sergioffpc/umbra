@@ -12,8 +12,10 @@
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/enums.h>
+#include <pxr/imaging/hd/geomSubset.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/mesh.h>
+#include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/renderSettings.h>
@@ -37,10 +39,12 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <utility>
 #include <vector>
 
 #include "instancer.h"
+#include "material.h"
 #include "mesh.h"
 #include "motion.h"
 #include "umbra/core/error.h"
@@ -178,6 +182,26 @@ SampledTransform SampleTransformMotion(pxr::HdSceneDelegate& delegate,
                            shutter);
 }
 
+// The GeomSubsets of `topology` bound to a material.
+std::vector<MaterialSubset> MaterialSubsets(
+    const pxr::HdMeshTopology& topology) {
+  std::vector<MaterialSubset> subsets;
+  for (const pxr::HdGeomSubset& subset : topology.GetGeomSubsets()) {
+    if (subset.type != pxr::HdGeomSubset::TypeFaceSet ||
+        subset.materialId.IsEmpty()) {
+      continue;
+    }
+    MaterialSubset bound{.material = subset.materialId, .faces = {}};
+    for (const int face : subset.indices | std::views::filter([](int face) {
+                            return face >= 0;
+                          })) {
+      bound.faces.push_back(static_cast<std::uint32_t>(face));
+    }
+    subsets.push_back(std::move(bound));
+  }
+  return subsets;
+}
+
 // Forgets `prim`, about to be destroyed, when `prims` holds it.
 template <typename Prim, typename Base>
 void Forget(std::map<pxr::SdfPath, Prim*>& prims, const Base& prim) {
@@ -267,6 +291,9 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
                     const pxr::TfToken& /*repr*/) {
   _UpdateVisibility(delegate, dirty_bits);
   _UpdateInstancer(delegate, dirty_bits);
+  if ((*dirty_bits & pxr::HdChangeTracker::DirtyMaterialId) != 0U) {
+    SetMaterialId(delegate->GetMaterialId(GetId()));
+  }
   if (!IsVisible()) {
     state_ = MeshState::kInvisible;
   } else {
@@ -311,6 +338,8 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   state_ = MeshState::kConverted;
   mesh_ = std::move(*mesh);
+  ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
+  material_subsets_ = MaterialSubsets(source.topology);
   // A mesh whose topology changes within the shutter has no blur at all.
   Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges
                       ? scene::Shutter{}
@@ -414,7 +443,8 @@ RenderDelegate::RenderDelegate(core::ProgressPhase& phase,
 RenderDelegate::~RenderDelegate() = default;
 
 std::size_t RenderDelegate::PrimCount() const {
-  return prims_.settings.size() + prims_.cameras.size() + prims_.meshes.size() +
+  return prims_.settings.size() + prims_.cameras.size() +
+         prims_.materials.size() + prims_.meshes.size() +
          prims_.instancers.size() + prims_.unsupported.size();
 }
 
@@ -470,7 +500,10 @@ const pxr::TfTokenVector& RenderDelegate::GetSupportedRprimTypes() const {
 }
 
 const pxr::TfTokenVector& RenderDelegate::GetSupportedSprimTypes() const {
-  static const pxr::TfTokenVector kTypes = {pxr::HdPrimTypeTokens->camera};
+  static const pxr::TfTokenVector kTypes = {
+      pxr::HdPrimTypeTokens->camera,
+      pxr::HdPrimTypeTokens->material,
+  };
   return kTypes;
 }
 
@@ -479,6 +512,19 @@ const pxr::TfTokenVector& RenderDelegate::GetSupportedBprimTypes() const {
       pxr::HdPrimTypeTokens->renderSettings,
   };
   return kTypes;
+}
+
+pxr::TfToken RenderDelegate::GetMaterialBindingPurpose() const {
+  // umbra renders the final image: the full purpose, then allPurpose.
+  return pxr::HdTokens->full;
+}
+
+pxr::TfTokenVector RenderDelegate::GetMaterialRenderContexts() const {
+  return MaterialRenderContexts();
+}
+
+pxr::TfTokenVector RenderDelegate::GetShaderSourceTypes() const {
+  return ShaderSourceTypes();
 }
 
 pxr::HdResourceRegistrySharedPtr RenderDelegate::GetResourceRegistry() const {
@@ -531,6 +577,11 @@ void RenderDelegate::DestroyRprim(pxr::HdRprim* rprim) {
 
 pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
+  if (type_id == pxr::HdPrimTypeTokens->material) {
+    auto material = std::make_unique<MaterialPrim>(prim_id, phase_);
+    prims_.materials[prim_id] = material.get();
+    return Release<pxr::HdSprim>(std::move(material));
+  }
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
@@ -541,6 +592,10 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
 
 pxr::HdSprim* UMBRA_NULLABLE
 RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
+  if (type_id == pxr::HdPrimTypeTokens->material) {
+    return Release<pxr::HdSprim>(
+        std::make_unique<MaterialPrim>(pxr::SdfPath::EmptyPath(), nullptr));
+  }
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
@@ -551,6 +606,7 @@ RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
 void RenderDelegate::DestroySprim(pxr::HdSprim* sprim) {
   const std::unique_ptr<pxr::HdSprim> owned(sprim);
   Forget(prims_.cameras, *sprim);
+  Forget(prims_.materials, *sprim);
 }
 
 pxr::HdBprim* UMBRA_NULLABLE RenderDelegate::CreateBprim(

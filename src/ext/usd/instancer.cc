@@ -34,6 +34,7 @@
 #include <variant>
 #include <vector>
 
+#include "material.h"
 #include "mesh.h"
 #include "motion.h"
 #include "umbra/core/log.h"
@@ -239,8 +240,8 @@ bool IsPlacement(const pxr::TfToken& name) {
          name == pxr::HdInstancerTokens->instanceTranslations;
 }
 
-// The numeric primvars the instancer at `prim_id` gives per instance; the
-// others are dropped with a debug message.
+// The numeric primvars the instancer at `prim_id` gives per instance, its
+// displayColor in ACEScg; the others are dropped with a debug message.
 std::vector<scene::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
                                              const pxr::SdfPath& prim_id) {
   std::vector<scene::Primvar> primvars;
@@ -259,6 +260,7 @@ std::vector<scene::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
     }
     primvars.push_back(std::move(*primvar));
   }
+  ConvertDisplayColor(delegate, prim_id, primvars);
   return primvars;
 }
 

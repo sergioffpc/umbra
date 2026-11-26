@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "instancer.h"
+#include "material.h"
 #include "motion.h"
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
@@ -146,10 +147,19 @@ enum class MeshState : std::uint8_t {
   kInvalid,
 };
 
+// A GeomSubset of a mesh bound to a material.
+struct MaterialSubset {
+  pxr::SdfPath material;
+  // The faces it holds: indices of the mesh's original polygons.
+  std::vector<std::uint32_t> faces;
+};
+
 // A Mesh prim, synced into the Scene's mesh when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
 // own when it has no instancer. Implicit surfaces reach it as meshes. Its
-// points and its transform are sampled over the shutter.
+// points and its transform are sampled over the shutter, and its
+// displayColor converted into ACEScg. Its material is the one bound to it,
+// and its GeomSubsets bound to one keep theirs.
 class MeshPrim final : public pxr::HdMesh {
  public:
   // Counts its sync into `phase`; its lengths are scaled by
@@ -177,6 +187,11 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
   // Its mesh, once converted, moved out.
   [[nodiscard]] scene::Mesh TakeMesh();
+  // Its GeomSubsets bound to a material, once converted.
+  [[nodiscard]] const std::vector<MaterialSubset>& material_subsets() const
+      UMBRA_LIFETIMEBOUND {
+    return material_subsets_;
+  }
   // Its instances, once converted, moved out: their object-to-world
   // transforms in meters, one per motion sample, and their own primvars;
   // their prototype is not set. None when its instancer places none.
@@ -204,6 +219,7 @@ class MeshPrim final : public pxr::HdMesh {
   std::string subdivision_scheme_;
   std::string invalid_reason_;
   scene::Mesh mesh_;
+  std::vector<MaterialSubset> material_subsets_;
   std::vector<scene::Instance> instances_;
 };
 
@@ -251,6 +267,7 @@ struct SyncedPrims {
   scene::Shutter shutter;
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
   std::map<pxr::SdfPath, const CameraPrim*> cameras;
+  std::map<pxr::SdfPath, const MaterialPrim*> materials;
   std::map<pxr::SdfPath, MeshPrim*> meshes;
   std::map<pxr::SdfPath, const InstancerPrim*> instancers;
   std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
@@ -261,8 +278,10 @@ struct SyncedPrims {
 using SceneCloser = std::function<std::expected<scene::Scene, core::Error>(
     const SyncedPrims& prims)>;
 
-// umbra's render delegate. It syncs cameras, render settings, meshes and
-// their instancers, with their lengths scaled by `meters_per_unit`, and
+// umbra's render delegate. It syncs cameras, render settings, materials,
+// meshes and their instancers, with their lengths scaled by
+// `meters_per_unit` and the meshes bound to their materials for the full
+// purpose, and
 // counts the rprims of the types the Scene does not take; its prims count
 // their syncs into the phase. Hydra creates and destroys its prims on one
 // thread.
@@ -300,6 +319,9 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
       const override;
   [[nodiscard]] const pxr::TfTokenVector& GetSupportedBprimTypes()
       const override;
+  [[nodiscard]] pxr::TfToken GetMaterialBindingPurpose() const override;
+  [[nodiscard]] pxr::TfTokenVector GetMaterialRenderContexts() const override;
+  [[nodiscard]] pxr::TfTokenVector GetShaderSourceTypes() const override;
   [[nodiscard]] pxr::HdResourceRegistrySharedPtr GetResourceRegistry()
       const override;
   pxr::HdRenderPassSharedPtr CreateRenderPass(

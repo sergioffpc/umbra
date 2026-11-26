@@ -8,9 +8,13 @@
 #include <OpenColorIO/OpenColorTypes.h>
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <format>
+#include <span>
+#include <string>
 #include <string_view>
 
 #include "umbra/core/error.h"
@@ -28,6 +32,9 @@ using ::umbra::core::LogLevel;
 
 // The built-in config umbra uses when $OCIO is not set.
 constexpr const char* kDefaultConfig = "ocio://default";
+
+// The reference color space, by its name in the configs.
+constexpr const char* kReferenceSpace = "ACEScg";
 
 // A prefix OpenColorIO puts on its messages, and its level.
 struct Prefix {
@@ -75,6 +82,20 @@ colorio::ConstConfigRcPtr LoadConfig() {
   return colorio::Config::CreateFromBuiltinConfig(kDefaultConfig);
 }
 
+// The color space named, or aliased, `name` in `config`, or kNotFound.
+std::expected<colorio::ConstColorSpaceRcPtr, Error> FindColorSpace(
+    const colorio::Config& config, std::string_view name) {
+  colorio::ConstColorSpaceRcPtr space =
+      config.getColorSpace(std::string(name).c_str());
+  if (space == nullptr) {
+    return std::unexpected(Error(
+        ErrorCode::kNotFound,
+        std::format("OpenColorIO: the config '{}' has no color space '{}'",
+                    config.getName(), name)));
+  }
+  return space;
+}
+
 }  // namespace
 
 std::expected<void, Error> Initialize() {
@@ -90,6 +111,54 @@ std::expected<void, Error> Initialize() {
     return std::unexpected(Error(
         ErrorCode::kUnavailable,
         std::format("OpenColorIO: cannot load the config: {}", error.what())));
+  }
+  return {};
+}
+
+std::expected<std::string, Error> ColorSpaceName(std::string_view name) {
+  try {
+    const colorio::ConstConfigRcPtr config = colorio::GetCurrentConfig();
+    return FindColorSpace(*config, name)
+        .transform([](const colorio::ConstColorSpaceRcPtr& space) {
+          return std::string(space->getName());
+        });
+  } catch (const std::exception& error) {
+    return std::unexpected(Error(ErrorCode::kUnavailable,
+                                 std::format("OpenColorIO: {}", error.what())));
+  }
+}
+
+std::expected<void, Error> ConvertToAcescg(std::string_view color_space,
+                                           std::span<float> rgb) {
+  if (rgb.size() % 3 != 0) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("{} numbers are not RGB triples", rgb.size())));
+  }
+  try {
+    const colorio::ConstConfigRcPtr config = colorio::GetCurrentConfig();
+    const auto source = FindColorSpace(*config, color_space);
+    if (!source.has_value()) {
+      return std::unexpected(source.error());
+    }
+    const auto reference = FindColorSpace(*config, kReferenceSpace);
+    if (!reference.has_value()) {
+      return std::unexpected(reference.error());
+    }
+    if (rgb.empty()) {
+      return {};
+    }
+    // The config caches its processors: asking again is cheap.
+    const colorio::ConstCPUProcessorRcPtr processor =
+        config->getProcessor(*source, *reference)->getDefaultCPUProcessor();
+    const colorio::PackedImageDesc image(
+        rgb.data(), static_cast<std::int64_t>(rgb.size() / 3), 1, 3);
+    processor->apply(image);
+  } catch (const std::exception& error) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("OpenColorIO: cannot convert '{}' into {}: {}",
+                          color_space, kReferenceSpace, error.what())));
   }
   return {};
 }

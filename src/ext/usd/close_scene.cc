@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "hydra.h"
+#include "material.h"
 #include "mesh.h"
 #include "motion.h"
 #include "outputs.h"
@@ -245,6 +246,185 @@ class UnsupportedVars {
   std::string first_product_;
 };
 
+// Whether a mesh has a displayColor primvar.
+enum class DisplayColor : std::uint8_t {
+  kAbsent,
+  kPresent,
+};
+
+// The materials of the prototypes, each held once: those that translate,
+// and umbra's two for the meshes whose material does not, or that have none.
+class Materials {
+ public:
+  explicit Materials(const SyncedPrims& prims UMBRA_LIFETIMEBOUND)
+      : prims_(&prims) {}
+
+  // The index of the material bound to a mesh, or to one of its
+  // GeomSubsets, at `material`: that material when it translates; else the
+  // fallback material; for no material, the display color material when
+  // the mesh has a displayColor, and the fallback material otherwise.
+  std::size_t IndexOf(const pxr::SdfPath& material, DisplayColor display_color);
+
+  // The error that stops the render: the first of the materials indexed.
+  [[nodiscard]] const std::optional<Error>& fatal() const UMBRA_LIFETIMEBOUND {
+    return fatal_;
+  }
+
+  // "warning: usd: 2 materials do not translate, rendered with the fallback
+  // material (first /World/Looks/Skin: ...)", "warning: usd: 3 textures do
+  // not resolve, rendered with their node's fallback value (first
+  // /World/Looks/Car/Albedo: ./tex/a.exr)", and one per terminal umbra does
+  // not take.
+  void Report() const;
+
+  std::vector<scene::MaterialNetwork> Take() { return std::move(networks_); }
+
+ private:
+  // The index of umbra's material in `slot`, which `make` makes once.
+  std::size_t Own(std::optional<std::size_t>& slot,
+                  scene::MaterialNetwork (*make)());
+
+  const SyncedPrims* prims_;
+  std::map<pxr::SdfPath, std::size_t> indices_;
+  std::optional<std::size_t> fallback_;
+  std::optional<std::size_t> display_color_;
+  std::optional<Error> fatal_;
+  std::vector<scene::MaterialNetwork> networks_;
+};
+
+std::size_t Materials::IndexOf(const pxr::SdfPath& material,
+                               DisplayColor display_color) {
+  const auto synced = prims_->materials.find(material);
+  if (synced == prims_->materials.end()) {
+    return display_color == DisplayColor::kPresent
+               ? Own(display_color_, DisplayColorMaterial)
+               : Own(fallback_, FallbackMaterial);
+  }
+  if (const auto known = indices_.find(material); known != indices_.end()) {
+    return known->second;
+  }
+  const MaterialPrim& prim = *synced->second;
+  if (!prim.translation().has_value() && !fatal_.has_value()) {
+    fatal_ = prim.translation().error();
+  }
+  const scene::MaterialNetwork* network = prim.network();
+  if (network == nullptr) {
+    return Own(fallback_, FallbackMaterial);
+  }
+  networks_.push_back(*network);
+  indices_.emplace(material, networks_.size() - 1);
+  return networks_.size() - 1;
+}
+
+std::size_t Materials::Own(std::optional<std::size_t>& slot,
+                           scene::MaterialNetwork (*make)()) {
+  if (!slot.has_value()) {
+    networks_.push_back(make());
+    slot = networks_.size() - 1;
+  }
+  return *slot;
+}
+
+// The materials, the textures and the terminals the warnings about
+// materials report.
+class MaterialTallies {
+ public:
+  void Add(const pxr::SdfPath& path, const TranslatedMaterial& translation) {
+    if (!translation.network.has_value()) {
+      untranslated_.Add(path, translation.network.error());
+    }
+    for (const UnresolvedTexture& texture : translation.unresolved) {
+      unresolved_.Add(texture.node, texture.asset);
+    }
+    for (const std::string& terminal : translation.unsupported_terminals) {
+      terminals_[terminal].Add(path);
+    }
+  }
+
+  void Report() const {
+    ReportUntranslated();
+    ReportUnresolved();
+    ReportTerminals();
+  }
+
+ private:
+  void ReportUntranslated() const;
+  void ReportUnresolved() const;
+  void ReportTerminals() const;
+
+  Tally untranslated_;
+  Tally unresolved_;
+  std::map<std::string, Tally> terminals_;
+};
+
+void MaterialTallies::ReportUntranslated() const {
+  if (untranslated_.count() > 0) {
+    UMBRA_LOG_WARNING(
+        kUsd,
+        "{} {} not translate, rendered with the fallback material ({}: "
+        "{})",
+        untranslated_.count(),
+        Plural(untranslated_.count(), "material does", "materials do"),
+        untranslated_.First(), untranslated_.detail());
+  }
+}
+
+void MaterialTallies::ReportUnresolved() const {
+  if (unresolved_.count() > 0) {
+    UMBRA_LOG_WARNING(
+        kUsd,
+        "{} {} not resolve, rendered with {} node's fallback value "
+        "({}: {})",
+        unresolved_.count(),
+        Plural(unresolved_.count(), "texture does", "textures do"),
+        Plural(unresolved_.count(), "its", "their"), unresolved_.First(),
+        unresolved_.detail());
+  }
+}
+
+void MaterialTallies::ReportTerminals() const {
+  for (const auto& [terminal, tally] : terminals_) {
+    UMBRA_LOG_WARNING(
+        kUsd,
+        "{} {} a {}, which umbra does not render yet; {} "
+        "surface is rendered ({})",
+        tally.count(),
+        Plural(tally.count(), "material connects", "materials connect"),
+        terminal, Plural(tally.count(), "its", "their"), tally.First());
+  }
+}
+
+void Materials::Report() const {
+  MaterialTallies tallies;
+  for (const auto& [path, material] : prims_->materials) {
+    if (material->translation().has_value()) {
+      tallies.Add(path, *material->translation());
+    }
+  }
+  tallies.Report();
+}
+
+// Whether `primvars` holds a displayColor.
+DisplayColor DisplayColorOf(const std::vector<scene::Primvar>& primvars) {
+  return std::ranges::any_of(primvars,
+                             [](const scene::Primvar& primvar) {
+                               return primvar.name == kDisplayColor;
+                             })
+             ? DisplayColor::kPresent
+             : DisplayColor::kAbsent;
+}
+
+// Gives `faces`, those of a GeomSubset, the material `index` in
+// `face_materials`, skipping those out of its range.
+void MarkFaces(const std::vector<std::uint32_t>& faces, std::uint32_t index,
+               std::vector<std::uint32_t>& face_materials) {
+  for (const std::uint32_t face : faces) {
+    if (face < face_materials.size()) {
+      face_materials.at(face) = index;
+    }
+  }
+}
+
 // "1 mesh asks", "120 meshes ask".
 std::string Meshes(std::size_t count, std::string_view singular_verb,
                    std::string_view plural_verb) {
@@ -252,12 +432,13 @@ std::string Meshes(std::size_t count, std::string_view singular_verb,
                     : std::format("{} meshes {}", count, plural_verb);
 }
 
-// The meshes the Scene takes, as prototypes with their instances, and the
-// tallies of those it does not, for their warnings.
+// The meshes the Scene takes, as prototypes with their instances and their
+// materials, and the tallies of those it does not, for their warnings.
 class Geometry {
  public:
-  explicit Geometry(MotionTallies& motion UMBRA_LIFETIMEBOUND)
-      : motion_(&motion) {}
+  Geometry(MotionTallies& motion UMBRA_LIFETIMEBOUND,
+           Materials& materials UMBRA_LIFETIMEBOUND)
+      : motion_(&motion), materials_(&materials) {}
 
   void Add(const pxr::SdfPath& path, MeshPrim& mesh);
   void Add(const UnsupportedPrim& prim);
@@ -274,15 +455,42 @@ class Geometry {
 
  private:
   MotionTallies* motion_;
+  Materials* materials_;
   std::vector<scene::Mesh> prototypes_;
   std::vector<scene::Instance> instances_;
   std::map<std::string, Tally> subdivided_;
   Tally invalid_;
   std::map<pxr::TfToken, Tally> unsupported_;
 
+  // Gives `prototype`, the mesh of `mesh`, its materials and those of its
+  // triangles.
+  void AssignMaterials(const MeshPrim& mesh, scene::Mesh& prototype);
   void ReportMeshes() const;
   void ReportUnsupported() const;
 };
+
+void Geometry::AssignMaterials(const MeshPrim& mesh, scene::Mesh& prototype) {
+  const DisplayColor display_color = DisplayColorOf(prototype.primvars);
+  prototype.materials.push_back(
+      materials_->IndexOf(mesh.GetMaterialId(), display_color));
+  const std::vector<MaterialSubset>& subsets = mesh.material_subsets();
+  if (subsets.empty()) {
+    return;
+  }
+  // The material of each source face, an index into prototype.materials.
+  std::vector<std::uint32_t> face_materials(prototype.face_vertex_counts.size(),
+                                            0);
+  for (const MaterialSubset& subset : subsets) {
+    const auto index = static_cast<std::uint32_t>(prototype.materials.size());
+    prototype.materials.push_back(
+        materials_->IndexOf(subset.material, display_color));
+    MarkFaces(subset.faces, index, face_materials);
+  }
+  prototype.triangle_materials.reserve(prototype.source_faces.size());
+  for (const std::uint32_t face : prototype.source_faces) {
+    prototype.triangle_materials.push_back(face_materials.at(face));
+  }
+}
 
 void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
   switch (mesh.state()) {
@@ -303,11 +511,13 @@ void Geometry::Add(const pxr::SdfPath& path, MeshPrim& mesh) {
     subdivided_[mesh.subdivision_scheme()].Add(path);
   }
   motion_->Add(path, mesh.motion_outcome());
+  scene::Mesh prototype = mesh.TakeMesh();
+  AssignMaterials(mesh, prototype);
   for (scene::Instance& instance : instances) {
     instance.prototype = prototypes_.size();
     instances_.push_back(std::move(instance));
   }
-  prototypes_.push_back(mesh.TakeMesh());
+  prototypes_.push_back(std::move(prototype));
 }
 
 void Geometry::Add(const UnsupportedPrim& prim) {
@@ -588,10 +798,11 @@ std::expected<std::vector<scene::RenderProduct>, Error> Products(
   return products;
 }
 
-// The meshes the Scene takes, with their instances; the warnings about the
-// geometry and its motion reported.
-Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion) {
-  Geometry geometry(motion);
+// The meshes the Scene takes, with their instances and materials; the
+// warnings about the geometry, its materials and its motion reported.
+Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion,
+                       Materials& materials) {
+  Geometry geometry(motion, materials);
   for (const auto& [path, mesh] : prims.meshes) {
     geometry.Add(path, *mesh);
   }
@@ -604,6 +815,7 @@ Geometry CloseGeometry(const SyncedPrims& prims, MotionTallies& motion) {
     }
   }
   geometry.Report();
+  materials.Report();
   motion.Report();
   return geometry;
 }
@@ -620,6 +832,7 @@ std::expected<scene::Scene, Error> CloseScene(
                                                 inputs.settings.GetString())));
   }
   const RenderSettingsPrim& settings = *found->second;
+  Materials materials(prims);
   MotionTallies motion;
   Cameras cameras(prims, inputs.meters_per_unit, motion);
   const auto camera = cameras.Index(
@@ -639,10 +852,17 @@ std::expected<scene::Scene, Error> CloseScene(
       .camera = *camera,
       .products = std::move(*products),
   };
-  Geometry geometry = CloseGeometry(prims, motion);
+  Geometry geometry = CloseGeometry(prims, motion, materials);
+  if (materials.fatal().has_value()) {
+    return std::unexpected(*materials.fatal());
+  }
   ReportLightLinking(scene_index);
   return scene::Scene(std::move(converted), prims.shutter, cameras.Take(),
-                      geometry.TakePrototypes(), geometry.TakeInstances());
+                      {
+                          .materials = materials.Take(),
+                          .prototypes = geometry.TakePrototypes(),
+                          .instances = geometry.TakeInstances(),
+                      });
 }
 
 }  // namespace umbra::ext::usd::internal

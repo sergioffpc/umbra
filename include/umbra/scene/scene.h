@@ -4,7 +4,9 @@
 // The Scene: what umbra renders, in umbra's own types, with no OpenUSD type
 // (docs/adr/0006-scenes-enter-through-hydra.md). The OpenUSD bridge builds it
 // (umbra::ext::usd::LoadScene) and it is immutable once built. Lengths are in
-// meters. A mesh is a prototype, held once, that instances place.
+// meters. A mesh is a prototype, held once, that instances place. Materials
+// are neutral networks (docs/adr/0008-materials-cross-as-neutral-networks.md)
+// and colors are in ACEScg (docs/adr/0007-spectral-rendering-from-acescg.md).
 
 #ifndef UMBRA_SCENE_SCENE_H_
 #define UMBRA_SCENE_SCENE_H_
@@ -171,6 +173,97 @@ struct Primvar {
   [[nodiscard]] std::size_t Count() const;
 };
 
+// A color of a material network, in ACEScg, the reference color space. It
+// has no spectral kind: the closure it reaches gives it one
+// (docs/adr/0007-spectral-rendering-from-acescg.md).
+struct Color {
+  std::array<float, 3> rgb{};
+};
+
+// A color with an alpha, which is not converted.
+struct ColorAlpha {
+  std::array<float, 3> rgb{};
+  float alpha = 1.0F;
+};
+
+// A texture a node reads, which the renderer converts to ACEScg as it reads
+// its texels.
+struct Texture {
+  // The absolute path of its file; a UDIM set keeps its "<UDIM>" token
+  // ("/show/tex/body.<UDIM>.exr").
+  std::string file;
+  // The color space of its texels, by its name in the OpenColorIO config
+  // ("sRGB Encoded Rec.709 (sRGB)", "Raw").
+  std::string color_space;
+};
+
+// The value of a parameter: a vector or a point of N components is an
+// std::array of N, a 3x3 or 4x4 matrix one of 9 or 16, row-major.
+using ParameterValue =
+    std::variant<bool, std::int32_t, float, std::array<float, 2>,
+                 std::array<float, 3>, std::array<float, 4>,
+                 std::array<float, 9>, std::array<float, 16>, Color, ColorAlpha,
+                 std::string, Texture, std::vector<std::int32_t>,
+                 std::vector<float>, std::vector<std::string>>;
+
+// The value a node gives one of its inputs.
+struct Parameter {
+  std::string name;
+  ParameterValue value;
+};
+
+// An input of a node connected to the output of another node.
+struct Connection {
+  // The input it feeds.
+  std::string input;
+  // The node it comes from: an index into MaterialNetwork::nodes.
+  std::size_t node = 0;
+  // The output of that node ("out", "rgb").
+  std::string output;
+};
+
+// What a node of a material network runs.
+enum class ShaderKind : std::uint8_t {
+  // A MaterialX nodedef, UsdPreviewSurface's among them.
+  kMaterialX,
+  // A compiled OSL shader.
+  kOsl,
+};
+
+// A node of a material network.
+struct MaterialNode {
+  // Its name within the network, unique ("Texture").
+  std::string name;
+  ShaderKind kind = ShaderKind::kMaterialX;
+  // The MaterialX nodedef id ("ND_standard_surface_surfaceshader"), or the
+  // absolute path of the .oso shader.
+  std::string shader;
+  // The values of its inputs that are not connected; the inputs it does not
+  // give take their default.
+  std::vector<Parameter> parameters;
+  // Its connected inputs.
+  std::vector<Connection> connections;
+};
+
+// The output of a node.
+struct NodeOutput {
+  // An index into MaterialNetwork::nodes.
+  std::size_t node = 0;
+  // Its name ("out", "surface").
+  std::string name;
+};
+
+// A material, as a network of nodes, with no shader code: the renderer
+// compiles it (docs/adr/0008-materials-cross-as-neutral-networks.md).
+struct MaterialNetwork {
+  // The path of its prim ("/World/Looks/Car"), or the name of a material of
+  // umbra's ("fallback").
+  std::string path;
+  std::vector<MaterialNode> nodes;
+  // The output its surface is.
+  NodeOutput surface;
+};
+
 // Whether the back of a mesh's triangles is seen.
 enum class Sidedness : std::uint8_t {
   kSingleSided,
@@ -198,6 +291,12 @@ struct Mesh {
   // Its other primvars, by name.
   std::vector<Primvar> primvars;
   Sidedness sidedness = Sidedness::kSingleSided;
+  // Its materials, indices into Scene::materials(): its own first, then
+  // those of its GeomSubsets bound to one.
+  std::vector<std::size_t> materials;
+  // The material of each triangle, an index into `materials`; empty when
+  // every triangle has materials[0].
+  std::vector<std::uint32_t> triangle_materials;
 };
 
 // A placement of a prototype. Every light lights it, and it casts shadows
@@ -214,12 +313,20 @@ struct Instance {
   std::vector<Primvar> primvars;
 };
 
+// What a scene renders: its materials, its geometry, held once, and the
+// instances that place it.
+struct Content {
+  std::vector<MaterialNetwork> materials;
+  std::vector<Mesh> prototypes;
+  std::vector<Instance> instances;
+};
+
 // The scene of one frame.
 class Scene {
  public:
   // The cameras are those the settings and their products see through.
   Scene(RenderSettings settings, Shutter shutter, std::vector<Camera> cameras,
-        std::vector<Mesh> prototypes, std::vector<Instance> instances);
+        Content content);
 
   [[nodiscard]] const RenderSettings& settings() const UMBRA_LIFETIMEBOUND {
     return settings_;
@@ -230,6 +337,11 @@ class Scene {
   }
   [[nodiscard]] std::span<const Camera> cameras() const UMBRA_LIFETIMEBOUND {
     return cameras_;
+  }
+  // The materials of the prototypes.
+  [[nodiscard]] std::span<const MaterialNetwork> materials() const
+      UMBRA_LIFETIMEBOUND {
+    return materials_;
   }
   // The geometry held once, for every instance of it.
   [[nodiscard]] std::span<const Mesh> prototypes() const UMBRA_LIFETIMEBOUND {
@@ -244,6 +356,7 @@ class Scene {
   RenderSettings settings_;
   Shutter shutter_;
   std::vector<Camera> cameras_;
+  std::vector<MaterialNetwork> materials_;
   std::vector<Mesh> prototypes_;
   std::vector<Instance> instances_;
 };
