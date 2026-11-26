@@ -10,6 +10,7 @@
 #include <expected>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -18,6 +19,7 @@
 
 #include "umbra/core/cpu_topology.h"
 #include "umbra/core/error.h"
+#include "umbra/core/safety.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/osl/osl.h"
 #include "umbra/gpu/module.h"
@@ -268,6 +270,19 @@ Error DeviceError(std::string message) {
   return {ErrorCode::kInvalidArgument, std::move(message)};
 }
 
+// The GPU module `module` holds, loaded into it unless it holds one.
+std::expected<gpu::Module*, Error> LoadOnce(
+    std::optional<gpu::Module>& module UMBRA_LIFETIMEBOUND) {
+  if (module.has_value()) {
+    return &*module;
+  }
+  return gpu::DefaultModulePath()
+      .and_then(gpu::Module::Load)
+      .transform([&](gpu::Module loaded) {
+        return &module.emplace(std::move(loaded));
+      });
+}
+
 }  // namespace
 
 std::expected<Hardware, Error> ReadHardware() {
@@ -355,6 +370,28 @@ std::expected<std::vector<Device>, Error> ResolveDevices(
     chosen.push_back(*found);
   }
   return chosen;
+}
+
+std::expected<GpuRenderDevices, Error> CreateGpuDevices(
+    std::span<const Device> chosen) {
+  GpuRenderDevices gpus;
+  for (const Device& device : chosen) {
+    if (device.kind != DeviceKind::kGpu) {
+      continue;
+    }
+    const auto loaded = LoadOnce(gpus.module);
+    if (!loaded.has_value()) {
+      return std::unexpected(loaded.error());
+    }
+    auto created = (*loaded)->CreateDevice(device.index);
+    if (!created.has_value()) {
+      return std::unexpected(Error(created.error().code(),
+                                   std::format("device {}: {}", device.name,
+                                               created.error().message())));
+    }
+    gpus.devices.push_back(std::move(*created));
+  }
+  return gpus;
 }
 
 }  // namespace umbra::devices

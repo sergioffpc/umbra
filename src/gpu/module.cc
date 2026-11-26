@@ -25,6 +25,9 @@
 
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
+#include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu {
@@ -111,6 +114,32 @@ GpuDevice DeviceOf(const GpuDescription& gpu) {
       .numa_node = NumaNodeOf(std::string(TextOf(gpu.pci_bus_id))),
   };
 }
+
+// A device on a GPU that the module holds: each call goes through the
+// module's functions.
+class ModuleBackedDevice final : public device::Device {
+ public:
+  ModuleBackedDevice(const ModuleApi& api UMBRA_LIFETIMEBOUND,
+                     ModuleDevice& held, int ordinal)
+      : api_(&api), held_(&held), name_(std::format("gpu{}", ordinal)) {}
+  ModuleBackedDevice(const ModuleBackedDevice&) = delete;
+  ModuleBackedDevice& operator=(const ModuleBackedDevice&) = delete;
+  ModuleBackedDevice(ModuleBackedDevice&&) = delete;
+  ModuleBackedDevice& operator=(ModuleBackedDevice&&) = delete;
+  ~ModuleBackedDevice() override { api_->destroy_device(held_); }
+
+  [[nodiscard]] std::string_view name() const override { return name_; }
+
+  [[nodiscard]] std::expected<void, Error> Commit(
+      const device::ChangeSet& changes) override {
+    return ResultOf(api_->commit(held_, &changes));
+  }
+
+ private:
+  const ModuleApi* api_;
+  ModuleDevice* held_;
+  std::string name_;
+};
 
 }  // namespace
 
@@ -206,6 +235,21 @@ std::expected<GpuDevices, Error> Module::DescribeDevices() const {
     devices.gpus.push_back(DeviceOf(gpu));
   }
   return devices;
+}
+
+std::expected<std::unique_ptr<device::Device>, Error> Module::CreateDevice(
+    int ordinal) const {
+  ModuleStatus status;
+  ModuleDevice* UMBRA_NULLABLE held = api_->create_device(ordinal, &status);
+  if (auto created = ResultOf(status); !created.has_value()) {
+    return std::unexpected(created.error());
+  }
+  if (held == nullptr) {
+    return std::unexpected(
+        Error(ErrorCode::kUnavailable,
+              std::format("gpu{}: the module created no device", ordinal)));
+  }
+  return std::make_unique<ModuleBackedDevice>(*api_, *held, ordinal);
 }
 
 std::expected<GpuDevices, Error> DescribeGpus(

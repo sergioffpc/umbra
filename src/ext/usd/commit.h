@@ -188,8 +188,9 @@ struct CommitScene {
 // whose topology changes within the shutter and those resampled down to
 // kMaxMotionSamples, with their count and the first; a warning a commit
 // logged before is not logged again. The frame's shutter is that the prims
-// were sampled over. Then each device commits the change set, in order;
-// the first that fails stops the commit, with its error, naming it.
+// were sampled over. Then every device commits the change set, in
+// parallel, each on a host thread of its own; the first, in order, that
+// fails stops the commit, with its error, naming it.
 [[nodiscard]] std::expected<Committed, core::Error> Commit(
     const CommitInputs& inputs, const CommitScene& scene, SyncedPrims& prims,
     Ledger& ledger, std::span<device::Device* const> devices);

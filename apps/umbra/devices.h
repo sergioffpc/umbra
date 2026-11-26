@@ -11,6 +11,8 @@
 
 #include <cstdint>
 #include <expected>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +21,7 @@
 #include "umbra/core/cpu_topology.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/device.h"
 #include "umbra/gpu/module.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -78,6 +81,19 @@ struct Device {
 // an empty, unknown or repeated name.
 [[nodiscard]] std::expected<std::vector<Device>, core::Error> ResolveDevices(
     std::string_view spec, std::span<const Device> devices);
+
+// The GPU devices of a render, and the GPU module they commit through,
+// which outlives them.
+struct GpuRenderDevices {
+  std::optional<gpu::Module> module;
+  std::vector<std::unique_ptr<device::Device>> devices;
+};
+
+// A device for each GPU of `chosen`, made through the GPU module, which is
+// loaded only when `chosen` has a GPU. Fails with the cause, naming the
+// device, when the module cannot be loaded or a GPU cannot be used.
+[[nodiscard]] std::expected<GpuRenderDevices, core::Error> CreateGpuDevices(
+    std::span<const Device> chosen);
 
 }  // namespace umbra::devices
 

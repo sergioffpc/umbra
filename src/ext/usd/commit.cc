@@ -33,6 +33,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -44,6 +45,7 @@
 #include "motion.h"
 #include "outputs.h"
 #include "umbra/core/error.h"
+#include "umbra/core/floating_point.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
@@ -1603,13 +1605,35 @@ std::string Describe(const RenderSettings& settings,
       core::FormatCount(CountRemoved(changes)));
 }
 
-// Commits `changes` to each of `devices`, in order: fails with the error of
-// the first that fails, naming it.
+// Commits `changes` to every device of `devices` in parallel, each on a host
+// thread of its own, and gives each one's result, in order, once all are
+// done.
+std::vector<std::expected<void, Error>> CommitInParallel(
+    const device::ChangeSet& changes,
+    std::span<device::Device* const> devices) {
+  std::vector<std::expected<void, Error>> results(devices.size());
+  std::vector<std::jthread> threads;
+  threads.reserve(devices.size());
+  for (const auto& [device, result] : std::views::zip(devices, results)) {
+    threads.emplace_back([&changes, device, &result] {
+      core::ConfigureThreadFloatingPoint();
+      result = device->Commit(changes);
+    });
+  }
+  // Joins every thread.
+  threads.clear();
+  return results;
+}
+
+// Commits `changes` to every device of `devices` in parallel: fails with the
+// error of the first, in order, that fails, naming it.
 std::expected<void, Error> CommitToDevices(
     const device::ChangeSet& changes,
     std::span<device::Device* const> devices) {
-  for (device::Device* const device : devices) {
-    if (auto committed = device->Commit(changes); !committed.has_value()) {
+  const std::vector<std::expected<void, Error>> results =
+      CommitInParallel(changes, devices);
+  for (const auto& [device, committed] : std::views::zip(devices, results)) {
+    if (!committed.has_value()) {
       return std::unexpected(Error(committed.error().code(),
                                    std::format("device {}: {}", device->name(),
                                                committed.error().message())));

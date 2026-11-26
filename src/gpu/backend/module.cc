@@ -8,118 +8,33 @@
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <optix.h>
-#include <optix_function_table.h>
 #include <optix_function_table_definition.h>  // IWYU pragma: keep
-#include <optix_stubs.h>
-#include <optix_types.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
-#include <format>
 #include <iterator>
-#include <source_location>
+#include <memory>
 #include <span>
-#include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
+#include "device.h"
+#include "support.h"
 #include "umbra/core/log.h"
+#include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu::backend {
 namespace {
 
-// The oldest GPU architecture the module is built for: sm_120.
-constexpr int kMinComputeCapabilityMajor = 12;
-
-// umbra's log function and the gpu component's threshold, handed over by the
-// loader before any other call (ModuleApi::set_log).
-struct LogState {
-  std::atomic<ModuleLogFunction> log{nullptr};
-  std::atomic<core::LogLevel> threshold{core::LogLevel::kError};
-};
-
-LogState& Logging() {
-  static LogState state;
-  return state;
-}
-
 void SetLog(ModuleLogFunction log, core::LogLevel threshold) {
   Logging().log.store(log, std::memory_order_relaxed);
   Logging().threshold.store(threshold, std::memory_order_relaxed);
-}
-
-// Logs a message through umbra, formatting it only when it will be shown.
-// A format string and the source line it is written on.
-template <typename... Args>
-struct LocatedFormat {
-  template <typename Text>
-    requires std::convertible_to<const Text&, std::string_view>
-  // A string literal converts to it, as to std::format_string.
-  // NOLINTBEGIN(cppcoreguidelines-explicit-constructor): see above.
-  // NOLINTBEGIN(misc-explicit-constructor): see above.
-  // NOLINTBEGIN(google-explicit-constructor): see above.
-  consteval LocatedFormat(const Text& text, std::source_location location =
-                                                std::source_location::current())
-      : format(text), location(location) {}
-  // NOLINTEND(google-explicit-constructor)
-  // NOLINTEND(misc-explicit-constructor)
-  // NOLINTEND(cppcoreguidelines-explicit-constructor)
-
-  std::format_string<Args...> format;
-  std::source_location location;
-};
-
-template <typename... Args>
-void Log(core::LogLevel level,
-         LocatedFormat<std::type_identity_t<Args>...> format, Args&&... args) {
-  const ModuleLogFunction log = Logging().log.load(std::memory_order_relaxed);
-  if (log == nullptr ||
-      level > Logging().threshold.load(std::memory_order_relaxed)) {
-    return;
-  }
-  log(level, std::format(format.format, std::forward<Args>(args)...),
-      {.file = format.location.file_name(), .line = format.location.line()});
-}
-
-// Errors inside the module are messages; the entry points turn them into a
-// ModuleStatus.
-template <typename T>
-using Result = std::expected<T, std::string>;
-
-Result<void> CheckCuda(cudaError_t error, std::string_view what) {
-  if (error == cudaSuccess) {
-    return {};
-  }
-  return std::unexpected(std::format("CUDA: {}: {} ({})", what,
-                                     cudaGetErrorString(error),
-                                     cudaGetErrorName(error)));
-}
-
-// Loads the driver's OptiX runtime, once per process.
-Result<void> InitOptix() {
-  static const OptixResult kResult = optixInit();
-  switch (kResult) {
-    case OPTIX_SUCCESS:
-      return {};
-    case OPTIX_ERROR_LIBRARY_NOT_FOUND:
-      return std::unexpected(std::string(
-          "OptiX: the driver's OptiX runtime (libnvoptix.so.1) is missing; "
-          "in a container, the GPU must come with the graphics libraries"));
-    case OPTIX_ERROR_UNSUPPORTED_ABI_VERSION:
-      return std::unexpected(std::format(
-          "OptiX: the driver is too old for OptiX {}.{}.{} (ABI {})",
-          OPTIX_VERSION / 10000, OPTIX_VERSION / 100 % 100, OPTIX_VERSION % 100,
-          OPTIX_ABI_VERSION));
-    default:
-      return std::unexpected(std::format("OptiX: optixInit failed ({})",
-                                         static_cast<int>(kResult)));
-  }
 }
 
 // Copies `text` into `out`, NUL-terminated and truncated to fit.
@@ -249,10 +164,35 @@ ModuleStatus DescribeDevices(GpuInventory* inventory) {
   return {};
 }
 
+ModuleDevice* UMBRA_NULLABLE CreateDevice(std::int32_t ordinal,
+                                          ModuleStatus* status) {
+  auto made = ModuleDevice::Create(ordinal);
+  if (!made.has_value()) {
+    *status = FailedStatus(made.error());
+    return nullptr;
+  }
+  *status = {};
+  return made->release();
+}
+
+void DestroyDevice(ModuleDevice* destroyed) {
+  const std::unique_ptr<ModuleDevice> owned(destroyed);
+}
+
+ModuleStatus Commit(ModuleDevice* gpu, const device::ChangeSet* changes) {
+  if (auto committed = gpu->Commit(*changes); !committed.has_value()) {
+    return FailedStatus(committed.error());
+  }
+  return {};
+}
+
 constexpr ModuleApi kApi{
     .abi_version = kModuleAbiVersion,
     .set_log = SetLog,
     .describe_devices = DescribeDevices,
+    .create_device = CreateDevice,
+    .destroy_device = DestroyDevice,
+    .commit = Commit,
 };
 
 }  // namespace
