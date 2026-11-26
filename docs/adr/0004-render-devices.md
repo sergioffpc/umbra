@@ -3,7 +3,9 @@
 Revised by docs/adr/0012-umbra-is-a-hydra-renderer.md and
 docs/adr/0013-devices-render-from-their-own-memory.md: each device keeps its
 own copy of the geometry, a CPU device on its node, and renders from its own
-memory only.
+memory only. How the work is split
+between devices is settled by
+docs/adr/0014-frames-render-in-tiles-from-one-counter.md.
 
 umbra renders on devices. A CPU device is one NUMA node: its cores and the
 memory attached to them, named `cpu0`, `cpu1`, … by node. A GPU device is one
