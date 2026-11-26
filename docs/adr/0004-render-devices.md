@@ -1,5 +1,8 @@
 # Render devices are CPU NUMA nodes and GPUs, chosen per render
 
+Revised by docs/adr/0012-umbra-is-a-hydra-renderer.md: the geometry of the
+prims is one copy in host memory, which every CPU device shares.
+
 umbra renders on devices. A CPU device is one NUMA node: its cores and the
 memory attached to them, named `cpu0`, `cpu1`, … by node. A GPU device is one
 GPU umbra can use, named `gpu0`, `gpu1`, … by its CUDA ordinal. A machine with

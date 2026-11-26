@@ -1,5 +1,7 @@
 # Scenes enter through Hydra, which only syncs them into umbra's Scene
 
+Superseded by docs/adr/0012-umbra-is-a-hydra-renderer.md.
+
 umbra renders USD scenes. A stage reaches umbra through Hydra 2.0: a
 `UsdImagingStageSceneIndex`, followed by the `usdImaging` and `hdsi` filter
 chain (purposes, visibility, light linking, render settings), feeds an
