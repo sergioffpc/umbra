@@ -84,7 +84,7 @@ the Dockerfile pins, and, for a package it does not slice yet, ours in
 ## Open-source build-time downloads
 
 Prebuilt tools that build a submodule and stay out of what umbra ships,
-downloaded by the `nvidia` stage of `docker/toolchain.Dockerfile`, which pins
+downloaded by the `tools` stage of `docker/toolchain.Dockerfile`, which pins
 each archive by version and SHA-256.
 
 | Name | Version | Source | License |
@@ -94,7 +94,7 @@ each archive by version and SHA-256.
 ## Proprietary build-time downloads
 
 Not submodules, and so not on the license allow-list: the NVIDIA development
-stack of the GPU module, downloaded by the `nvidia` stage of
+stack of the GPU module, downloaded by the `tools` stage of
 `docker/toolchain.Dockerfile`, which pins each archive by version and SHA-256.
 They are not redistributable, which is why the `umbra-toolchain` image, and
 the `umbra-deps` image built on it, are private packages. Only the CUDA runtime ends up in what umbra ships: `libcudart_static.a`,

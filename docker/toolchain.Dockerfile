@@ -3,7 +3,7 @@
 #
 # umbra-toolchain: Ubuntu 26.04 with LLVM 23 built from the llvm-project
 # submodule by the dependency build (layer "toolchain"), the NVIDIA development
-# stack and ISPC (stage "nvidia"), plus the C-ABI libraries and build tools
+# stack and ISPC (stage "tools"), plus the C-ABI libraries and build tools
 # that come from Ubuntu, git, git-lfs and ssh-keygen (for SSH commit signing),
 # release tools (git-cliff, git-flow-next), the lint tools (actionlint,
 # shellcheck and the Python lint and format tools) and Linux perf.
@@ -55,80 +55,22 @@ RUN --mount=type=bind,source=third_party,target=/src/third_party,rw \
     -DUMBRA_BUILD_CACHE_DIR=/var/cache/umbra-build \
   && cmake --build /tmp/dependency-build --target layer-toolchain
 
-# Release binaries of git-cliff, git-flow-next, actionlint and shellcheck,
-# verified by SHA256. All four are statically linked and need no GCC runtime
-# (for git-cliff that is the musl build). actionlint runs shellcheck on the
-# workflows' scripts when it is on PATH.
-FROM ${UBUNTU} AS tools
-ARG DEBIAN_FRONTEND=noninteractive
-ARG GIT_CLIFF_VERSION=2.14.2
-ARG GIT_CLIFF_SHA256=fa21e2fc70046fcfd0e43e5e4613873ab799aff3d9dc8559c00d31b270e417d0
-ARG GIT_FLOW_NEXT_VERSION=2.1.0
-ARG GIT_FLOW_NEXT_SHA256=e335b5818f2b2f820c17844c194030d0db78f3cdfa9bb999fcb9ce092ba9ecd2
-ARG ACTIONLINT_VERSION=1.7.12
-ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-ARG SHELLCHECK_VERSION=0.11.0
-ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
-  && rm -rf /var/lib/apt/lists/*
-WORKDIR /tmp/tools
-# fetch FILE URL SHA256 downloads URL to FILE and verifies it.
-RUN readonly GITHUB=https://github.com; \
-  fetch() { \
-    local file="$1" url="$2" sha256="$3"; \
-    curl -fsSLo "${file}" "${url}"; \
-    echo "${sha256}  ${file}" | sha256sum -c -; \
-  }; \
-  fetch git-cliff.tar.gz \
-    "${GITHUB}/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/\
-git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    "${GIT_CLIFF_SHA256}"; \
-  fetch git-flow-next.tar.gz \
-    "${GITHUB}/gittower/git-flow-next/releases/download/\
-v${GIT_FLOW_NEXT_VERSION}/\
-git-flow-next-v${GIT_FLOW_NEXT_VERSION}-linux-amd64.tar.gz" \
-    "${GIT_FLOW_NEXT_SHA256}"; \
-  fetch actionlint.tar.gz \
-    "${GITHUB}/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/\
-actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-    "${ACTIONLINT_SHA256}"; \
-  fetch shellcheck.tar.xz \
-    "${GITHUB}/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/\
-shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
-    "${SHELLCHECK_SHA256}"; \
-  tar -xzf git-cliff.tar.gz; \
-  tar -xzf git-flow-next.tar.gz; \
-  tar -xzf actionlint.tar.gz; \
-  tar -xJf shellcheck.tar.xz; \
-  install -D -m 0755 "git-cliff-${GIT_CLIFF_VERSION}/git-cliff" \
-    /out/bin/git-cliff; \
-  install -D -m 0755 git-flow /out/bin/git-flow; \
-  install -D -m 0755 actionlint /out/bin/actionlint; \
-  install -D -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
-    /out/bin/shellcheck
-
-# Python lint and format tools, pinned with hashes in docker/python-tools.txt.
-FROM ${UBUNTU} AS python-tools
-ARG DEBIAN_FRONTEND=noninteractive
-SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-venv \
-  && rm -rf /var/lib/apt/lists/*
-RUN --mount=type=bind,source=docker/python-tools.txt,target=/tmp/python-tools.txt \
-  python3 -m venv /opt/python-tools \
-  && /opt/python-tools/bin/pip install --no-cache-dir \
-    --disable-pip-version-check --require-hashes --only-binary :all: \
-    -r /tmp/python-tools.txt
-
-# The NVIDIA development stack and ISPC: prebuilt downloads only, each pinned
-# by version and SHA-256, nothing compiled. The CUDA components are NVIDIA's redist
-# archives (versions and hashes from redistrib_<CUDA_VERSION>.json); the OptiX
-# headers are the release archive of NVIDIA/optix-dev. Layout:
+# Prebuilt downloads only, each pinned by version and SHA-256, nothing
+# compiled:
 #
-#   /opt/cuda                  nvcc, crt, libnvvm, cudart and CCCL (bin/,
-#                              include/, lib/, nvvm/); CUDAToolkit_ROOT
+#   /out/bin                   git-cliff, git-flow-next, actionlint and
+#                              shellcheck, statically linked, needing no GCC
+#                              runtime (for git-cliff that is the musl build);
+#                              actionlint runs shellcheck on the workflows'
+#                              scripts when it is on PATH
+#   /opt/ispc                  ISPC's release archive, statically linked: it
+#                              compiles the kernels of Open Image Denoise's
+#                              CPU device
+#   /opt/cuda                  the NVIDIA development stack: nvcc, crt,
+#                              libnvvm, cudart and CCCL (bin/, include/, lib/,
+#                              nvvm/); CUDAToolkit_ROOT. lib64 links to lib/,
+#                              where nvcc links from, as in the toolkit
+#                              installers
 #   /opt/cuda/bin              also cuobjdump and nvdisasm, to inspect the
 #                              SASS and PTX in a binary, cuda-gdb, to debug
 #                              kernels, and compute-sanitizer
@@ -142,14 +84,26 @@ RUN --mount=type=bind,source=docker/python-tools.txt,target=/tmp/python-tools.tx
 #                              clang compiles to NVPTX, need them
 #   /opt/cuda/optix/include    the OptiX headers; OptiX_INSTALL_DIR
 #
-# The debugger and the sanitizer need a GPU, so only a GPU host uses them. The
-# Nsight profilers are developer-only tools, so they stay out of this image,
-# which CI pulls too.
-#
-# Since CUDA 13.4 the toolkit carries no driver: the driver (libcuda.so.1) and
-# the OptiX runtime come from the host. nvcc compiles device code only, with
-# clang as host compiler (see cmake/UmbraCuda.cmake).
-FROM ${UBUNTU} AS nvidia
+# The CUDA components are NVIDIA's redist archives (versions and hashes from
+# redistrib_<CUDA_VERSION>.json); the OptiX headers are the release archive of
+# NVIDIA/optix-dev. The debugger and the sanitizer need a GPU, so only a GPU
+# host uses them. The Nsight profilers are developer-only tools, so they stay
+# out of this image, which CI pulls too. Since CUDA 13.4 the toolkit carries
+# no driver: the driver (libcuda.so.1) and the OptiX runtime come from the
+# host. nvcc compiles device code only, with clang as host compiler (see
+# cmake/UmbraCuda.cmake).
+FROM ${UBUNTU} AS tools
+ARG DEBIAN_FRONTEND=noninteractive
+ARG GIT_CLIFF_VERSION=2.14.2
+ARG GIT_CLIFF_SHA256=fa21e2fc70046fcfd0e43e5e4613873ab799aff3d9dc8559c00d31b270e417d0
+ARG GIT_FLOW_NEXT_VERSION=2.1.0
+ARG GIT_FLOW_NEXT_SHA256=e335b5818f2b2f820c17844c194030d0db78f3cdfa9bb999fcb9ce092ba9ecd2
+ARG ACTIONLINT_VERSION=1.7.12
+ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG SHELLCHECK_VERSION=0.11.0
+ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+ARG ISPC_VERSION=1.32.0
+ARG ISPC_SHA256=faf266bda2b702d68976ffd26bbd36c1ddba43424cc3c44f25b092cd1aa1f64a
 ARG CUDA_VERSION=13.5.0
 ARG CUDA_NVCC_VERSION=13.5.37
 ARG CUDA_NVCC_SHA256=ac41262734f3c62cd75a502081cfae093b03b846d7f9274d8b1eb41f83209b96
@@ -173,38 +127,74 @@ ARG CCCL_VERSION=13.3.5.0.6
 ARG CCCL_SHA256=5139f641e72df6b0c64ee9e68cabaeafa9a5e36a4b1f7d370a1dc0dac62dd72f
 ARG OPTIX_VERSION=9.1.0
 ARG OPTIX_SHA256=3a29b2254107fdfbb5e6bbad3ec154dd682149121f61e9c406607ac7b52a6ba6
-ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
   && rm -rf /var/lib/apt/lists/*
-WORKDIR /tmp/nvidia
-# fetch COMPONENT VERSION SHA256 downloads the redist archive of a CUDA
-# component to COMPONENT.tar.xz and verifies it.
-RUN readonly REDIST=https://developer.download.nvidia.com/compute/cuda/redist; \
-  readonly OPTIX=https://github.com/NVIDIA/optix-dev/archive/refs/tags; \
+WORKDIR /tmp/tools
+# fetch FILE URL SHA256 downloads URL to FILE and verifies it; redist
+# COMPONENT VERSION SHA256 downloads the redist archive of a CUDA component to
+# COMPONENT.tar.xz.
+RUN readonly GITHUB=https://github.com; \
+  readonly REDIST=https://developer.download.nvidia.com/compute/cuda/redist; \
   fetch() { \
-    local component="$1" version="$2" sha256="$3"; \
-    local archive="${component}-linux-x86_64-${version}-archive.tar.xz"; \
-    curl -fsSLo "${component}.tar.xz" \
-      "${REDIST}/${component}/linux-x86_64/${archive}"; \
-    echo "${sha256}  ${component}.tar.xz" | sha256sum -c -; \
+    local file="$1" url="$2" sha256="$3"; \
+    curl -fsSLo "${file}" "${url}"; \
+    echo "${sha256}  ${file}" | sha256sum -c -; \
   }; \
-  fetch cuda_nvcc "${CUDA_NVCC_VERSION}" "${CUDA_NVCC_SHA256}"; \
-  fetch cuda_crt "${CUDA_CRT_VERSION}" "${CUDA_CRT_SHA256}"; \
-  fetch libnvvm "${LIBNVVM_VERSION}" "${LIBNVVM_SHA256}"; \
-  fetch cuda_cudart "${CUDA_CUDART_VERSION}" "${CUDA_CUDART_SHA256}"; \
-  fetch cccl "${CCCL_VERSION}" "${CCCL_SHA256}"; \
-  fetch cuda_cuobjdump "${CUDA_CUOBJDUMP_VERSION}" \
+  redist() { \
+    local component="$1" version="$2" sha256="$3"; \
+    fetch "${component}.tar.xz" "${REDIST}/${component}/linux-x86_64/\
+${component}-linux-x86_64-${version}-archive.tar.xz" "${sha256}"; \
+  }; \
+  fetch git-cliff.tar.gz \
+    "${GITHUB}/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/\
+git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    "${GIT_CLIFF_SHA256}"; \
+  fetch git-flow-next.tar.gz \
+    "${GITHUB}/gittower/git-flow-next/releases/download/\
+v${GIT_FLOW_NEXT_VERSION}/\
+git-flow-next-v${GIT_FLOW_NEXT_VERSION}-linux-amd64.tar.gz" \
+    "${GIT_FLOW_NEXT_SHA256}"; \
+  fetch actionlint.tar.gz \
+    "${GITHUB}/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/\
+actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+    "${ACTIONLINT_SHA256}"; \
+  fetch shellcheck.tar.xz \
+    "${GITHUB}/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/\
+shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+    "${SHELLCHECK_SHA256}"; \
+  fetch ispc.tar.gz \
+    "${GITHUB}/ispc/ispc/releases/download/v${ISPC_VERSION}/\
+ispc-v${ISPC_VERSION}-linux.tar.gz" \
+    "${ISPC_SHA256}"; \
+  redist cuda_nvcc "${CUDA_NVCC_VERSION}" "${CUDA_NVCC_SHA256}"; \
+  redist cuda_crt "${CUDA_CRT_VERSION}" "${CUDA_CRT_SHA256}"; \
+  redist libnvvm "${LIBNVVM_VERSION}" "${LIBNVVM_SHA256}"; \
+  redist cuda_cudart "${CUDA_CUDART_VERSION}" "${CUDA_CUDART_SHA256}"; \
+  redist cccl "${CCCL_VERSION}" "${CCCL_SHA256}"; \
+  redist cuda_cuobjdump "${CUDA_CUOBJDUMP_VERSION}" \
     "${CUDA_CUOBJDUMP_SHA256}"; \
-  fetch cuda_nvdisasm "${CUDA_NVDISASM_VERSION}" "${CUDA_NVDISASM_SHA256}"; \
-  fetch cuda_sanitizer_api "${CUDA_SANITIZER_API_VERSION}" \
+  redist cuda_nvdisasm "${CUDA_NVDISASM_VERSION}" "${CUDA_NVDISASM_SHA256}"; \
+  redist cuda_sanitizer_api "${CUDA_SANITIZER_API_VERSION}" \
     "${CUDA_SANITIZER_API_SHA256}"; \
-  fetch cuda_gdb "${CUDA_GDB_VERSION}" "${CUDA_GDB_SHA256}"; \
-  fetch libcurand "${LIBCURAND_VERSION}" "${LIBCURAND_SHA256}"; \
-  curl -fsSLo optix.tar.gz "${OPTIX}/v${OPTIX_VERSION}.tar.gz"; \
-  echo "${OPTIX_SHA256}  optix.tar.gz" | sha256sum -c -; \
-  install -d /opt/cuda/optix; \
+  redist cuda_gdb "${CUDA_GDB_VERSION}" "${CUDA_GDB_SHA256}"; \
+  redist libcurand "${LIBCURAND_VERSION}" "${LIBCURAND_SHA256}"; \
+  fetch optix.tar.gz \
+    "${GITHUB}/NVIDIA/optix-dev/archive/refs/tags/v${OPTIX_VERSION}.tar.gz" \
+    "${OPTIX_SHA256}"; \
+  tar -xzf git-cliff.tar.gz; \
+  tar -xzf git-flow-next.tar.gz; \
+  tar -xzf actionlint.tar.gz; \
+  tar -xJf shellcheck.tar.xz; \
+  install -D -m 0755 "git-cliff-${GIT_CLIFF_VERSION}/git-cliff" \
+    /out/bin/git-cliff; \
+  install -D -m 0755 git-flow /out/bin/git-flow; \
+  install -D -m 0755 actionlint /out/bin/actionlint; \
+  install -D -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
+    /out/bin/shellcheck; \
+  install -d /opt/ispc /opt/cuda/optix; \
+  tar -xzf ispc.tar.gz -C /opt/ispc --strip-components=1; \
   for component in cuda_nvcc cuda_crt libnvvm cuda_cudart cccl \
     cuda_cuobjdump cuda_nvdisasm cuda_sanitizer_api cuda_gdb; do \
     tar -xJf "${component}.tar.xz" -C /opt/cuda --strip-components=1; \
@@ -212,23 +202,23 @@ RUN readonly REDIST=https://developer.download.nvidia.com/compute/cuda/redist; \
   tar -xJf libcurand.tar.xz -C /opt/cuda --strip-components=1 \
     --wildcards '*/include/*'; \
   tar -xzf optix.tar.gz -C /opt/cuda/optix --strip-components=1; \
-  rm -rf /tmp/nvidia
-WORKDIR /
-# nvcc links from lib64/, as in the toolkit installers; the archives use lib/.
-RUN ln -s lib /opt/cuda/lib64 \
-  && printf '%s\n' "CUDA ${CUDA_VERSION}, OptiX ${OPTIX_VERSION}" \
-    >/opt/cuda/version.txt
-# ISPC, which compiles the kernels of Open Image Denoise's CPU device: the
-# official release binary, statically linked, in /opt/ispc.
-ARG ISPC_VERSION=1.32.0
-ARG ISPC_SHA256=faf266bda2b702d68976ffd26bbd36c1ddba43424cc3c44f25b092cd1aa1f64a
-RUN readonly ARCHIVE="ispc-v${ISPC_VERSION}-linux.tar.gz"; \
-  curl -fsSLo "/tmp/${ARCHIVE}" \
-    "https://github.com/ispc/ispc/releases/download/v${ISPC_VERSION}/${ARCHIVE}"; \
-  echo "${ISPC_SHA256}  /tmp/${ARCHIVE}" | sha256sum -c -; \
-  install -d /opt/ispc; \
-  tar -xzf "/tmp/${ARCHIVE}" -C /opt/ispc --strip-components=1; \
-  rm "/tmp/${ARCHIVE}"
+  ln -s lib /opt/cuda/lib64; \
+  printf '%s\n' "CUDA ${CUDA_VERSION}, OptiX ${OPTIX_VERSION}" \
+    >/opt/cuda/version.txt; \
+  rm -rf /tmp/tools
+
+# Python lint and format tools, pinned with hashes in docker/python-tools.txt.
+FROM ${UBUNTU} AS python-tools
+ARG DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=bind,source=docker/python-tools.txt,target=/tmp/python-tools.txt \
+  python3 -m venv /opt/python-tools \
+  && /opt/python-tools/bin/pip install --no-cache-dir \
+    --disable-pip-version-check --require-hashes --only-binary :all: \
+    -r /tmp/python-tools.txt
 
 FROM ${UBUNTU} AS toolchain
 ARG DEBIAN_FRONTEND=noninteractive
@@ -261,8 +251,8 @@ RUN --mount=type=bind,source=third_party/llvm-project/LICENSE.TXT,target=/tmp/LI
     /usr/local/share/licenses/llvm-project/LICENSE.TXT
 COPY --from=tools /out/bin/ /usr/local/bin/
 COPY --from=python-tools /opt/python-tools /opt/python-tools
-COPY --from=nvidia /opt/cuda/ /opt/cuda/
-COPY --from=nvidia /opt/ispc/ /opt/ispc/
+COPY --from=tools /opt/cuda/ /opt/cuda/
+COPY --from=tools /opt/ispc/ /opt/ispc/
 RUN ln -s clang /usr/local/bin/cc \
   && ln -s clang++ /usr/local/bin/c++ \
   && ldconfig
