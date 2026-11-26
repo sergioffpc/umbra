@@ -39,6 +39,14 @@ disclaimer that also disclaims the warranties of non-infringement and title.
 | OpenVDB | `third_party/openvdb` | `v14.0.0` | `ecae2bda85744412b0cd47e1b8e1e4e76beb7b88` | `Apache-2.0` |
 | OSL | `third_party/OpenShadingLanguage` | `v1.15.8.0` | `b64c29cc2540c398265942edc44650aea3a8c103` | `BSD-3-Clause` |
 | OpenUSD | `third_party/OpenUSD` | `v26.11.1` | `96c1989167d2aaab5bd34627f32a321a6b79866b` | `LicenseRef-TOST-1.0` |
+| Open Image Denoise | `third_party/oidn` | `v2.5.1` | `6602ee2ca38a1a2a02135beed8f6e68eed630180` | `Apache-2.0` |
+
+Open Image Denoise has nested submodules of its own, pinned by its commit:
+`weights`, the trained weights of its filters, whose files are in Git LFS
+(`Apache-2.0`), and `external/cutlass`, NVIDIA's CUTLASS, which its CUDA
+device compiles in (`BSD-3-Clause`). `forge checkout-submodules` checks out
+these two and pulls the weights; it leaves out `external/composable_kernel`,
+which only the HIP device uses.
 
 ## Ubuntu packages
 
@@ -72,6 +80,16 @@ the Dockerfile pins, and, for a package it does not slice yet, ours in
 | FreeType | OpenImageIO (text rendering) | `libfreetype-dev`, `libfreetype6` | `FTL OR GPL-2.0-or-later` |
 | flex | OSL (the lexers of oslc and the .oso reader), build only | `flex` | `BSD-3-Clause` |
 | GNU Bison | OSL (their parsers), build only | `bison` | `GPL-3.0-or-later WITH Bison-exception-2.2` |
+
+## Open-source build-time downloads
+
+Prebuilt tools that build a submodule and stay out of the image and of what
+umbra ships, downloaded by the `build` stage of `docker/deps.Dockerfile`,
+which pins each archive by version and SHA-256.
+
+| Name | Version | Source | License |
+|---|---|---|---|
+| ISPC | 1.32.0 | `ispc/ispc` release archive | `BSD-3-Clause` |
 
 ## Proprietary build-time downloads
 

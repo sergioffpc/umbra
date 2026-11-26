@@ -141,8 +141,23 @@ ENV PATH=/opt/cuda/bin:${PATH} \
 # build recompiles only the files whose source, flags or compiler changed.
 # The paths of the build are fixed, and ccache hashes the compiler's content,
 # so a hit is a file compiled the same way. ccache stays in this stage only.
+#
+# ISPC compiles the kernels of Open Image Denoise's CPU device. It is the
+# official release binary, pinned by version and SHA-256, statically linked,
+# and stays in this stage: nothing the image or umbra ships needs it.
 FROM nvidia AS build
 ARG DEBIAN_FRONTEND=noninteractive
+ARG ISPC_VERSION=1.32.0
+ARG ISPC_SHA256=faf266bda2b702d68976ffd26bbd36c1ddba43424cc3c44f25b092cd1aa1f64a
+RUN readonly ARCHIVE="ispc-v${ISPC_VERSION}-linux.tar.gz"; \
+  curl -fsSLo "/tmp/${ARCHIVE}" \
+    "https://github.com/ispc/ispc/releases/download/v${ISPC_VERSION}/${ARCHIVE}"; \
+  echo "${ISPC_SHA256}  /tmp/${ARCHIVE}" | sha256sum -c -; \
+  install -d /opt/ispc; \
+  tar -xzf "/tmp/${ARCHIVE}" -C /opt/ispc --strip-components=1; \
+  rm "/tmp/${ARCHIVE}"; \
+  /opt/ispc/bin/ispc --version
+ENV PATH=/opt/ispc/bin:${PATH}
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libhwloc-dev libdeflate-dev libzstd-dev ccache \

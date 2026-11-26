@@ -116,6 +116,7 @@ LAYERS = {
                     "openvdb",
                     "OpenShadingLanguage",
                     "OpenUSD",
+                    "oidn",
                 )
                 for path in dependency(name)
             ),

@@ -70,4 +70,7 @@
 !third_party/config/OpenUSD.cmake
 !third_party/patches/OpenUSD/
 !third_party/OpenUSD/
+!third_party/config/oidn.cmake
+!third_party/patches/oidn/
+!third_party/oidn/
 **/.git

@@ -4,8 +4,8 @@
 # Layer "deps": the libraries umbra builds against (GoogleTest, Google
 # Benchmark, oneTBB, Embree, OpenQMC, Imath, OpenEXR, OpenSubdiv, yaml-cpp,
 # pystring, OpenColorIO, MaterialX, {fmt}, robin-map, libtiff, pugixml, Ptex,
-# OpenImageIO, OpenVDB, OSL and OpenUSD), built with the toolchain image's
-# clang.
+# OpenImageIO, OpenVDB, OSL, OpenUSD and Open Image Denoise), built with the
+# toolchain image's clang.
 # Every dependency is a Release shared library without LTO, against libc++,
 # for x86-64-v3, without exceptions where the project allows it, and finds
 # the libraries next to it through RUNPATH ($ORIGIN).
@@ -80,7 +80,7 @@ endif()
 # comes after the ones it depends on, which ExternalProject must already know.
 set(umbra_deps googletest benchmark oneTBB embree openqmc Imath openexr OpenSubdiv
   yaml-cpp pystring OpenColorIO fmt robin-map libtiff pugixml ptex OpenImageIO
-  openvdb OpenShadingLanguage MaterialX OpenUSD)
+  openvdb OpenShadingLanguage MaterialX OpenUSD oidn)
 set(umbra_deps_depends_embree oneTBB)
 set(umbra_deps_depends_openexr oneTBB Imath)
 set(umbra_deps_depends_OpenColorIO yaml-cpp pystring Imath)
@@ -102,6 +102,10 @@ cmake_path(GET umbra_deps_cuda_bin PARENT_PATH umbra_deps_cuda_root)
 set(umbra_deps_args_OpenShadingLanguage
   "-DCUDA_TOOLKIT_ROOT_DIR=${umbra_deps_cuda_root}")
 set(umbra_deps_args_oneTBB ${umbra_deps_hwloc_args})
+# Open Image Denoise's CPU device runs on oneTBB; its CUDA device is a build of
+# its own, to which patches/oidn hands these.
+set(umbra_deps_depends_oidn oneTBB)
+set(umbra_deps_args_oidn ${umbra_deps_cuda_args})
 foreach(dependency IN LISTS umbra_deps)
   umbra_add_dependency(${dependency}
     DEPENDS ${umbra_deps_depends_${dependency}}

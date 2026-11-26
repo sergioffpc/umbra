@@ -3,8 +3,8 @@
 #
 # umbra-toolchain: Ubuntu 26.04 with LLVM 23 built from the llvm-project
 # submodule by the dependency build (layer "toolchain"), plus the C-ABI
-# libraries and build tools that come from Ubuntu, git and ssh-keygen (for SSH
-# commit signing), release tools (git-cliff, git-flow-next), the lint tools
+# libraries and build tools that come from Ubuntu, git, git-lfs and ssh-keygen
+# (for SSH commit signing), release tools (git-cliff, git-flow-next), the lint tools
 # (actionlint, shellcheck and the Python lint and format tools) and Linux perf.
 #
 # Build from the repository root with the submodules checked out:
@@ -128,13 +128,17 @@ SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 # rootless container needs the host's kernel.perf_event_paranoid at 2 or lower.
 # openssh-client provides ssh-keygen, which git runs to sign commits and tags
 # with gpg.format ssh (through the forwarded ssh-agent) and to verify them.
+# git-lfs fetches the files a submodule keeps in Git LFS (Open Image Denoise's
+# weights); its filters are set up for every repository, so that git checks
+# them out and git status works in such a submodule.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates cmake ninja-build python3 python3-yaml python3-pygments \
-    git openssh-client \
+    git git-lfs openssh-client \
     libc6-dev zlib1g libzstd1 libedit2 libncursesw6 libncurses6 liblzma5 \
     libxml2-16 linux-perf \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && git lfs install --system --skip-repo
 COPY --from=llvm /stage/ /
 # The license of the LLVM libraries that umbra's install rules ship (libc++,
 # libc++abi, libunwind and libLLVM): they take it from

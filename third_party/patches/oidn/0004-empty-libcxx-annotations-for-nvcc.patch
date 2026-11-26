@@ -1,0 +1,42 @@
+Compile the CUDA sources with libc++'s thread-safety annotations empty.
+
+nvcc's front end cannot parse the pack expansions in the annotations of
+libc++'s scoped_lock (<mutex>), which the CUDA sources include through the
+core's headers. A header included before each CUDA source defines them
+empty when the standard library is libc++. They only feed clang's
+-Wthread-safety, which the CUDA device does not use.
+
+diff --git a/devices/cuda/CMakeLists.txt b/devices/cuda/CMakeLists.txt
+index 232e5f9..a2910ec 100644
+--- a/devices/cuda/CMakeLists.txt
++++ b/devices/cuda/CMakeLists.txt
+@@ -121,6 +121,10 @@ set_target_properties(OpenImageDenoise_device_cuda PROPERTIES
+   CUDA_RUNTIME_LIBRARY ${OIDN_CUDA_RUNTIME_LIBRARY}
+ )
+ 
++target_compile_options(OpenImageDenoise_device_cuda PRIVATE
++  $<$<COMPILE_LANGUAGE:CUDA>:--pre-include=${CMAKE_CURRENT_SOURCE_DIR}/libcxx_cuda.h>
++)
++
+ # Fix warning: support for offline compilation for architectures prior to ... will be removed
+ target_compile_options(OpenImageDenoise_device_cuda PRIVATE
+   $<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets>
+diff --git a/devices/cuda/libcxx_cuda.h b/devices/cuda/libcxx_cuda.h
+new file mode 100644
+index 0000000..6c33f37
+--- /dev/null
++++ b/devices/cuda/libcxx_cuda.h
+@@ -0,0 +1,13 @@
++// nvcc's front end cannot parse the pack expansions in libc++'s thread-safety
++// annotations (<mutex>'s scoped_lock): with libc++, CUDA sources are compiled
++// with those annotations empty. They only feed clang's -Wthread-safety.
++#include <version>
++#ifdef _LIBCPP_VERSION
++#  include <__config>
++#  undef _LIBCPP_ACQUIRE_CAPABILITY
++#  define _LIBCPP_ACQUIRE_CAPABILITY(...)
++#  undef _LIBCPP_RELEASE_CAPABILITY
++#  define _LIBCPP_RELEASE_CAPABILITY(...)
++#  undef _LIBCPP_REQUIRES_CAPABILITY
++#  define _LIBCPP_REQUIRES_CAPABILITY(...)
++#endif
