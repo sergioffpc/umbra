@@ -17,9 +17,8 @@ instanced is a prototype with one instance
 (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Instance**:
-A placement of a prototype: its transform, its own material and primvars
-when it has them, and its light-link and shadow-link masks
-(docs/adr/0006-scenes-enter-through-hydra.md).
+A placement of a prototype: its transform, and its own primvars when it
+has them (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Source face**:
 The polygon of a mesh a triangle comes from, as an index into the mesh's
@@ -34,16 +33,6 @@ A material as the Scene holds it: nodes that are MaterialX nodedef ids or
 An 18% gray diffuse: the material of a prim whose material does not
 translate, or that has none and no `displayColor`
 (docs/adr/0008-materials-cross-as-neutral-networks.md).
-
-**Light link**:
-The lights that illuminate an instance: a mask of the lights' light-link
-categories; all of them for an instance with no category
-(docs/adr/0006-scenes-enter-through-hydra.md).
-
-**Shadow link**:
-The lights an instance casts shadows from: a mask of the lights'
-shadow-link categories; all of them for an instance with no category
-(docs/adr/0006-scenes-enter-through-hydra.md).
 
 ## Rendering
 
