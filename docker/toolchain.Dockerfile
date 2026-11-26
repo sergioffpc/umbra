@@ -176,7 +176,7 @@ ARG OPTIX_SHA256=3a29b2254107fdfbb5e6bbad3ec154dd682149121f61e9c406607ac7b52a6ba
 ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl xz-utils \
+  && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp/nvidia
 # fetch COMPONENT VERSION SHA256 downloads the redist archive of a CUDA
