@@ -13,6 +13,14 @@
 #     flags, so Debug and Release compute identical results;
 #   - Release adds -O3 (CMake's default), full LTO, whole-program vtables,
 #     hidden visibility, no semantic interposition and no PLT;
+#   - hidden visibility tells LTO that a class is whole inside umbra, so
+#     whole-program vtables devirtualize its virtual calls, and gives its
+#     type_info a copy of umbra's own. Both are wrong for the classes of a
+#     third-party library, whose shared objects hold subclasses umbra never
+#     sees and the type_info that libc++ compares by address. The bridges,
+#     the only code that includes third-party headers, keep the default
+#     visibility (umbra_add_ext_module), as Debug does; the rest of umbra
+#     keeps both for its own classes;
 #   - Release keeps the frame pointers, including in leaf functions, so that
 #     profilers (perf) unwind call stacks cheaply and reliably; the cost is
 #     about 1%, and the major Linux distributions build this way too;
