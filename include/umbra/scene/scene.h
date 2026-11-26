@@ -191,21 +191,17 @@ struct Mesh {
   Sidedness sidedness = Sidedness::kSingleSided;
 };
 
-// A mask of light-link or shadow-link categories, one bit per category.
-using LightMask = std::uint64_t;
-// Every category: all the lights.
-inline constexpr LightMask kAllLights = ~LightMask{0};
-
-// A placement of a prototype.
+// A placement of a prototype. Every light lights it, and it casts shadows
+// from every light (docs/adr/0009-lights-light-everything.md).
 struct Instance {
   // Its prototype: an index into Scene::prototypes().
   std::size_t prototype = 0;
   // The object-to-world transform, one per motion sample, row-major, for
   // row vectors: the translation, in meters, is the last row.
   std::vector<std::array<double, 16>> object_to_world;
-  // The lights that illuminate it, and those it casts shadows from.
-  LightMask light_link = kAllLights;
-  LightMask shadow_link = kAllLights;
+  // Its own primvars, constant, one value each: they take the place of
+  // the prototype's of the same name.
+  std::vector<Primvar> primvars;
 };
 
 // The scene of one frame.

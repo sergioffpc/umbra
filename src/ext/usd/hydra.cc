@@ -3,6 +3,7 @@
 
 #include "hydra.h"
 
+#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
@@ -36,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "instancer.h"
 #include "mesh.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -200,10 +202,9 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
                     pxr::HdDirtyBits* dirty_bits,
                     const pxr::TfToken& /*repr*/) {
   _UpdateVisibility(delegate, dirty_bits);
+  _UpdateInstancer(delegate, dirty_bits);
   if (!IsVisible()) {
     state_ = MeshState::kInvisible;
-  } else if (!delegate->GetInstancerId(GetId()).IsEmpty()) {
-    state_ = MeshState::kInstanced;
   } else {
     Convert(*delegate);
   }
@@ -211,8 +212,11 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
   phase_->Add(1);
   if (state_ == MeshState::kConverted) {
     const std::size_t triangles = mesh_.triangles.size();
-    UMBRA_LOG_TRACE(kUsd, "synced {} ({} triangle{})", GetId().GetString(),
-                    core::FormatCount(triangles), triangles == 1 ? "" : "s");
+    const std::size_t instances = instances_.size();
+    UMBRA_LOG_TRACE(kUsd, "synced {} ({} triangle{}, {} instance{})",
+                    GetId().GetString(), core::FormatCount(triangles),
+                    triangles == 1 ? "" : "s", core::FormatCount(instances),
+                    instances == 1 ? "" : "s");
   } else {
     UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
   }
@@ -238,11 +242,45 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   state_ = MeshState::kConverted;
   mesh_ = std::move(*mesh);
-  object_to_world_ =
-      TransformInMeters(delegate.GetTransform(GetId()), meters_per_unit_);
+  Place(delegate);
+}
+
+void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
+  const pxr::GfMatrix4d object_to_instance = delegate.GetTransform(GetId());
+  std::vector<FlatInstance> placements;
+  const pxr::SdfPath& instancer_id = GetInstancerId();
+  if (instancer_id.IsEmpty()) {
+    placements.emplace_back();
+  } else {
+    pxr::HdRenderIndex& index = delegate.GetRenderIndex();
+    pxr::HdInstancer::_SyncInstancerAndParents(index, instancer_id);
+    // Instancers are all umbra's: the delegate creates no other.
+    if (const auto* instancer = dynamic_cast<const InstancerPrim*>(
+            index.GetInstancer(instancer_id));
+        instancer != nullptr) {
+      placements = instancer->Instances(GetId());
+    }
+  }
+  instances_.clear();
+  instances_.reserve(placements.size());
+  for (FlatInstance& placement : placements) {
+    instances_.push_back({
+        .prototype = 0,
+        .object_to_world =
+            {
+                TransformInMeters(object_to_instance * placement.transform,
+                                  meters_per_unit_),
+            },
+        .primvars = std::move(placement.primvars),
+    });
+  }
 }
 
 scene::Mesh MeshPrim::TakeMesh() { return std::move(mesh_); }
+
+std::vector<scene::Instance> MeshPrim::TakeInstances() {
+  return std::move(instances_);
+}
 
 pxr::HdDirtyBits MeshPrim::_PropagateDirtyBits(pxr::HdDirtyBits bits) const {
   return bits;
@@ -297,7 +335,7 @@ RenderDelegate::~RenderDelegate() = default;
 
 std::size_t RenderDelegate::PrimCount() const {
   return prims_.settings.size() + prims_.cameras.size() + prims_.meshes.size() +
-         prims_.unsupported.size();
+         prims_.instancers.size() + prims_.unsupported.size();
 }
 
 pxr::TfTokenVector RenderDelegate::RenderTags(
@@ -356,12 +394,14 @@ pxr::HdRenderPassSharedPtr RenderDelegate::CreateRenderPass(
 
 pxr::HdInstancer* RenderDelegate::CreateInstancer(
     pxr::HdSceneDelegate* delegate, const pxr::SdfPath& prim_id) {
-  return Release<pxr::HdInstancer>(
-      std::make_unique<pxr::HdInstancer>(delegate, prim_id));
+  auto instancer = std::make_unique<InstancerPrim>(delegate, prim_id, *phase_);
+  prims_.instancers[prim_id] = instancer.get();
+  return Release<pxr::HdInstancer>(std::move(instancer));
 }
 
 void RenderDelegate::DestroyInstancer(pxr::HdInstancer* instancer) {
   const std::unique_ptr<pxr::HdInstancer> owned(instancer);
+  Forget(prims_.instancers, *instancer);
 }
 
 pxr::HdRprim* UMBRA_NULLABLE RenderDelegate::CreateRprim(
@@ -445,6 +485,11 @@ void RenderDelegate::DestroyBprim(pxr::HdBprim* bprim) {
 void RenderDelegate::CountNotSynced() {
   for (const auto& [path, mesh] : prims_.meshes) {
     if (mesh->state() == MeshState::kNotSynced) {
+      phase_->Add(1);
+    }
+  }
+  for (const auto& [path, instancer] : prims_.instancers) {
+    if (!instancer->IsSynced()) {
       phase_->Add(1);
     }
   }

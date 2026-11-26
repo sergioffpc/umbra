@@ -47,13 +47,10 @@ file paths only.
   as the color (`color`). The Scene says render var, not AOV.
 - **Prototypes and instances**: instancing is kept, not flattened. A
   prototype is geometry held once; an instance places a prototype with its
-  transform, its own material and primvars when it has them, and its
-  light-link and shadow-link masks. A mesh that is not instanced is a
-  prototype with one instance.
-- **Light and shadow links**: each light's light-link and shadow-link
-  categories, from `hdsi`'s light linking scene index, become a mask on each
-  instance: the lights that illuminate it and the lights it casts shadows
-  from. An instance with no category has all of them.
+  transform, and its own material and primvars when it has them. A mesh
+  that is not instanced is a prototype with one instance. Every light
+  lights every instance: the Scene holds no light or shadow linking
+  (docs/adr/0009-lights-light-everything.md).
 - **The shutter**, the interval a frame integrates, from the camera's
   `shutter:open` to its `shutter:close`, relative to the frame, and **motion
   samples** within it: the values of a transform or of a mesh's points at
