@@ -339,7 +339,6 @@ std::optional<std::string> FirstFile(const std::string& file) {
   return tiles.front().first;
 }
 
-
 // Translates the nodes of one network, gathering the textures that do not
 // resolve and the error that stops the render.
 class Translator {
