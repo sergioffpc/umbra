@@ -267,8 +267,14 @@ std::optional<scene::Texture> Reader::Texture() {
          std::format("{} does not resolve", asset.GetAssetPath()));
     return std::nullopt;
   }
-  auto color_space =
-      TextureColorSpace(params_->ColorSpace(name), **file, kDefaultColorSpace);
+  // An emitter's texels are radiance: with no color space authored, or
+  // auto, an sRGB file is sRGB and any other is scene-linear, never raw.
+  pxr::TfToken authored = params_->ColorSpace(name);
+  if (authored == "auto") {
+    authored = pxr::TfToken();
+  }
+  auto color_space = TextureColorSpace(
+      authored, **file, IsSrgb(**file) ? "sRGB" : kDefaultColorSpace);
   if (!color_space.has_value()) {
     Note(LightIssue::kTextureNotRead,
          std::format("{}: {}", asset.GetAssetPath(), color_space.error()));

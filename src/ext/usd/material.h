@@ -125,6 +125,11 @@ class MaterialPrim final : public pxr::HdMaterial {
 [[nodiscard]] std::expected<std::optional<std::string>, core::Error>
 ResolveAsset(const pxr::SdfAssetPath& asset, const pxr::SdfPath& owner);
 
+// Whether the texels of `file` are sRGB, by USD's convention: as its
+// metadata says, or else when it is 8-bit with 3 or 4 channels. The first
+// tile of a UDIM set tells.
+[[nodiscard]] bool IsSrgb(const std::string& file);
+
 // The color space of the texels of the texture `file`, by its name in the
 // OpenColorIO config: `authored`, else `fallback`. auto becomes sRGB or
 // raw, as the file tells. Fails with why when the config has no such color

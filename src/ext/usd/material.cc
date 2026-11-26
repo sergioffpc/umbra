@@ -339,16 +339,6 @@ std::optional<std::string> FirstFile(const std::string& file) {
   return tiles.front().first;
 }
 
-// Whether the texels of `file` are sRGB, by USD's convention: as its
-// metadata says, or else when it is 8-bit with 3 or 4 channels.
-bool IsSrgb(const std::string& file) {
-  const std::optional<std::string> first = FirstFile(file);
-  if (!first.has_value()) {
-    return false;
-  }
-  const pxr::HioImageSharedPtr image = pxr::HioImage::OpenForReading(*first);
-  return image != nullptr && image->IsColorSpaceSRGB();
-}
 
 // Translates the nodes of one network, gathering the textures that do not
 // resolve and the error that stops the render.
@@ -824,6 +814,15 @@ std::expected<std::optional<std::string>, Error> ResolveAsset(
                     pxr::ArSplitPackageRelativePathOuter(resolved).first)));
   }
   return resolved;
+}
+
+bool IsSrgb(const std::string& file) {
+  const std::optional<std::string> first = FirstFile(file);
+  if (!first.has_value()) {
+    return false;
+  }
+  const pxr::HioImageSharedPtr image = pxr::HioImage::OpenForReading(*first);
+  return image != nullptr && image->IsColorSpaceSRGB();
 }
 
 std::expected<std::string, std::string> TextureColorSpace(

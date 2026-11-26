@@ -66,7 +66,8 @@ struct LoadOptions {
 // UsdLux lights (sphere, rect, disk, cylinder, distant and dome lights)
 // cross with their shapes in meters, one for each instance, their colors
 // converted into ACEScg, their color temperatures kept as such, and their
-// textures resolved as the materials' are; a DomeLight_1's orientation
+// textures resolved as the materials' are, those with no color space sRGB
+// when the file is and scene-linear otherwise; a DomeLight_1's orientation
 // follows its poleAxis, the stage's upAxis for "scene". Lights are physical:
 // their diffuse and specular multipliers, focus, cone softness and shadow
 // controls are not taken. One warning each reports the meshes rendered as
