@@ -79,26 +79,32 @@ void CountSync(SyncCounter* UMBRA_NULLABLE counter,
   UMBRA_LOG_TRACE(kUsd, "synced {}", prim_id.GetString());
 }
 
-// Has Hydra mark a mesh kDirtyEmission when its light data source, which
-// MeshLightAPI authors, changes: no dirty bit of Hydra's names it. The
-// mapping is Hydra's, process-wide, for every mesh rprim, and comes on top of
-// Hydra's own.
+// Gives `bits` kDirtyEmission when `locators` hold a mesh's light data
+// source, which MeshLightAPI authors.
+void EmissionBitsOf(const pxr::HdDataSourceLocatorSet& locators,
+                    pxr::HdDirtyBits* bits) {
+  if (locators.Intersects(pxr::HdLightSchema::GetDefaultLocator())) {
+    *bits |= kDirtyEmission;
+  }
+}
+
+// Gives `locators` a mesh's light data source when `bits` hold
+// kDirtyEmission.
+void EmissionLocatorsOf(pxr::HdDirtyBits bits,
+                        pxr::HdDataSourceLocatorSet* locators) {
+  if ((bits & kDirtyEmission) != 0U) {
+    locators->append(pxr::HdLightSchema::GetDefaultLocator());
+  }
+}
+
+// Has Hydra mark a mesh kDirtyEmission when its light data source changes:
+// no dirty bit of Hydra's names it. The mapping is Hydra's, process-wide,
+// for every mesh rprim, and comes on top of Hydra's own.
 void MapEmissionToDirtyBit() {
   static std::once_flag once;
   std::call_once(once, [] {
     pxr::HdDirtyBitsTranslator::RegisterTranslatorsForCustomRprimType(
-        pxr::HdPrimTypeTokens->mesh,
-        [](const pxr::HdDataSourceLocatorSet& locators,
-           pxr::HdDirtyBits* bits) {
-          if (locators.Intersects(pxr::HdLightSchema::GetDefaultLocator())) {
-            *bits |= kDirtyEmission;
-          }
-        },
-        [](pxr::HdDirtyBits bits, pxr::HdDataSourceLocatorSet* locators) {
-          if ((bits & kDirtyEmission) != 0U) {
-            locators->append(pxr::HdLightSchema::GetDefaultLocator());
-          }
-        });
+        pxr::HdPrimTypeTokens->mesh, EmissionBitsOf, EmissionLocatorsOf);
   });
 }
 

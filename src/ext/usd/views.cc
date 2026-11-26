@@ -267,8 +267,11 @@ device::Prototype ChangeSetBuilder::PrototypeOf(
       .sidedness = device::Sidedness::kSingleSided,
       .materials = {},
       .triangle_materials = {},
-      .instances = {},
-      .emission = {},
+      .instances = HasAny(changes, ChangeFlags::kPlacement)
+                       ? InstancesOf(instances)
+                       : std::span<const device::Instance>(),
+      .emission = HasAny(changes, ChangeFlags::kEmission) ? mesh.emission
+                                                          : std::nullopt,
   };
   if (HasAny(changes, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
     prototype.points = PointsOf(mesh.points);
@@ -286,12 +289,6 @@ device::Prototype ChangeSetBuilder::PrototypeOf(
   if (HasAny(changes, ChangeFlags::kMaterials)) {
     prototype.materials = mesh.materials;
     prototype.triangle_materials = mesh.triangle_materials;
-  }
-  if (HasAny(changes, ChangeFlags::kPlacement)) {
-    prototype.instances = InstancesOf(instances);
-  }
-  if (HasAny(changes, ChangeFlags::kEmission)) {
-    prototype.emission = mesh.emission;
   }
   return prototype;
 }
