@@ -22,10 +22,19 @@ has them (docs/adr/0006-scenes-enter-through-hydra.md).
 
 **Light**:
 A UsdLux light the Scene holds: its shape (sphere, rect, disk, cylinder,
-distant or dome) in meters, its emission, as an ACEScg color and an
-optional blackbody temperature, and its transform. It lights every
-instance and has no artistic control
+distant or dome) in meters, given by its parameters, its emission, as an
+ACEScg color and an optional blackbody temperature, and its transform. It
+only emits, lights every instance and has no artistic control
 (docs/adr/0010-lights-are-physical.md).
+_Avoid:_ light for a mesh light (an emissive mesh)
+
+**Emissive mesh**:
+A mesh whose surface emits light: its emission authored by UsdLux's
+MeshLightAPI (a mesh light) or by its material. Its shape is its triangles,
+and it reflects light as well as it emits: it is geometry, not a Light.
+
+**Emitter**:
+Anything that emits light: a Light or an emissive mesh.
 
 **Source face**:
 The polygon of a mesh a triangle comes from, as an index into the mesh's

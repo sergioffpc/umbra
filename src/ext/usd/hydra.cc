@@ -333,8 +333,8 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   state_ = MeshState::kConverted;
   mesh_ = std::move(*mesh);
   ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
-  emission_ =
-      IsLight(delegate, GetId()) ? Emission::kMeshLight : Emission::kNone;
+  emission_ = internal::IsMeshLight(delegate, GetId()) ? Emission::kMeshLight
+                                                       : Emission::kNone;
   material_subsets_ = MaterialSubsets(source.topology);
   // A mesh whose topology changes within the shutter has no blur at all.
   Place(delegate, motion_outcome_ == MotionOutcome::kTopologyChanges

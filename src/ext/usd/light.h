@@ -40,10 +40,10 @@ namespace pxr = PXR_NS;
 // counts.
 [[nodiscard]] const pxr::TfTokenVector& LightPrimTypes();
 
-// Whether the prim at `prim_id` is a light Hydra gives as another prim: a
-// mesh with UsdLux's MeshLightAPI.
-[[nodiscard]] bool IsLight(pxr::HdSceneDelegate& delegate,
-                           const pxr::SdfPath& prim_id);
+// Whether the mesh at `prim_id` is a mesh light: an emissive mesh, its
+// emission authored by UsdLux's MeshLightAPI.
+[[nodiscard]] bool IsMeshLight(pxr::HdSceneDelegate& delegate,
+                               const pxr::SdfPath& prim_id);
 
 // What the sync of a light gave.
 enum class LightState : std::uint8_t {
