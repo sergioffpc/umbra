@@ -20,8 +20,8 @@
 #
 # Adds the bridge module umbra_ext_<dependency> (alias umbra::ext::<dependency>)
 # from src/ext/<dependency>/, with headers in include/umbra/ext/<dependency>/.
-# It is the only kind of target built with exceptions and RTTI; see
-# src/ext/README.md.
+# It is the only kind of target built with exceptions and RTTI, and the only
+# one with default visibility in Release; see src/ext/README.md.
 #
 #   umbra_add_loadable_module(<target> SOURCES <file>... [HEADERS <module>...]
 #                             [LINK <target>...])
@@ -108,7 +108,10 @@ function(umbra_add_ext_module dependency)
   set(target umbra_ext_${dependency})
   umbra_define_module(${target} umbra::ext::${dependency} ext/${dependency}
                       ${ARGN})
-  target_compile_options(${target} PRIVATE -fexceptions -frtti)
+  # The library's classes are those of its shared objects, so a bridge keeps
+  # their default visibility (see UmbraCompiler.cmake).
+  target_compile_options(${target} PRIVATE -fexceptions -frtti
+                         $<$<CONFIG:Release>:-fvisibility=default>)
 endfunction()
 
 function(umbra_add_loadable_module target)
