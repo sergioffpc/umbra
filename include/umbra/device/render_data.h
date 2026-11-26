@@ -370,6 +370,12 @@ struct Camera {
   double f_stop = 0.0;
   // The distance in focus, with depth of field.
   double focus_distance = 0.0;
+  // The linear scale of its physical exposure at the frame, from its
+  // exposure attributes: exposure:responsivity * (exposure:time *
+  // exposure:iso / 100 * 2^exposure) / exposure:fStop^2; 1 with their
+  // defaults. That exposure f-stop is not f_stop, so a pinhole is still
+  // exposed.
+  float exposure_scale = 1.0F;
 };
 
 }  // namespace umbra::device

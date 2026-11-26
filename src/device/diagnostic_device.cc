@@ -1110,6 +1110,7 @@ CameraRecord RecordOf(const Camera& camera) {
   hasher.Value(camera.clipping_range);
   hasher.Value(camera.f_stop);
   hasher.Value(camera.focus_distance);
+  hasher.Value(camera.exposure_scale);
   return {.path = std::string(camera.path), .digest = hasher.digest()};
 }
 
