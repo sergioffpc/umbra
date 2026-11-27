@@ -60,6 +60,7 @@
 #include <ranges>
 #include <set>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -79,6 +80,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
 
@@ -1136,40 +1138,101 @@ void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
 
 namespace {
 
-// The render buffers of the vars of `product`, the `index`th, sized to its
-// data window and set to 0.
+// Whether `product` has a var of `source`.
+bool HasVar(const RenderProduct& product, RenderVarSource source) {
+  return std::ranges::contains(product.vars, source, &RenderVar::source);
+}
+
+// The inputs of the denoise of `product` that it has no var of: none when it
+// has no denoisedColor var.
+std::vector<RenderVarSource> InternalInputs(const RenderProduct& product) {
+  std::vector<RenderVarSource> inputs;
+  if (!HasVar(product, RenderVarSource::kDenoisedColor)) {
+    return inputs;
+  }
+  static constexpr std::array<RenderVarSource, 3> kInputs = {
+      RenderVarSource::kColor,
+      RenderVarSource::kAlbedo,
+      RenderVarSource::kNormal,
+  };
+  for (const RenderVarSource source : kInputs) {
+    if (!HasVar(product, source)) {
+      inputs.push_back(source);
+    }
+  }
+  return inputs;
+}
+
+// A render buffer of `product`, the `index`th, the `slot`th of its buffers,
+// with `channels` channels over its data window, set to 0, for `what`.
+std::expected<std::unique_ptr<RenderBuffer>, core::Error> CreateBuffer(
+    const RenderProduct& product, std::size_t index, std::size_t slot,
+    std::uint32_t channels, std::string_view what) {
+  auto buffer = std::make_unique<RenderBuffer>(TaskPath().AppendChild(
+      pxr::TfToken(std::format("product{}_{}", index, slot))));
+  if (!buffer->Allocate(
+          pxr::GfVec3i(product.window.width(), product.window.height(), 1),
+          FloatFormat(channels), false)) {
+    return std::unexpected(
+        core::Error(core::ErrorCode::kInternal,
+                    std::format("{}: no render buffer of {} channels for {}",
+                                product.file, channels, what)));
+  }
+  return buffer;
+}
+
+// The render buffers of `product`, the `index`th, sized to its data window
+// and set to 0: those of its vars, then those of the inputs of its denoise
+// it has no var of, RGBA for the color and RGB for the albedo and the
+// normal.
 std::expected<ProductBuffers, core::Error> CreateBuffers(
     const RenderProduct& product, std::size_t index) {
+  const std::vector<RenderVarSource> internal = InternalInputs(product);
   ProductBuffers buffers;
-  buffers.reserve(product.vars.size());
+  buffers.reserve(product.vars.size() + internal.size());
   for (const RenderVar& var : product.vars) {
-    auto buffer = std::make_unique<RenderBuffer>(TaskPath().AppendChild(
-        pxr::TfToken(std::format("product{}_{}", index, buffers.size()))));
-    if (!buffer->Allocate(
-            pxr::GfVec3i(product.window.width(), product.window.height(), 1),
-            FloatFormat(var.channels), false)) {
-      return std::unexpected(
-          core::Error(core::ErrorCode::kInternal,
-                      std::format("{}: no render buffer of {} channels for {}",
-                                  product.file, var.channels, var.name)));
+    auto buffer =
+        CreateBuffer(product, index, buffers.size(), var.channels, var.name);
+    if (!buffer.has_value()) {
+      return std::unexpected(std::move(buffer.error()));
     }
-    buffers.push_back(std::move(buffer));
+    buffers.push_back(*std::move(buffer));
+  }
+  for (const RenderVarSource source : internal) {
+    const std::uint32_t channels = source == RenderVarSource::kColor ? 4 : 3;
+    auto buffer = CreateBuffer(product, index, buffers.size(), channels,
+                               AovName(source).GetString());
+    if (!buffer.has_value()) {
+      return std::unexpected(std::move(buffer.error()));
+    }
+    buffers.push_back(*std::move(buffer));
   }
   return buffers;
 }
 
-// The AOV bindings of `buffers`, those of the vars of `product`, by the
+// The AOV binding of `buffer` as the AOV of `source`.
+pxr::HdRenderPassAovBinding BindingOf(RenderVarSource source,
+                                      RenderBuffer& buffer) {
+  pxr::HdRenderPassAovBinding binding;
+  binding.aovName = AovName(source);
+  binding.renderBuffer = &buffer;
+  binding.renderBufferId = buffer.GetId();
+  return binding;
+}
+
+// The AOV bindings of `buffers`, those CreateBuffers gives `product`, by the
 // names AovName gives their sources.
 pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
                                              const ProductBuffers& buffers) {
   pxr::HdRenderPassAovBindingVector bindings;
   bindings.reserve(buffers.size());
   for (const auto& [var, buffer] : std::views::zip(product.vars, buffers)) {
-    pxr::HdRenderPassAovBinding binding;
-    binding.aovName = AovName(var.source);
-    binding.renderBuffer = buffer.get();
-    binding.renderBufferId = buffer->GetId();
-    bindings.push_back(std::move(binding));
+    bindings.push_back(BindingOf(var.source, *buffer));
+  }
+  for (const auto& [source, buffer] :
+       std::views::zip(InternalInputs(product),
+                       buffers | std::views::drop(product.vars.size()))) {
+    bindings.push_back(BindingOf(source, *buffer));
   }
   return bindings;
 }
@@ -1177,10 +1240,12 @@ pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
 }  // namespace
 
 RenderTask::RenderTask(RenderDelegate& delegate, pxr::SdfPath settings,
+                       oidn::DenoiseDevice denoise_device,
                        Display* UMBRA_NULLABLE display)
     : pxr::HdTask(TaskPath()),
       delegate_(&delegate),
       settings_(std::move(settings)),
+      denoise_device_(std::move(denoise_device)),
       display_(display) {}
 
 void RenderTask::SetOnCommitted(std::function<void()> on_committed) {
@@ -1224,6 +1289,21 @@ std::optional<std::expected<void, core::Error>> RenderTask::TakeResult() {
   return std::exchange(result_, std::nullopt);
 }
 
+std::expected<oidn::Denoiser * UMBRA_NULLABLE, core::Error>
+RenderTask::DenoiserOf(const RenderProduct& product) {
+  if (!HasVar(product, RenderVarSource::kDenoisedColor)) {
+    return nullptr;
+  }
+  if (denoiser_ == nullptr) {
+    auto created = oidn::Denoiser::Create(denoise_device_);
+    if (!created.has_value()) {
+      return std::unexpected(std::move(created.error()));
+    }
+    denoiser_ = *std::move(created);
+  }
+  return denoiser_.get();
+}
+
 std::expected<void, core::Error> RenderTask::Render(
     const Committed& committed) {
   if (index_ == nullptr) {
@@ -1240,22 +1320,31 @@ std::expected<void, core::Error> RenderTask::Render(
                         pxr::HdReprSelector(pxr::HdReprTokens->hull)))));
   }
   for (std::size_t index = 0; index < products.size(); ++index) {
-    const RenderProduct& product = products.at(index);
-    auto buffers = CreateBuffers(product, index);
-    if (!buffers.has_value()) {
-      return std::unexpected(std::move(buffers.error()));
-    }
-    buffers_.at(index) = *std::move(buffers);
-    const auto state = std::make_shared<pxr::HdRenderPassState>();
-    state->SetAovBindings(BindingsOf(product, buffers_.at(index)));
-    RenderPass& pass = *passes_.at(index);
-    pass.SetProduct(product, committed.frame, display_);
-    pass.Execute(state, render_tags_);
-    if (auto rendered = pass.TakeResult(); !rendered.has_value()) {
+    if (auto rendered = RenderOne(committed, index); !rendered.has_value()) {
       return rendered;
     }
   }
   return {};
+}
+
+std::expected<void, core::Error> RenderTask::RenderOne(
+    const Committed& committed, std::size_t index) {
+  const RenderProduct& product = committed.settings.products.at(index);
+  auto buffers = CreateBuffers(product, index);
+  if (!buffers.has_value()) {
+    return std::unexpected(std::move(buffers.error()));
+  }
+  const auto denoiser = DenoiserOf(product);
+  if (!denoiser.has_value()) {
+    return std::unexpected(denoiser.error());
+  }
+  buffers_.at(index) = *std::move(buffers);
+  const auto state = std::make_shared<pxr::HdRenderPassState>();
+  state->SetAovBindings(BindingsOf(product, buffers_.at(index)));
+  RenderPass& pass = *passes_.at(index);
+  pass.SetProduct(product, committed.frame, *denoiser, display_);
+  pass.Execute(state, render_tags_);
+  return pass.TakeResult();
 }
 
 }  // namespace umbra::ext::usd::internal

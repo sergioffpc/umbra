@@ -31,8 +31,8 @@ namespace umbra::core {
 namespace {
 
 constexpr std::array<std::string_view, kLogComponentCount> kComponentNames = {
-    "core", "gpu", "usd", "osl",    "oiio",
-    "ocio", "vdb", "osd", "embree", "device",
+    "core", "gpu", "usd",    "osl",    "oiio", "ocio",
+    "vdb",  "osd", "embree", "device", "oidn",
 };
 
 // The levels UMBRA_LOG enables; the others are always shown.

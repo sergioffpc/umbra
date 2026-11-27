@@ -23,6 +23,7 @@ std::span<const std::string_view> ChannelNames(ext::usd::RenderVarSource source,
   std::span<const std::string_view> names = kVector;
   switch (source) {
     case RenderVarSource::kColor:
+    case RenderVarSource::kDenoisedColor:
     case RenderVarSource::kAlbedo:
     case RenderVarSource::kLpe:
       names = kColor;

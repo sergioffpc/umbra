@@ -4,8 +4,9 @@
 // umbra's render pass and render buffers in Hydra: one pass per render
 // product, which runs every device on a host thread of its own over the
 // product's tiles (docs/adr/0014-frames-render-in-tiles-from-one-counter.md),
-// and the render buffers it fills, float32 over the product's data window,
-// created by the bridge rather than as bprims.
+// then denoises the product's color when it asks for it, and the render
+// buffers it fills, float32 over the product's data window, created by the
+// bridge rather than as bprims.
 
 #ifndef UMBRA_EXT_USD_RENDER_PASS_H_
 #define UMBRA_EXT_USD_RENDER_PASS_H_
@@ -30,6 +31,7 @@
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
 
@@ -87,20 +89,33 @@ class RenderBuffer final : public pxr::HdRenderBuffer {
   std::vector<float> pixels_;
 };
 
+// The render buffers a denoise reads, those of the "color", "albedo" and
+// "normal" AOVs, and those it writes, of the "denoisedColor" AOVs.
+struct DenoiseBuffers {
+  const RenderBuffer* UMBRA_NULLABLE color = nullptr;
+  const RenderBuffer* UMBRA_NULLABLE albedo = nullptr;
+  const RenderBuffer* UMBRA_NULLABLE normal = nullptr;
+  std::vector<RenderBuffer*> outputs;
+};
+
 // The float32 format of `channels` channels, 1 to 4.
 [[nodiscard]] pxr::HdFormat FloatFormat(std::uint32_t channels);
 
 // The name of the AOV of a var of `source`, which binds its render buffer:
-// "color", "depth", "normal", "albedo"; "lpe" and "primvar" for those that
-// no device renders.
+// "color", "depth", "normal", "albedo"; "denoisedColor" for those the pass
+// denoises, and "lpe" and "primvar" for those that no device renders.
 [[nodiscard]] pxr::TfToken AovName(RenderVarSource source);
 
 // The render pass of one render product. Each Execute renders the product
 // SetProduct gave it, on every device at once, into the render buffers bound
 // to the pass state's AOVs, those of AOVs no device renders left at 0, as a
 // phase of the render, "Rendering <file>", whose tiles the devices count.
-// A display, if SetProduct gives one, shows the product from a host thread
-// of its own, as its tiles finish.
+// When a "denoisedColor" AOV is bound, it then denoises the buffer of the
+// "color" AOV into it, with those of "albedo" and "normal", on the whole
+// image in host memory, as a phase of its own, "Denoising <file>", which
+// counts its pixels. A display, if SetProduct gives one, shows the product
+// as its tiles finish, from a host thread of its own, and once more whole
+// when it has been denoised.
 class RenderPass final : public pxr::HdRenderPass {
  public:
   // Renders on `devices`, which outlive it.
@@ -109,15 +124,18 @@ class RenderPass final : public pxr::HdRenderPass {
              std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND);
 
   // The product the next Execute renders, with the frame parameters of the
-  // frame, which give the shutter, and the display that shows it, if any;
-  // all outlive that Execute.
+  // frame, which give the shutter, the denoiser of its denoisedColor vars,
+  // if it has any, and the display that shows it, if any; all outlive that
+  // Execute.
   void SetProduct(
       const RenderProduct& product UMBRA_LIFETIME_CAPTURE_BY_THIS,
       const device::FrameParameters& frame UMBRA_LIFETIME_CAPTURE_BY_THIS,
+      oidn::Denoiser* UMBRA_NULLABLE denoiser UMBRA_LIFETIME_CAPTURE_BY_THIS,
       Display* UMBRA_NULLABLE display UMBRA_LIFETIME_CAPTURE_BY_THIS);
 
   // What the last Execute gave: fails with the first device's error, in
-  // order, naming it, or with kUnavailable when no device took the tiles.
+  // order, naming it, with kUnavailable when no device took the tiles, or
+  // with the denoiser's error.
   [[nodiscard]] std::expected<void, core::Error> TakeResult();
 
  protected:
@@ -133,10 +151,14 @@ class RenderPass final : public pxr::HdRenderPass {
   [[nodiscard]] std::expected<void, core::Error> Render(
       std::span<const device::FilmVar> vars,
       std::span<const RenderedVar> shown);
+  // Denoises the product's color into `buffers`' outputs, if any.
+  [[nodiscard]] std::expected<void, core::Error> Denoise(
+      const DenoiseBuffers& buffers);
 
   std::span<device::Device* const> devices_;
   const RenderProduct* UMBRA_NULLABLE product_ = nullptr;
   const device::FrameParameters* UMBRA_NULLABLE frame_ = nullptr;
+  oidn::Denoiser* UMBRA_NULLABLE denoiser_ = nullptr;
   Display* UMBRA_NULLABLE display_ = nullptr;
   std::optional<std::expected<void, core::Error>> result_;
 };

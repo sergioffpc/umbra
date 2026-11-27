@@ -44,6 +44,7 @@ umbra_add_ext_module(
   core
   device
   ext::ocio
+  ext::oidn
   LINK
   tf
   gf
