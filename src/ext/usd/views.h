@@ -60,6 +60,10 @@ class ChangeSetBuilder {
                     const host::Camera& camera UMBRA_LIFETIME_CAPTURE_BY_THIS);
   void RemoveCamera(device::CameraId prim_id);
 
+  // The view of `camera`, as the change set gives it, with id `prim_id`.
+  [[nodiscard]] static device::Camera CameraOf(
+      device::CameraId prim_id, const host::Camera& camera UMBRA_LIFETIMEBOUND);
+
   void AddMaterial(device::MaterialId prim_id,
                    const host::MaterialNetwork& network
                        UMBRA_LIFETIME_CAPTURE_BY_THIS);
@@ -130,8 +134,6 @@ class ChangeSetBuilder {
       const host::MaterialNode& node UMBRA_LIFETIMEBOUND);
   device::Light::Shape ShapeOf(
       const host::Light::Shape& shape UMBRA_LIFETIMEBOUND);
-  [[nodiscard]] static device::Camera CameraOf(
-      device::CameraId prim_id, const host::Camera& camera UMBRA_LIFETIMEBOUND);
   device::MaterialNetwork MaterialOf(device::MaterialId prim_id,
                                      const host::MaterialNetwork& network
                                          UMBRA_LIFETIMEBOUND);

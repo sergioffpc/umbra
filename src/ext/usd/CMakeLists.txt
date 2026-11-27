@@ -36,6 +36,7 @@ umbra_add_ext_module(
   motion.cc
   motion_samples.cc
   outputs.cc
+  render_pass.cc
   usd.cc
   views.cc
   ${umbra_pxr_ies_sources}

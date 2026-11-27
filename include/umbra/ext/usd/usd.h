@@ -17,6 +17,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
@@ -48,6 +49,20 @@ struct TimeCodes {
   double end = 0.0;
 };
 
+// A render var of a product rendered, and its pixels: float32, `channels`
+// per pixel of the product's data window, the pixels row by row from its top
+// left.
+struct RenderedVar {
+  const RenderVar* var;
+  std::span<const float> pixels;
+};
+
+// A render product rendered: its vars' pixels, in its order.
+struct RenderedProduct {
+  const RenderProduct* product;
+  std::vector<RenderedVar> vars;
+};
+
 // What a render keeps alive while it renders: the stage, its render index
 // and umbra's render delegate, whose prims stay synced from frame to frame,
 // and the render settings and frame parameters of the frame committed last.
@@ -69,9 +84,18 @@ class Session {
   // when it authors only one, and none when it authors neither.
   [[nodiscard]] std::optional<TimeCodes> time_codes() const;
 
-  // Syncs the stage at `frame`, or at the default time for none, through
-  // Hydra into the host copies of the delegate's prims, then commits them to
-  // every device and frees them, as a phase of the render: "Syncing scene"
+  // The products of the frame rendered last, with their pixels, valid until
+  // the next RenderFrame.
+  [[nodiscard]] std::vector<RenderedProduct> Rendered() const
+      UMBRA_LIFETIMEBOUND;
+
+  // Renders the stage at `frame`, or at the default time for none: syncs it
+  // and commits it to the devices, then renders each of its products on
+  // every device, through Hydra.
+  //
+  // Hydra syncs the stage into the host copies of the delegate's prims, then
+  // the delegate commits them to every device and frees them, as a phase of
+  // the render: "Syncing scene"
   // for the first frame, which adds every prim, and "Syncing frame <frame>"
   // for each later one, which gives the devices only the prims that
   // changed since the last, with what changed in each, and the prims
@@ -130,14 +154,24 @@ class Session {
   //
   // A warning a frame logged is not logged again by a later one.
   //
+  // Each product then renders through a render pass of its own, as a phase
+  // of the render, "Rendering <file>", which counts the tiles of its data
+  // window, the pixels whose centers lie in its dataWindowNDC: every device
+  // renders on a host thread of its own, into render buffers of float32,
+  // one per var, those of the lpe and primvar vars left at 0. Its samples
+  // per pixel are umbra:samplesPerPixel, an int from the product, else from
+  // the settings, else 64.
+  //
   // Fails with kNotFound when no RenderSettings prim is at the settings'
   // path; kInvalidArgument when the settings or a product have no camera or
   // one that is not a Camera, a product has no orderedVars or its file is
-  // not .exr, or a material reads a texture or shader, or a light a
-  // texture, inside a package (.usdz); kUnavailable when a product's file
-  // cannot be written; and with a device's error, naming the device, when
-  // its commit fails. The session renders no further frame then.
-  [[nodiscard]] std::expected<void, core::Error> SyncFrame(
+  // not .exr, its dataWindowNDC holds no pixel or umbra:samplesPerPixel is
+  // not an int above 0, or a material reads a texture or shader, or a light
+  // a texture, inside a package (.usdz); kUnavailable when a product's file
+  // cannot be written, or no device takes the tiles of a product; and with a
+  // device's error, naming the device, when its commit or its render fails.
+  // The session renders no further frame then.
+  [[nodiscard]] std::expected<void, core::Error> RenderFrame(
       std::optional<double> frame);
 
   // Its state, with OpenUSD's types: the bridge's own.

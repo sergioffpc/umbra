@@ -16,18 +16,40 @@ Public headers (`include/umbra/device/`):
 - `change_set.h`: the change set of a commit, the prims added, updated and
   removed by id, with the change flags of an updated prototype.
 - `device.h`: the `Device` interface, which commits a change set into the
-  device's own memory, and the frame parameters a device receives for each
-  frame besides render data. `kMaxRefits`, 8, is how many refits in a row
+  device's own memory and renders a render product from it, and the frame
+  parameters a device receives for each product besides render data: its
+  image, its samples per pixel and the render buffers of the vars it
+  renders (color, depth, normal and albedo). `TileQueue` is the counter
+  every device takes the product's tiles from, in batches, 64×64 pixels of
+  its data window each, counting each tile it finishes in the product's
+  progress phase (docs/adr/0014-frames-render-in-tiles-from-one-counter.md). `kMaxRefits`, 8, is how many refits in a row
   every device makes of a prototype's acceleration structure as its points
   change, before it rebuilds it, since every refit loosens its bounds.
+- `image.h`: the image of a render product: its resolution, its data
+  window, the pixels whose centers lie in its dataWindowNDC, and how a
+  camera's aperture conforms to it.
+- `geometry.h`: points, vectors and affine transforms, row vectors as in
+  OpenUSD, for single-source code.
+- `camera_rays.h`: the camera model a device makes once per product, and
+  `GenerateRay`, single-source, the ray through a pixel at its samples: the
+  pixel filter's offset, the point of a thin lens and the time within the
+  shutter. `CameraToNdc` gives OpenEXR's worldToNDC.
+- `pixel_filter.h`: the pixel filter, single-source: Blackman-Harris, 1.5
+  pixels wide, sampled by filter importance sampling, so every sample
+  weighs the same.
+- `sampler.h`: the sampler every device draws its samples from, OpenQMC's
+  `PmjBnSampler`, behind one alias. Each device initializes its cache
+  once, in its own memory.
 - `light_shapes.h`: the shapes of the lights that rays meet (sphere, rect,
   disk and cylinder), in the light's own space: their bounds, and where a
   ray first meets them. CPU and GPU devices intersect them with the same
   code.
 - `single_source.h`: `UMBRA_HOST_DEVICE`, which marks the functions written
   once for the CPU and the GPU: clang compiles them for the CPU devices, and
-  nvcc for the GPU devices.
-- `diagnostic_device.h`: a device that renders nothing, and checks each
+  nvcc for the GPU devices. `single_source_check.cu` calls them from a
+  kernel, for nvcc to compile them whenever the GPU module builds; nothing
+  runs it.
+- `diagnostic_device.h`: a device that renders nothing, and takes no tile, and checks each
   change set it receives instead, against what it holds from the commits
   before: ids in range, an id removed or updated held and an id added free,
   an update carrying only the members its change flags name,

@@ -26,6 +26,7 @@
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::device {
@@ -1698,6 +1699,11 @@ std::expected<void, Error> DiagnosticDevice::Commit(const ChangeSet& changes) {
       Counted(CountHeld(state_->materials), "material"),
       Counted(CountHeld(state_->cameras), "camera"),
       Counted(CountHeld(state_->textures), "texture"), StateDigest(*state_));
+  return {};
+}
+
+std::expected<void, Error> DiagnosticDevice::Render(
+    const FrameParameters& /*frame*/, TileQueue& /*tiles*/) {
   return {};
 }
 

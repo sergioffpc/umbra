@@ -32,8 +32,11 @@ prims and the render pass
 (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 **Frame parameters**:
-What a device receives for each frame besides render data: the shutter,
-the active camera and the render buffers to fill
+What a device receives for each render product of a frame besides render
+data: the shutter, the active camera, the image (its resolution, data
+window, pixel aspect ratio and how the aperture conforms to it), whether it
+renders motion blur and depth of field, the samples per pixel and the render
+buffers to fill
 (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 **Tile**:
