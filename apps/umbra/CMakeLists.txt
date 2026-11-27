@@ -5,8 +5,9 @@
 # lib/ as it does when installed.
 
 umbra_add_executable(umbra
-                     SOURCES main.cc channels.cc cli/parser.cc cpu_check.cc devices.cc
-                             tev.cc
+                     SOURCES main.cc channels.cc cli/parser.cc cpu_check.cc
+                             device_listing.cc devices.cc frames.cc
+                             product_file.cc tev.cc
                      DEPENDS core delegate device device::cpu device::gpu ext::ocio
                              ext::oidn ext::oiio ext::openvdb ext::opensubdiv
                              ext::embree ext::usd ext::osl)

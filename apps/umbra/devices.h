@@ -3,8 +3,9 @@
 //
 // The devices umbra renders on (docs/adr/0004-render-devices.md): one per
 // NUMA node with CPUs (cpu0, cpu1, …) and one per usable GPU, by CUDA ordinal
-// (gpu0, gpu1, …). `umbra devices` lists them with the hardware behind them;
-// a render picks them with --devices.
+// (gpu0, gpu1, …). umbra reads the hardware behind them, a render picks them
+// with --devices, and they are created here; `umbra devices` lists them
+// (see device_listing.h).
 
 #ifndef UMBRA_APPS_UMBRA_DEVICES_H_
 #define UMBRA_APPS_UMBRA_DEVICES_H_
@@ -21,6 +22,7 @@
 #include "umbra/core/cpu_topology.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/delegate/session.h"
 #include "umbra/device/device.h"
 #include "umbra/device/gpu/module.h"
 
@@ -52,41 +54,38 @@ enum class DeviceKind : std::uint8_t {
   kGpu,
 };
 
+// The name of a render device: "cpu0" for NUMA node 0, "gpu0" for CUDA
+// ordinal 0.
+[[nodiscard]] std::string DeviceName(DeviceKind kind, int index);
+
 // A device a render can use.
-struct Device {
+struct RenderDevice {
   DeviceKind kind = DeviceKind::kCpu;
   // The NUMA node for a CPU, the CUDA ordinal for a GPU.
   int index = 0;
-  // "cpu0", "gpu0".
+  // Its DeviceName.
   std::string name;
 };
 
 // The devices of `hardware` a render can use: the CPU nodes, then the usable
 // GPUs.
-[[nodiscard]] std::vector<Device> RenderDevices(const Hardware& hardware);
-
-// The output of `umbra devices`: every device and the hardware behind it,
-// and the GPUs umbra cannot use, with the reason.
-[[nodiscard]] std::string FormatHardware(const Hardware& hardware);
-
-// The lines of the block a render starts with
-// (docs/adr/0002-cli-diagnostics-on-stderr.md), one per device in `chosen`:
-// "  cpu0  AMD Ryzen Threadripper PRO 3975WX, 64 threads",
-// "  gpu0  NVIDIA GeForce RTX 5070 Ti, 16 GiB".
-[[nodiscard]] std::string FormatRenderDevices(const Hardware& hardware,
-                                              std::span<const Device> chosen);
+[[nodiscard]] std::vector<RenderDevice> RenderDevices(const Hardware& hardware);
 
 // The devices a --devices value names ("cpu0,gpu0"), in its order, among
 // `devices`; every device when `spec` is empty. Fails with kInvalidArgument on
 // an empty, unknown or repeated name.
-[[nodiscard]] std::expected<std::vector<Device>, core::Error> ResolveDevices(
-    std::string_view spec, std::span<const Device> devices);
+[[nodiscard]] std::expected<std::vector<RenderDevice>, core::Error>
+ResolveDevices(std::string_view spec, std::span<const RenderDevice> devices);
 
-// The devices of a render, and the GPU module the GPU devices are made
-// through, which outlives them.
+// The devices of a render, made from the RenderDevices it chose, and the GPU
+// module the GPU devices are made through, which outlives them.
 struct CreatedDevices {
   std::optional<device::gpu::Module> module;
-  std::vector<std::unique_ptr<device::Device>> devices;
+  std::vector<std::unique_ptr<device::Device>> owned;
+  // The devices of `owned`, in its order, which the render commits to.
+  std::vector<device::Device*> devices;
+  // The GPUs among them, which the denoiser chooses from.
+  std::vector<delegate::Gpu> gpus;
 };
 
 // The devices that `chosen` names, in its order, which a render commits to:
@@ -96,7 +95,7 @@ struct CreatedDevices {
 // them, which checks what every commit gives. Fails with the cause, naming
 // the device, when the module cannot be loaded or a GPU cannot be used.
 [[nodiscard]] std::expected<CreatedDevices, core::Error> CreateDevices(
-    std::span<const Device> chosen);
+    std::span<const RenderDevice> chosen);
 
 }  // namespace umbra::devices
 

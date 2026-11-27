@@ -6,14 +6,15 @@
 //   umbra [--version] [-h | --help] [-q | --quiet] <command> [<args>]
 //
 // `umbra devices` lists the devices it can render on, with their hardware
-// (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
-// [--frames=<start>..<end>] [--step=<step>] <scene>` chooses among them,
-// shows them on stderr, and renders each frame of the scene through Hydra:
+// (see device_listing.h); `umbra render [--devices=cpu0,gpu0]
+// [--settings=<prim>] [--frames=<start>..<end>] [--step=<step>] <scene>`
+// chooses among them (devices.h), shows them on stderr, and renders each
+// frame of the scene (frames.h) through Hydra:
 // it commits what changed since the last to the devices, which build their
 // acceleration structures from it, has them render each render product,
 // denoises the color of the products that ask for it through Open Image
 // Denoise, on the chosen GPU of the lowest CUDA ordinal or else on the CPU,
-// and writes the products as OpenEXR files. `umbra version
+// and writes the products as OpenEXR files (product_file.h). `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -26,8 +27,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -40,13 +39,13 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
-#include <vector>
 
-#include "channels.h"
 #include "cli/parser.h"
+#include "device_listing.h"
 #include "devices.h"
+#include "frames.h"
+#include "product_file.h"
 #include "tev.h"
 #include "umbra/core/build_info.h"
 #include "umbra/core/error.h"
@@ -55,10 +54,7 @@
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
-#include "umbra/delegate/render_settings.h"
 #include "umbra/delegate/session.h"
-#include "umbra/device/device.h"
-#include "umbra/device/render_data.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/ocio/ocio.h"
 #include "umbra/ext/oidn/oidn.h"
@@ -280,142 +276,26 @@ int ListDevices() {
 // The block a render starts with, on stderr: umbra's version and build, and
 // the devices it renders on. -q hides it.
 void PrintRenderBlock(const umbra::devices::Hardware& hardware,
-                      std::span<const umbra::devices::Device> chosen) {
+                      std::span<const umbra::devices::RenderDevice> chosen) {
   const umbra::core::BuildInfo build = umbra::core::GetBuildInfo();
   std::print(stderr, "umbra version {} ({}, {})\n{}", umbra::core::Version(),
              build.build_type, build.arch,
              umbra::devices::FormatRenderDevices(hardware, chosen));
 }
 
-using FrameRange = umbra::delegate::TimeCodes;
-
-// What `umbra render` renders: its scene, how to load it, and its frames.
+// What `umbra render` renders: its scene, how to load it, its frames, and
+// the devices it renders them on and the display it shows them on.
 struct RenderRequest {
   std::string_view scene;
   umbra::delegate::LoadOptions options;
   // The frames of --frames, or none for the stage's.
-  std::optional<FrameRange> frames;
+  std::optional<umbra::FrameRange> frames;
   double step = 1.0;
+  // The devices of --devices, or empty for all of them.
+  std::string_view devices;
   // The tev of --display, if any.
   std::optional<umbra::TevAddress> display;
 };
-
-// A time code: an integer or a decimal fraction ("12", "12.5", "-3"),
-// without an exponent. Fails naming `what` and `text`.
-std::expected<double, Error> ParseTimeCode(std::string_view text,
-                                           std::string_view what) {
-  // A digit leads, after the sign: ".5" and "1...3" are malformed.
-  const std::string_view digits = text.starts_with('-') ? text.substr(1) : text;
-  const bool leads_with_digit =
-      !digits.empty() && digits.front() >= '0' && digits.front() <= '9';
-  double value = 0.0;
-  const char* const first = std::to_address(text.begin());
-  const char* const last = std::to_address(text.end());
-  const auto [end, error] =
-      std::from_chars(first, last, value, std::chars_format::fixed);
-  const bool is_whole = end == last;
-  if (!leads_with_digit || error != std::errc() || !is_whole ||
-      !std::isfinite(value)) {
-    return std::unexpected(
-        Error(ErrorCode::kInvalidArgument,
-              std::format("invalid {} '{}': a time code such as 12 or 12.5 is "
-                          "expected",
-                          what, text)));
-  }
-  return value;
-}
-
-// The frames of --frames: "<start>..<end>", both included, or "<frame>"
-// alone. The start must not follow the end.
-std::expected<FrameRange, Error> ParseFrames(std::string_view text) {
-  constexpr std::string_view kSeparator = "..";
-  const std::size_t separator = text.find(kSeparator);
-  const std::string_view first = text.substr(0, separator);
-  const std::string_view last =
-      separator == std::string_view::npos
-          ? first
-          : text.substr(separator + kSeparator.size());
-  const auto start = ParseTimeCode(first, "first frame");
-  if (!start.has_value()) {
-    return std::unexpected(start.error());
-  }
-  const auto end = ParseTimeCode(last, "last frame");
-  if (!end.has_value()) {
-    return std::unexpected(end.error());
-  }
-  if (*start > *end) {
-    return std::unexpected(Error(
-        ErrorCode::kInvalidArgument,
-        std::format("invalid frames '{}': the first frame follows the last",
-                    text)));
-  }
-  return FrameRange{.start = *start, .end = *end};
-}
-
-// The step of --step: a time code above 0.
-std::expected<double, Error> ParseStep(std::string_view text) {
-  const auto step = ParseTimeCode(text, "step");
-  if (!step.has_value()) {
-    return step;
-  }
-  if (*step <= 0.0) {
-    return std::unexpected(
-        Error(ErrorCode::kInvalidArgument,
-              std::format("invalid step '{}': it must be above 0", text)));
-  }
-  return step;
-}
-
-// The frames a render renders: the time codes from a range's start to its
-// end, both included, `step` apart, or the default time alone. Each is
-// rounded to a nanoframe, so that 0.1 steps give 0.3, not
-// 0.30000000000000004.
-class Frames {
- public:
-  // The default time alone.
-  Frames() = default;
-  Frames(const FrameRange& range, double step)
-      : range_(range), step_(step), count_(CountOf(range, step)) {}
-
-  // The most frames a range gives: its frame indices stay exact.
-  static constexpr double kMaxCount = 9007199254740992.0;  // 2^53
-
-  // The number of frames a range gives, which may exceed kMaxCount.
-  static double CountOf(const FrameRange& range, double step) {
-    // A step that does not divide the range exactly still reaches its end
-    // when it misses it by rounding alone.
-    constexpr double kTolerance = 1e-9;
-    return std::floor(((range.end - range.start) / step) + kTolerance) + 1.0;
-  }
-
-  // The number of frames, at most kMaxCount.
-  [[nodiscard]] std::uint64_t count() const {
-    return static_cast<std::uint64_t>(std::min(count_, kMaxCount));
-  }
-
-  // The frame at `index`, below count(): none for the default time.
-  [[nodiscard]] std::optional<double> At(std::uint64_t index) const {
-    if (!range_.has_value()) {
-      return std::nullopt;
-    }
-    constexpr double kNanoframes = 1e9;
-    const double frame = range_->start + (static_cast<double>(index) * step_);
-    return std::round(frame * kNanoframes) / kNanoframes;
-  }
-
- private:
-  std::optional<FrameRange> range_;
-  double step_ = 1.0;
-  double count_ = 1.0;
-};
-
-// The error of a range of `count` frames, more than Frames::kMaxCount.
-Error TooManyFrames(double count) {
-  return {ErrorCode::kInvalidArgument,
-          std::format("{:.3g} frames, more than one process renders; give "
-                      "fewer --frames or a larger --step",
-                      count)};
-}
 
 // The scene `render` renders: its one argument.
 std::expected<std::string_view, Error> SceneOf(const ParsedCommand& render) {
@@ -441,6 +321,31 @@ std::expected<std::optional<umbra::TevAddress>, Error> DisplayOf(
   return umbra::ParseDisplay(render.Value("display"));
 }
 
+// Reads `render`'s --frames and --step into `request`. Fails when either is
+// malformed, or they give more frames than one process renders.
+std::expected<void, Error> ParseFrameOptions(const ParsedCommand& render,
+                                             RenderRequest& request) {
+  if (render.Count("frames") > 0) {
+    const auto frames = umbra::ParseFrames(render.Value("frames"));
+    if (!frames.has_value()) {
+      return std::unexpected(frames.error());
+    }
+    request.frames = *frames;
+  }
+  if (render.Count("step") > 0) {
+    const auto step = umbra::ParseStep(render.Value("step"));
+    if (!step.has_value()) {
+      return std::unexpected(step.error());
+    }
+    request.step = *step;
+  }
+  if (!request.frames.has_value()) {
+    return {};
+  }
+  return umbra::Frames::Of(*request.frames, request.step)
+      .transform([](const umbra::Frames&) {});
+}
+
 // The scene and options of `umbra render`: exactly one scene.
 std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
   const auto scene = SceneOf(render);
@@ -456,98 +361,13 @@ std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
       .options = {.settings = std::string(render.Value("settings"))},
       .frames = std::nullopt,
       .step = 1.0,
+      .devices = render.Value("devices"),
       .display = std::move(*display),
   };
-  if (render.Count("frames") > 0) {
-    const auto frames = ParseFrames(render.Value("frames"));
-    if (!frames.has_value()) {
-      return std::unexpected(frames.error());
-    }
-    request.frames = *frames;
-  }
-  if (render.Count("step") > 0) {
-    const auto step = ParseStep(render.Value("step"));
-    if (!step.has_value()) {
-      return std::unexpected(step.error());
-    }
-    request.step = *step;
-  }
-  if (request.frames.has_value()) {
-    if (const double count = Frames::CountOf(*request.frames, request.step);
-        count > Frames::kMaxCount) {
-      return std::unexpected(TooManyFrames(count));
-    }
+  if (auto parsed = ParseFrameOptions(render, request); !parsed.has_value()) {
+    return std::unexpected(parsed.error());
   }
   return request;
-}
-
-// The frames `request` renders of the stage of `session`: those of
-// --frames, else the stage's start to end time codes, else the default time
-// alone. Fails with kInvalidArgument when the stage's end precedes its
-// start, or its range gives more than Frames::kMaxCount frames.
-std::expected<Frames, Error> FramesOf(const RenderRequest& request,
-                                      const umbra::delegate::Session& session) {
-  if (request.frames.has_value()) {
-    return Frames(*request.frames, request.step);
-  }
-  const std::optional<umbra::delegate::TimeCodes> codes = session.time_codes();
-  if (!codes.has_value()) {
-    return Frames();
-  }
-  if (codes->start > codes->end) {
-    return std::unexpected(
-        Error(ErrorCode::kInvalidArgument,
-              std::format("the stage's endTimeCode, {}, precedes its "
-                          "startTimeCode, {}; give --frames",
-                          codes->end, codes->start)));
-  }
-  if (const double count = Frames::CountOf(*codes, request.step);
-      count > Frames::kMaxCount) {
-    return std::unexpected(TooManyFrames(count));
-  }
-  return Frames(*codes, request.step);
-}
-
-// `matrix` in float.
-std::array<float, 16> FloatMatrix(const umbra::device::Matrix& matrix) {
-  std::array<float, 16> floats{};
-  std::ranges::transform(matrix, floats.begin(), [](double value) {
-    return static_cast<float>(value);
-  });
-  return floats;
-}
-
-// Writes `rendered`, a product of `frame`, as its OpenEXR file.
-std::expected<void, Error> WriteProduct(
-    const umbra::delegate::RenderedProduct& rendered,
-    std::optional<double> frame) {
-  using umbra::ext::oiio::ChannelFormat;
-  const umbra::delegate::RenderProduct& product = *rendered.product;
-  std::vector<umbra::ext::oiio::ExrLayer> layers;
-  layers.reserve(rendered.vars.size());
-  for (const umbra::delegate::RenderedVar& var : rendered.vars) {
-    layers.push_back({
-        .name = var.var->name,
-        .channels = umbra::ChannelNames(var.var->source, var.var->channels),
-        .format = var.var->type == umbra::delegate::ChannelType::kHalf
-                      ? ChannelFormat::kHalf
-                      : ChannelFormat::kFloat,
-        .pixels = var.pixels,
-    });
-  }
-  const std::string software = std::format("umbra {}", umbra::core::Version());
-  return umbra::ext::oiio::WriteExr({
-      .file = product.file,
-      .resolution = product.resolution,
-      .data_origin = {product.window.x_min, product.window.y_min},
-      .data_size = {product.window.width(), product.window.height()},
-      .layers = layers,
-      .world_to_camera = FloatMatrix(product.world_to_camera),
-      .world_to_ndc = FloatMatrix(product.world_to_ndc),
-      .pixel_aspect_ratio = product.file_pixel_aspect_ratio,
-      .software = software,
-      .frame = frame,
-  });
 }
 
 // Renders `frame` in `session` and writes its products.
@@ -557,41 +377,30 @@ std::expected<void, Error> RenderAndWrite(umbra::delegate::Session& session,
     return rendered;
   }
   for (const umbra::delegate::RenderedProduct& product : session.Rendered()) {
-    if (auto written = WriteProduct(product, frame); !written.has_value()) {
+    if (auto written = umbra::WriteProduct(product, frame);
+        !written.has_value()) {
       return written;
     }
   }
   return {};
 }
 
-// The GPUs among `chosen`, in its order.
-std::vector<umbra::delegate::Gpu> GpusOf(
-    std::span<const umbra::devices::Device> chosen) {
-  std::vector<umbra::delegate::Gpu> gpus;
-  for (const umbra::devices::Device& device : chosen) {
-    if (device.kind == umbra::devices::DeviceKind::kGpu) {
-      gpus.push_back({.cuda_ordinal = device.index, .name = device.name});
-    }
-  }
-  return gpus;
-}
-
-// Renders each frame `request` renders of its scene on `devices`, the GPUs
-// among them `gpus`, and writes its products.
+// Renders each frame `request` renders of its scene on `devices` and writes
+// its products.
 int RenderFrames(const RenderRequest& request,
-                 std::span<umbra::device::Device* const> devices,
-                 std::span<const umbra::delegate::Gpu> gpus) {
+                 const umbra::devices::CreatedDevices& devices) {
   std::optional<umbra::TevDisplay> display;
   if (request.display.has_value()) {
     display.emplace(*request.display);
   }
   const auto session = umbra::delegate::OpenSession(
-      request.scene, request.options, devices, gpus,
+      request.scene, request.options, devices.devices, devices.gpus,
       display.has_value() ? &*display : nullptr);
   if (!session.has_value()) {
     return Failure(session.error());
   }
-  const auto frames = FramesOf(request, **session);
+  const auto frames =
+      umbra::FramesOf(request.frames, (*session)->time_codes(), request.step);
   if (!frames.has_value()) {
     return Failure(frames.error());
   }
@@ -606,33 +415,24 @@ int RenderFrames(const RenderRequest& request,
 
 // `umbra render`: resolves the devices, shows them, renders each frame of
 // the scene on them and writes its products.
-int Render(const ParsedCommand& global, const ParsedCommand& render,
-           const RenderRequest& request) {
+int Render(const ParsedCommand& global, const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
   if (!hardware.has_value()) {
     return Failure(hardware.error());
   }
-  const std::vector<umbra::devices::Device> devices =
-      umbra::devices::RenderDevices(*hardware);
-  const auto chosen =
-      umbra::devices::ResolveDevices(render.Value("devices"), devices);
+  const auto chosen = umbra::devices::ResolveDevices(
+      request.devices, umbra::devices::RenderDevices(*hardware));
   if (!chosen.has_value()) {
     return UsageError(chosen.error());
   }
   if (global.Count("quiet") == 0) {
     PrintRenderBlock(*hardware, *chosen);
   }
-  auto created = umbra::devices::CreateDevices(*chosen);
+  const auto created = umbra::devices::CreateDevices(*chosen);
   if (!created.has_value()) {
     return Failure(created.error());
   }
-  std::vector<umbra::device::Device*> committed_to;
-  committed_to.reserve(created->devices.size());
-  for (const std::unique_ptr<umbra::device::Device>& device :
-       created->devices) {
-    committed_to.push_back(device.get());
-  }
-  return RenderFrames(request, committed_to, GpusOf(*chosen));
+  return RenderFrames(request, *created);
 }
 
 // `umbra help [<command>]`: the help of umbra, or of a command.
@@ -666,7 +466,7 @@ int RunOnHardware(const ParsedCommand& global, const ParsedCommand& command) {
     return Failure(initialized.error());
   }
   if (request.has_value()) {
-    return Render(global, command, *request);
+    return Render(global, *request);
   }
   return ListDevices();
 }
