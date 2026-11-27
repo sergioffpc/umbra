@@ -14,7 +14,7 @@
 #include "umbra/device/change_set.h"
 #include "umbra/device/render_data.h"
 
-namespace umbra::ext::embree::internal {
+namespace umbra::device::cpu::internal {
 namespace {
 
 using ::umbra::device::ChangeFlags;
@@ -268,4 +268,4 @@ device::Texture CopyOf(const device::Texture& texture, Storage& storage) {
   };
 }
 
-}  // namespace umbra::ext::embree::internal
+}  // namespace umbra::device::cpu::internal

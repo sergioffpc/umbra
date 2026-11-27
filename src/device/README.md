@@ -6,6 +6,10 @@ holds no OpenUSD type and owns no host copy: the render delegate,
 `umbra::delegate`, converts what its prims sync into host copies, and hands
 every device views of them at each commit.
 
+The devices implement its interface in modules of their own, which depend
+on it and never the reverse: the CPU device is `umbra::device::cpu`
+(`src/device/cpu/`).
+
 Public headers (`include/umbra/device/`):
 
 - `render_data.h`: the views of what a device builds its render data from:

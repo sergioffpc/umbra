@@ -4,15 +4,18 @@
 #include "umbra/ext/embree/embree.h"
 
 #include <embree4/rtcore_device.h>
+#include <embree4/rtcore_geometry.h>
+#include <embree4/rtcore_scene.h>
 
 #include <expected>
 #include <format>
 #include <string_view>
 
-#include "process_device.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/ext/embree/errors.h"
+#include "umbra/ext/embree/owners.h"
 
 namespace umbra::ext::embree {
 namespace {
@@ -43,7 +46,7 @@ class UMBRA_OWNER Device {
   RTCDevice device_ = nullptr;
 };
 
-Device& ProcessDevice() {
+Device& OwnedDevice() {
   static Device device;
   return device;
 }
@@ -62,7 +65,7 @@ void LogError(void* /*user*/, RTCError code, const char* message) {
 }  // namespace
 
 std::expected<void, Error> Initialize() {
-  Device& device = ProcessDevice();
+  Device& device = OwnedDevice();
   if (device.get() != nullptr) {
     return {};
   }
@@ -82,14 +85,39 @@ std::expected<void, Error> Initialize() {
   return {};
 }
 
-namespace internal {
+RTCDevice UMBRA_NULLABLE ProcessDevice() { return OwnedDevice().get(); }
 
-RTCDevice UMBRA_NULLABLE ProcessRtcDevice() { return ProcessDevice().get(); }
+Scene::~Scene() {
+  if (scene_ != nullptr) {
+    rtcReleaseScene(scene_);
+  }
+}
 
-}  // namespace internal
+Geometry::~Geometry() {
+  if (geometry_ != nullptr) {
+    rtcReleaseGeometry(geometry_);
+  }
+}
+
+Error BuildError(RTCError code, std::string_view what) {
+  return {ErrorCode::kUnavailable, std::format("Embree cannot build {}: {}",
+                                               what, rtcGetErrorString(code))};
+}
+
+Error BuildError(RTCDevice device, std::string_view what) {
+  return BuildError(rtcGetDeviceError(device), what);
+}
+
+std::expected<void, Error> CheckBuild(RTCDevice device, std::string_view what) {
+  const RTCError code = rtcGetDeviceError(device);
+  if (code == RTC_ERROR_NONE) {
+    return {};
+  }
+  return std::unexpected(BuildError(code, what));
+}
 
 std::string_view NativeIsa() {
-  RTCDevice device = ProcessDevice().get();
+  RTCDevice device = OwnedDevice().get();
   if (device == nullptr) {
     return "none";
   }

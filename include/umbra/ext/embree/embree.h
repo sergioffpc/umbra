@@ -3,7 +3,9 @@
 //
 // The bridge to Embree, umbra's CPU ray tracer. The process has one Embree
 // device, which runs on the oneTBB pool (Embree's tasking system is TBB) and
-// reports its errors to umbra's log as the embree component.
+// reports its errors to umbra's log as the embree component. The CPU device
+// builds its BVHs with it, through owners.h, errors.h, conversions.h and
+// nonblocking.h.
 
 #ifndef UMBRA_EXT_EMBREE_EMBREE_H_
 #define UMBRA_EXT_EMBREE_EMBREE_H_

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 
-#include "umbra/ext/embree/cpu_device.h"
+#include "umbra/device/cpu/cpu_device.h"
 
 #include <embree4/rtcore_common.h>
 #include <embree4/rtcore_device.h>
@@ -30,8 +30,6 @@
 
 #include "bvh.h"
 #include "copies.h"
-#include "nonblocking.h"
-#include "process_device.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/log.h"
@@ -46,18 +44,20 @@
 #include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
 #include "umbra/device/sampler.h"
+#include "umbra/ext/embree/nonblocking.h"
+#include "umbra/ext/embree/owners.h"
 
-namespace umbra::ext::embree {
+namespace umbra::device::cpu {
 namespace {
 
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
 using ::umbra::device::ChangeFlags;
 using ::umbra::device::HasAny;
-using ::umbra::ext::embree::internal::BvhKind;
-using ::umbra::ext::embree::internal::Placement;
-using ::umbra::ext::embree::internal::Scene;
-using ::umbra::ext::embree::internal::Status;
+using ::umbra::device::cpu::internal::BvhKind;
+using ::umbra::device::cpu::internal::Placement;
+using ::umbra::device::cpu::internal::Status;
+using ::umbra::ext::embree::Scene;
 
 // Records by id: null where the device holds no prim.
 template <typename Record>
@@ -180,7 +180,7 @@ struct CpuDevice::State {
   tbb::task_arena::constraints constraints;
   tbb::task_arena arena;
   ArenaObserver observer;
-  RTCDevice UMBRA_NULLABLE embree = internal::ProcessRtcDevice();
+  RTCDevice UMBRA_NULLABLE embree = ext::embree::ProcessDevice();
   Table<PrototypeRecord> prototypes;
   Table<LightRecord> lights;
   CopyTable<device::Camera> cameras;
@@ -871,4 +871,4 @@ std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const
   };
 }
 
-}  // namespace umbra::ext::embree
+}  // namespace umbra::device::cpu

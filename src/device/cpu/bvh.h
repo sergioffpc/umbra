@@ -4,8 +4,8 @@
 // The Embree BVHs of a CPU device: one per prototype, one per light with a
 // shape, and the top level that instances them.
 
-#ifndef UMBRA_EXT_EMBREE_BVH_H_
-#define UMBRA_EXT_EMBREE_BVH_H_
+#ifndef UMBRA_DEVICE_CPU_BVH_H_
+#define UMBRA_DEVICE_CPU_BVH_H_
 
 #include <embree4/rtcore_device.h>
 #include <embree4/rtcore_scene.h>
@@ -17,36 +17,17 @@
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/cpu/cpu_device.h"
 #include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
-#include "umbra/ext/embree/cpu_device.h"
+#include "umbra/ext/embree/owners.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
-namespace umbra::ext::embree::internal {
+namespace umbra::device::cpu::internal {
 
 using Status = std::expected<void, core::Error>;
-
-// An Embree scene, released when it is destroyed.
-class UMBRA_OWNER Scene {
- public:
-  Scene() = default;
-  explicit Scene(RTCScene UMBRA_NULLABLE scene) : scene_(scene) {}
-  Scene(const Scene&) = delete;
-  Scene& operator=(const Scene&) = delete;
-  Scene(Scene&& other) noexcept
-      : scene_(std::exchange(other.scene_, nullptr)) {}
-  Scene& operator=(Scene&& other) noexcept {
-    std::swap(scene_, other.scene_);
-    return *this;
-  }
-  ~Scene();
-
-  [[nodiscard]] RTCScene UMBRA_NULLABLE get() const { return scene_; }
-
- private:
-  RTCScene UMBRA_NULLABLE scene_ = nullptr;
-};
+using ::umbra::ext::embree::Scene;
 
 // How a prototype's BVH is built.
 enum class BvhKind : std::uint8_t {
@@ -101,8 +82,8 @@ class TopLevel {
   std::vector<Placement> placements_;
 };
 
-}  // namespace umbra::ext::embree::internal
+}  // namespace umbra::device::cpu::internal
 
 UMBRA_ASSUME_NONNULL_END
 
-#endif  // UMBRA_EXT_EMBREE_BVH_H_
+#endif  // UMBRA_DEVICE_CPU_BVH_H_

@@ -5,8 +5,8 @@
 // same types as the change set's, which point into memory the device owns,
 // allocated by the thread that copies them, on the device's NUMA node.
 
-#ifndef UMBRA_EXT_EMBREE_COPIES_H_
-#define UMBRA_EXT_EMBREE_COPIES_H_
+#ifndef UMBRA_DEVICE_CPU_COPIES_H_
+#define UMBRA_DEVICE_CPU_COPIES_H_
 
 #include <cstdint>
 #include <span>
@@ -21,7 +21,7 @@
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
-namespace umbra::ext::embree::internal {
+namespace umbra::device::cpu::internal {
 
 // Memory that holds copies of arrays: each stays where it is, so that the
 // views into it stay valid, until the storage is cleared or destroyed.
@@ -112,8 +112,8 @@ void UpdatePrototype(const device::UpdatedPrototype& updated,
 [[nodiscard]] device::Texture CopyOf(const device::Texture& texture,
                                      Storage& storage UMBRA_LIFETIMEBOUND);
 
-}  // namespace umbra::ext::embree::internal
+}  // namespace umbra::device::cpu::internal
 
 UMBRA_ASSUME_NONNULL_END
 
-#endif  // UMBRA_EXT_EMBREE_COPIES_H_
+#endif  // UMBRA_DEVICE_CPU_COPIES_H_

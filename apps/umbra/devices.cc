@@ -22,9 +22,9 @@
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/cpu/cpu_device.h"
 #include "umbra/device/device.h"
 #include "umbra/device/diagnostic_device.h"
-#include "umbra/ext/embree/cpu_device.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/osl/osl.h"
 #include "umbra/gpu/module.h"
@@ -296,7 +296,7 @@ std::expected<std::unique_ptr<device::Device>, Error> Create(
     const Device& device,
     std::optional<gpu::Module>& module UMBRA_LIFETIMEBOUND) {
   if (device.kind == DeviceKind::kCpu) {
-    return std::make_unique<ext::embree::CpuDevice>(device.index);
+    return std::make_unique<device::cpu::CpuDevice>(device.index);
   }
   return LoadOnce(module)
       .and_then([&](gpu::Module* loaded) {

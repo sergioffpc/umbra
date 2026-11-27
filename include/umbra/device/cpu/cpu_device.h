@@ -5,8 +5,8 @@
 // the node's own memory (docs/adr/0004-render-devices.md,
 // docs/adr/0013-devices-render-from-their-own-memory.md).
 
-#ifndef UMBRA_EXT_EMBREE_CPU_DEVICE_H_
-#define UMBRA_EXT_EMBREE_CPU_DEVICE_H_
+#ifndef UMBRA_DEVICE_CPU_CPU_DEVICE_H_
+#define UMBRA_DEVICE_CPU_CPU_DEVICE_H_
 
 #include <cstdint>
 #include <expected>
@@ -23,7 +23,7 @@
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
-namespace umbra::ext::embree {
+namespace umbra::device::cpu {
 
 // A ray in world space, in meters. Its direction need not be of unit
 // length: distances along it are in units of its direction.
@@ -124,8 +124,8 @@ class CpuDevice final : public device::Device {
   std::unique_ptr<State> state_;
 };
 
-}  // namespace umbra::ext::embree
+}  // namespace umbra::device::cpu
 
 UMBRA_ASSUME_NONNULL_END
 
-#endif  // UMBRA_EXT_EMBREE_CPU_DEVICE_H_
+#endif  // UMBRA_DEVICE_CPU_CPU_DEVICE_H_
