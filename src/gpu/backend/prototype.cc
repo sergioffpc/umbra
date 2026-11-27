@@ -5,17 +5,13 @@
 
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
-#include <optix_host.h>
-#include <optix_stubs.h>
 #include <optix_types.h>
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
-#include <iterator>
 #include <ranges>
 #include <span>
 #include <utility>
@@ -24,6 +20,7 @@
 #include "accel.h"
 #include "buffer.h"
 #include "held.h"
+#include "instances.h"
 #include "support.h"
 #include "umbra/core/log.h"
 #include "umbra/device/change_set.h"
@@ -160,179 +157,6 @@ Result<void> BuildGasOrNone(GpuPrototype& held, const Gpu& gpu) {
   return BuildGas(held, GasBuild::kBuild, gpu);
 }
 
-// Points every record of `held` at its GAS: each still instance, and the
-// motion transform of each moving one.
-Result<void> PointAtGas(const GpuPrototype& held, cudaStream_t stream) {
-  const auto patch = [&](CUdeviceptr first, std::size_t stride,
-                         std::uint32_t count) -> Result<void> {
-    if (count == 0) {
-      return {};
-    }
-    const std::vector<OptixTraversableHandle> handles(count, held.gas.handle);
-    return CheckCuda(cudaMemcpy2DAsync(PointerOf(first), stride, handles.data(),
-                                       sizeof(OptixTraversableHandle),
-                                       sizeof(OptixTraversableHandle), count,
-                                       cudaMemcpyHostToDevice, stream),
-                     "cannot point the instances at their GAS");
-  };
-  const InstanceRecords& records = held.instances;
-  return patch(records.still.address() +
-                   offsetof(OptixInstance, traversableHandle),
-               sizeof(OptixInstance), records.still_count)
-      .and_then([&] {
-        return patch(records.transforms.address(), records.transform_stride,
-                     records.moving_count);
-      });
-}
-
-// The identity, for an instance that gives no transform.
-constexpr device::Matrix kIdentity = {
-    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-};
-
-// The record of an instance of `prototype` placed by `matrix` that points
-// to `handle`.
-OptixInstance RecordOf(const device::Matrix& matrix,
-                       device::PrototypeId prototype,
-                       OptixTraversableHandle handle) {
-  OptixInstance record{};
-  std::ranges::copy(RowsOf(matrix), std::begin(record.transform));
-  record.instanceId = std::to_underlying(prototype);
-  record.sbtOffset = kTriangleHitGroup;
-  record.visibilityMask = kGeometryMask;
-  record.flags = OPTIX_INSTANCE_FLAG_NONE;
-  record.traversableHandle = handle;
-  return record;
-}
-
-// Whether `instance` moves within the shutter.
-bool IsMoving(const device::Instance& instance) {
-  return instance.object_to_world.size() > 1;
-}
-
-// Writes `value` into `out` at `offset`.
-template <typename T>
-void Put(std::span<std::byte> out, std::size_t offset, const T& value) {
-  const auto bytes = std::bit_cast<std::array<std::byte, sizeof(T)>>(value);
-  std::ranges::copy(bytes, out.subspan(offset, sizeof(T)).begin());
-}
-
-// The offset of the keys in an OptixMatrixMotionTransform.
-constexpr std::size_t kKeysOffset =
-    offsetof(OptixMatrixMotionTransform, transform);
-// The bytes of a key.
-constexpr std::size_t kKeyBytes = 12 * sizeof(float);
-
-// The bytes from one motion transform to the next, for `moving`.
-std::size_t TransformStride(std::span<const device::Instance* const> moving) {
-  std::size_t keys = 0;
-  for (const device::Instance* const instance : moving) {
-    keys = std::max(keys, instance->object_to_world.size());
-  }
-  const std::size_t bytes = kKeysOffset + (keys * kKeyBytes);
-  return (bytes + OPTIX_TRANSFORM_BYTE_ALIGNMENT - 1) /
-         OPTIX_TRANSFORM_BYTE_ALIGNMENT * OPTIX_TRANSFORM_BYTE_ALIGNMENT;
-}
-
-// The motion transforms of `moving`, `stride` bytes apart, each pointing to
-// `child`.
-std::vector<std::byte> TransformsOf(
-    std::span<const device::Instance* const> moving, std::size_t stride,
-    OptixTraversableHandle child) {
-  std::vector<std::byte> bytes(stride * moving.size());
-  std::size_t offset = 0;
-  for (const device::Instance* const instance : moving) {
-    const auto keys =
-        static_cast<std::uint32_t>(instance->object_to_world.size());
-    Put(bytes, offset, child);
-    Put(bytes, offset + offsetof(OptixMatrixMotionTransform, motionOptions),
-        MotionOptions(keys));
-    std::size_t key_offset = offset + kKeysOffset;
-    for (const device::Matrix& matrix : instance->object_to_world) {
-      Put(bytes, key_offset, RowsOf(matrix));
-      key_offset += kKeyBytes;
-    }
-    offset += stride;
-  }
-  return bytes;
-}
-
-// The instances of a prototype, still ones first.
-struct OrderedInstances {
-  std::vector<const device::Instance*> still;
-  std::vector<const device::Instance*> moving;
-};
-
-OrderedInstances Order(std::span<const device::Instance> instances) {
-  OrderedInstances ordered;
-  for (const device::Instance& instance : instances) {
-    (IsMoving(instance) ? ordered.moving : ordered.still).push_back(&instance);
-  }
-  return ordered;
-}
-
-// Uploads the records of the still instances.
-Result<void> UploadStill(std::span<const device::Instance* const> still,
-                         GpuPrototype& held, cudaStream_t stream) {
-  std::vector<OptixInstance> records;
-  records.reserve(still.size());
-  for (const device::Instance* const instance : still) {
-    records.push_back(RecordOf(instance->object_to_world.empty()
-                                   ? kIdentity
-                                   : instance->object_to_world.front(),
-                               held.id, held.gas.handle));
-  }
-  held.instances.still_count = static_cast<std::uint32_t>(records.size());
-  return Replace(held.instances.still, std::span<const OptixInstance>(records),
-                 stream);
-}
-
-// The `count` records that point to the motion transforms of `records`.
-Result<std::vector<OptixInstance>> MovingRecords(
-    const InstanceRecords& records, std::uint32_t count, const Gpu& gpu,
-    device::PrototypeId prototype) {
-  std::vector<OptixInstance> moving;
-  moving.reserve(count);
-  for (std::uint32_t index = 0; index < count; ++index) {
-    OptixTraversableHandle handle = 0;
-    if (auto converted = CheckOptix(
-            optixConvertPointerToTraversableHandle(
-                gpu.context,
-                records.transforms.address() +
-                    (index * records.transform_stride),
-                OPTIX_TRAVERSABLE_TYPE_MATRIX_MOTION_TRANSFORM, &handle),
-            "cannot address a motion transform");
-        !converted.has_value()) {
-      return std::unexpected(converted.error());
-    }
-    moving.push_back(RecordOf(kIdentity, prototype, handle));
-  }
-  return moving;
-}
-
-// Uploads the motion transforms of the moving instances and their records.
-Result<void> UploadMoving(std::span<const device::Instance* const> moving,
-                          GpuPrototype& held, const Gpu& gpu) {
-  InstanceRecords& records = held.instances;
-  records.transform_stride = TransformStride(moving);
-  records.moving_count = static_cast<std::uint32_t>(moving.size());
-  const std::vector<std::byte> transforms =
-      TransformsOf(moving, records.transform_stride, held.gas.handle);
-  if (auto uploaded =
-          Replace(records.transforms, std::span<const std::byte>(transforms),
-                  gpu.stream);
-      !uploaded.has_value()) {
-    return uploaded;
-  }
-  return MovingRecords(records, records.moving_count, gpu, held.id)
-      .and_then([&](const std::vector<OptixInstance>& records_of_moving) {
-        return Replace(records.moving,
-                       std::span<const OptixInstance>(records_of_moving),
-                       gpu.stream);
-      });
-}
-
 // Copies the first `width` numbers of `from` into `into` at `offset`, as many
 // as fit.
 template <typename T>
@@ -404,7 +228,7 @@ Result<void> UploadInstancePrimvars(
     }
     primvars.push_back(std::move(*packed));
   }
-  held.instances.primvars = std::move(primvars);
+  held.instance_primvars = std::move(primvars);
   return {};
 }
 
@@ -414,8 +238,12 @@ Result<void> UploadInstances(std::span<const device::Instance> instances,
   const OrderedInstances ordered = Order(instances);
   std::vector<const device::Instance*> all = ordered.still;
   all.insert(all.end(), ordered.moving.begin(), ordered.moving.end());
-  return UploadStill(ordered.still, held, gpu.stream)
-      .and_then([&] { return UploadMoving(ordered.moving, held, gpu); })
+  const RecordKind kind{
+      .prim = std::to_underlying(held.id),
+      .sbt_offset = kTriangleHitGroup,
+      .mask = kGeometryMask,
+  };
+  return UploadRecords(ordered, kind, held.gas.handle, held.instances, gpu)
       .and_then([&] { return UploadInstancePrimvars(all, held, gpu.stream); })
       .and_then([&] {
         return CheckCuda(cudaStreamSynchronize(gpu.stream),
@@ -548,7 +376,7 @@ Result<void> UpdatePrototype(const device::UpdatedPrototype& update,
           return UploadInstances(update.prototype.instances, held, gpu);
         }
         if (held.gas.handle != old_gas) {
-          return PointAtGas(held, gpu.stream);
+          return PointAt(held.instances, held.gas.handle, gpu.stream);
         }
         return {};
       })
@@ -559,9 +387,7 @@ Result<void> UpdatePrototype(const device::UpdatedPrototype& update,
 }
 
 std::uint32_t InstanceCount(const GpuPrototype& held) {
-  return held.gas.handle == 0
-             ? 0
-             : held.instances.still_count + held.instances.moving_count;
+  return held.gas.handle == 0 ? 0 : CountOf(held.instances);
 }
 
 Result<void> CopyInstances(const GpuPrototype& held, DeviceBuffer& input,
@@ -569,11 +395,7 @@ Result<void> CopyInstances(const GpuPrototype& held, DeviceBuffer& input,
   if (InstanceCount(held) == 0) {
     return {};
   }
-  const std::size_t offset = first * sizeof(OptixInstance);
-  return input.CopyFrom(held.instances.still, offset, stream).and_then([&] {
-    return input.CopyFrom(held.instances.moving,
-                          offset + held.instances.still.size(), stream);
-  });
+  return CopyRecords(held.instances, input, first, stream);
 }
 
 }  // namespace umbra::gpu::backend

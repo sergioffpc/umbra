@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// Lights and cameras as a GPU holds them. The lights with a shape (sphere,
-// rect, disk, cylinder) are custom primitives, one per instance, in the GAS
-// of lights, which the IAS holds once.
+// Lights and cameras as a GPU holds them. A light with a shape (sphere,
+// rect, disk, cylinder) has a GAS of its own, of one custom primitive that
+// bounds the shape in the light's space, which the IAS holds once per
+// instance of the light, as it holds a prototype's.
 
 #ifndef UMBRA_GPU_BACKEND_LIGHT_H_
 #define UMBRA_GPU_BACKEND_LIGHT_H_
@@ -12,10 +13,12 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 #include "accel.h"
 #include "buffer.h"
 #include "held.h"
+#include "instances.h"
 #include "support.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/render_data.h"
@@ -49,25 +52,31 @@ struct LightRecord {
 };
 
 // A light in a GPU's memory: its parameters, its placements and, for a
-// light with a shape, the bounds of each instance, in world space, over the
-// shutter.
+// light with a shape, its GAS and the records of its instances in the IAS.
 struct GpuLight {
   device::LightId id{};
+  // For the messages.
+  std::string path;
   DeviceBuffer record;
   HeldPlacements placements;
-  DeviceBuffer bounds;
-  std::uint32_t primitive_count = 0;
+  AccelStructure gas;
+  InstanceRecords instances;
 };
 
-// Uploads `light`.
+// Uploads `light` and, when it has a shape, builds its GAS and the records
+// of its instances.
 [[nodiscard]] Result<GpuLight> UploadLight(const device::Light& light,
-                                           cudaStream_t stream);
+                                           const Gpu& gpu);
 
-// A light's instance among the primitives of the GAS of lights.
-struct LightPrimitive {
-  std::uint32_t light = 0;
-  std::uint32_t instance = 0;
-};
+// The records `held` adds to the IAS: none when it has no shape.
+[[nodiscard]] std::uint32_t InstanceCount(const GpuLight& held);
+
+// Copies the records of `held` into `input`, an array of OptixInstance, from
+// the record `first` on.
+[[nodiscard]] Result<void> CopyInstances(const GpuLight& held,
+                                         DeviceBuffer& input,
+                                         std::uint32_t first,
+                                         cudaStream_t stream);
 
 // A camera's parameters, in a GPU's memory.
 struct CameraRecord {

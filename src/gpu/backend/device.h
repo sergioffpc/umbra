@@ -48,8 +48,9 @@ class ModuleDevice {
 
   // Applies `changes`: its removals, then its updates and its additions.
   // Uploads prototypes, lights and cameras, builds or refits the GAS of each
-  // prototype as its change flags ask, rebuilds the GAS of lights when a
-  // light changed and the IAS at every commit, and waits for all of it. Of
+  // prototype as its change flags ask, builds the GAS of each light with a
+  // shape it uploads, rebuilds the IAS at every commit, and waits for all of
+  // it. Of
   // materials and textures, it holds the ids that prototypes and lights
   // refer to.
   [[nodiscard]] backend::Result<void> Commit(const device::ChangeSet& changes);
@@ -59,7 +60,6 @@ class ModuleDevice {
 
   [[nodiscard]] backend::Result<void> ApplyPrototypes(
       const device::PrototypeChanges& changes);
-  [[nodiscard]] backend::Result<void> BuildLightGas();
   [[nodiscard]] backend::Result<void> BuildIas();
 
   int ordinal_;
@@ -70,9 +70,6 @@ class ModuleDevice {
       "prototype"};
   backend::IdTable<backend::GpuLight, device::LightId> lights_{"light"};
   backend::IdTable<backend::GpuCamera, device::CameraId> cameras_{"camera"};
-  backend::AccelStructure light_gas_;
-  // The LightPrimitive of each primitive of light_gas_.
-  backend::DeviceBuffer light_primitives_;
   backend::AccelStructure ias_;
 };
 

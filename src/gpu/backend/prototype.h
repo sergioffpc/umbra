@@ -10,7 +10,6 @@
 #include <driver_types.h>
 #include <optix_types.h>
 
-#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -18,6 +17,7 @@
 #include "accel.h"
 #include "buffer.h"
 #include "held.h"
+#include "instances.h"
 #include "support.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
@@ -32,23 +32,6 @@ namespace umbra::gpu::backend {
 enum class Deformation : std::uint8_t {
   kRigid,
   kDeforms,
-};
-
-// The records of a prototype's instances in the IAS, still ones first: an
-// OptixInstance each, which points to the GAS for a still instance, and to
-// its OptixMatrixMotionTransform for a moving one. Their primvars follow
-// the same order.
-struct InstanceRecords {
-  DeviceBuffer still;
-  std::uint32_t still_count = 0;
-  DeviceBuffer moving;
-  std::uint32_t moving_count = 0;
-  // The motion transforms of the moving instances, `transform_stride`
-  // bytes apart.
-  DeviceBuffer transforms;
-  std::size_t transform_stride = 0;
-  // Each primvar of the instances, one value per instance.
-  std::vector<HeldPrimvar> primvars;
 };
 
 // A prototype in a GPU's memory.
@@ -73,7 +56,11 @@ struct GpuPrototype {
   Deformation deformation = Deformation::kRigid;
   // The refits of its GAS since it was last built.
   std::uint32_t refits = 0;
+  // The records of its instances in the IAS.
   InstanceRecords instances;
+  // Each primvar of its instances, one value per instance, in the order of
+  // their records.
+  std::vector<HeldPrimvar> instance_primvars;
 };
 
 // Uploads `prototype` and builds its GAS and the records of its instances.

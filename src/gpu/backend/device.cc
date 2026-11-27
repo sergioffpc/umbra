@@ -9,17 +9,12 @@
 #include <optix_stubs.h>
 #include <optix_types.h>
 
-#include <algorithm>
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <memory>
-#include <span>
-#include <string_view>
 #include <utility>
-#include <vector>
 
 #include "accel.h"
 #include "buffer.h"
@@ -120,33 +115,13 @@ Result<void> ApplyWhole(const device::Changes<View, Id>& changes,
       .and_then([&] { return ApplyEach(changes.added, add); });
 }
 
-// Whether `changes` adds, updates or removes any prim.
-template <typename Changes>
-bool HasChanges(const Changes& changes) {
-  return !changes.added.empty() || !changes.updated.empty() ||
-         !changes.removed.empty();
-}
-
-// The record of the GAS of lights in the IAS, untransformed.
-OptixInstance LightsRecord(OptixTraversableHandle handle) {
-  OptixInstance record{};
-  constexpr std::array<float, 12> kIdentity = {
-      1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F,
-  };
-  std::ranges::copy(kIdentity, std::begin(record.transform));
-  record.sbtOffset = backend::kLightHitGroup;
-  record.visibilityMask = backend::kLightMask;
-  record.flags = OPTIX_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
-  record.traversableHandle = handle;
-  return record;
-}
-
-// What the IAS holds: the records of the prototypes' instances, and that of
-// the GAS of lights.
+// What the IAS holds: the records of the prototypes' instances, then those
+// of the lights' instances.
 struct IasCounts {
   std::uint32_t instances = 0;
   std::uint32_t moving = 0;
   std::uint32_t lights = 0;
+  std::uint32_t moving_lights = 0;
 };
 
 // The options of a build of a static acceleration structure.
@@ -158,85 +133,60 @@ OptixAccelBuildOptions StaticBuild() {
 using Lights = backend::IdTable<backend::GpuLight, device::LightId>;
 using Prototypes = backend::IdTable<backend::GpuPrototype, device::PrototypeId>;
 
-// The primitives of the GAS of lights: every instance of every light with a
-// shape, light by light.
-std::vector<backend::LightPrimitive> LightPrimitives(const Lights& lights) {
-  std::vector<backend::LightPrimitive> primitives;
-  lights.ForEach([&](const backend::GpuLight& light) {
-    for (std::uint32_t instance = 0; instance < light.primitive_count;
-         ++instance) {
-      primitives.push_back(
-          {.light = std::to_underlying(light.id), .instance = instance});
-    }
-  });
-  return primitives;
-}
-
-// The bounds of the `count` primitives of the GAS of lights, in their order.
-Result<DeviceBuffer> GatherBounds(const Lights& lights, std::size_t count,
-                                  cudaStream_t stream) {
-  auto bounds = DeviceBuffer::Allocate(count * sizeof(OptixAabb));
-  if (!bounds.has_value()) {
-    return bounds;
-  }
-  std::size_t offset = 0;
-  Result<void> copied;
-  lights.ForEach([&](const backend::GpuLight& light) {
-    copied = copied.and_then(
-        [&] { return bounds->CopyFrom(light.bounds, offset, stream); });
-    offset += light.bounds.size();
-  });
-  return copied.and_then([&] { return std::move(bounds); });
-}
-
-// What the IAS of `prototypes` and `light_gas` holds.
-IasCounts CountIas(const Prototypes& prototypes,
-                   const backend::AccelStructure& light_gas) {
-  IasCounts counts{.lights = light_gas.handle == 0 ? 0U : 1U};
-  prototypes.ForEach([&](const backend::GpuPrototype& prototype) {
-    const std::uint32_t records = backend::InstanceCount(prototype);
-    counts.instances += records;
-    counts.moving += records == 0 ? 0 : prototype.instances.moving_count;
+// The records the prims of `table` add to the IAS, and how many of them
+// move.
+template <typename Table>
+std::pair<std::uint32_t, std::uint32_t> CountRecords(const Table& table) {
+  std::pair<std::uint32_t, std::uint32_t> counts;
+  table.ForEach([&](const auto& held) {
+    const std::uint32_t records = backend::InstanceCount(held);
+    counts.first += records;
+    counts.second += records == 0 ? 0 : held.instances.moving_count;
   });
   return counts;
 }
 
-// Copies the records of every prototype's instances into `input`, from the
-// first on, and tells how many it copied.
-Result<std::uint32_t> CopyPrototypeInstances(const Prototypes& prototypes,
-                                             DeviceBuffer& input,
-                                             cudaStream_t stream) {
-  std::uint32_t first = 0;
+// What the IAS of `prototypes` and `lights` holds.
+IasCounts CountIas(const Prototypes& prototypes, const Lights& lights) {
+  const auto [instances, moving] = CountRecords(prototypes);
+  const auto [light_instances, moving_lights] = CountRecords(lights);
+  return {
+      .instances = instances,
+      .moving = moving,
+      .lights = light_instances,
+      .moving_lights = moving_lights,
+  };
+}
+
+// Copies the records of every prim of `table` into `input`, from the record
+// `first` on, and tells the record after the last it copied.
+template <typename Table>
+Result<std::uint32_t> CopyEachRecords(const Table& table, DeviceBuffer& input,
+                                      std::uint32_t first,
+                                      cudaStream_t stream) {
   Result<void> copied;
-  prototypes.ForEach([&](const backend::GpuPrototype& prototype) {
-    const std::uint32_t records = backend::InstanceCount(prototype);
-    copied = copied.and_then([&] {
-      return backend::CopyInstances(prototype, input, first, stream);
-    });
-    first += records;
+  table.ForEach([&](const auto& held) {
+    copied = copied.and_then(
+        [&] { return backend::CopyInstances(held, input, first, stream); });
+    first += backend::InstanceCount(held);
   });
   return copied.transform([&] { return first; });
 }
 
 // The `total` records of the IAS: those of every prototype's instances, then
-// that of the GAS of lights.
+// those of every light's.
 Result<DeviceBuffer> GatherInstances(const Prototypes& prototypes,
-                                     const backend::AccelStructure& light_gas,
-                                     std::uint32_t total, cudaStream_t stream) {
+                                     const Lights& lights, std::uint32_t total,
+                                     cudaStream_t stream) {
   auto input = DeviceBuffer::Allocate(total * sizeof(OptixInstance));
   if (!input.has_value()) {
     return input;
   }
-  const std::array lights = {LightsRecord(light_gas.handle)};
-  return CopyPrototypeInstances(prototypes, *input, stream)
-      .and_then([&](std::uint32_t first) -> Result<void> {
-        if (light_gas.handle == 0) {
-          return {};
-        }
-        return input->Write(std::as_bytes(std::span(lights)),
-                            first * sizeof(OptixInstance), stream);
+  return CopyEachRecords(prototypes, *input, 0, stream)
+      .and_then([&](std::uint32_t first) {
+        return CopyEachRecords(lights, *input, first, stream);
       })
-      .and_then([&] { return std::move(input); });
+      .and_then([&](std::uint32_t /*end*/) { return std::move(input); });
 }
 
 }  // namespace
@@ -289,8 +239,6 @@ ModuleDevice::~ModuleDevice() {
   prototypes_.Clear();
   lights_.Clear();
   cameras_.Clear();
-  light_gas_ = {};
-  light_primitives_ = {};
   ias_ = {};
   if (auto destroyed = CheckOptix(optixDeviceContextDestroy(context_),
                                   "cannot destroy its context")
@@ -317,19 +265,16 @@ Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
   lights_.Reserve(changes.ids.lights);
   cameras_.Reserve(changes.ids.cameras);
   const auto upload_light = [&](const device::Light& light) {
-    return backend::UploadLight(light, stream_);
+    return backend::UploadLight(light, gpu());
   };
   const auto upload_camera = [&](const device::Camera& camera) {
     return backend::UploadCamera(camera, stream_);
   };
-  const bool lights_change = HasChanges(changes.lights);
   return ApplyPrototypes(changes.prototypes)
       .and_then(
           [&] { return ApplyWhole(changes.lights, lights_, upload_light); })
       .and_then(
           [&] { return ApplyWhole(changes.cameras, cameras_, upload_camera); })
-      .and_then(
-          [&] { return lights_change ? BuildLightGas() : Result<void>(); })
       .and_then([&] { return BuildIas(); })
       .and_then([&] {
         return CheckCuda(cudaStreamSynchronize(stream_), "the commit failed");
@@ -358,54 +303,15 @@ Result<void> ModuleDevice::ApplyPrototypes(
       .and_then([&] { return ApplyEach(changes.added, add); });
 }
 
-Result<void> ModuleDevice::BuildLightGas() {
-  const std::vector<backend::LightPrimitive> primitives =
-      LightPrimitives(lights_);
-  if (primitives.empty()) {
-    light_gas_ = {};
-    light_primitives_ = {};
-    Log(core::LogLevel::kDebug, "{}: no light has a shape", name_);
-    return {};
-  }
-  auto bounds = GatherBounds(lights_, primitives.size(), stream_);
-  if (!bounds.has_value()) {
-    return std::unexpected(bounds.error());
-  }
-  const CUdeviceptr address = bounds->address();
-  const unsigned flags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
-  OptixBuildInputCustomPrimitiveArray custom{};
-  custom.aabbBuffers = &address;
-  custom.numPrimitives = static_cast<unsigned>(primitives.size());
-  custom.flags = &flags;
-  custom.numSbtRecords = 1;
-  const std::array inputs = {
-      OptixBuildInput{
-          .type = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES,
-          .customPrimitiveArray = custom,
-      },
-  };
-  return backend::Replace(light_primitives_,
-                          std::span<const backend::LightPrimitive>(primitives),
-                          stream_)
-      .and_then([&] {
-        return backend::BuildAccel(gpu(), StaticBuild(), inputs, light_gas_);
-      })
-      .transform([&] {
-        Log(core::LogLevel::kDebug,
-            "{}: built the GAS of lights: {} shaped light instances", name_,
-            primitives.size());
-      });
-}
-
 Result<void> ModuleDevice::BuildIas() {
-  const IasCounts counts = CountIas(prototypes_, light_gas_);
+  const IasCounts counts = CountIas(prototypes_, lights_);
   const std::uint32_t total = counts.instances + counts.lights;
   if (total == 0) {
     ias_ = {};
     Log(core::LogLevel::kDebug, "{}: the IAS is empty", name_);
     return {};
   }
-  auto input = GatherInstances(prototypes_, light_gas_, total, stream_);
+  auto input = GatherInstances(prototypes_, lights_, total, stream_);
   if (!input.has_value()) {
     return std::unexpected(input.error());
   }
@@ -420,9 +326,10 @@ Result<void> ModuleDevice::BuildIas() {
   };
   return backend::BuildAccel(gpu(), StaticBuild(), inputs, ias_).transform([&] {
     Log(core::LogLevel::kDebug,
-        "{}: rebuilt the IAS: {} prototype instances ({} moving), {} GAS "
-        "of lights",
-        name_, counts.instances, counts.moving, counts.lights);
+        "{}: rebuilt the IAS: {} prototype instances ({} moving), {} light "
+        "instances ({} moving)",
+        name_, counts.instances, counts.moving, counts.lights,
+        counts.moving_lights);
   });
 }
 

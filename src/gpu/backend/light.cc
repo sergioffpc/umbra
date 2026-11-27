@@ -3,23 +3,24 @@
 
 #include "light.h"
 
+#include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <optix_types.h>
 
-#include <algorithm>
 #include <array>
-#include <cstddef>
 #include <cstdint>
-#include <limits>
+#include <expected>
 #include <optional>
 #include <span>
 #include <utility>
 #include <variant>
-#include <vector>
 
+#include "accel.h"
 #include "buffer.h"
 #include "held.h"
+#include "instances.h"
 #include "support.h"
+#include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/render_data.h"
 
@@ -97,78 +98,6 @@ class ShapeVisitor {
   LightRecord* record_;
 };
 
-// Widens `box` to hold `point`.
-void Extend(OptixAabb& box, const std::array<double, 3>& point) {
-  box.minX = std::min(box.minX, static_cast<float>(point.at(0)));
-  box.minY = std::min(box.minY, static_cast<float>(point.at(1)));
-  box.minZ = std::min(box.minZ, static_cast<float>(point.at(2)));
-  box.maxX = std::max(box.maxX, static_cast<float>(point.at(0)));
-  box.maxY = std::max(box.maxY, static_cast<float>(point.at(1)));
-  box.maxZ = std::max(box.maxZ, static_cast<float>(point.at(2)));
-}
-
-// `point` placed by `matrix`, for row vectors.
-std::array<double, 3> Place(const std::array<double, 3>& point,
-                            const device::Matrix& matrix) {
-  std::array<double, 3> placed{};
-  for (std::size_t axis = 0; axis < 3; ++axis) {
-    placed.at(axis) =
-        (point.at(0) * matrix.at(axis)) + (point.at(1) * matrix.at(4 + axis)) +
-        (point.at(2) * matrix.at(8 + axis)) + matrix.at(12 + axis);
-  }
-  return placed;
-}
-
-// The transform of an instance that gives none.
-constexpr std::array<device::Matrix, 1> kIdentity = {
-    device::Matrix{
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    },
-};
-
-// The world-space bounds of `local` placed by `instance`, over every key;
-// an instance without one is untransformed.
-OptixAabb BoundsOf(const LocalBounds& local, const device::Instance& instance) {
-  constexpr float kInfinity = std::numeric_limits<float>::infinity();
-  OptixAabb box{
-      .minX = kInfinity,
-      .minY = kInfinity,
-      .minZ = kInfinity,
-      .maxX = -kInfinity,
-      .maxY = -kInfinity,
-      .maxZ = -kInfinity,
-  };
-  const std::span<const device::Matrix> keys = instance.object_to_world.empty()
-                                                   ? std::span(kIdentity)
-                                                   : instance.object_to_world;
-  for (const device::Matrix& matrix : keys) {
-    for (unsigned corner = 0; corner < 8; ++corner) {
-      const std::array<double, 3> point = {
-          (corner & 1U) == 0U ? local.low.at(0) : local.high.at(0),
-          (corner & 2U) == 0U ? local.low.at(1) : local.high.at(1),
-          (corner & 4U) == 0U ? local.low.at(2) : local.high.at(2),
-      };
-      Extend(box, Place(point, matrix));
-    }
-  }
-  return box;
-}
-
 // The parameters of `light` but those of its shape.
 LightRecord RecordOf(const device::Light& light) {
   LightRecord record{};
@@ -183,39 +112,104 @@ LightRecord RecordOf(const device::Light& light) {
   return record;
 }
 
-// Uploads the bounds of each instance of a light whose shape has `local`
-// bounds.
-Result<void> UploadBounds(const std::optional<LocalBounds>& local,
-                          const device::Light& light, GpuLight& held,
-                          cudaStream_t stream) {
+// The GAS of a light whose shape has `local` bounds: one custom primitive.
+Result<void> BuildLightGas(const LocalBounds& local, GpuLight& held,
+                           const Gpu& gpu) {
+  const std::array boxes = {
+      OptixAabb{
+          .minX = static_cast<float>(local.low.at(0)),
+          .minY = static_cast<float>(local.low.at(1)),
+          .minZ = static_cast<float>(local.low.at(2)),
+          .maxX = static_cast<float>(local.high.at(0)),
+          .maxY = static_cast<float>(local.high.at(1)),
+          .maxZ = static_cast<float>(local.high.at(2)),
+      },
+  };
+  auto bounds =
+      DeviceBuffer::UploadOf(std::span<const OptixAabb>(boxes), gpu.stream);
+  if (!bounds.has_value()) {
+    return std::unexpected(bounds.error());
+  }
+  const CUdeviceptr address = bounds->address();
+  const unsigned flags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
+  OptixBuildInputCustomPrimitiveArray custom{};
+  custom.aabbBuffers = &address;
+  custom.numPrimitives = 1;
+  custom.flags = &flags;
+  custom.numSbtRecords = 1;
+  const std::array inputs = {
+      OptixBuildInput{
+          .type = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES,
+          .customPrimitiveArray = custom,
+      },
+  };
+  return BuildAccel(gpu,
+                    BuildOptions(OPTIX_BUILD_FLAG_PREFER_FAST_TRACE,
+                                 OPTIX_BUILD_OPERATION_BUILD, 1),
+                    inputs, held.gas);
+}
+
+// Builds the GAS of a light whose shape has `local` bounds, if any, and the
+// records of its instances.
+Result<void> BuildShape(const std::optional<LocalBounds>& local,
+                        const device::Light& light, GpuLight& held,
+                        const Gpu& gpu) {
   if (!local.has_value()) {
     return {};
   }
-  std::vector<OptixAabb> bounds;
-  bounds.reserve(light.instances.size());
-  for (const device::Instance& instance : light.instances) {
-    bounds.push_back(BoundsOf(*local, instance));
-  }
-  held.primitive_count = static_cast<std::uint32_t>(bounds.size());
-  return Replace(held.bounds, std::span<const OptixAabb>(bounds), stream);
+  const OrderedInstances ordered = Order(light.instances);
+  const RecordKind kind{
+      .prim = std::to_underlying(light.id),
+      .sbt_offset = kLightHitGroup,
+      .mask = kLightMask,
+  };
+  return BuildLightGas(*local, held, gpu)
+      .and_then([&] {
+        return UploadRecords(ordered, kind, held.gas.handle, held.instances,
+                             gpu);
+      })
+      .transform([&] {
+        Log(core::LogLevel::kDebug,
+            "{}: built the GAS of light {}: a {}, {} instances ({} moving)",
+            gpu.name, held.path,
+            device::kLightShapeNames.at(light.shape.index()),
+            CountOf(held.instances), held.instances.moving_count);
+      });
 }
 
 }  // namespace
 
-Result<GpuLight> UploadLight(const device::Light& light, cudaStream_t stream) {
+Result<GpuLight> UploadLight(const device::Light& light, const Gpu& gpu) {
   LightRecord record = RecordOf(light);
   const std::optional<LocalBounds> local =
       std::visit(ShapeVisitor(record), light.shape);
   const std::array records = {record};
   GpuLight held;
   held.id = light.id;
-  return Replace(held.record, std::span<const LightRecord>(records), stream)
-      .and_then([&] { return UploadPlacements(light.instances, stream); })
+  held.path = light.path;
+  return Replace(held.record, std::span<const LightRecord>(records), gpu.stream)
+      .and_then([&] { return UploadPlacements(light.instances, gpu.stream); })
       .and_then([&](HeldPlacements placements) {
         held.placements = std::move(placements);
-        return UploadBounds(local, light, held, stream);
+        return BuildShape(local, light, held, gpu);
+      })
+      .and_then([&] {
+        return CheckCuda(cudaStreamSynchronize(gpu.stream),
+                         "cannot upload a light");
       })
       .transform([&] { return std::move(held); });
+}
+
+std::uint32_t InstanceCount(const GpuLight& held) {
+  return held.gas.handle == 0 ? 0 : CountOf(held.instances);
+}
+
+Result<void> CopyInstances(const GpuLight& held, DeviceBuffer& input,
+                           std::uint32_t first, cudaStream_t stream) {
+  if (InstanceCount(held) == 0) {
+    return {};
+  }
+  return CopyRecords(held.instances, input, first, stream);
 }
 
 Result<GpuCamera> UploadCamera(const device::Camera& camera,

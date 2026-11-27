@@ -39,11 +39,13 @@ acceleration structures built from them:
   and rebuilds it after `kMaxRefits` refits in a row. It is built with
   `OPTIX_BUILD_FLAG_ALLOW_UPDATE` only once its points have changed, so that
   static geometry never pays for it;
-- one GAS of lights: each instance of a light with a shape (sphere, rect,
-  disk, cylinder) is a custom primitive, bounded over the shutter;
-- one IAS, rebuilt at every commit: an
-  instance of a prototype that moves within the shutter sits behind an
-  `OptixMatrixMotionTransform`, and the GAS of lights is one more instance.
+- one GAS per light with a shape (sphere, rect, disk, cylinder): a single
+  custom primitive that bounds the shape in the light's own space, built
+  whenever the light is committed;
+- one IAS, rebuilt at every commit, with a record per instance of each
+  prototype and of each light with a shape, which points to its GAS: an
+  instance that moves within the shutter sits behind an
+  `OptixMatrixMotionTransform`.
 
 Motion keys span the shutter as times 0 to 1. Each call makes the device's
 GPU current on the calling thread, so that every device commits on a host

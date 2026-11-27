@@ -8,8 +8,8 @@
 # OptiX runtime. It goes to lib/ of the build tree, next to bin/umbra.
 
 umbra_add_loadable_module(umbra_gpu_backend
-  SOURCES module.cc accel.cc buffer.cc device.cc held.cc light.cc prototype.cc
-          support.cc
+  SOURCES module.cc accel.cc buffer.cc device.cc held.cc instances.cc light.cc
+          prototype.cc support.cc
   HEADERS core device gpu
   LINK CUDA::cudart_static umbra::optix)
 set_target_properties(umbra_gpu_backend PROPERTIES
