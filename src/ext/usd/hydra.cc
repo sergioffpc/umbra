@@ -329,6 +329,7 @@ void CameraPrim::Place(const host::Shutter& shutter) {
       .clipping_range = {meters(clipping.GetMin()), meters(clipping.GetMax())},
       .f_stop = static_cast<double>(GetFStop()),
       .focus_distance = meters(GetFocusDistance()),
+      .exposure_scale = GetLinearExposureScale(),
   };
 }
 

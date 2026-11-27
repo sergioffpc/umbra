@@ -215,6 +215,7 @@ struct Camera {
   std::array<double, 2> clipping_range{};
   double f_stop = 0.0;
   double focus_distance = 0.0;
+  float exposure_scale = 1.0F;
 };
 
 }  // namespace umbra::ext::usd::internal::host

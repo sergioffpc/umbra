@@ -157,6 +157,7 @@ device::Camera ChangeSetBuilder::CameraOf(device::CameraId prim_id,
       .clipping_range = camera.clipping_range,
       .f_stop = camera.f_stop,
       .focus_distance = camera.focus_distance,
+      .exposure_scale = camera.exposure_scale,
   };
 }
 
