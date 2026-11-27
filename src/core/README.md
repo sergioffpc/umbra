@@ -22,6 +22,10 @@ Public headers (`include/umbra/core/`):
   cores, threads, memory, caches with the cores grouped by cache sizes), and
   the CPU's widest vector ISA. A CPU render device is one NUMA node (see
   `docs/adr/0004-render-devices.md`).
+- `memory_policy.h`: a thread's NUMA memory policy, bound to a node and put
+  back, and the node a page lies on, through the kernel's system calls. A
+  CPU device binds the threads of its arena to its node (see
+  `docs/adr/0013-devices-render-from-their-own-memory.md`).
 - `wrapping.h`: wrapping add, sub, mul and shl, the only intentional
   overflow.
 - `floating_point.h`: the per-thread FTZ/DAZ configuration, called first on

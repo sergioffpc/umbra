@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -30,10 +31,12 @@
 
 #include "bvh.h"
 #include "copies.h"
+#include "nonblocking.h"
 #include "process_device.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/log.h"
+#include "umbra/core/memory_policy.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/camera_rays.h"
@@ -102,23 +105,57 @@ struct LightRecord {
 template <typename View>
 using CopyTable = Table<internal::Copy<View>>;
 
-// Configures the floating-point state of every thread that enters an arena.
-class FloatingPointObserver final : public tbb::task_scheduler_observer {
+// The memory policy of the calling thread before it entered a CPU device's
+// arena, while it is in the arena.
+std::optional<core::MemoryPolicy>& SavedPolicy() {
+  thread_local std::optional<core::MemoryPolicy> policy;
+  return policy;
+}
+
+// Configures every thread that enters a CPU device's arena, its workers and
+// the external thread alike: its floating-point state, and its memory
+// policy, bound to the device's NUMA node, so that every page first touched
+// in the arena lies on the node. A thread leaving the arena gets its own
+// policy back. A thread is in one device's arena at a time.
+class ArenaObserver final : public tbb::task_scheduler_observer {
  public:
-  explicit FloatingPointObserver(tbb::task_arena& arena)
-      : tbb::task_scheduler_observer(arena) {
+  ArenaObserver(tbb::task_arena& arena, int node, std::string_view name)
+      : tbb::task_scheduler_observer(arena), node_(node), name_(name) {
     observe(true);
   }
-  FloatingPointObserver(const FloatingPointObserver&) = delete;
-  FloatingPointObserver& operator=(const FloatingPointObserver&) = delete;
-  FloatingPointObserver(FloatingPointObserver&&) = delete;
-  FloatingPointObserver& operator=(FloatingPointObserver&&) = delete;
-  ~FloatingPointObserver() override { observe(false); }
+  ArenaObserver(const ArenaObserver&) = delete;
+  ArenaObserver& operator=(const ArenaObserver&) = delete;
+  ArenaObserver(ArenaObserver&&) = delete;
+  ArenaObserver& operator=(ArenaObserver&&) = delete;
+  ~ArenaObserver() override { observe(false); }
 
   // NOLINTNEXTLINE(umbra-bool-parameter): oneTBB's interface.
   void on_scheduler_entry(bool /*is_worker*/) override {
     core::ConfigureThreadFloatingPoint();
+    auto bound = core::BindThreadMemory(node_);
+    if (bound.has_value()) {
+      SavedPolicy() = *bound;
+    } else if (!warned_.exchange(true, std::memory_order_relaxed)) {
+      UMBRA_LOG_WARNING(kDevice,
+                        "{}: memory not bound to NUMA node {} ({}); it lies "
+                        "where the kernel places it",
+                        name_, node_, bound.error().message());
+    }
   }
+
+  // NOLINTNEXTLINE(umbra-bool-parameter): oneTBB's interface.
+  void on_scheduler_exit(bool /*is_worker*/) override {
+    std::optional<core::MemoryPolicy>& saved = SavedPolicy();
+    if (saved.has_value()) {
+      core::RestoreThreadMemory(*saved);
+      saved.reset();
+    }
+  }
+
+ private:
+  int node_;
+  std::string_view name_;
+  std::atomic<bool> warned_{false};
 };
 
 // The constraints of the arena of NUMA node `node`: bound to it when
@@ -138,12 +175,12 @@ struct CpuDevice::State {
       : name(std::format("cpu{}", node)),
         constraints(ConstraintsOf(node)),
         arena(constraints),
-        observer(arena) {}
+        observer(arena, node, name) {}
 
   std::string name;
   tbb::task_arena::constraints constraints;
   tbb::task_arena arena;
-  FloatingPointObserver observer;
+  ArenaObserver observer;
   RTCDevice UMBRA_NULLABLE embree = internal::ProcessRtcDevice();
   Table<PrototypeRecord> prototypes;
   Table<LightRecord> lights;
@@ -520,7 +557,7 @@ Status Apply(State& state, const device::ChangeSet& changes, RTCDevice device) {
   return {};
 }
 
-RTCRayHit RayHitOf(const Ray& ray) {
+RTCRayHit RayHitOf(const Ray& ray) [[clang::nonblocking]] {
   RTCRayHit ray_hit{};
   ray_hit.ray.org_x = ray.origin.x;
   ray_hit.ray.org_y = ray.origin.y;
@@ -537,31 +574,30 @@ RTCRayHit RayHitOf(const Ray& ray) {
   return ray_hit;
 }
 
+// A transform as Embree gives it in RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR: 12
+// floats, the columns one after another.
+struct Columns {
+  device::Vector3 x_axis;
+  device::Vector3 y_axis;
+  device::Vector3 z_axis;
+  device::Vector3 translation;
+};
+static_assert(sizeof(Columns) == 12 * sizeof(float));
+
 // The geometric normal `normal`, in the object space of the instance a ray
 // met at `time` in `top`, in world space, of unit length, facing
 // `direction`.
 device::Vector3 WorldNormal(RTCScene top, unsigned int instance, float time,
-                            device::Vector3 normal, device::Vector3 direction) {
+                            device::Vector3 normal, device::Vector3 direction)
+    [[clang::nonblocking]] {
   // The instance's object-to-world transform, column-major for column
   // vectors: its columns are the images of the X, Y and Z axes.
-  std::array<float, 12> columns{};
-  rtcGetGeometryTransformFromScene(
-      top, instance, time, RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR, columns.data());
-  const device::Vector3 x_axis{
-      .x = columns.at(0),
-      .y = columns.at(1),
-      .z = columns.at(2),
-  };
-  const device::Vector3 y_axis{
-      .x = columns.at(3),
-      .y = columns.at(4),
-      .z = columns.at(5),
-  };
-  const device::Vector3 z_axis{
-      .x = columns.at(6),
-      .y = columns.at(7),
-      .z = columns.at(8),
-  };
+  Columns columns;
+  rtcGetGeometryTransformFromScene(top, instance, time,
+                                   RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR, &columns);
+  const device::Vector3& x_axis = columns.x_axis;
+  const device::Vector3& y_axis = columns.y_axis;
+  const device::Vector3& z_axis = columns.z_axis;
   // Normals transform by the inverse transpose, which the cofactors give
   // up to the determinant: its sign is lost as the normal faces the ray.
   const device::Vector3 world =
@@ -595,7 +631,7 @@ std::pair<std::vector<FilmPlane>, std::size_t> PlanFilm(
 }
 
 // `vector` as Embree's rays hold it.
-device::Float3 Float3Of(device::Vector3 vector) {
+device::Float3 Float3Of(device::Vector3 vector) [[clang::nonblocking]] {
   return {.x = vector.x, .y = vector.y, .z = vector.z};
 }
 
@@ -618,7 +654,7 @@ struct RenderInputs {
 
 // The placeholder integrator's pixel at `column` and `row`.
 PixelValue RenderPixel(const RenderInputs& inputs, std::int32_t column,
-                       std::int32_t row) {
+                       std::int32_t row) [[clang::nonblocking]] {
   device::Vector3 color;
   device::Vector3 normal;
   float depth = 0.0F;
@@ -652,10 +688,13 @@ PixelValue RenderPixel(const RenderInputs& inputs, std::int32_t column,
   };
 }
 
+// The channels of a var that the placeholder integrator leaves at 0.
+constexpr std::array<float, 3> kZeroChannels{};
+
 // The channels a pixel's value gives a var of `source`.
 std::span<const float> ChannelsOf(const PixelValue& value,
-                                  device::VarSource source) {
-  static constexpr std::array<float, 3> kZero{};
+                                  device::VarSource source)
+    [[clang::nonblocking]] {
   switch (source) {
     case device::VarSource::kColor:
       return value.color;
@@ -666,13 +705,14 @@ std::span<const float> ChannelsOf(const PixelValue& value,
     case device::VarSource::kAlbedo:
       break;
   }
-  return kZero;
+  return kZeroChannels;
 }
 
 // Writes `value`, the pixel at `pixel` of the data window, into the film's
 // planes.
 void WritePixel(const PixelValue& value, std::size_t pixel,
-                std::span<const FilmPlane> planes, std::span<float> film) {
+                std::span<const FilmPlane> planes, std::span<float> film)
+    [[clang::nonblocking]] {
   for (const FilmPlane& plane : planes) {
     const std::span<float> out =
         film.subspan(plane.offset + (pixel * plane.channels), plane.channels);
@@ -686,7 +726,8 @@ void WritePixel(const PixelValue& value, std::size_t pixel,
 // Renders `tile`'s pixels into the film's planes.
 void RenderTile(const RenderInputs& inputs, const device::PixelWindow& window,
                 const device::PixelWindow& tile,
-                std::span<const FilmPlane> planes, std::span<float> film) {
+                std::span<const FilmPlane> planes, std::span<float> film)
+    [[clang::nonblocking]] {
   const auto width = static_cast<std::size_t>(window.width());
   for (std::int32_t row = tile.y_min; row < tile.y_end; ++row) {
     for (std::int32_t column = tile.x_min; column < tile.x_end; ++column) {
@@ -726,6 +767,21 @@ struct FilmTarget {
   std::span<float> film;
 };
 
+// Logs, at debug level, the NUMA node of `what`, which `device` allocated
+// and touched at `address`.
+void LogNode(std::string_view device, std::string_view what,
+             const void* address) {
+  if (!core::IsLogEnabled(core::LogComponent::kDevice,
+                          core::LogLevel::kDebug)) {
+    return;
+  }
+  const auto node = core::NodeOfPage(address);
+  UMBRA_LOG_DEBUG(kDevice, "{}: {} on NUMA node {}", device, what,
+                  node.has_value()
+                      ? std::format("{}", *node)
+                      : std::format("unknown ({})", node.error().message()));
+}
+
 // The most batches of `batch_size` tiles a device takes from `tiles`: each
 // but its last is whole.
 std::size_t MostBatches(const device::TileQueue& tiles,
@@ -754,6 +810,23 @@ std::size_t RenderBatches(const RenderInputs& inputs,
     tbb::parallel_for(batch.first, batch.end, render);
   }
   return taken;
+}
+
+// Readies `state` to render `frame`, on its arena: its sampler cache, the
+// first time, and a film large enough. Gives the film's planes.
+std::vector<FilmPlane> Prepare(State& state,
+                               const device::FrameParameters& frame) {
+  if (state.sampler_cache.empty()) {
+    state.sampler_cache.resize(device::kSamplerCacheSize);
+    device::InitializeSamplerCache(state.sampler_cache);
+    LogNode(state.name, "sampler cache", state.sampler_cache.data());
+  }
+  auto [planes, floats] = PlanFilm(frame);
+  if (state.film.size() < floats) {
+    state.film = std::vector<float>(floats);
+    LogNode(state.name, "film", state.film.data());
+  }
+  return std::move(planes);
 }
 
 }  // namespace
@@ -805,14 +878,7 @@ std::expected<void, Error> CpuDevice::Render(
   const device::CameraModel camera =
       device::MakeCameraModel(state.cameras.at(camera_id)->view, frame);
   state.arena.execute([&] {
-    if (state.sampler_cache.empty()) {
-      state.sampler_cache.resize(device::kSamplerCacheSize);
-      device::InitializeSamplerCache(state.sampler_cache);
-    }
-    auto [planes, floats] = PlanFilm(frame);
-    if (state.film.size() < floats) {
-      state.film = std::vector<float>(floats);
-    }
+    const std::vector<FilmPlane> planes = Prepare(state, frame);
     const RenderInputs inputs{
         .device = this,
         .camera = &camera,
@@ -835,16 +901,20 @@ std::expected<void, Error> CpuDevice::Render(
   return {};
 }
 
-std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const {
-  if (state_->top.get() == nullptr) {
+std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const
+    [[clang::nonblocking]] {
+  RTCScene UMBRA_NULLABLE const top = state_->top.get();
+  if (top == nullptr) {
     return std::nullopt;
   }
   RTCRayHit ray_hit = RayHitOf(ray);
-  rtcIntersect1(state_->top.get(), &ray_hit);
+  rtcIntersect1(top, &ray_hit, nullptr);
   if (ray_hit.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
     return std::nullopt;
   }
-  const Placement& placement = state_->placements.at(ray_hit.hit.instID[0]);
+  // at() may throw: the hardened span checks the bounds and aborts.
+  const Placement& placement =
+      std::span(state_->placements).subspan(ray_hit.hit.instID[0], 1).front();
   return Hit{
       .kind = placement.kind,
       .id = placement.id,
@@ -853,7 +923,7 @@ std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const {
           placement.kind == HitKind::kPrototype ? ray_hit.hit.primID : 0U,
       .distance = ray_hit.ray.tfar,
       .normal = WorldNormal(
-          state_->top.get(), ray_hit.hit.instID[0], ray.time,
+          top, ray_hit.hit.instID[0], ray.time,
           {.x = ray_hit.hit.Ng_x, .y = ray_hit.hit.Ng_y, .z = ray_hit.hit.Ng_z},
           {.x = ray.direction.x, .y = ray.direction.y, .z = ray.direction.z}),
   };

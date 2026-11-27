@@ -54,6 +54,15 @@
       }
     },
     {
+      "name": "rtsan",
+      "displayName": "RTSan",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "UMBRA_SANITIZER": "realtime"
+      }
+    },
+    {
       "name": "coverage",
       "displayName": "Coverage (local reports)",
       "inherits": "base",
@@ -79,6 +88,10 @@
     {
       "name": "tsan",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "rtsan",
+      "configurePreset": "rtsan"
     },
     {
       "name": "coverage",
@@ -132,6 +145,11 @@
       "name": "tsan",
       "inherits": "base",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "rtsan",
+      "inherits": "base",
+      "configurePreset": "rtsan"
     },
     {
       "name": "coverage",
@@ -208,6 +226,23 @@
         {
           "type": "test",
           "name": "tsan"
+        }
+      ]
+    },
+    {
+      "name": "rtsan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "rtsan"
+        },
+        {
+          "type": "build",
+          "name": "rtsan"
+        },
+        {
+          "type": "test",
+          "name": "rtsan"
         }
       ]
     },

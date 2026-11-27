@@ -114,7 +114,8 @@ class CpuDevice final : public device::Device {
   // What `ray` meets first, at its time, among the prototypes and the
   // shaped lights committed; none when it meets nothing, or after a commit
   // failed. Threads may call it at once, but not while a commit runs.
-  [[nodiscard]] std::optional<Hit> Intersect(const Ray& ray) const;
+  [[nodiscard]] std::optional<Hit> Intersect(const Ray& ray) const
+      [[clang::nonblocking]];
 
   // Its arena, its copies of the prims and its BVHs.
   struct State;

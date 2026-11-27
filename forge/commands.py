@@ -35,6 +35,7 @@ class Preset(enum.StrEnum):
     RELEASE = "release"
     ASAN = "asan"
     TSAN = "tsan"
+    RTSAN = "rtsan"
     COVERAGE = "coverage"
     # A build preset only: it writes the coverage report.
     COVERAGE_REPORT = "coverage-report"
@@ -43,7 +44,13 @@ class Preset(enum.StrEnum):
 # The presets that build and check accept: debug, or release (LTO).
 BUILD_PRESETS = (Preset.DEBUG, Preset.RELEASE)
 # The build trees that audit accepts.
-AUDIT_PRESETS = (Preset.DEBUG, Preset.RELEASE, Preset.ASAN, Preset.TSAN)
+AUDIT_PRESETS = (
+    Preset.DEBUG,
+    Preset.RELEASE,
+    Preset.ASAN,
+    Preset.TSAN,
+    Preset.RTSAN,
+)
 # The build trees that have the GPU module: the sanitizer presets leave it out.
 GPU_PRESETS = (Preset.DEBUG, Preset.RELEASE)
 # The checks of the ELF files of a build tree, shared with the deps workflow.
@@ -369,6 +376,11 @@ def check_tsan(options: Options) -> list[Step]:
     return sanitizer_check(options.with_preset(Preset.TSAN), TSAN_GPU_RUNS)
 
 
+def check_rtsan(options: Options) -> list[Step]:
+    """Returns the steps of the RTSan build and tests."""
+    return check(options.with_preset(Preset.RTSAN))
+
+
 def lint(options: Options) -> list[Step]:
     """Returns the steps that check without changing any file.
 
@@ -388,12 +400,13 @@ def lint(options: Options) -> list[Step]:
 
 
 def check_all(options: Options) -> list[Step]:
-    """Returns the steps of lint, check, check-asan and check-tsan."""
+    """Returns the steps of lint, check and the sanitizer checks."""
     return [
         *lint(options),
         *check(options),
         *check_asan(options),
         *check_tsan(options),
+        *check_rtsan(options),
     ]
 
 
@@ -693,9 +706,16 @@ COMMANDS = (
         (Option.LABEL, Option.VERBOSE),
     ),
     Command(
+        "check-rtsan",
+        "Build the RTSan preset and run its tests: the functions declared"
+        " nonblocking neither allocate, lock nor block.",
+        check_rtsan,
+        (Option.VERBOSE,),
+    ),
+    Command(
         "check-all",
-        "Run lint, check, check-asan and check-tsan: everything before a pull"
-        " request.",
+        "Run lint, check, check-asan, check-tsan and check-rtsan: everything"
+        " before a pull request.",
         check_all,
         (Option.VERBOSE,),
     ),

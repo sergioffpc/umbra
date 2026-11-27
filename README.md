@@ -37,6 +37,11 @@ docker run --rm --gpus all -v "$PWD:/work" ghcr.io/sergioffpc/umbra:X.Y.Z \
   render --devices=gpu0
 ```
 
+On a machine with several NUMA nodes, each CPU device keeps its memory on its
+node by binding the memory policy of its threads, which Docker's default
+seccomp profile allows only with `--cap-add SYS_NICE`. Without it, umbra
+warns once per device and renders with its memory where the kernel places it.
+
 The image holds the license texts of Umbra and of every component in it in
 `/opt/umbra/share/licenses/`, and the copyright file of each Ubuntu package
 in `/usr/share/doc/<package>/`.
@@ -101,7 +106,8 @@ optional (RTX 5070 Ti class or newer); see
    ```
 
 Run `python3 -m forge --help` for the full list of commands: `build`,
-`check`, `check-asan`, `check-tsan`, `check-all`, `coverage`, `format`,
+`check`, `check-asan`, `check-tsan`, `check-rtsan`, `check-all`,
+`coverage`, `format`,
 `lint`, `clean` and `distclean`.
 
 ## Repository layout

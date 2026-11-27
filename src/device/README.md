@@ -46,10 +46,11 @@ Public headers (`include/umbra/device/`):
   code.
 - `single_source.h`: `UMBRA_HOST_DEVICE`, which marks the functions written
   once for the CPU and the GPU: clang compiles them for the CPU devices, and
-  nvcc for the GPU devices. `single_source_check.cu` calls them from a
+  nvcc for the GPU devices. `UMBRA_NONBLOCKING` declares those of the hot
+  path `[[clang::nonblocking]]` for clang, and nothing for nvcc. `single_source_check.cu` calls them from a
   kernel, for nvcc to compile them whenever the GPU module builds; nothing
   runs it.
-- `diagnostic_device.h`: a device that renders nothing, and takes no tile, and checks each
+- `diagnostic_device.h`: a device that renders nothing, takes no tile, and checks each
   change set it receives instead, against what it holds from the commits
   before: ids in range, an id removed or updated held and an id added free,
   an update carrying only the members its change flags name,

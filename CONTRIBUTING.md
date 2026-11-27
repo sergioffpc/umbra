@@ -156,7 +156,8 @@ changes bump the minor version until then; see
 | `check` | Build and run the tests, except those that need a GPU; `--label gpu` runs only the tests with that CTest label; `--preset release` as for `build` |
 | `check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `--label gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
 | `check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `--label gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
-| `check-all` | `lint`, `check`, `check-asan` and `check-tsan`, stopping at the first failure: everything to run before a pull request |
+| `check-rtsan` | RealtimeSanitizer build and tests: a function declared `[[clang::nonblocking]]`, or what it calls, inside third-party libraries too, that allocates, locks or blocks aborts its test |
+| `check-all` | `lint`, `check`, `check-asan`, `check-tsan` and `check-rtsan`, stopping at the first failure: everything to run before a pull request |
 | `coverage` | Coverage build and tests, then the coverage report (local only) |
 | `format` | Format the C++ (clang-format) and Python (pyink, isort) sources; `--check` changes no file and fails when one is not formatted |
 | `lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
@@ -176,13 +177,13 @@ is one forge command, apart from trusting the checkout, pushing an image and
 reporting a read-only token. A step that checks an image runs the forge
 command inside it, with `docker run` on a read-only mount of the checkout and
 `python3 -B`, so that nothing is written there. The build jobs run
-`check --preset debug`, `check --preset release`, `check-asan` and
-`check-tsan`, then `audit` on their build tree; the other jobs run
+`check --preset debug`, `check --preset release`, `check-asan`,
+`check-tsan` and `check-rtsan`, then `audit` on their build tree; the other jobs run
 `format --check`, `lint` and the commands below, which check what CI checks:
 
 | Command | Action |
 | --- | --- |
-| `audit` | Check a build tree (`--preset debug`, `release`, `asan` or `tsan`): the debug and release trees have the GPU module, no ELF file needs a GCC runtime, and none needs the CUDA driver unless it is a module loaded at run time |
+| `audit` | Check a build tree (`--preset debug`, `release`, `asan`, `tsan` or `rtsan`): the debug and release trees have the GPU module, no ELF file needs a GCC runtime, and none needs the CUDA driver unless it is a module loaded at run time |
 | `pin` | Check that `.devcontainer/devcontainer.json` pins `--ref`, the deps image of the current inputs |
 | `pull-request` | Check the branch name, title and commits of the pull request of the GitHub Actions run (CI only) |
 | `third-party` | Check `third_party/versions.md` against the submodules, the license allow-list and the upstream tags |

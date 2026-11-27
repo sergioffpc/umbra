@@ -34,8 +34,8 @@ def option_parsers() -> dict[commands.Option, argparse.ArgumentParser]:
         "--preset",
         choices=[preset.value for preset in commands.AUDIT_PRESETS],
         default=commands.Preset.DEBUG.value,
-        help="the build tree, build/PRESET: debug (the default), release, asan"
-        " or tsan",
+        help="the build tree, build/PRESET: debug (the default), release, asan,"
+        " tsan or rtsan",
     )
     label = argparse.ArgumentParser(add_help=False)
     label.add_argument(

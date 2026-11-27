@@ -11,9 +11,14 @@
 #   thread    the tsan preset: ThreadSanitizer, with the UndefinedBehavior-
 #             Sanitizer integer checks (signed and unsigned overflow, shift,
 #             integer divide-by-zero), implicit conversions, nullability
-#             and float-cast overflow.
+#             and float-cast overflow;
+#   realtime  the rtsan preset: RealtimeSanitizer, which aborts when a
+#             function declared [[clang::nonblocking]], or what it calls,
+#             allocates, locks or makes a blocking system call, inside
+#             third-party libraries too
+#             (docs/adr/0003-no-allocations-on-the-hot-path.md).
 #
-# Both presets pattern-initialize locals, so reads of uninitialized memory
+# Every preset pattern-initializes locals, so reads of uninitialized memory
 # produce recognizable garbage instead of zeros.
 #
 # Every check is fatal (no recovery), so a test that triggers one fails. The
@@ -23,7 +28,8 @@
 # Every executable of a sanitizer build links sanitizers/default_options.cc,
 # which sets the default runtime options (halt and abort on the first error,
 # llvm-symbolizer for file:line reports, the TSan suppressions file). The
-# environment variables (ASAN_OPTIONS, UBSAN_OPTIONS, TSAN_OPTIONS) still
+# environment variables (ASAN_OPTIONS, UBSAN_OPTIONS, TSAN_OPTIONS,
+# RTSAN_OPTIONS) still
 # override them.
 #
 # The settings apply through umbra_apply_sanitizers(<target>), called by the
@@ -38,8 +44,8 @@
 include_guard(GLOBAL)
 
 set(UMBRA_SANITIZER "" CACHE STRING
-    "Sanitizers of the build: empty, address (ASan+UBSan) or thread (TSan)")
-set_property(CACHE UMBRA_SANITIZER PROPERTY STRINGS "" address thread)
+    "Sanitizers: empty, address (ASan+UBSan), thread (TSan), realtime (RTSan)")
+set_property(CACHE UMBRA_SANITIZER PROPERTY STRINGS "" address thread realtime)
 
 if(UMBRA_SANITIZER STREQUAL "address")
   set(UMBRA_SANITIZE_FLAGS
@@ -63,9 +69,11 @@ elseif(UMBRA_SANITIZER STREQUAL "thread")
             "<prefix>/tsan for a prefix of CMAKE_PREFIX_PATH")
   endif()
   list(PREPEND CMAKE_PREFIX_PATH ${umbra_tsan_prefixes})
+elseif(UMBRA_SANITIZER STREQUAL "realtime")
+  set(UMBRA_SANITIZE_FLAGS -fsanitize=realtime)
 elseif(NOT UMBRA_SANITIZER STREQUAL "")
   message(FATAL_ERROR
-          "UMBRA_SANITIZER must be empty, address or thread "
+          "UMBRA_SANITIZER must be empty, address, thread or realtime "
           "(found '${UMBRA_SANITIZER}')")
 endif()
 

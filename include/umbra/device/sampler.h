@@ -50,7 +50,7 @@ enum class SampleDomain : std::uint8_t {
 
 // The samples of a camera ray from `sampler`, that of one sample of a pixel.
 UMBRA_HOST_DEVICE [[nodiscard]] inline CameraSamples DrawCameraSamples(
-    const Sampler& sampler) {
+    const Sampler& sampler) UMBRA_NONBLOCKING {
   std::array<float, 2> filter{};
   std::array<float, 2> lens{};
   std::array<float, 1> time{};
