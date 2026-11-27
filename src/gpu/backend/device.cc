@@ -14,17 +14,24 @@
 #include <expected>
 #include <format>
 #include <memory>
+#include <span>
 #include <utility>
+#include <vector>
 
 #include "accel.h"
 #include "buffer.h"
 #include "held.h"
 #include "light.h"
 #include "prototype.h"
+#include "render.h"
 #include "support.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/camera_rays.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
+#include "umbra/device/image.h"
+#include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::gpu {
@@ -240,6 +247,8 @@ ModuleDevice::~ModuleDevice() {
   lights_.Clear();
   cameras_.Clear();
   ias_ = {};
+  light_shapes_ = {};
+  renderer_ = backend::Renderer();
   if (auto destroyed = CheckOptix(optixDeviceContextDestroy(context_),
                                   "cannot destroy its context")
                            .and_then([&] {
@@ -255,10 +264,13 @@ backend::Gpu ModuleDevice::gpu() const {
   return {.context = context_, .stream = stream_, .name = name_};
 }
 
+Result<void> ModuleDevice::MakeCurrent() const {
+  return CheckCuda(cudaSetDevice(ordinal_),
+                   std::format("cannot use device {}", ordinal_));
+}
+
 Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
-  if (auto current = CheckCuda(cudaSetDevice(ordinal_),
-                               std::format("cannot use device {}", ordinal_));
-      !current.has_value()) {
+  if (auto current = MakeCurrent(); !current.has_value()) {
     return current;
   }
   prototypes_.Reserve(changes.ids.prototypes);
@@ -276,9 +288,47 @@ Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
       .and_then(
           [&] { return ApplyWhole(changes.cameras, cameras_, upload_camera); })
       .and_then([&] { return BuildIas(); })
+      .and_then([&] { return UploadLightShapes(changes.ids.lights); })
       .and_then([&] {
         return CheckCuda(cudaStreamSynchronize(stream_), "the commit failed");
       });
+}
+
+Result<void> ModuleDevice::UploadLightShapes(std::uint32_t lights) {
+  std::vector<device::LightShape> shapes(lights);
+  lights_.ForEach([&](const backend::GpuLight& held) {
+    const auto light = std::to_underlying(held.id);
+    if (held.shape.has_value() && light < shapes.size()) {
+      shapes.at(light) = *held.shape;
+    }
+  });
+  return backend::Replace(light_shapes_,
+                          std::span<const device::LightShape>(shapes), stream_)
+      .and_then([&] {
+        return CheckCuda(cudaStreamSynchronize(stream_),
+                         "cannot upload the lights' shapes");
+      });
+}
+
+Result<void> ModuleDevice::PrepareRender(const device::FrameParameters& frame) {
+  return MakeCurrent()
+      .and_then([&] { return cameras_.Held(frame.camera); })
+      .and_then([&](const backend::GpuCamera* camera) {
+        const backend::Scene scene{
+            .camera = device::MakeCameraModel(backend::ViewOf(*camera), frame),
+            .top = ias_.handle,
+            .light_shapes = light_shapes_.address(),
+        };
+        return renderer_.Prepare(frame, scene, context_, stream_);
+      });
+}
+
+Result<void> ModuleDevice::RenderTiles(
+    const device::FrameParameters& frame,
+    std::span<const device::PixelWindow> tiles) {
+  return MakeCurrent()
+      .and_then([&] { return renderer_.RenderTiles(tiles, stream_); })
+      .and_then([&] { return renderer_.CopyTiles(frame, tiles, stream_); });
 }
 
 Result<void> ModuleDevice::ApplyPrototypes(

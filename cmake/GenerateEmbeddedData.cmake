@@ -2,7 +2,7 @@
 # Copyright The Umbra Authors
 #
 # Writes a C++ source that embeds a binary file (script mode, run by
-# umbra_add_optix_ir in UmbraCuda.cmake):
+# umbra_add_optix_programs in UmbraCuda.cmake):
 #
 #   cmake -DINPUT=<file>[;<file>...] -DOUTPUT=<file.cc> -DFUNCTION=<name>
 #         -DNAMESPACE=<namespace> -P GenerateEmbeddedData.cmake

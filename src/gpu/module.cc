@@ -28,6 +28,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/image.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu {
@@ -135,10 +136,30 @@ class ModuleBackedDevice final : public device::Device {
     return ResultOf(api_->commit(held_, &changes));
   }
 
-  // Renders nothing, and takes no tile: returns at once.
+  // Takes batches of kTilesPerLaunch tiles, renders each in one launch,
+  // copies it into the render buffers and finishes its tiles before it takes
+  // the next.
   [[nodiscard]] std::expected<void, Error> Render(
-      const device::FrameParameters& /*frame*/,
-      device::TileQueue& /*tiles*/) override {
+      const device::FrameParameters& frame, device::TileQueue& tiles) override {
+    if (auto prepared = ResultOf(api_->prepare_render(held_, &frame));
+        !prepared.has_value()) {
+      return prepared;
+    }
+    for (device::TileQueue::Batch batch = tiles.Take(kTilesPerLaunch);
+         !batch.IsEmpty(); batch = tiles.Take(kTilesPerLaunch)) {
+      const auto count = static_cast<std::size_t>(batch.end - batch.first);
+      for (std::size_t index = 0; index < count; ++index) {
+        batch_.at(index) = tiles.TileWindow(batch.first + index);
+      }
+      if (auto rendered = ResultOf(api_->render_tiles(
+              held_, &frame, std::span(batch_).first(count)));
+          !rendered.has_value()) {
+        return rendered;
+      }
+      for (std::uint64_t tile = batch.first; tile < batch.end; ++tile) {
+        tiles.Finish(tile);
+      }
+    }
     return {};
   }
 
@@ -146,6 +167,8 @@ class ModuleBackedDevice final : public device::Device {
   const ModuleApi* api_;
   ModuleDevice* held_;
   std::string name_;
+  // The tiles of the batch rendering.
+  std::array<device::PixelWindow, kTilesPerLaunch> batch_{};
 };
 
 }  // namespace

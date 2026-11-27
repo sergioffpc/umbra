@@ -11,7 +11,9 @@
 #include <driver_types.h>
 #include <optix_types.h>
 
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 
 #include "accel.h"
@@ -19,9 +21,12 @@
 #include "held.h"
 #include "light.h"
 #include "prototype.h"
+#include "render.h"
 #include "support.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
+#include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
 #include "umbra/gpu/module_abi.h"
 
@@ -55,12 +60,26 @@ class ModuleDevice {
   // refer to.
   [[nodiscard]] backend::Result<void> Commit(const device::ChangeSet& changes);
 
+  // Prepares the render of the product `frame` describes, from what it
+  // committed: the camera model of its camera, and the film of its vars.
+  [[nodiscard]] backend::Result<void> PrepareRender(
+      const device::FrameParameters& frame);
+
+  // Renders `tiles`, at most kTilesPerLaunch of them, in one launch into the
+  // film of the product prepared, which `frame` describes, then copies them
+  // into the render buffers of its vars, and waits for the copies.
+  [[nodiscard]] backend::Result<void> RenderTiles(
+      const device::FrameParameters& frame,
+      std::span<const device::PixelWindow> tiles);
+
  private:
   [[nodiscard]] backend::Gpu gpu() const UMBRA_LIFETIMEBOUND;
 
   [[nodiscard]] backend::Result<void> ApplyPrototypes(
       const device::PrototypeChanges& changes);
   [[nodiscard]] backend::Result<void> BuildIas();
+  [[nodiscard]] backend::Result<void> UploadLightShapes(std::uint32_t lights);
+  [[nodiscard]] backend::Result<void> MakeCurrent() const;
 
   int ordinal_;
   std::string name_;
@@ -71,6 +90,9 @@ class ModuleDevice {
   backend::IdTable<backend::GpuLight, device::LightId> lights_{"light"};
   backend::IdTable<backend::GpuCamera, device::CameraId> cameras_{"camera"};
   backend::AccelStructure ias_;
+  // The shape of each light, by light id: zeros for a light without one.
+  backend::DeviceBuffer light_shapes_;
+  backend::Renderer renderer_;
 };
 
 }  // namespace umbra::gpu

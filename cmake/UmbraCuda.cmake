@@ -19,13 +19,16 @@
 # stays clang + libc++ + lld, and calls the CUDA runtime API through
 # cudart_static (CUDA::cudart_static).
 #
-#   umbra_add_optix_ir(<target> SOURCES <file.cu>... FUNCTION <name>
-#                      NAMESPACE <namespace>)
+#   umbra_add_optix_programs(<target> SOURCES <file.cu>... FUNCTION <name>
+#                            NAMESPACE <namespace>)
 #
-# Compiles OptiX programs to OptiX-IR and adds to <target> a generated source
-# that defines `std::span<const char> <namespace>::<name>()`, returning
-# the IR of the programs, linked into one module per source; with several
-# sources, only the first is returned. Debug builds compile with -G (source
+# Compiles OptiX programs to PTX and adds to <target> a generated source that
+# defines `std::span<const char> <namespace>::<name>()`, returning the PTX of
+# the programs, one module per source; with several sources, only the first
+# is returned. The driver's OptiX compiles the PTX when the module is
+# created: an R615 driver reads the PTX of nvcc 13.5, but not its OptiX-IR.
+# nvcc checks the PTX it writes with ptxas, which knows nothing of OptiX's
+# intrinsics, so that check is skipped. Debug builds compile with -G (source
 # level debugging in Nsight; the module must then be created with
 # OPTIX_COMPILE_DEBUG_LEVEL_FULL), the others with -lineinfo. Code that
 # creates OptiX modules sees UMBRA_GPU_DEVICE_DEBUG=1 in Debug builds.
@@ -81,16 +84,16 @@ endif()
 
 set(UMBRA_EMBED_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/GenerateEmbeddedData.cmake")
 
-function(umbra_add_optix_ir target)
+function(umbra_add_optix_programs target)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "FUNCTION;NAMESPACE" "SOURCES")
-  set(programs ${target}_${arg_FUNCTION}_optixir)
+  set(programs ${target}_${arg_FUNCTION}_ptx)
   add_library(${programs} OBJECT ${arg_SOURCES})
-  set_target_properties(${programs} PROPERTIES CUDA_OPTIX_COMPILATION ON)
+  set_target_properties(${programs} PROPERTIES CUDA_PTX_COMPILATION ON)
   target_link_libraries(${programs} PRIVATE umbra::optix)
   target_include_directories(${programs} PRIVATE
                              "${PROJECT_SOURCE_DIR}/include")
   target_compile_options(${programs} PRIVATE
-    $<IF:$<CONFIG:Debug>,-G,-lineinfo>)
+    -skip-ptx-semantics-check $<IF:$<CONFIG:Debug>,-G,-lineinfo>)
 
   set(output "${CMAKE_CURRENT_BINARY_DIR}/${arg_FUNCTION}.cc")
   add_custom_command(
@@ -102,7 +105,7 @@ function(umbra_add_optix_ir target)
             "-DNAMESPACE=${arg_NAMESPACE}"
             -P "${UMBRA_EMBED_SCRIPT}"
     DEPENDS "$<TARGET_OBJECTS:${programs}>" "${UMBRA_EMBED_SCRIPT}"
-    COMMENT "Embedding the OptiX-IR of ${arg_FUNCTION}"
+    COMMENT "Embedding the PTX of ${arg_FUNCTION}"
     VERBATIM)
   target_sources(${target} PRIVATE "${output}")
   target_compile_definitions(${target} PRIVATE

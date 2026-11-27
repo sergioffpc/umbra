@@ -79,9 +79,11 @@ class UMBRA_OWNER Module {
   [[nodiscard]] std::expected<GpuDevices, core::Error> DescribeDevices() const;
 
   // A device on the usable GPU of CUDA ordinal `ordinal`, named
-  // gpu<ordinal>, which commits into the GPU's memory through the module:
-  // the module must stay loaded while it lives. Fails with kUnavailable, and
-  // the cause, when the GPU cannot be used.
+  // gpu<ordinal>, which commits into the GPU's memory and renders through
+  // the module: the module must stay loaded while it lives. It renders a
+  // product in batches of kTilesPerLaunch tiles, one launch each, and
+  // copies each batch into the render buffers once it is rendered. Fails with
+  // kUnavailable, and the cause, when the GPU cannot be used.
   [[nodiscard]] std::expected<std::unique_ptr<device::Device>, core::Error>
   CreateDevice(int ordinal) const UMBRA_LIFETIMEBOUND;
 

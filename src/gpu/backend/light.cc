@@ -22,6 +22,7 @@
 #include "support.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::gpu::backend {
@@ -194,6 +195,7 @@ Result<GpuLight> UploadLight(const device::Light& light, const Gpu& gpu) {
   GpuLight held;
   held.id = light.id;
   held.path = light.path;
+  held.shape = device::ShapeOf(light.shape);
   return Replace(held.record, std::span<const LightRecord>(records), gpu.stream)
       .and_then([&] { return UploadPlacements(light.instances, gpu.stream); })
       .and_then([&](HeldPlacements placements) {
@@ -240,12 +242,23 @@ Result<GpuCamera> UploadCamera(const device::Camera& camera,
       },
   };
   GpuCamera held;
+  held.parameters = camera;
+  held.parameters.path = {};
+  held.parameters.camera_to_world = {};
+  held.camera_to_world.assign(camera.camera_to_world.begin(),
+                              camera.camera_to_world.end());
   return Replace(held.record, std::span<const CameraRecord>(records), stream)
       .and_then([&] { return UploadPlacements(placement, stream); })
       .transform([&](HeldPlacements placements) {
         held.placements = std::move(placements);
         return std::move(held);
       });
+}
+
+device::Camera ViewOf(const GpuCamera& held) {
+  device::Camera camera = held.parameters;
+  camera.camera_to_world = held.camera_to_world;
+  return camera;
 }
 
 }  // namespace umbra::gpu::backend

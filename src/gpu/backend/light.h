@@ -13,7 +13,9 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "accel.h"
 #include "buffer.h"
@@ -21,6 +23,7 @@
 #include "instances.h"
 #include "support.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -63,6 +66,8 @@ struct GpuLight {
   // A float per instance, in the order of its placements, which scales its
   // emission.
   DeviceBuffer tilt_factors;
+  // Its shape, when rays meet it, which its GAS bounds.
+  std::optional<device::LightShape> shape;
   AccelStructure gas;
   InstanceRecords instances;
 };
@@ -93,11 +98,19 @@ struct CameraRecord {
   float focus_distance = 0.0F;
 };
 
-// A camera in a GPU's memory: its parameters and its camera-to-world keys.
+// A camera in a GPU's memory: its parameters and its camera-to-world keys,
+// and the host's copy of them, which the camera model of each render
+// product is made from.
 struct GpuCamera {
   DeviceBuffer record;
   HeldPlacements placements;
+  // The camera, without its path, its camera_to_world empty.
+  device::Camera parameters;
+  std::vector<device::Matrix> camera_to_world;
 };
+
+// The camera `held` holds, as the host made it.
+[[nodiscard]] device::Camera ViewOf(const GpuCamera& held UMBRA_LIFETIMEBOUND);
 
 // Uploads `camera`.
 [[nodiscard]] Result<GpuCamera> UploadCamera(const device::Camera& camera,
