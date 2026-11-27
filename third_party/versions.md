@@ -80,6 +80,11 @@ the Dockerfile pins, and, for a package it does not slice yet, ours in
 | FreeType | OpenImageIO (text rendering) | `libfreetype-dev`, `libfreetype6` | `FTL OR GPL-2.0-or-later` |
 | flex | OSL (the lexers of oslc and the .oso reader), build only | `flex` | `BSD-3-Clause` |
 | GNU Bison | OSL (their parsers), build only | `bison` | `GPL-3.0-or-later WITH Bison-exception-2.2` |
+| X11 client libraries | tev (X11 window, clipboard), image only | `libx11-6`, `libx11-xcb1`, `libxcb1`, `libxrandr2`, `libxinerama1`, `libxcursor1`, `libxi6`, `libxext6`, `libxrender1` | `MIT` |
+| xkbcommon | tev (keyboard), image only | `libxkbcommon0` | `MIT` |
+| Wayland | tev (Wayland window), image only | `libwayland-client0`, `libwayland-cursor0`, `libwayland-egl1` | `MIT` |
+| libglvnd | tev (OpenGL), image only | `libgl1`, `libegl1` | `MIT` |
+| Mesa | tev (OpenGL without the NVIDIA driver's), image only | `libgl1-mesa-dri`, `libglx-mesa0`, `libegl-mesa0` | `MIT` |
 
 ## Open-source build-time downloads
 
@@ -110,3 +115,15 @@ inside an application under the CUDA EULA (Attachment A). The shared
 | CCCL | 13.3.5.0.6 | NVIDIA CUDA redist archives | CCCL EULA |
 | cuRAND headers (no libraries) | 10.4.5.25 (CUDA 13.5.0) | NVIDIA CUDA redist archives | CUDA Toolkit EULA |
 | OptiX headers | 9.1.0 | `NVIDIA/optix-dev` release archive | NVIDIA DesignWorks SDK license (BSD-3-Clause for some headers) |
+
+## Prebuilt tools
+
+Not submodules, and so not on the license allow-list: programs of the deps
+image that umbra neither links nor loads nor runs, taken prebuilt from their
+releases by `docker/deps.Dockerfile`, which pins each by version and SHA-256
+(`docs/adr/0018-prebuilt-tools-of-the-deps-image.md`). No release image
+carries them.
+
+| Name | Version | Source | License |
+|---|---|---|---|
+| tev | 2.14.0 | `Tom94/tev` release AppImage, unpacked into `/opt/tev`, with the libraries it bundles | `GPL-3.0-only`, with its source at the `v2.14.0` tag of `Tom94/tev` |
