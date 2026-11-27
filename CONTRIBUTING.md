@@ -373,9 +373,10 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   `src/delegate/` and `include/umbra/delegate/`), may enable RTTI or
   exceptions or include the headers of libraries that need them. They
   expose only umbra types, except the OpenUSD bridge's `stage.h`, which
-  hands the render delegate the stage it opens, and the Embree bridge's
-  headers, which hand the CPU device Embree's handles, and they convert
-  exceptions to `std::expected`.
+  hands the render delegate the stage it opens, the Embree bridge's
+  headers, which hand the CPU device Embree's handles, and the CUDA and
+  OptiX bridges' headers, which take and hand the GPU module the types of
+  CUDA and OptiX, and they convert exceptions to `std::expected`.
 - A bridge is a thin layer over its dependency. It holds only RAII owners
   of the dependency's handles, the translation of its errors, exceptions and
   callbacks into `std::expected` and the log, redeclarations of the functions

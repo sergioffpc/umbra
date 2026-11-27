@@ -37,7 +37,7 @@ SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 WORKDIR /src
 RUN --mount=type=bind,target=/src,rw \
   cmake --preset release \
-  && cmake --build --preset release --target umbra umbra_gpu_backend \
+  && cmake --build --preset release --target umbra umbra_device_gpu_backend \
   && cmake --install build/release --prefix /out
 
 # The Ubuntu libraries of the tree and their copyright files, cut by Chisel

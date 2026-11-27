@@ -8,7 +8,8 @@ every device views of them at each commit.
 
 The devices implement its interface in modules of their own, which depend
 on it and never the reverse: the CPU device is `umbra::device::cpu`
-(`src/device/cpu/`).
+(`src/device/cpu/`), and the GPU device `umbra::device::gpu`
+(`src/device/gpu/`).
 
 Public headers (`include/umbra/device/`):
 

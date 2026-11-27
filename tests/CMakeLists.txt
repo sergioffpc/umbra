@@ -6,6 +6,3 @@
 add_subdirectory(core)
 add_subdirectory(delegate)
 add_subdirectory(device)
-if(UMBRA_GPU_ENABLED)
-  add_subdirectory(gpu)
-endif()

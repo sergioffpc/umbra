@@ -22,7 +22,7 @@
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
-#include "umbra/gpu/module.h"
+#include "umbra/device/gpu/module.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -32,7 +32,7 @@ namespace umbra::devices {
 struct Hardware {
   std::vector<core::CpuNode> cpus;
   // The GPUs, or why there are none (no module, no driver).
-  std::expected<gpu::GpuDevices, core::Error> gpus;
+  std::expected<device::gpu::GpuDevices, core::Error> gpus;
   // The CPU's widest vector ISA ("AVX2").
   std::string_view cpu_isa;
   // The ISA Embree chose ("AVX2").
@@ -85,7 +85,7 @@ struct Device {
 // The devices of a render, and the GPU module the GPU devices are made
 // through, which outlives them.
 struct CreatedDevices {
-  std::optional<gpu::Module> module;
+  std::optional<device::gpu::Module> module;
   std::vector<std::unique_ptr<device::Device>> devices;
 };
 

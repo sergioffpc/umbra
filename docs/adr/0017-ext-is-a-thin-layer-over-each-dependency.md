@@ -16,10 +16,19 @@ in umbra's log, and no allocation or lock on the hot path. It holds only:
 
 - RAII owners of the dependency's handles;
 - translation of the dependency's errors, exceptions and callbacks into
-  `core::Error`, `std::expected` and umbra's log;
+  `core::Error` (messages, for the bridges linked into the GPU module),
+  `std::expected` and umbra's log;
 - redeclarations, with their effects (`[[clang::nonblocking]]`), of the
   dependency's functions that the hot path calls;
 - conversions between the dependency's types and umbra's plain types.
+
+The CUDA and OptiX bridges are linked into the GPU module, a shared
+library that links no umbra module. Their errors are messages, as the
+module's are, and they log through the function the module hands them.
+The CUDA bridge is a layer over the CUDA runtime API, linked statically,
+which the GPU's host code has always called: the runtime loads the
+driver, and moving to the driver API would change behaviour for nothing
+the bridge needs.
 
 A bridge decides nothing about how umbra renders. It has no algorithm, no
 policy and no choice of device. Code that decides lives in the module that

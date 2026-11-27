@@ -16,8 +16,9 @@
 # LLVM-only toolchain: nvcc compiles it, for sm_120 only, with clang and libc++
 # as its host compiler. nvcc 13.5 supports clang up to 22, hence
 # -allow-unsupported-compiler for clang 23. Host code, the module's included,
-# stays clang + libc++ + lld, and calls the CUDA runtime API through
-# cudart_static (CUDA::cudart_static).
+# stays clang + libc++ + lld, and calls the CUDA runtime API, linked
+# statically (CUDA::cudart_static), and OptiX through their bridges,
+# umbra::ext::cuda and umbra::ext::optix.
 #
 #   umbra_add_optix_programs(<target> SOURCES <file.cu>... FUNCTION <name>
 #                            NAMESPACE <namespace>)

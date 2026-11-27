@@ -21,13 +21,17 @@
 # default visibility in Release: only the render delegate, which derives from
 # Hydra's classes (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
 #
-#   umbra_add_ext_module(<dependency> SOURCES <file>... [DEPENDS <module>...]
+#   umbra_add_ext_module(<dependency> [LOADABLE] SOURCES <file>...
+#                        [DEPENDS <module>...] [HEADERS <module>...]
 #                        [LINK <target>...])
 #
 # Adds the bridge module umbra_ext_<dependency> (alias umbra::ext::<dependency>)
 # from src/ext/<dependency>/, with headers in include/umbra/ext/<dependency>/.
 # It is built with exceptions and RTTI, and with default visibility in
-# Release; see src/ext/README.md.
+# Release; see src/ext/README.md. LOADABLE builds a bridge that only a
+# loadable module links: it is position-independent, and sees the public
+# headers of the modules in HEADERS but links none of them, as the loadable
+# module does.
 #
 #   umbra_add_loadable_module(<target> SOURCES <file>... [HEADERS <module>...]
 #                             [LINK <target>...])
@@ -35,9 +39,9 @@
 # Adds a shared library that umbra loads at run time with dlopen (a CMake
 # MODULE library, lib<target>.so unless OUTPUT_NAME is set). It sees the public
 # headers of the modules in HEADERS but links none of them, since they are not
-# position-independent; LINK names other (third-party) targets. Only symbols
-# marked [[gnu::visibility("default")]] are exported, and the symbols of the
-# static libraries it links stay hidden.
+# position-independent; LINK names other targets: third-party ones, and the
+# LOADABLE bridges. Only symbols marked [[gnu::visibility("default")]] are
+# exported, and the symbols of the static libraries it links stay hidden.
 #
 #   umbra_add_executable(<name> SOURCES <file>... [DEPENDS <module>...])
 #
@@ -122,24 +126,41 @@ function(umbra_add_module module)
   endif()
 endfunction()
 
+# Lets `target` see the public headers of `scope` the modules after it,
+# without linking them.
+function(umbra_see_headers target scope)
+  foreach(module IN LISTS ARGN)
+    string(REPLACE "/" "_" name "${module}")
+    target_include_directories(${target} ${scope}
+                               "${UMBRA_MODULE_INCLUDE_ROOT}/umbra_${name}")
+  endforeach()
+endfunction()
+
 function(umbra_add_ext_module dependency)
   cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH parent)
   if(NOT parent STREQUAL "${PROJECT_SOURCE_DIR}/src/ext")
     message(FATAL_ERROR "bridge modules live in src/ext/<dependency>")
   endif()
+  cmake_parse_arguments(PARSE_ARGV 1 arg "LOADABLE" ""
+                        "SOURCES;DEPENDS;HEADERS;LINK")
+  if(arg_HEADERS AND NOT arg_LOADABLE)
+    message(FATAL_ERROR "only a LOADABLE bridge sees HEADERS: link DEPENDS")
+  endif()
   set(target umbra_ext_${dependency})
   umbra_define_module(${target} umbra::ext::${dependency} ext/${dependency}
-                      ${ARGN})
+                      SOURCES ${arg_SOURCES} DEPENDS ${arg_DEPENDS}
+                      LINK ${arg_LINK})
   umbra_enable_exceptions(${target})
+  if(arg_LOADABLE)
+    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    umbra_see_headers(${target} PUBLIC ${arg_HEADERS})
+  endif()
 endfunction()
 
 function(umbra_add_loadable_module target)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;HEADERS;LINK")
   add_library(${target} MODULE ${arg_SOURCES})
-  foreach(module IN LISTS arg_HEADERS)
-    target_include_directories(${target} PRIVATE
-                               "${UMBRA_MODULE_INCLUDE_ROOT}/umbra_${module}")
-  endforeach()
+  umbra_see_headers(${target} PRIVATE ${arg_HEADERS})
   target_link_libraries(${target} PRIVATE TBB::tbb ${arg_LINK})
   set_target_properties(${target} PROPERTIES
     CXX_VISIBILITY_PRESET hidden
