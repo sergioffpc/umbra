@@ -23,7 +23,8 @@
 #
 # Every check is fatal (no recovery), so a test that triggers one fails. The
 # wrapping arithmetic helpers of include/umbra/core/wrapping.h are the only
-# code exempt from the overflow checks.
+# umbra code exempt from the overflow checks; the headers of a dependency
+# that overflows on purpose are exempt through sanitizers/ubsan_ignorelist.txt.
 #
 # Every executable of a sanitizer build links sanitizers/default_options.cc,
 # which sets the default runtime options (halt and abort on the first error,
@@ -50,11 +51,13 @@ set_property(CACHE UMBRA_SANITIZER PROPERTY STRINGS "" address thread realtime)
 if(UMBRA_SANITIZER STREQUAL "address")
   set(UMBRA_SANITIZE_FLAGS
     -fsanitize=address,undefined,integer,implicit-conversion,nullability,float-cast-overflow
-    -fno-sanitize-recover=all)
+    -fno-sanitize-recover=all
+    "-fsanitize-ignorelist=${PROJECT_SOURCE_DIR}/sanitizers/ubsan_ignorelist.txt")
 elseif(UMBRA_SANITIZER STREQUAL "thread")
   set(UMBRA_SANITIZE_FLAGS
     -fsanitize=thread,integer,implicit-conversion,nullability,float-cast-overflow
-    -fno-sanitize-recover=all)
+    -fno-sanitize-recover=all
+    "-fsanitize-ignorelist=${PROJECT_SOURCE_DIR}/sanitizers/ubsan_ignorelist.txt")
   set(umbra_tsan_prefixes "")
   # The environment variable separates its prefixes with ':'.
   string(REPLACE ":" ";" umbra_env_prefixes "$ENV{CMAKE_PREFIX_PATH}")

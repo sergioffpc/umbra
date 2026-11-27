@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+#
+# UndefinedBehaviorSanitizer ignorelist, passed with -fsanitize-ignorelist to
+# every target of the asan and tsan presets (see
+# cmake/UmbraSanitizers.cmake).
+#
+# Those presets also enable the integer checks that plain -fsanitize=undefined
+# leaves out, which report arithmetic the language defines, such as unsigned
+# overflow. umbra's own code overflows on purpose only through the wrapping
+# helpers of include/umbra/core/wrapping.h. A header-only dependency compiled
+# into umbra's code is not umbra's to rewrite: when one is proven to overflow
+# or convert on purpose, exempt its headers here, never a pattern matching
+# umbra's code.
+#
+# Keep this file minimal. Every entry is preceded by a comment that names the
+# library, the report it causes and why that report is not a bug:
+#
+#   # <library>: <report and why it is intended>.
+#   [<check>]
+#   src:*/<library include directory>/*
+
+# OpenQMC: its PCG generator and hashes, which fill the sampler cache and
+# draw the samples, multiply and shift 32-bit unsigned integers modulo 2^32
+# by design, as umbra's WrappingMul does.
+[unsigned-integer-overflow]
+src:*/oqmc/*
+[unsigned-shift-base]
+src:*/oqmc/*
+[implicit-conversion]
+src:*/oqmc/*
