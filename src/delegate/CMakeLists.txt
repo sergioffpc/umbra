@@ -26,6 +26,7 @@ umbra_add_module(
   delegate
   EXCEPTIONS
   SOURCES
+  camera_prim.cc
   commit.cc
   denoiser.cc
   dicing.cc
@@ -37,12 +38,16 @@ umbra_add_module(
   light.cc
   material.cc
   mesh.cc
+  mesh_prim.cc
   motion.cc
   motion_samples.cc
   outputs.cc
   render_pass.cc
+  render_settings_prim.cc
+  render_task.cc
   session.cc
   subdivision.cc
+  unsupported_prim.cc
   views.cc
   ${umbra_pxr_ies_sources}
   DEPENDS

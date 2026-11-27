@@ -8,14 +8,20 @@
 #ifndef UMBRA_DELEGATE_SYNC_COUNTER_H_
 #define UMBRA_DELEGATE_SYNC_COUNTER_H_
 
+#include <pxr/pxr.h>
+#include <pxr/usd/sdf/path.h>
+
 #include <cstdint>
 
+#include "umbra/core/log.h"
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::delegate::internal {
+
+namespace pxr = PXR_NS;
 
 // Counts syncs into the phase it is given, from any thread; counts nothing
 // before it is given one.
@@ -40,6 +46,17 @@ class SyncCounter {
  private:
   core::ProgressPhase* UMBRA_NULLABLE phase_ = nullptr;
 };
+
+// Counts the sync of the prim at `prim_id` into `counter`, for a prim that is
+// not a fallback, which has none.
+inline void CountSync(SyncCounter* UMBRA_NULLABLE counter,
+                      const pxr::SdfPath& prim_id) {
+  if (counter == nullptr) {
+    return;
+  }
+  counter->Add(1);
+  UMBRA_LOG_TRACE(kUsd, "synced {}", prim_id.GetString());
+}
 
 }  // namespace umbra::delegate::internal
 

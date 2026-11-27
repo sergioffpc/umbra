@@ -11,7 +11,10 @@
 #include <limits>
 #include <ranges>
 #include <span>
+#include <vector>
 
+#include "host_copy.h"
+#include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::delegate::internal::subdivision {
@@ -181,3 +184,62 @@ Viewpoint ClosestViewpoint(
 }
 
 }  // namespace umbra::delegate::internal::subdivision
+
+namespace umbra::delegate::internal {
+namespace {
+
+// The pixels per unit of length of the aperture of `camera` on `image`:
+// the larger of its width's and its height's.
+double PixelsPerAperture(const host::Camera& camera,
+                         const device::Image& image) {
+  const device::ConformedAperture conformed =
+      device::ConformAperture(camera.aperture, image.resolution,
+                              static_cast<double>(image.pixel_aspect_ratio),
+                              image.aspect_ratio_conform_policy);
+  double pixels = 0.0;
+  for (std::size_t axis = 0; axis < 2; ++axis) {
+    const double aperture = conformed.aperture.at(axis);
+    if (aperture > 0.0) {
+      pixels = std::max(
+          pixels, static_cast<double>(image.resolution.at(axis)) / aperture);
+    }
+  }
+  return pixels;
+}
+
+// How `images` scale a length seen through `camera`.
+subdivision::ImageScale ImageScaleOf(const host::Camera& camera,
+                                     std::span<const device::Image> images) {
+  double pixels = 0.0;
+  for (const device::Image& image : images) {
+    pixels = std::max(pixels, PixelsPerAperture(camera, image));
+  }
+  // A perspective camera's aperture spans its focal length per radian.
+  const bool perspective = camera.projection == host::Projection::kPerspective;
+  return {
+      .projection = camera.projection,
+      .pixels_per_unit = perspective ? pixels * camera.focal_length : pixels,
+      .near = camera.clipping_range.at(0),
+  };
+}
+
+}  // namespace
+
+DicingView DicingViewOf(const host::Camera& camera,
+                        std::span<const device::Image> images, double rate) {
+  DicingView view{
+      .scale = ImageScaleOf(camera, images),
+      .eyes = {},
+      .rate = rate,
+  };
+  for (const host::Matrix& camera_to_world : camera.camera_to_world) {
+    view.eyes.push_back({
+        camera_to_world.at(12),
+        camera_to_world.at(13),
+        camera_to_world.at(14),
+    });
+  }
+  return view;
+}
+
+}  // namespace umbra::delegate::internal
