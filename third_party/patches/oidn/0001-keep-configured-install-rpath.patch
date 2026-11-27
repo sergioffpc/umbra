@@ -1,0 +1,21 @@
+Keep a CMAKE_INSTALL_RPATH given on the command line.
+
+Upstream replaces it with the absolute path of the install prefix's lib/
+(or $ORIGIN/../lib in zip mode). The deps layer installs every library
+with RUNPATH $ORIGIN.
+
+diff --git a/cmake/oidn_package.cmake b/cmake/oidn_package.cmake
+index 108a61b..c9842f1 100644
+--- a/cmake/oidn_package.cmake
++++ b/cmake/oidn_package.cmake
+@@ -21,7 +21,9 @@ endif()
+ ## Set rpath
+ ## -----------------------------------------------------------------------------
+ 
+-if(OIDN_ZIP_MODE)
++if(DEFINED CACHE{CMAKE_INSTALL_RPATH})
++  # Keep the install rpath given on the command line.
++elseif(OIDN_ZIP_MODE)
+   set(CMAKE_SKIP_INSTALL_RPATH OFF)
+   if(APPLE)
+     set(CMAKE_MACOSX_RPATH ON)

@@ -1,0 +1,44 @@
+Hand the CUDA device's build the compilers and flags of the parent build.
+
+The CUDA device is an external project of its own, which gets only the C++
+compiler and a few settings: without the flags it would build against
+libstdc++ for the default CPU, with nvcc's default host compiler, and
+install the absolute RPATH. The deps layer passes the C++ and CUDA flags
+(libc++, x86-64-v3), clang as nvcc's host compiler, the install RPATH, the
+compiler launchers and the compile database. The CUDA device also keeps a
+CUDA compiler given that way instead of taking the toolkit's nvcc.
+
+diff --git a/devices/CMakeLists.txt b/devices/CMakeLists.txt
+index a0ea112..0d06698 100644
+--- a/devices/CMakeLists.txt
++++ b/devices/CMakeLists.txt
+@@ -61,6 +61,14 @@ if(OIDN_DEVICE_CUDA)
+     -DOIDN_SANITIZER:STRING=${OIDN_SANITIZER}
+     -DOIDN_DEVICE_CUDA_API:STRING=${OIDN_DEVICE_CUDA_API}
+   )
++  foreach(_var IN ITEMS CMAKE_CXX_FLAGS CMAKE_CUDA_FLAGS CMAKE_CUDA_COMPILER
++                        CMAKE_CUDA_HOST_COMPILER CMAKE_SHARED_LINKER_FLAGS
++                        CMAKE_INSTALL_RPATH CMAKE_CXX_COMPILER_LAUNCHER
++                        CMAKE_CUDA_COMPILER_LAUNCHER CMAKE_EXPORT_COMPILE_COMMANDS)
++    if(DEFINED ${_var})
++      list(APPEND _oidn_cuda_cache_args "-D${_var}:STRING=${${_var}}")
++    endif()
++  endforeach()
+   if(DEFINED CUDAToolkit_ROOT)
+     list(APPEND _oidn_cuda_cache_args
+       -DCUDAToolkit_ROOT:PATH=${CUDAToolkit_ROOT}
+diff --git a/devices/cuda/CMakeLists.txt b/devices/cuda/CMakeLists.txt
+index d972ec6..a2910ec 100644
+--- a/devices/cuda/CMakeLists.txt
++++ b/devices/cuda/CMakeLists.txt
+@@ -21,7 +21,9 @@ project(OpenImageDenoise_device_cuda
+ 
+ # CUDA
+ find_package(CUDAToolkit 12.8 REQUIRED)
+-set(CMAKE_CUDA_COMPILER ${CUDAToolkit_NVCC_EXECUTABLE})
++if(NOT CMAKE_CUDA_COMPILER)
++  set(CMAKE_CUDA_COMPILER ${CUDAToolkit_NVCC_EXECUTABLE})
++endif()
+ enable_language(CUDA)
+ 
+ # Set the CMake module path

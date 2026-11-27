@@ -1,0 +1,28 @@
+Build the CUDA device's kernels for sm_120 only.
+
+umbra runs on sm_120 or newer, and builds every CUDA module for sm_120
+alone. The CUTLASS kernels for sm_75 stay as they are: they are only
+selected on sm_75 GPUs.
+
+diff --git a/devices/cuda/CMakeLists.txt b/devices/cuda/CMakeLists.txt
+index 77b1c2b..232e5f9 100644
+--- a/devices/cuda/CMakeLists.txt
++++ b/devices/cuda/CMakeLists.txt
+@@ -59,7 +59,7 @@ function(oidn_set_cuda_sm_flags output_var)
+   set(${output_var} "${${output_var}}" PARENT_SCOPE)
+ endfunction()
+ 
+-oidn_set_cuda_sm_flags(OIDN_CUDA_SM_FLAGS 75 80 90 100 120)
++oidn_set_cuda_sm_flags(OIDN_CUDA_SM_FLAGS 120)
+ set_source_files_properties(
+   cuda_conv.cu
+   cuda_device.cu
+@@ -73,7 +73,7 @@ set_source_files_properties(
+   PROPERTIES COMPILE_FLAGS ${OIDN_CUDA_SM75_FLAGS}
+ )
+ 
+-oidn_set_cuda_sm_flags(OIDN_CUDA_SM80_FLAGS 80 90 100 120)
++oidn_set_cuda_sm_flags(OIDN_CUDA_SM80_FLAGS 120)
+ set_source_files_properties(
+   cutlass_conv_sm80.cu
+   PROPERTIES COMPILE_FLAGS ${OIDN_CUDA_SM80_FLAGS}

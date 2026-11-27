@@ -50,6 +50,7 @@
     "third_party/openvdb/**": true,
     "third_party/OpenShadingLanguage/**": true,
     "third_party/OpenUSD/**": true,
+    "third_party/oidn/**": true,
     "/opt/umbra/src/**": true
   },
   "files.watcherExclude": {
@@ -76,7 +77,8 @@
     "third_party/OpenImageIO/**": true,
     "third_party/openvdb/**": true,
     "third_party/OpenShadingLanguage/**": true,
-    "third_party/OpenUSD/**": true
+    "third_party/OpenUSD/**": true,
+    "third_party/oidn/**": true
   },
   "search.exclude": {
     "**/build": true,
@@ -102,7 +104,8 @@
     "third_party/OpenImageIO": true,
     "third_party/openvdb": true,
     "third_party/OpenShadingLanguage": true,
-    "third_party/OpenUSD": true
+    "third_party/OpenUSD": true,
+    "third_party/oidn": true
   },
   // llvm-project alone is a 2.6 GB checkout.
   "git.detectSubmodules": false,

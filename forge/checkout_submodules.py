@@ -3,7 +3,9 @@
 """Checks out the submodules that a layer image is built from.
 
 Only the submodules among the layer's inputs (see ``layer_image``) are
-checked out, at depth 1. With --touch, every file of each checked-out
+checked out, at depth 1, with the nested submodules a layer needs
+(``NESTED``) and the Git LFS files of those that keep them there (``LFS``),
+which need git-lfs. With --touch, every file of each checked-out
 submodule then gets the time of the submodule's commit as its modification
 time, so that a build tree restored from a cache is newer than the sources
 and ninja resumes instead of rebuilding everything. Needs git.
@@ -20,17 +22,38 @@ from checks import git
 from forge import github
 from forge import layer_image
 
+# The nested submodules a build needs, by the submodule that holds them. Open
+# Image Denoise's external/composable_kernel is left out: only its HIP device
+# uses it.
+NESTED = {
+    "third_party/oidn": ("weights", "external/cutlass"),
+}
+
+# The submodules whose files are in Git LFS.
+LFS = ("third_party/oidn/weights",)
+
+_UPDATE = ("git", "submodule", "update", "--init", "--depth", "1")
+
 
 def checkout(paths: Sequence[str]) -> None:
-    """Checks out the given submodules at depth 1.
+    """Checks out the given submodules at depth 1, with what they nest.
 
     Raises:
-        StepError: git fails.
+        StepError: git or git-lfs fails.
     """
-    command = ["git", "submodule", "update", "--init", "--depth", "1"]
-    if git.call([*command, "--", *paths]).returncode:
+    if git.call([*_UPDATE, "--", *paths]).returncode:
         shown = " ".join(paths)
         raise github.StepError(f"cannot check out {shown}")
+    for path in paths:
+        nested = NESTED.get(path, ())
+        command = ["git", "-C", path, *_UPDATE[1:], "--", *nested]
+        if nested and git.call(command).returncode:
+            raise github.StepError(f"cannot check out the submodules of {path}")
+    for path in LFS:
+        if pathlib.Path(path).parent.as_posix() not in paths:
+            continue
+        if git.call(["git", "-C", path, "lfs", "pull"]).returncode:
+            raise github.StepError(f"cannot pull the Git LFS files of {path}")
 
 
 def checked_out() -> list[pathlib.Path]:

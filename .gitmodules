@@ -86,3 +86,7 @@
 	path = third_party/ptex
 	url = https://github.com/wdas/ptex.git
 	shallow = true
+[submodule "third_party/oidn"]
+	path = third_party/oidn
+	url = https://github.com/RenderKit/oidn.git
+	shallow = true
