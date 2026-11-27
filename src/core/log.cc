@@ -199,7 +199,7 @@ std::expected<int, Error> OpenDestination(std::string_view destination) {
 
 // The prefix of every line of a message: none for info, which is for the
 // user; "error: " for fatal errors, errors and warnings; "debug: gpu: "; and
-// for a trace line "12:34:56.789012 src/gpu/module.cc:161   trace: gpu: ".
+// for a trace line "12:34:56.789012 src/device/gpu/module.cc:161 trace: gpu: ".
 std::string LinePrefix(LogLevel level, LogComponent component,
                        std::string_view time, LogOrigin origin) {
   if (level == LogLevel::kInfo) {

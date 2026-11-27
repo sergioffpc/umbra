@@ -30,9 +30,9 @@ set(UMBRA_INSTALL_RUNTIME_SCRIPT
 
 set(umbra_installed_targets umbra)
 set(umbra_gpu_module "")
-if(TARGET umbra_gpu_backend)
-  list(APPEND umbra_installed_targets umbra_gpu_backend)
-  set(umbra_gpu_module "$<TARGET_FILE:umbra_gpu_backend>")
+if(TARGET umbra_device_gpu_backend)
+  list(APPEND umbra_installed_targets umbra_device_gpu_backend)
+  set(umbra_gpu_module "$<TARGET_FILE:umbra_device_gpu_backend>")
 endif()
 set_target_properties(${umbra_installed_targets} PROPERTIES
                       INSTALL_RPATH "\$ORIGIN/../lib")

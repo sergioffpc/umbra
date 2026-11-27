@@ -25,10 +25,10 @@
 #include "umbra/device/cpu/cpu_device.h"
 #include "umbra/device/device.h"
 #include "umbra/device/diagnostic_device.h"
+#include "umbra/device/gpu/module.h"
+#include "umbra/device/gpu/module_abi.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/osl/osl.h"
-#include "umbra/gpu/module.h"
-#include "umbra/gpu/module_abi.h"
 
 namespace umbra::devices {
 namespace {
@@ -39,9 +39,9 @@ using ::umbra::core::CoreGroup;
 using ::umbra::core::CpuNode;
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
-using ::umbra::gpu::GpuDevice;
-using ::umbra::gpu::GpuDevices;
-using ::umbra::gpu::GpuUsability;
+using ::umbra::device::gpu::GpuDevice;
+using ::umbra::device::gpu::GpuDevices;
+using ::umbra::device::gpu::GpuUsability;
 
 // The indent of a device's detail lines, the width of its name column.
 constexpr std::string_view kIndent = "      ";
@@ -276,14 +276,14 @@ Error DeviceError(std::string message) {
 }
 
 // The GPU module `module` holds, loaded into it unless it holds one.
-std::expected<gpu::Module*, Error> LoadOnce(
-    std::optional<gpu::Module>& module UMBRA_LIFETIMEBOUND) {
+std::expected<device::gpu::Module*, Error> LoadOnce(
+    std::optional<device::gpu::Module>& module UMBRA_LIFETIMEBOUND) {
   if (module.has_value()) {
     return &*module;
   }
-  return gpu::DefaultModulePath()
-      .and_then(gpu::Module::Load)
-      .transform([&](gpu::Module loaded) {
+  return device::gpu::DefaultModulePath()
+      .and_then(device::gpu::Module::Load)
+      .transform([&](device::gpu::Module loaded) {
         return &module.emplace(std::move(loaded));
       });
 }
@@ -294,12 +294,12 @@ std::expected<gpu::Module*, Error> LoadOnce(
 // cannot be used.
 std::expected<std::unique_ptr<device::Device>, Error> Create(
     const Device& device,
-    std::optional<gpu::Module>& module UMBRA_LIFETIMEBOUND) {
+    std::optional<device::gpu::Module>& module UMBRA_LIFETIMEBOUND) {
   if (device.kind == DeviceKind::kCpu) {
     return std::make_unique<device::cpu::CpuDevice>(device.index);
   }
   return LoadOnce(module)
-      .and_then([&](gpu::Module* loaded) {
+      .and_then([&](device::gpu::Module* loaded) {
         return loaded->CreateDevice(device.index);
       })
       .transform_error([&](const Error& error) {
@@ -317,7 +317,8 @@ std::expected<Hardware, Error> ReadHardware() {
   }
   return Hardware{
       .cpus = *std::move(cpus),
-      .gpus = gpu::DefaultModulePath().and_then(gpu::DescribeGpus),
+      .gpus =
+          device::gpu::DefaultModulePath().and_then(device::gpu::DescribeGpus),
       .cpu_isa = core::CpuVectorIsa(),
       .embree_isa = ext::embree::NativeIsa(),
       .osl_batch_width = ext::osl::BatchWidth(),

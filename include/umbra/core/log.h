@@ -7,7 +7,7 @@
 //   fatal: cannot open 'scene.usda': No such file or directory
 //   Rendering 1920x1080 on cpu0, gpu0
 //   debug: gpu: device 0: RTX 5090 (sm_120)
-//   12:34:56.789012 src/gpu/module.cc:161   trace: gpu: frame 12: 38.2 ms
+//   12:34:56.789012 src/device/gpu/module.cc:161 trace: gpu: frame 12: 38.2 ms
 //
 // Fatal errors, errors, warnings and info, which is for the user and has no
 // prefix, are shown unless -q hides warnings and info; debug and trace are

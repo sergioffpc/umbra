@@ -26,7 +26,7 @@
 #     profilers (perf) unwind call stacks cheaply and reliably; the cost is
 #     about 1%, and the major Linux distributions build this way too;
 #   - source paths in __FILE__ and std::source_location are relative to the
-#     repository ("src/gpu/module.cc"), as trace lines show them;
+#     repository ("src/device/gpu/module.cc"), as trace lines show them;
 #   - UMBRA_TIME_TRACE writes a -ftime-trace JSON file per translation unit
 #     next to its object file.
 #
