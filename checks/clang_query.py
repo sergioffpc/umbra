@@ -23,7 +23,7 @@ from checks import git
 from checks import nolint
 from checks import report
 
-RULES_DIR = git.REPO_ROOT / "checks" / "queries"
+RULES_DIR = git.PACKAGE_ROOT / "checks" / "queries"
 DEFAULT_BUILD_DIR = git.REPO_ROOT / "build" / "debug"
 MATCH = re.compile(
     r"^(?P<file>.+?):(?P<line>\d+):(?P<column>\d+): "

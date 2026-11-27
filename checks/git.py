@@ -1,12 +1,49 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
-"""Thin helpers to run git and the other tools from the repository root."""
+"""Thin helpers to run git and the other tools from the repository root.
+
+The root is the working tree git runs in, so that a hook run from a git
+worktree checks that worktree, even when ``core.hooksPath`` names the hooks
+of another checkout.
+"""
 
 from collections.abc import Sequence
 import pathlib
 import subprocess
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+# The checkout this package was loaded from: where its own files live.
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def checked_root() -> pathlib.Path:
+    """The working tree the checks run on.
+
+    It is the top level of the working tree git runs in, which for a hook is
+    the worktree being committed, whichever checkout the hook file itself
+    lives in. Outside a checkout of this repository, it is the checkout this
+    package was loaded from.
+
+    Returns:
+        The absolute path of the working tree's top level.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return PACKAGE_ROOT
+    root = pathlib.Path(top).resolve() if top else PACKAGE_ROOT
+    if not (root / "checks" / "git.py").is_file():
+        return PACKAGE_ROOT
+    return root
+
+
+# The working tree the checks and commands run on, whose files they read and
+# whose build tree they use.
+REPO_ROOT = checked_root()
 
 
 def run(*args: str, stdin: str | None = None) -> str:

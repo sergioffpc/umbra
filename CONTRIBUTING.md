@@ -350,6 +350,10 @@ share their validators (in `checks/`) with CI, so local feedback matches CI:
 The hooks use LLVM's own tools (git-clang-format, run-clang-tidy,
 clang-query) rather than reimplementations.
 
+The hooks check the working tree git runs them in, with that tree's
+`build/debug`. A commit from a git worktree is checked against the worktree's
+files, even when `core.hooksPath` names another checkout's `.githooks`.
+
 ## Safety rules
 
 Umbra aims for as many Rust-like guarantees as C++ allows. These rules are
