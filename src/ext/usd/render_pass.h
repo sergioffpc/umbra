@@ -31,6 +31,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
+#include "umbra/ext/usd/usd.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -98,6 +99,8 @@ class RenderBuffer final : public pxr::HdRenderBuffer {
 // SetProduct gave it, on every device at once, into the render buffers bound
 // to the pass state's AOVs, those of AOVs no device renders left at 0, as a
 // phase of the render, "Rendering <file>", whose tiles the devices count.
+// A display, if SetProduct gives one, shows the product from a host thread
+// of its own, as its tiles finish.
 class RenderPass final : public pxr::HdRenderPass {
  public:
   // Renders on `devices`, which outlive it.
@@ -106,10 +109,12 @@ class RenderPass final : public pxr::HdRenderPass {
              std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND);
 
   // The product the next Execute renders, with the frame parameters of the
-  // frame, which give the shutter; both outlive that Execute.
-  void SetProduct(const RenderProduct& product UMBRA_LIFETIME_CAPTURE_BY_THIS,
-                  const device::FrameParameters& frame
-                      UMBRA_LIFETIME_CAPTURE_BY_THIS);
+  // frame, which give the shutter, and the display that shows it, if any;
+  // all outlive that Execute.
+  void SetProduct(
+      const RenderProduct& product UMBRA_LIFETIME_CAPTURE_BY_THIS,
+      const device::FrameParameters& frame UMBRA_LIFETIME_CAPTURE_BY_THIS,
+      Display* UMBRA_NULLABLE display UMBRA_LIFETIME_CAPTURE_BY_THIS);
 
   // What the last Execute gave: fails with the first device's error, in
   // order, naming it, or with kUnavailable when no device took the tiles.
@@ -123,13 +128,16 @@ class RenderPass final : public pxr::HdRenderPass {
   // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
  private:
-  // Renders the product on every device, into `vars`.
+  // Renders the product on every device, into `vars`, and shows `shown`,
+  // every var's buffer, on the display.
   [[nodiscard]] std::expected<void, core::Error> Render(
-      std::span<const device::FilmVar> vars);
+      std::span<const device::FilmVar> vars,
+      std::span<const RenderedVar> shown);
 
   std::span<device::Device* const> devices_;
   const RenderProduct* UMBRA_NULLABLE product_ = nullptr;
   const device::FrameParameters* UMBRA_NULLABLE frame_ = nullptr;
+  Display* UMBRA_NULLABLE display_ = nullptr;
   std::optional<std::expected<void, core::Error>> result_;
 };
 

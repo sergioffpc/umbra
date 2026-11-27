@@ -21,8 +21,11 @@ Public headers (`include/umbra/device/`):
   image, its samples per pixel and the render buffers of the vars it
   renders (color, depth, normal and albedo). `TileQueue` is the counter
   every device takes the product's tiles from, in batches, 64×64 pixels of
-  its data window each, counting each tile it finishes in the product's
-  progress phase (docs/adr/0014-frames-render-in-tiles-from-one-counter.md). `kMaxRefits`, 8, is how many refits in a row
+  its data window each. A device finishes each tile once it has copied it
+  into the render buffers, which marks its pixels final for a display and
+  counts it in the product's progress phase
+  (docs/adr/0014-frames-render-in-tiles-from-one-counter.md,
+  docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md). `kMaxRefits`, 8, is how many refits in a row
   every device makes of a prototype's acceleration structure as its points
   change, before it rebuilds it, since every refit loosens its bounds.
 - `image.h`: the image of a render product: its resolution, its data

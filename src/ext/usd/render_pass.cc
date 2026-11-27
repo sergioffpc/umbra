@@ -15,23 +15,30 @@
 #include <pxr/usd/sdf/path.h>
 
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "umbra/core/error.h"
+#include "umbra/core/floating_point.h"
 #include "umbra/core/progress.h"
+#include "umbra/core/safety.h"
 #include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
+#include "umbra/ext/usd/usd.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -106,6 +113,44 @@ std::expected<void, Error> RenderOnEach(
     }
   }
   return {};
+}
+
+// How often a display looks for the tiles finished since it last looked.
+constexpr std::chrono::milliseconds kDisplayInterval{50};
+
+// Shows on `display` the tiles of `tiles` finished since `shown`, which
+// marks those it showed.
+void ShowFinished(Display& display, const device::TileQueue& tiles,
+                  std::vector<std::uint8_t>& shown) {
+  for (std::uint64_t tile = 0; tile < tiles.count(); ++tile) {
+    std::uint8_t& done = shown.at(static_cast<std::size_t>(tile));
+    if (done == 0 && tiles.IsFinished(tile)) {
+      display.Update(tiles.TileWindow(tile));
+      done = 1;
+    }
+  }
+}
+
+// Shows `product`, rendering into `vars` from `tiles`, on `display` as its
+// tiles finish, until `stop` is requested; then shows the tiles finished
+// last and ends.
+void Feed(const std::stop_token& stop, Display& display,
+          const RenderProduct& product, std::span<const RenderedVar> vars,
+          const device::TileQueue& tiles) {
+  core::ConfigureThreadFloatingPoint();
+  display.Begin(product, vars);
+  std::vector<std::uint8_t> shown(static_cast<std::size_t>(tiles.count()));
+  // An interruptible sleep: it wakes when the interval passes, or at once
+  // when the devices are done.
+  std::mutex mutex;
+  std::condition_variable_any wake;
+  while (!stop.stop_requested()) {
+    ShowFinished(display, tiles, shown);
+    std::unique_lock lock(mutex);
+    wake.wait_for(lock, stop, kDisplayInterval, [] { return false; });
+  }
+  ShowFinished(display, tiles, shown);
+  display.End();
 }
 
 // "cpu0, cpu1".
@@ -200,9 +245,11 @@ RenderPass::RenderPass(pxr::HdRenderIndex* index,
     : pxr::HdRenderPass(index, collection), devices_(devices) {}
 
 void RenderPass::SetProduct(const RenderProduct& product,
-                            const device::FrameParameters& frame) {
+                            const device::FrameParameters& frame,
+                            Display* UMBRA_NULLABLE display) {
   product_ = &product;
   frame_ = &frame;
+  display_ = display;
 }
 
 std::expected<void, Error> RenderPass::TakeResult() {
@@ -213,11 +260,23 @@ std::expected<void, Error> RenderPass::TakeResult() {
 
 void RenderPass::_Execute(const pxr::HdRenderPassStateSharedPtr& state,
                           const pxr::TfTokenVector& /*render_tags*/) {
+  if (product_ == nullptr) {
+    result_ = std::unexpected(
+        Error(ErrorCode::kInternal, "the render pass has no product"));
+    return;
+  }
   std::vector<device::FilmVar> vars;
-  for (const pxr::HdRenderPassAovBinding& binding : state->GetAovBindings()) {
+  std::vector<RenderedVar> shown;
+  // The bindings are those of the product's vars, in its order.
+  for (const auto& [var, binding] :
+       std::views::zip(product_->vars, state->GetAovBindings())) {
     auto* const buffer = dynamic_cast<RenderBuffer*>(binding.renderBuffer);
-    const std::optional<device::VarSource> source = SourceOf(binding.aovName);
-    if (buffer != nullptr && source.has_value()) {
+    if (buffer == nullptr) {
+      continue;
+    }
+    shown.push_back({.var = &var, .pixels = buffer->pixels()});
+    if (const std::optional<device::VarSource> source =
+            SourceOf(binding.aovName)) {
       vars.push_back({
           .source = *source,
           .pixels = buffer->pixels(),
@@ -225,11 +284,11 @@ void RenderPass::_Execute(const pxr::HdRenderPassStateSharedPtr& state,
       });
     }
   }
-  result_ = Render(vars);
+  result_ = Render(vars, shown);
 }
 
 std::expected<void, Error> RenderPass::Render(
-    std::span<const device::FilmVar> vars) {
+    std::span<const device::FilmVar> vars, std::span<const RenderedVar> shown) {
   if (product_ == nullptr || frame_ == nullptr) {
     return std::unexpected(
         Error(ErrorCode::kInternal, "the render pass has no product"));
@@ -241,8 +300,15 @@ std::expected<void, Error> RenderPass::Render(
                             core::ProgressRate::kShown);
   device::TileQueue tiles(product.window, &phase);
   phase.SetTotal(tiles.count());
-  if (auto rendered = RenderOnEach(devices_, frame, tiles);
-      !rendered.has_value()) {
+  // Shows the tiles until the devices are done, then ends.
+  std::optional<std::jthread> feed;
+  if (display_ != nullptr) {
+    feed.emplace(Feed, std::ref(*display_), std::cref(product), shown,
+                 std::cref(tiles));
+  }
+  auto rendered = RenderOnEach(devices_, frame, tiles);
+  feed.reset();
+  if (!rendered.has_value()) {
     return rendered;
   }
   if (tiles.taken() < tiles.count()) {

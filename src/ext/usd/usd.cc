@@ -86,6 +86,8 @@ struct Session::State {
   pxr::HdsiSceneGlobalsSceneIndexRefPtr globals;
   internal::CommitInputs inputs;
   std::span<device::Device* const> devices;
+  // What shows the products while they render, if anything.
+  Display* UMBRA_NULLABLE display = nullptr;
   // What the prims count their syncs into: the phase of the frame syncing.
   internal::SyncCounter counter;
   internal::Ledger ledger;
@@ -105,6 +107,8 @@ struct Session::State {
 Session::Session(std::unique_ptr<State> state) : state_(std::move(state)) {}
 
 Session::~Session() = default;
+
+Display::~Display() = default;
 
 const RenderSettings& Session::settings() const { return state_->settings; }
 
@@ -377,8 +381,8 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
   state.index->InsertSceneIndex(state.chain, pxr::SdfPath::AbsoluteRootPath(),
                                 /*needsPrefixing=*/false);
   phase.SetTotal(state.delegate->PrimCount());
-  state.task = std::make_shared<internal::RenderTask>(*state.delegate,
-                                                      state.inputs.settings);
+  state.task = std::make_shared<internal::RenderTask>(
+      *state.delegate, state.inputs.settings, state.display);
   state.tasks = {state.task};
   return {};
 }
@@ -564,7 +568,7 @@ std::expected<void, Error> Session::RenderFrame(std::optional<double> frame) {
 
 std::expected<std::unique_ptr<Session>, Error> OpenSession(
     std::string_view path, const LoadOptions& options,
-    std::span<device::Device* const> devices) {
+    std::span<device::Device* const> devices, Display* UMBRA_NULLABLE display) {
   auto stage = LoadStage(path);
   if (!stage.has_value()) {
     return std::unexpected(stage.error());
@@ -576,6 +580,7 @@ std::expected<std::unique_ptr<Session>, Error> OpenSession(
   auto state = std::make_unique<Session::State>();
   state->stage = std::move(*stage);
   state->devices = devices;
+  state->display = display;
   state->inputs = {
       .settings = *settings,
       .scene_path = std::string(path),

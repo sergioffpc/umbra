@@ -195,8 +195,6 @@ struct CpuDevice::State {
   // The film: the planes of the render vars of the product rendering, one
   // after another, each laid out as its render buffer.
   std::vector<float> film;
-  // The batches of tiles it took of the product rendering.
-  std::vector<device::TileQueue::Batch> batches;
 };
 
 namespace {
@@ -782,34 +780,22 @@ void LogNode(std::string_view device, std::string_view what,
                       : std::format("unknown ({})", node.error().message()));
 }
 
-// The most batches of `batch_size` tiles a device takes from `tiles`: each
-// but its last is whole.
-std::size_t MostBatches(const device::TileQueue& tiles,
-                        std::uint64_t batch_size) {
-  return static_cast<std::size_t>(tiles.count() / batch_size) + 1;
-}
-
 // Renders the tiles it takes from `tiles`, a batch at a time, on the arena
-// it runs in, into `target`. Gives how many batches it took, in order in
-// `batches`, which holds MostBatches of them.
-std::size_t RenderBatches(const RenderInputs& inputs,
-                          const device::FrameParameters& frame,
-                          device::TileQueue& tiles, const FilmTarget& target,
-                          std::span<device::TileQueue::Batch> batches) {
-  const std::uint64_t batch_size = inputs.batch_size;
+// it runs in, into `target`: it copies each tile into the render buffers of
+// `frame`'s vars as soon as it is rendered, then finishes it.
+void RenderBatches(const RenderInputs& inputs,
+                   const device::FrameParameters& frame,
+                   device::TileQueue& tiles, const FilmTarget& target) {
   const auto render = [&](std::uint64_t tile) {
-    RenderTile(inputs, frame.image.window, tiles.TileWindow(tile),
-               target.planes, target.film);
-    tiles.Finish(1);
+    const device::PixelWindow window = tiles.TileWindow(tile);
+    RenderTile(inputs, frame.image.window, window, target.planes, target.film);
+    CopyTile(frame, window, target.planes, target.film);
+    tiles.Finish(tile);
   };
-  std::size_t taken = 0;
-  for (device::TileQueue::Batch batch = tiles.Take(batch_size);
-       !batch.IsEmpty(); batch = tiles.Take(batch_size)) {
-    // The tiles run out before `batches` does.
-    batches.subspan(taken++, 1).front() = batch;
+  for (device::TileQueue::Batch batch = tiles.Take(inputs.batch_size);
+       !batch.IsEmpty(); batch = tiles.Take(inputs.batch_size)) {
     tbb::parallel_for(batch.first, batch.end, render);
   }
-  return taken;
 }
 
 // Readies `state` to render `frame`, on its arena: its sampler cache, the
@@ -886,17 +872,7 @@ std::expected<void, Error> CpuDevice::Render(
         .samples_per_pixel = std::max(frame.samples_per_pixel, 1U),
         .batch_size = static_cast<std::uint64_t>(state.arena.max_concurrency()),
     };
-    state.batches.resize(MostBatches(tiles, inputs.batch_size));
-    const std::size_t taken =
-        RenderBatches(inputs, frame, tiles,
-                      {.planes = planes, .film = state.film}, state.batches);
-    const auto copy = [&](std::uint64_t tile) {
-      CopyTile(frame, tiles.TileWindow(tile), planes, state.film);
-    };
-    for (const device::TileQueue::Batch& batch :
-         std::span(state.batches).first(taken)) {
-      tbb::parallel_for(batch.first, batch.end, copy);
-    }
+    RenderBatches(inputs, frame, tiles, {.planes = planes, .film = state.film});
   });
   return {};
 }

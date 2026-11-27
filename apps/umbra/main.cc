@@ -42,8 +42,10 @@
 #include <utility>
 #include <vector>
 
+#include "channels.h"
 #include "cli/parser.h"
 #include "devices.h"
+#include "tev.h"
 #include "umbra/core/build_info.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
@@ -94,7 +96,7 @@ constexpr CommandSpec kProgram = {
 
 constexpr std::array<OptionSpec, 1> kHelpOnly = {kHelpOption};
 
-constexpr std::array<OptionSpec, 5> kRenderOptions = {
+constexpr std::array<OptionSpec, 6> kRenderOptions = {
     umbra::cli::ValueOption('\0', "devices", "list", {},
                             "the devices to render on (default: all)"),
     umbra::cli::ValueOption('\0', "settings", "prim", {},
@@ -105,6 +107,9 @@ constexpr std::array<OptionSpec, 5> kRenderOptions = {
                             "(default: the stage's start to end)"),
     umbra::cli::ValueOption('\0', "step", "step", {},
                             "the time codes between two frames (default: 1)"),
+    umbra::cli::ValueOption('\0', "display", "tev[:host[:port]]", {},
+                            "also show the frames in tev as they render "
+                            "(default port: 14158)"),
     kHelpOption,
 };
 
@@ -286,6 +291,8 @@ struct RenderRequest {
   // The frames of --frames, or none for the stage's.
   std::optional<FrameRange> frames;
   double step = 1.0;
+  // The tev of --display, if any.
+  std::optional<umbra::TevAddress> display;
 };
 
 // A time code: an integer or a decimal fraction ("12", "12.5", "-3"),
@@ -405,8 +412,8 @@ Error TooManyFrames(double count) {
                       count)};
 }
 
-// The scene and options of `umbra render`: exactly one scene.
-std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
+// The scene `render` renders: its one argument.
+std::expected<std::string_view, Error> SceneOf(const ParsedCommand& render) {
   const auto scenes = render.arguments();
   if (scenes.size() != 1) {
     return std::unexpected(Error(
@@ -417,11 +424,34 @@ std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
                                      "see 'umbra render -h'",
                                      scenes.size())));
   }
+  return scenes.front();
+}
+
+// The tev of `render`'s --display, if it has one.
+std::expected<std::optional<umbra::TevAddress>, Error> DisplayOf(
+    const ParsedCommand& render) {
+  if (render.Count("display") == 0) {
+    return std::nullopt;
+  }
+  return umbra::ParseDisplay(render.Value("display"));
+}
+
+// The scene and options of `umbra render`: exactly one scene.
+std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
+  const auto scene = SceneOf(render);
+  if (!scene.has_value()) {
+    return std::unexpected(scene.error());
+  }
+  auto display = DisplayOf(render);
+  if (!display.has_value()) {
+    return std::unexpected(display.error());
+  }
   RenderRequest request{
-      .scene = scenes.front(),
+      .scene = *scene,
       .options = {.settings = std::string(render.Value("settings"))},
       .frames = std::nullopt,
       .step = 1.0,
+      .display = std::move(*display),
   };
   if (render.Count("frames") > 0) {
     const auto frames = ParseFrames(render.Value("frames"));
@@ -473,31 +503,6 @@ std::expected<Frames, Error> FramesOf(const RenderRequest& request,
   return Frames(*codes, request.step);
 }
 
-// The names of the channels of a layer of `source` with `channels`
-// channels.
-std::span<const std::string_view> ChannelNames(
-    umbra::ext::usd::RenderVarSource source, std::uint32_t channels) {
-  using umbra::ext::usd::RenderVarSource;
-  static constexpr std::array<std::string_view, 4> kColor{"R", "G", "B", "A"};
-  static constexpr std::array<std::string_view, 1> kDepth{"Z"};
-  static constexpr std::array<std::string_view, 4> kVector{"X", "Y", "Z", "W"};
-  std::span<const std::string_view> names = kVector;
-  switch (source) {
-    case RenderVarSource::kColor:
-    case RenderVarSource::kAlbedo:
-    case RenderVarSource::kLpe:
-      names = kColor;
-      break;
-    case RenderVarSource::kDepth:
-      names = kDepth;
-      break;
-    case RenderVarSource::kNormal:
-    case RenderVarSource::kPrimvar:
-      break;
-  }
-  return names.first(std::min<std::size_t>(channels, names.size()));
-}
-
 // `matrix` in float.
 std::array<float, 16> FloatMatrix(const umbra::device::Matrix& matrix) {
   std::array<float, 16> floats{};
@@ -518,7 +523,7 @@ std::expected<void, Error> WriteProduct(
   for (const umbra::ext::usd::RenderedVar& var : rendered.vars) {
     layers.push_back({
         .name = var.var->name,
-        .channels = ChannelNames(var.var->source, var.var->channels),
+        .channels = umbra::ChannelNames(var.var->source, var.var->channels),
         .format = var.var->type == umbra::ext::usd::ChannelType::kHalf
                       ? ChannelFormat::kHalf
                       : ChannelFormat::kFloat,
@@ -558,8 +563,13 @@ std::expected<void, Error> RenderAndWrite(umbra::ext::usd::Session& session,
 // writes its products.
 int RenderFrames(const RenderRequest& request,
                  std::span<umbra::device::Device* const> devices) {
+  std::optional<umbra::TevDisplay> display;
+  if (request.display.has_value()) {
+    display.emplace(*request.display);
+  }
   const auto session =
-      umbra::ext::usd::OpenSession(request.scene, request.options, devices);
+      umbra::ext::usd::OpenSession(request.scene, request.options, devices,
+                                   display.has_value() ? &*display : nullptr);
   if (!session.has_value()) {
     return Failure(session.error());
   }
