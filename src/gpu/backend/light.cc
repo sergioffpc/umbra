@@ -83,6 +83,13 @@ class ShapeVisitor {
     record_->orientation = RowsOf(dome.orientation);
     return std::nullopt;
   }
+  // A portal emits nothing and only guides its domes' sampling: rays never
+  // hit it, so it has no GAS.
+  std::optional<LocalBounds> operator()(
+      const device::Light::Portal& portal) const {
+    Size(portal.width, portal.height);
+    return std::nullopt;
+  }
 
  private:
   void Size(double first, double second) const {
