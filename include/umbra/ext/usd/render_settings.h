@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "umbra/core/safety.h"
+#include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -53,29 +54,15 @@ struct RenderVar {
   // none; empty for the others.
   std::string source_name;
   ChannelType type = ChannelType::kHalf;
+  // The channels of its layer: 4 for color (RGBA), 1 for depth, 3 for
+  // normal, albedo and lpe vars, and as many as its dataType has components
+  // for a primvar var.
+  std::uint32_t channels = 1;
 };
 
-// How the aspect ratio of the aperture is conformed to that of the image
-// when they differ, as UsdRender defines it.
-enum class AspectRatioConformPolicy : std::uint8_t {
-  kExpandAperture,
-  kCropAperture,
-  kAdjustApertureWidth,
-  kAdjustApertureHeight,
-  kAdjustPixelAspectRatio,
-};
-
-// Whether a render product integrates the shutter, or the frame's instant.
-enum class MotionBlur : std::uint8_t {
-  kEnabled,
-  kDisabled,
-};
-
-// Whether a render product renders the lens's depth of field, or a pinhole.
-enum class DepthOfField : std::uint8_t {
-  kEnabled,
-  kDisabled,
-};
+using device::AspectRatioConformPolicy;
+using device::DepthOfField;
+using device::MotionBlur;
 
 // An image file the render writes, an EXR whose layers are its vars.
 struct RenderProduct {
@@ -92,8 +79,21 @@ struct RenderProduct {
   // The pixels it holds, in NDC of the aperture: xmin, ymin, xmax, ymax, with
   // (0, 0) at the bottom left and (1, 1) at the top right.
   std::array<float, 4> data_window_ndc{};
+  // Those pixels: those whose centers lie in data_window_ndc. Never empty.
+  device::PixelWindow window;
   MotionBlur motion_blur = MotionBlur::kEnabled;
   DepthOfField depth_of_field = DepthOfField::kEnabled;
+  // The samples each pixel takes, umbra:samplesPerPixel: at least 1.
+  std::uint32_t samples_per_pixel = 64;
+  // Its camera's transforms at the frame, in meters, row-major for row
+  // vectors, as OpenEXR's worldToCamera and worldToNDC give them: to the
+  // camera's own space, and to the NDC of its screen window, (0, 0) at the
+  // top left and (1, 1) at the bottom right once divided by w.
+  device::Matrix world_to_camera{};
+  device::Matrix world_to_ndc{};
+  // The pixel aspect ratio of its file: pixel_aspect_ratio, or that which
+  // the conform policy kAdjustPixelAspectRatio gives.
+  float file_pixel_aspect_ratio = 1.0F;
   // At least one var.
   std::vector<RenderVar> vars;
 };

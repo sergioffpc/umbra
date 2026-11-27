@@ -135,6 +135,13 @@ class ModuleBackedDevice final : public device::Device {
     return ResultOf(api_->commit(held_, &changes));
   }
 
+  // Renders nothing, and takes no tile: returns at once.
+  [[nodiscard]] std::expected<void, Error> Render(
+      const device::FrameParameters& /*frame*/,
+      device::TileQueue& /*tiles*/) override {
+    return {};
+  }
+
  private:
   const ModuleApi* api_;
   ModuleDevice* held_;

@@ -49,14 +49,17 @@
 #include <exception>
 #include <expected>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "commit.h"
 #include "hydra.h"
@@ -92,6 +95,8 @@ struct Session::State {
   // Destroyed before the delegate, whose prims it destroys.
   std::unique_ptr<pxr::HdRenderIndex> index;
   pxr::HdEngine engine;
+  // The task, the only one Execute runs.
+  std::shared_ptr<internal::RenderTask> task;
   pxr::HdTaskSharedPtrVector tasks;
   RenderSettings settings;
   device::FrameParameters frame;
@@ -362,7 +367,8 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
         return internal::Commit(
             state.inputs, {.stage = &*state.stage, .scene_index = state.chain},
             prims, state.ledger, state.devices);
-      });
+      },
+      state.devices);
   state.index.reset(pxr::HdRenderIndex::New(state.delegate.get(), {}));
   if (state.index == nullptr) {
     return std::unexpected(
@@ -371,10 +377,9 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
   state.index->InsertSceneIndex(state.chain, pxr::SdfPath::AbsoluteRootPath(),
                                 /*needsPrefixing=*/false);
   phase.SetTotal(state.delegate->PrimCount());
-  state.tasks = {
-      std::make_shared<internal::SyncTask>(*state.delegate,
-                                           state.inputs.settings),
-  };
+  state.task = std::make_shared<internal::RenderTask>(*state.delegate,
+                                                      state.inputs.settings);
+  state.tasks = {state.task};
   return {};
 }
 
@@ -386,9 +391,9 @@ void SetTime(const Session::State& state, pxr::UsdTimeCode time) {
   }
 }
 
-// Runs HdEngine::Execute once: the prims that changed sync, and the
-// delegate commits them to the devices. Gives what the debug line says was
-// committed.
+// Runs HdEngine::Execute once: the prims that changed sync, the delegate
+// commits them to the devices, and the task renders the products. Gives what
+// the debug line says was committed.
 std::expected<std::string, Error> Execute(Session::State& state) {
   // Hydra syncs the rprims of the collections queued, in their reprs, and
   // empties the queue: one collection of every rprim, whose repr umbra never
@@ -405,16 +410,24 @@ std::expected<std::string, Error> Execute(Session::State& state) {
   if (!committed->has_value()) {
     return std::unexpected(std::move(committed->error()));
   }
+  std::optional<std::expected<void, Error>> rendered = state.task->TakeResult();
+  if (!rendered.has_value()) {
+    return std::unexpected(
+        Error(ErrorCode::kInternal, "Hydra did not render the products"));
+  }
+  if (!rendered->has_value()) {
+    return std::unexpected(std::move(rendered->error()));
+  }
   state.settings = std::move((*committed)->settings);
   state.frame = (*committed)->frame;
   return std::move((*committed)->description);
 }
 
-// Syncs the stage at `frame` through Hydra and commits what changed to the
-// devices, in `phase`.
-std::expected<std::string, Error> Sync(Session::State& state,
-                                       std::optional<double> frame,
-                                       core::ProgressPhase& phase) {
+// Syncs the stage at `frame` through Hydra, commits what changed to the
+// devices, in `phase`, calls `on_committed`, and renders the products.
+std::expected<std::string, Error> Sync(
+    Session::State& state, std::optional<double> frame,
+    core::ProgressPhase& phase, const std::function<void()>& on_committed) {
   const pxr::UsdTimeCode time = TimeOf(frame);
   state.inputs.frame = frame;
   if (state.index == nullptr) {
@@ -424,7 +437,10 @@ std::expected<std::string, Error> Sync(Session::State& state,
   } else {
     SetTime(state, time);
   }
-  return Execute(state);
+  state.task->SetOnCommitted(on_committed);
+  auto executed = Execute(state);
+  state.task->SetOnCommitted({});
+  return executed;
 }
 
 // The name of the phase of the frame at `time`: "Syncing scene" for the
@@ -491,17 +507,43 @@ std::optional<TimeCodes> Session::time_codes() const {
   return TimeCodes{.start = start, .end = end};
 }
 
-std::expected<void, Error> Session::SyncFrame(std::optional<double> frame) {
+std::vector<RenderedProduct> Session::Rendered() const {
+  const State& state = *state_;
+  std::vector<RenderedProduct> rendered;
+  if (state.task == nullptr) {
+    return rendered;
+  }
+  const std::span<const internal::ProductBuffers> buffers =
+      state.task->buffers();
+  for (const auto& [product, product_buffers] :
+       std::views::zip(state.settings.products, buffers)) {
+    RenderedProduct& out = rendered.emplace_back(&product);
+    for (const auto& [var, buffer] :
+         std::views::zip(product.vars, product_buffers)) {
+      out.vars.push_back({.var = &var, .pixels = buffer->pixels()});
+    }
+  }
+  return rendered;
+}
+
+std::expected<void, Error> Session::RenderFrame(std::optional<double> frame) {
   State& state = *state_;
   const pxr::UsdTimeCode time = TimeOf(frame);
   const auto start = std::chrono::steady_clock::now();
+  std::chrono::duration<double> synced_in{};
   std::expected<std::string, Error> committed;
   {
-    // The phase ends, failed, before the error is reported.
+    // The phase ends, failed, before the error is reported; it ends once
+    // the devices have committed, before the products render.
     core::ProgressPhase phase(PhaseName(state.frames, time), "prims");
-    const CountingInto counting(state.counter, phase);
+    std::optional<CountingInto> counting(std::in_place, state.counter, phase);
+    const std::function<void()> on_committed = [&] {
+      counting.reset();
+      phase.Finish();
+      synced_in = std::chrono::steady_clock::now() - start;
+    };
     try {
-      committed = Sync(state, frame, phase);
+      committed = Sync(state, frame, phase, on_committed);
     } catch (const std::exception& error) {
       committed = std::unexpected(
           Error(ErrorCode::kInternal, std::format("Hydra: {}", error.what())));
@@ -509,18 +551,13 @@ std::expected<void, Error> Session::SyncFrame(std::optional<double> frame) {
       committed = std::unexpected(
           Error(ErrorCode::kInternal, "Hydra: an unknown exception"));
     }
-    if (committed.has_value()) {
-      phase.Finish();
-    }
   }
   if (!committed.has_value()) {
     return std::unexpected(std::move(committed.error()));
   }
-  const std::chrono::duration<double> elapsed =
-      std::chrono::steady_clock::now() - start;
   UMBRA_LOG_DEBUG(kUsd, "{} synced in {} ({})",
                   state.frames == 0 ? std::string("scene") : TimeName(time),
-                  core::FormatDuration(elapsed), *committed);
+                  core::FormatDuration(synced_in), *committed);
   ++state.frames;
   return {};
 }

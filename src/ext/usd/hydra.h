@@ -4,10 +4,10 @@
 // umbra's side of Hydra (docs/adr/0012-umbra-is-a-hydra-renderer.md): the
 // render delegate, created directly rather than as a plugin, its prims, which
 // convert what they sync into their host copies, and the task that runs in
-// HdEngine::Execute and only syncs. Hydra syncs rprims in parallel, each into
-// its own prim. The delegate's CommitResources commits the host copies to the
-// devices, then frees them
-// (docs/adr/0013-devices-render-from-their-own-memory.md).
+// HdEngine::Execute, which syncs, then renders each product through its
+// render pass. Hydra syncs rprims in parallel, each into its own prim. The
+// delegate's CommitResources commits the host copies to the devices, then
+// frees them (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 #ifndef UMBRA_EXT_USD_HYDRA_H_
 #define UMBRA_EXT_USD_HYDRA_H_
@@ -37,8 +37,10 @@
 #include <expected>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "motion_samples.h"
+#include "render_pass.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
@@ -140,6 +143,9 @@ class CameraPrim final : public pxr::HdCamera {
   // Converts it into its host copy, its transform resampled over `shutter`.
   void Place(const host::Shutter& shutter);
 
+  // It at the frame, in meters, with the one transform it has at the frame.
+  [[nodiscard]] host::Camera AtFrame() const;
+
   // Its host copy, once placed.
   [[nodiscard]] const host::Camera& camera() const UMBRA_LIFETIMEBOUND {
     return camera_;
@@ -153,6 +159,11 @@ class CameraPrim final : public pxr::HdCamera {
 
  private:
   enum class Changed : std::uint8_t { kNo, kYes };
+
+  // It, in meters, with the motion samples of its transform
+  // `camera_to_world`, in scene units.
+  [[nodiscard]] host::Camera Converted(
+      std::span<const pxr::GfMatrix4d> camera_to_world) const;
 
   SyncCounter* UMBRA_NULLABLE counter_;
   double meters_per_unit_;
@@ -417,20 +428,21 @@ struct Committed {
 using Committer =
     std::function<std::expected<Committed, core::Error>(SyncedPrims& prims)>;
 
-// umbra's render delegate. It syncs cameras, render settings, materials,
-// meshes and their instancers, and lights, with their lengths scaled by
-// `meters_per_unit`, the lights inclined from the down direction of a stage
-// whose up axis is `up_axis`, and the meshes bound to their materials for the
-// full purpose, and counts the rprims and lights of the types umbra does not
-// take; its prims count their syncs into the counter. Its ext computations,
-// which the meshes run for their points, are Hydra's own, neither counted
-// nor committed. Hydra creates and destroys its prims on one thread. The
-// prims live for the whole render: each HdEngine::Execute syncs those that
-// changed since the last, and commits them.
+// umbra's render delegate, which renders on `devices`. It syncs cameras, render
+// settings, materials, meshes and their instancers, and lights, with their
+// lengths scaled by `meters_per_unit`, the lights inclined from the down
+// direction of a stage whose up axis is `up_axis`, and the meshes bound to
+// their materials for the full purpose, and counts the rprims and lights of the
+// types umbra does not take; its prims count their syncs into the counter. Its
+// ext computations, which the meshes run for their points, are Hydra's own,
+// neither counted nor committed. Hydra creates and destroys its prims on one
+// thread. The prims live for the whole render: each HdEngine::Execute syncs
+// those that changed since the last, and commits them.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(SyncCounter& counter UMBRA_LIFETIMEBOUND,
-                 double meters_per_unit, UpAxis up_axis, Committer committer);
+                 double meters_per_unit, UpAxis up_axis, Committer committer,
+                 std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
   RenderDelegate(RenderDelegate&&) = delete;
@@ -463,6 +475,10 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // What CommitResources committed, or its error; none before.
   [[nodiscard]] std::optional<std::expected<Committed, core::Error>>
   TakeCommitted();
+  // What CommitResources committed, if it did and did not fail, which
+  // TakeCommitted has not taken.
+  [[nodiscard]] const Committed* UMBRA_NULLABLE
+  PeekCommitted() const UMBRA_LIFETIMEBOUND;
 
   [[nodiscard]] const pxr::TfTokenVector& GetSupportedRprimTypes()
       const override;
@@ -475,6 +491,7 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   [[nodiscard]] pxr::TfTokenVector GetShaderSourceTypes() const override;
   [[nodiscard]] pxr::HdResourceRegistrySharedPtr GetResourceRegistry()
       const override;
+  // umbra's RenderPass, on the delegate's devices.
   pxr::HdRenderPassSharedPtr CreateRenderPass(
       pxr::HdRenderIndex* index,
       const pxr::HdRprimCollection& collection) override;
@@ -515,19 +532,32 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   double meters_per_unit_;
   UpAxis up_axis_;
   Committer committer_;
+  std::span<device::Device* const> devices_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;
   std::size_t commits_ = 0;
   std::optional<std::expected<Committed, core::Error>> committed_;
 };
 
-// The task of umbra's that runs in HdEngine::Execute: it only syncs, the
-// rprims of the purposes the settings include, over the shutter it chooses.
-class SyncTask final : public pxr::HdTask {
+// The render buffers of a rendered product, one per var, in its order.
+using ProductBuffers = std::vector<std::unique_ptr<RenderBuffer>>;
+
+// The task of umbra's that runs in HdEngine::Execute. It syncs the rprims of
+// the purposes the settings include, over the shutter it chooses. Once the
+// delegate has committed, it calls the callback it is given, then renders
+// each product of the settings committed through a render pass of its own,
+// into render buffers it creates, one per var, sized to the product's data
+// window: a var's AOV is AovName of its source. The buffers live until the
+// next Execute.
+class RenderTask final : public pxr::HdTask {
  public:
   // Syncs the prims of the render index whose render delegate is
   // `delegate`.
-  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND, pxr::SdfPath settings);
+  RenderTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
+             pxr::SdfPath settings);
+
+  // What Execute calls once the delegate has committed, before it renders.
+  void SetOnCommitted(std::function<void()> on_committed);
 
   void Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE delegate,
             pxr::HdTaskContext* context, pxr::HdDirtyBits* dirty_bits) override;
@@ -535,10 +565,31 @@ class SyncTask final : public pxr::HdTask {
   void Execute(pxr::HdTaskContext* context) override;
   [[nodiscard]] const pxr::TfTokenVector& GetRenderTags() const override;
 
+  // What the last Execute rendered: fails with the error of the product that
+  // failed, which stops the render. None when the commit failed, or before
+  // Execute.
+  [[nodiscard]] std::optional<std::expected<void, core::Error>> TakeResult();
+
+  // The render buffers of each product rendered last, in the settings'
+  // order.
+  [[nodiscard]] std::span<const ProductBuffers> buffers() const
+      UMBRA_LIFETIMEBOUND {
+    return buffers_;
+  }
+
  private:
+  // Renders each product of `committed`.
+  [[nodiscard]] std::expected<void, core::Error> Render(
+      const Committed& committed);
+
   RenderDelegate* delegate_;
   pxr::SdfPath settings_;
   pxr::TfTokenVector render_tags_;
+  pxr::HdRenderIndex* UMBRA_NULLABLE index_ = nullptr;
+  std::function<void()> on_committed_;
+  std::vector<std::shared_ptr<RenderPass>> passes_;
+  std::vector<ProductBuffers> buffers_;
+  std::optional<std::expected<void, core::Error>> result_;
 };
 
 }  // namespace umbra::ext::usd::internal

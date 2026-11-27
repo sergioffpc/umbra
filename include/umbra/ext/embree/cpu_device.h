@@ -18,6 +18,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/geometry.h"
 #include "umbra/device/render_data.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -31,7 +32,8 @@ struct Ray {
   device::Float3 direction;
   // When it is cast, from 0 when the shutter opens to 1 when it closes.
   float time = 0.0F;
-  // The farthest distance it meets something at.
+  // The nearest and the farthest distances it meets something at.
+  float t_min = 0.0F;
   float t_max = __builtin_huge_valf();
 };
 
@@ -52,6 +54,9 @@ struct Hit {
   std::uint32_t primitive = 0;
   // The distance along the ray.
   float distance = 0.0F;
+  // The geometric normal there, in world space, of unit length, facing the
+  // ray.
+  device::Vector3 normal;
 };
 
 // The CPU device of a NUMA node, "cpu<node>". Everything it does runs on
@@ -67,6 +72,16 @@ struct Hit {
 // cylinder), of one user primitive that the light shape functions
 // intersect. A top-level BVH, rebuilt at every commit, instances them,
 // with one transform per motion sample of an instance that moves.
+//
+// It renders a product with a placeholder integrator: one tile per thread
+// of its arena in each batch it takes, each sample of a pixel a primary
+// ray, cast against its BVHs, and its pixels the mean of their samples:
+// the color 0.5·d + 0.5 of the ray's world direction d, with an alpha of 1;
+// the depth of the first hit, in meters, +∞ where there is none; its
+// geometric normal in world space, facing the ray, 0 where there is none;
+// and an albedo of 0. Its film, in its node's memory, grows to the largest
+// product it renders, and its sampler's cache is initialized at its first
+// render.
 //
 // kTopology rebuilds a prototype's BVH. kPoints refits it, but rebuilds it
 // when it was not built to be refitted, as at the first change of its
@@ -91,6 +106,10 @@ class CpuDevice final : public device::Device {
   // a BVH (memory runs out, say).
   [[nodiscard]] std::expected<void, core::Error> Commit(
       const device::ChangeSet& changes) override;
+
+  // Fails with kInternal when it holds no camera of `frame`'s id.
+  [[nodiscard]] std::expected<void, core::Error> Render(
+      const device::FrameParameters& frame, device::TileQueue& tiles) override;
 
   // What `ray` meets first, at its time, among the prototypes and the
   // shaped lights committed; none when it meets nothing, or after a commit

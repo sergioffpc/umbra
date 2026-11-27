@@ -15,18 +15,12 @@
 #include <cstdint>
 
 #include "umbra/core/safety.h"
+#include "umbra/device/geometry.h"
 #include "umbra/device/single_source.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::device {
-
-// A point or a vector in a light's own space, in meters.
-struct Vector3 {
-  float x = 0.0F;
-  float y = 0.0F;
-  float z = 0.0F;
-};
 
 // The shapes a light can have that rays meet.
 enum class LightShapeKind : std::uint8_t {
@@ -57,9 +51,9 @@ struct ShapeBounds {
   Vector3 upper;
 };
 
-// A ray in a light's own space: its direction need not be of unit length,
-// and the distances along it are in units of its direction. It meets what
-// lies from t_min to t_max, both included.
+// A ray in a light's own space, in meters: its direction need not be of unit
+// length, and the distances along it are in units of its direction. It meets
+// what lies from t_min to t_max, both included.
 struct ShapeRay {
   Vector3 origin;
   Vector3 direction;
@@ -85,10 +79,6 @@ UMBRA_HOST_DEVICE [[nodiscard]] inline bool IsHit(const ShapeHit& hit) {
 }
 
 namespace light_shapes_internal {
-
-UMBRA_HOST_DEVICE inline float Dot(Vector3 lhs, Vector3 rhs) {
-  return (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z);
-}
 
 // origin + distance·direction.
 UMBRA_HOST_DEVICE inline Vector3 Along(Vector3 origin, Vector3 direction,

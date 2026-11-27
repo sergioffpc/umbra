@@ -13,12 +13,14 @@
 #include <oneapi/tbb/task_scheduler_observer.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -34,10 +36,14 @@
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/camera_rays.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/geometry.h"
+#include "umbra/device/image.h"
 #include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
+#include "umbra/device/sampler.h"
 
 namespace umbra::ext::embree {
 namespace {
@@ -147,6 +153,13 @@ struct CpuDevice::State {
   // The top level, and what each of its instances places.
   Scene top;
   std::vector<Placement> placements;
+  // The sampler's cache, empty until the first render.
+  std::vector<std::byte> sampler_cache;
+  // The film: the planes of the render vars of the product rendering, one
+  // after another, each laid out as its render buffer.
+  std::vector<float> film;
+  // The batches of tiles it took of the product rendering.
+  std::vector<device::TileQueue::Batch> batches;
 };
 
 namespace {
@@ -515,13 +528,232 @@ RTCRayHit RayHitOf(const Ray& ray) {
   ray_hit.ray.dir_x = ray.direction.x;
   ray_hit.ray.dir_y = ray.direction.y;
   ray_hit.ray.dir_z = ray.direction.z;
-  ray_hit.ray.tnear = 0.0F;
+  ray_hit.ray.tnear = ray.t_min;
   ray_hit.ray.tfar = ray.t_max;
   ray_hit.ray.time = ray.time;
   ray_hit.ray.mask = ~0U;
   ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
   ray_hit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
   return ray_hit;
+}
+
+// The geometric normal `normal`, in the object space of the instance a ray
+// met at `time` in `top`, in world space, of unit length, facing
+// `direction`.
+device::Vector3 WorldNormal(RTCScene top, unsigned int instance, float time,
+                            device::Vector3 normal, device::Vector3 direction) {
+  // The instance's object-to-world transform, column-major for column
+  // vectors: its columns are the images of the X, Y and Z axes.
+  std::array<float, 12> columns{};
+  rtcGetGeometryTransformFromScene(
+      top, instance, time, RTC_FORMAT_FLOAT3X4_COLUMN_MAJOR, columns.data());
+  const device::Vector3 x_axis{
+      .x = columns.at(0),
+      .y = columns.at(1),
+      .z = columns.at(2),
+  };
+  const device::Vector3 y_axis{
+      .x = columns.at(3),
+      .y = columns.at(4),
+      .z = columns.at(5),
+  };
+  const device::Vector3 z_axis{
+      .x = columns.at(6),
+      .y = columns.at(7),
+      .z = columns.at(8),
+  };
+  // Normals transform by the inverse transpose, which the cofactors give
+  // up to the determinant: its sign is lost as the normal faces the ray.
+  const device::Vector3 world =
+      device::Normalize((normal.x * device::Cross(y_axis, z_axis)) +
+                        (normal.y * device::Cross(z_axis, x_axis)) +
+                        (normal.z * device::Cross(x_axis, y_axis)));
+  return device::Dot(world, direction) > 0.0F ? -1.0F * world : world;
+}
+
+// Where a render var's plane lies in the film.
+struct FilmPlane {
+  device::VarSource source = device::VarSource::kColor;
+  std::size_t offset = 0;
+  std::uint32_t channels = 1;
+};
+
+// The film's planes for the vars of `frame`, and the floats they need.
+std::pair<std::vector<FilmPlane>, std::size_t> PlanFilm(
+    const device::FrameParameters& frame) {
+  const device::PixelWindow& window = frame.image.window;
+  const auto pixels = static_cast<std::size_t>(window.width()) *
+                      static_cast<std::size_t>(window.height());
+  std::vector<FilmPlane> planes;
+  std::size_t floats = 0;
+  for (const device::FilmVar& var : frame.vars) {
+    planes.push_back(
+        {.source = var.source, .offset = floats, .channels = var.channels});
+    floats += pixels * var.channels;
+  }
+  return {std::move(planes), floats};
+}
+
+// `vector` as Embree's rays hold it.
+device::Float3 Float3Of(device::Vector3 vector) {
+  return {.x = vector.x, .y = vector.y, .z = vector.z};
+}
+
+// The mean of a pixel's samples, as the placeholder integrator renders them.
+struct PixelValue {
+  std::array<float, 4> color{};
+  float depth = 0.0F;
+  std::array<float, 3> normal{};
+};
+
+// What the render of a product reads.
+struct RenderInputs {
+  const CpuDevice* device;
+  const device::CameraModel* camera;
+  std::span<const std::byte> sampler_cache;
+  std::uint32_t samples_per_pixel = 1;
+  // How many tiles it takes at a time.
+  std::uint64_t batch_size = 1;
+};
+
+// The placeholder integrator's pixel at `column` and `row`.
+PixelValue RenderPixel(const RenderInputs& inputs, std::int32_t column,
+                       std::int32_t row) {
+  device::Vector3 color;
+  device::Vector3 normal;
+  float depth = 0.0F;
+  for (std::uint32_t index = 0; index < inputs.samples_per_pixel; ++index) {
+    const device::Sampler sampler(column, row, 0, static_cast<int>(index),
+                                  inputs.sampler_cache.data());
+    const device::CameraRay camera_ray = device::GenerateRay(
+        *inputs.camera, column, row, device::DrawCameraSamples(sampler));
+    const device::Vector3 direction = camera_ray.direction;
+    color = color + ((0.5F * direction) +
+                     device::Vector3{.x = 0.5F, .y = 0.5F, .z = 0.5F});
+    const std::optional<Hit> hit = inputs.device->Intersect({
+        .origin = Float3Of(camera_ray.origin),
+        .direction = Float3Of(direction),
+        .time = camera_ray.time,
+        .t_min = camera_ray.t_min,
+        .t_max = camera_ray.t_max,
+    });
+    if (hit.has_value()) {
+      depth += hit->distance;
+      normal = normal + hit->normal;
+    } else {
+      depth = __builtin_huge_valf();
+    }
+  }
+  const float scale = 1.0F / static_cast<float>(inputs.samples_per_pixel);
+  return {
+      .color = {scale * color.x, scale * color.y, scale * color.z, 1.0F},
+      .depth = scale * depth,
+      .normal = {scale * normal.x, scale * normal.y, scale * normal.z},
+  };
+}
+
+// The channels a pixel's value gives a var of `source`.
+std::span<const float> ChannelsOf(const PixelValue& value,
+                                  device::VarSource source) {
+  static constexpr std::array<float, 3> kZero{};
+  switch (source) {
+    case device::VarSource::kColor:
+      return value.color;
+    case device::VarSource::kDepth:
+      return {&value.depth, 1};
+    case device::VarSource::kNormal:
+      return value.normal;
+    case device::VarSource::kAlbedo:
+      break;
+  }
+  return kZero;
+}
+
+// Writes `value`, the pixel at `pixel` of the data window, into the film's
+// planes.
+void WritePixel(const PixelValue& value, std::size_t pixel,
+                std::span<const FilmPlane> planes, std::span<float> film) {
+  for (const FilmPlane& plane : planes) {
+    const std::span<float> out =
+        film.subspan(plane.offset + (pixel * plane.channels), plane.channels);
+    const std::span<const float> given = ChannelsOf(value, plane.source);
+    const std::size_t copied = std::min(out.size(), given.size());
+    std::ranges::copy(given.first(copied), out.begin());
+    std::ranges::fill(out.subspan(copied), 0.0F);
+  }
+}
+
+// Renders `tile`'s pixels into the film's planes.
+void RenderTile(const RenderInputs& inputs, const device::PixelWindow& window,
+                const device::PixelWindow& tile,
+                std::span<const FilmPlane> planes, std::span<float> film) {
+  const auto width = static_cast<std::size_t>(window.width());
+  for (std::int32_t row = tile.y_min; row < tile.y_end; ++row) {
+    for (std::int32_t column = tile.x_min; column < tile.x_end; ++column) {
+      const std::size_t pixel =
+          (static_cast<std::size_t>(row - window.y_min) * width) +
+          static_cast<std::size_t>(column - window.x_min);
+      WritePixel(RenderPixel(inputs, column, row), pixel, planes, film);
+    }
+  }
+}
+
+// Copies `tile`'s pixels from the film's planes into the render buffers of
+// `frame`'s vars.
+void CopyTile(const device::FrameParameters& frame,
+              const device::PixelWindow& tile,
+              std::span<const FilmPlane> planes, std::span<const float> film) {
+  const device::PixelWindow& window = frame.image.window;
+  const auto width = static_cast<std::size_t>(window.width());
+  const auto tile_width = static_cast<std::size_t>(tile.width());
+  for (const auto& [var, plane] : std::views::zip(frame.vars, planes)) {
+    for (std::int32_t row = tile.y_min; row < tile.y_end; ++row) {
+      const std::size_t first =
+          ((static_cast<std::size_t>(row - window.y_min) * width) +
+           static_cast<std::size_t>(tile.x_min - window.x_min)) *
+          plane.channels;
+      const std::size_t count = tile_width * plane.channels;
+      std::ranges::copy(film.subspan(plane.offset + first, count),
+                        var.pixels.subspan(first, count).begin());
+    }
+  }
+}
+
+// What a device renders a product with: its inputs, the film's planes and
+// the film.
+struct FilmTarget {
+  std::span<const FilmPlane> planes;
+  std::span<float> film;
+};
+
+// The most batches of `batch_size` tiles a device takes from `tiles`: each
+// but its last is whole.
+std::size_t MostBatches(const device::TileQueue& tiles,
+                        std::uint64_t batch_size) {
+  return static_cast<std::size_t>(tiles.count() / batch_size) + 1;
+}
+
+// Renders the tiles it takes from `tiles`, a batch at a time, on the arena
+// it runs in, into `target`. Gives how many batches it took, in order in
+// `batches`, which holds MostBatches of them.
+std::size_t RenderBatches(const RenderInputs& inputs,
+                          const device::FrameParameters& frame,
+                          device::TileQueue& tiles, const FilmTarget& target,
+                          std::span<device::TileQueue::Batch> batches) {
+  const std::uint64_t batch_size = inputs.batch_size;
+  const auto render = [&](std::uint64_t tile) {
+    RenderTile(inputs, frame.image.window, tiles.TileWindow(tile),
+               target.planes, target.film);
+    tiles.Finish(1);
+  };
+  std::size_t taken = 0;
+  for (device::TileQueue::Batch batch = tiles.Take(batch_size);
+       !batch.IsEmpty(); batch = tiles.Take(batch_size)) {
+    // The tiles run out before `batches` does.
+    batches.subspan(taken++, 1).front() = batch;
+    tbb::parallel_for(batch.first, batch.end, render);
+  }
+  return taken;
 }
 
 }  // namespace
@@ -560,6 +792,49 @@ std::expected<void, Error> CpuDevice::Commit(const device::ChangeSet& changes) {
   return status;
 }
 
+std::expected<void, Error> CpuDevice::Render(
+    const device::FrameParameters& frame, device::TileQueue& tiles) {
+  State& state = *state_;
+  const auto camera_id = std::to_underlying(frame.camera);
+  if (camera_id >= state.cameras.size() ||
+      state.cameras.at(camera_id) == nullptr) {
+    return std::unexpected(
+        Error(ErrorCode::kInternal,
+              std::format("{} holds no camera {}", state.name, camera_id)));
+  }
+  const device::CameraModel camera =
+      device::MakeCameraModel(state.cameras.at(camera_id)->view, frame);
+  state.arena.execute([&] {
+    if (state.sampler_cache.empty()) {
+      state.sampler_cache.resize(device::kSamplerCacheSize);
+      device::InitializeSamplerCache(state.sampler_cache);
+    }
+    auto [planes, floats] = PlanFilm(frame);
+    if (state.film.size() < floats) {
+      state.film = std::vector<float>(floats);
+    }
+    const RenderInputs inputs{
+        .device = this,
+        .camera = &camera,
+        .sampler_cache = state.sampler_cache,
+        .samples_per_pixel = std::max(frame.samples_per_pixel, 1U),
+        .batch_size = static_cast<std::uint64_t>(state.arena.max_concurrency()),
+    };
+    state.batches.resize(MostBatches(tiles, inputs.batch_size));
+    const std::size_t taken =
+        RenderBatches(inputs, frame, tiles,
+                      {.planes = planes, .film = state.film}, state.batches);
+    const auto copy = [&](std::uint64_t tile) {
+      CopyTile(frame, tiles.TileWindow(tile), planes, state.film);
+    };
+    for (const device::TileQueue::Batch& batch :
+         std::span(state.batches).first(taken)) {
+      tbb::parallel_for(batch.first, batch.end, copy);
+    }
+  });
+  return {};
+}
+
 std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const {
   if (state_->top.get() == nullptr) {
     return std::nullopt;
@@ -577,6 +852,10 @@ std::optional<Hit> CpuDevice::Intersect(const Ray& ray) const {
       .primitive =
           placement.kind == HitKind::kPrototype ? ray_hit.hit.primID : 0U,
       .distance = ray_hit.ray.tfar,
+      .normal = WorldNormal(
+          state_->top.get(), ray_hit.hit.instID[0], ray.time,
+          {.x = ray_hit.hit.Ng_x, .y = ray_hit.hit.Ng_y, .z = ray_hit.hit.Ng_z},
+          {.x = ray.direction.x, .y = ray.direction.y, .z = ray.direction.z}),
   };
 }
 

@@ -8,9 +8,10 @@
 // `umbra devices` lists the devices it can render on, with their hardware
 // (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
 // [--frames=<start>..<end>] [--step=<step>] <scene>` chooses among them,
-// shows them on stderr, and syncs each frame of the scene through Hydra,
-// committing what changed since the last to the devices, which build their
-// acceleration structures from it; it renders nothing yet. `umbra version
+// shows them on stderr, and renders each frame of the scene through Hydra:
+// it commits what changed since the last to the devices, which build their
+// acceleration structures from it, has them render each render product, and
+// writes the products as OpenEXR files. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -51,12 +52,14 @@
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
 #include "umbra/device/device.h"
+#include "umbra/device/render_data.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/ocio/ocio.h"
 #include "umbra/ext/oiio/oiio.h"
 #include "umbra/ext/opensubdiv/opensubdiv.h"
 #include "umbra/ext/openvdb/openvdb.h"
 #include "umbra/ext/osl/osl.h"
+#include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
 
 namespace {
@@ -470,10 +473,91 @@ std::expected<Frames, Error> FramesOf(const RenderRequest& request,
   return Frames(*codes, request.step);
 }
 
-// Syncs each frame `request` renders of its scene, committing what changed
-// to `devices`.
-int SyncFrames(const RenderRequest& request,
-               std::span<umbra::device::Device* const> devices) {
+// The names of the channels of a layer of `source` with `channels`
+// channels.
+std::span<const std::string_view> ChannelNames(
+    umbra::ext::usd::RenderVarSource source, std::uint32_t channels) {
+  using umbra::ext::usd::RenderVarSource;
+  static constexpr std::array<std::string_view, 4> kColor{"R", "G", "B", "A"};
+  static constexpr std::array<std::string_view, 1> kDepth{"Z"};
+  static constexpr std::array<std::string_view, 4> kVector{"X", "Y", "Z", "W"};
+  std::span<const std::string_view> names = kVector;
+  switch (source) {
+    case RenderVarSource::kColor:
+    case RenderVarSource::kAlbedo:
+    case RenderVarSource::kLpe:
+      names = kColor;
+      break;
+    case RenderVarSource::kDepth:
+      names = kDepth;
+      break;
+    case RenderVarSource::kNormal:
+    case RenderVarSource::kPrimvar:
+      break;
+  }
+  return names.first(std::min<std::size_t>(channels, names.size()));
+}
+
+// `matrix` in float.
+std::array<float, 16> FloatMatrix(const umbra::device::Matrix& matrix) {
+  std::array<float, 16> floats{};
+  std::ranges::transform(matrix, floats.begin(), [](double value) {
+    return static_cast<float>(value);
+  });
+  return floats;
+}
+
+// Writes `rendered`, a product of `frame`, as its OpenEXR file.
+std::expected<void, Error> WriteProduct(
+    const umbra::ext::usd::RenderedProduct& rendered,
+    std::optional<double> frame) {
+  using umbra::ext::oiio::ChannelFormat;
+  const umbra::ext::usd::RenderProduct& product = *rendered.product;
+  std::vector<umbra::ext::oiio::ExrLayer> layers;
+  layers.reserve(rendered.vars.size());
+  for (const umbra::ext::usd::RenderedVar& var : rendered.vars) {
+    layers.push_back({
+        .name = var.var->name,
+        .channels = ChannelNames(var.var->source, var.var->channels),
+        .format = var.var->type == umbra::ext::usd::ChannelType::kHalf
+                      ? ChannelFormat::kHalf
+                      : ChannelFormat::kFloat,
+        .pixels = var.pixels,
+    });
+  }
+  const std::string software = std::format("umbra {}", umbra::core::Version());
+  return umbra::ext::oiio::WriteExr({
+      .file = product.file,
+      .resolution = product.resolution,
+      .data_origin = {product.window.x_min, product.window.y_min},
+      .data_size = {product.window.width(), product.window.height()},
+      .layers = layers,
+      .world_to_camera = FloatMatrix(product.world_to_camera),
+      .world_to_ndc = FloatMatrix(product.world_to_ndc),
+      .pixel_aspect_ratio = product.file_pixel_aspect_ratio,
+      .software = software,
+      .frame = frame,
+  });
+}
+
+// Renders `frame` in `session` and writes its products.
+std::expected<void, Error> RenderAndWrite(umbra::ext::usd::Session& session,
+                                          std::optional<double> frame) {
+  if (auto rendered = session.RenderFrame(frame); !rendered.has_value()) {
+    return rendered;
+  }
+  for (const umbra::ext::usd::RenderedProduct& product : session.Rendered()) {
+    if (auto written = WriteProduct(product, frame); !written.has_value()) {
+      return written;
+    }
+  }
+  return {};
+}
+
+// Renders each frame `request` renders of its scene on `devices`, and
+// writes its products.
+int RenderFrames(const RenderRequest& request,
+                 std::span<umbra::device::Device* const> devices) {
   const auto session =
       umbra::ext::usd::OpenSession(request.scene, request.options, devices);
   if (!session.has_value()) {
@@ -484,16 +568,16 @@ int SyncFrames(const RenderRequest& request,
     return Failure(frames.error());
   }
   for (std::uint64_t index = 0; index < frames->count(); ++index) {
-    if (auto synced = (*session)->SyncFrame(frames->At(index));
-        !synced.has_value()) {
-      return Failure(synced.error());
+    if (auto rendered = RenderAndWrite(**session, frames->At(index));
+        !rendered.has_value()) {
+      return Failure(rendered.error());
     }
   }
   return kExitSuccess;
 }
 
-// `umbra render`: resolves the devices, shows them, and syncs each frame of
-// the scene and commits what changed to them. It renders nothing yet.
+// `umbra render`: resolves the devices, shows them, renders each frame of
+// the scene on them and writes its products.
 int Render(const ParsedCommand& global, const ParsedCommand& render,
            const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
@@ -520,7 +604,7 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
        created->devices) {
     committed_to.push_back(device.get());
   }
-  return SyncFrames(request, committed_to);
+  return RenderFrames(request, committed_to);
 }
 
 // `umbra help [<command>]`: the help of umbra, or of a command.

@@ -52,6 +52,10 @@ class DiagnosticDevice final : public Device {
   [[nodiscard]] std::expected<void, core::Error> Commit(
       const ChangeSet& changes) override;
 
+  // Renders nothing, and takes no tile: returns at once.
+  [[nodiscard]] std::expected<void, core::Error> Render(
+      const FrameParameters& frame, TileQueue& tiles) override;
+
   // What it keeps of the prims it holds.
   struct State;
 

@@ -5,9 +5,11 @@
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/range1f.h>
+#include <pxr/base/gf/vec3i.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/base/vt/value.h>
+#include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
@@ -25,9 +27,12 @@
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
+#include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/renderSettings.h>
+#include <pxr/imaging/hd/repr.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
 #include <pxr/imaging/hd/rprim.h>
+#include <pxr/imaging/hd/rprimCollection.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/sprim.h>
@@ -44,6 +49,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <format>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -52,6 +59,7 @@
 #include <optional>
 #include <ranges>
 #include <set>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -63,12 +71,14 @@
 #include "mesh.h"
 #include "motion.h"
 #include "motion_samples.h"
+#include "render_pass.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
 
 namespace umbra::ext::usd::internal {
@@ -345,9 +355,10 @@ bool IsLightPrimType(const pxr::TfToken& type) {
   return std::ranges::find(LightPrimTypes(), type) != LightPrimTypes().end();
 }
 
-// The path of the task, which is not in the render index.
-const pxr::SdfPath& SyncTaskPath() {
-  static const pxr::SdfPath kPath("/__umbraSyncTask");
+// The path of the task, which is not in the render index, and under which
+// it names its render buffers.
+const pxr::SdfPath& TaskPath() {
+  static const pxr::SdfPath kPath("/__umbraRenderTask");
   return kPath;
 }
 
@@ -402,23 +413,20 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   CountSync(counter_, GetId());
 }
 
-void CameraPrim::Place(const host::Shutter& shutter) {
+host::Camera CameraPrim::Converted(
+    std::span<const pxr::GfMatrix4d> camera_to_world) const {
   // Lengths are in scene units, the apertures and focal length too once
   // Hydra has read them.
   const auto meters = [this](float length) {
     return static_cast<double>(length) * meters_per_unit_;
   };
-  const SampledTransform camera_to_world =
-      ResampleTransform(transform_samples_, GetTransform(), shutter);
-  motion_outcome_ = camera_to_world.outcome;
   const pxr::GfRange1f& clipping = GetClippingRange();
-  camera_ = {
+  return {
       .path = GetId().GetString(),
       .projection = GetProjection() == pxr::HdCamera::Orthographic
                         ? host::Projection::kOrthographic
                         : host::Projection::kPerspective,
-      .camera_to_world =
-          TransformsInMeters(camera_to_world.motion, meters_per_unit_),
+      .camera_to_world = TransformsInMeters(camera_to_world, meters_per_unit_),
       .focal_length = meters(GetFocalLength()),
       .aperture =
           {
@@ -435,6 +443,18 @@ void CameraPrim::Place(const host::Shutter& shutter) {
       .focus_distance = meters(GetFocusDistance()),
       .exposure_scale = GetLinearExposureScale(),
   };
+}
+
+void CameraPrim::Place(const host::Shutter& shutter) {
+  const SampledTransform camera_to_world =
+      ResampleTransform(transform_samples_, GetTransform(), shutter);
+  motion_outcome_ = camera_to_world.outcome;
+  camera_ = Converted(camera_to_world.motion);
+}
+
+host::Camera CameraPrim::AtFrame() const {
+  const std::array<pxr::GfMatrix4d, 1> at_frame{GetTransform()};
+  return Converted(at_frame);
 }
 
 void CameraPrim::FreeHostCopy() {
@@ -788,11 +808,13 @@ void UnsupportedPrim::_InitRepr(const pxr::TfToken& /*repr*/,
 }
 
 RenderDelegate::RenderDelegate(SyncCounter& counter, double meters_per_unit,
-                               UpAxis up_axis, Committer committer)
+                               UpAxis up_axis, Committer committer,
+                               std::span<device::Device* const> devices)
     : counter_(&counter),
       meters_per_unit_(meters_per_unit),
       up_axis_(up_axis),
       committer_(std::move(committer)),
+      devices_(devices),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {
   MapEmissionToDirtyBit();
 }
@@ -884,6 +906,11 @@ RenderDelegate::TakeCommitted() {
   return std::exchange(committed_, std::nullopt);
 }
 
+const Committed* UMBRA_NULLABLE RenderDelegate::PeekCommitted() const {
+  return committed_.has_value() && committed_->has_value() ? &**committed_
+                                                           : nullptr;
+}
+
 const pxr::TfTokenVector& RenderDelegate::GetSupportedRprimTypes() const {
   static const pxr::TfTokenVector kTypes = [] {
     pxr::TfTokenVector types = {pxr::HdPrimTypeTokens->mesh};
@@ -933,10 +960,8 @@ pxr::HdResourceRegistrySharedPtr RenderDelegate::GetResourceRegistry() const {
 }
 
 pxr::HdRenderPassSharedPtr RenderDelegate::CreateRenderPass(
-    pxr::HdRenderIndex* /*index*/,
-    const pxr::HdRprimCollection& /*collection*/) {
-  // umbra renders outside Hydra: it has no render pass.
-  return nullptr;
+    pxr::HdRenderIndex* index, const pxr::HdRprimCollection& collection) {
+  return std::make_shared<RenderPass>(index, collection, devices_);
 }
 
 pxr::HdInstancer* RenderDelegate::CreateInstancer(
@@ -1108,14 +1133,60 @@ void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
   FreeHostCopies();
 }
 
-SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
-    : pxr::HdTask(SyncTaskPath()),
+namespace {
+
+// The render buffers of the vars of `product`, the `index`th, sized to its
+// data window and set to 0.
+std::expected<ProductBuffers, core::Error> CreateBuffers(
+    const RenderProduct& product, std::size_t index) {
+  ProductBuffers buffers;
+  buffers.reserve(product.vars.size());
+  for (const RenderVar& var : product.vars) {
+    auto buffer = std::make_unique<RenderBuffer>(TaskPath().AppendChild(
+        pxr::TfToken(std::format("product{}_{}", index, buffers.size()))));
+    if (!buffer->Allocate(
+            pxr::GfVec3i(product.window.width(), product.window.height(), 1),
+            FloatFormat(var.channels), false)) {
+      return std::unexpected(
+          core::Error(core::ErrorCode::kInternal,
+                      std::format("{}: no render buffer of {} channels for {}",
+                                  product.file, var.channels, var.name)));
+    }
+    buffers.push_back(std::move(buffer));
+  }
+  return buffers;
+}
+
+// The AOV bindings of `buffers`, those of the vars of `product`, by the
+// names AovName gives their sources.
+pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
+                                             const ProductBuffers& buffers) {
+  pxr::HdRenderPassAovBindingVector bindings;
+  bindings.reserve(buffers.size());
+  for (const auto& [var, buffer] : std::views::zip(product.vars, buffers)) {
+    pxr::HdRenderPassAovBinding binding;
+    binding.aovName = AovName(var.source);
+    binding.renderBuffer = buffer.get();
+    binding.renderBufferId = buffer->GetId();
+    bindings.push_back(std::move(binding));
+  }
+  return bindings;
+}
+
+}  // namespace
+
+RenderTask::RenderTask(RenderDelegate& delegate, pxr::SdfPath settings)
+    : pxr::HdTask(TaskPath()),
       delegate_(&delegate),
       settings_(std::move(settings)) {}
 
-void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
-                    pxr::HdTaskContext* /*context*/,
-                    pxr::HdDirtyBits* dirty_bits) {
+void RenderTask::SetOnCommitted(std::function<void()> on_committed) {
+  on_committed_ = std::move(on_committed);
+}
+
+void RenderTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
+                      pxr::HdTaskContext* /*context*/,
+                      pxr::HdDirtyBits* dirty_bits) {
   // The sprims (the render settings, the cameras, the lights) are synced
   // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
@@ -1124,13 +1195,64 @@ void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }
 
-void SyncTask::Prepare(pxr::HdTaskContext* /*context*/,
-                       pxr::HdRenderIndex* /*index*/) {}
+void RenderTask::Prepare(pxr::HdTaskContext* /*context*/,
+                         pxr::HdRenderIndex* index) {
+  index_ = index;
+}
 
-void SyncTask::Execute(pxr::HdTaskContext* /*context*/) {}
+void RenderTask::Execute(pxr::HdTaskContext* /*context*/) {
+  // CommitResources ran between the syncs and the execution of the tasks.
+  const Committed* const UMBRA_NULLABLE committed = delegate_->PeekCommitted();
+  if (committed == nullptr) {
+    result_ = std::nullopt;
+    return;
+  }
+  if (on_committed_) {
+    on_committed_();
+  }
+  result_ = Render(*committed);
+}
 
-const pxr::TfTokenVector& SyncTask::GetRenderTags() const {
+const pxr::TfTokenVector& RenderTask::GetRenderTags() const {
   return render_tags_;
+}
+
+std::optional<std::expected<void, core::Error>> RenderTask::TakeResult() {
+  return std::exchange(result_, std::nullopt);
+}
+
+std::expected<void, core::Error> RenderTask::Render(
+    const Committed& committed) {
+  if (index_ == nullptr) {
+    return std::unexpected(core::Error(core::ErrorCode::kInternal,
+                                       "the render task was not prepared"));
+  }
+  const std::vector<RenderProduct>& products = committed.settings.products;
+  buffers_.resize(products.size());
+  while (passes_.size() < products.size()) {
+    passes_.push_back(
+        std::static_pointer_cast<RenderPass>(delegate_->CreateRenderPass(
+            index_, pxr::HdRprimCollection(
+                        pxr::HdTokens->geometry,
+                        pxr::HdReprSelector(pxr::HdReprTokens->hull)))));
+  }
+  for (std::size_t index = 0; index < products.size(); ++index) {
+    const RenderProduct& product = products.at(index);
+    auto buffers = CreateBuffers(product, index);
+    if (!buffers.has_value()) {
+      return std::unexpected(std::move(buffers.error()));
+    }
+    buffers_.at(index) = *std::move(buffers);
+    const auto state = std::make_shared<pxr::HdRenderPassState>();
+    state->SetAovBindings(BindingsOf(product, buffers_.at(index)));
+    RenderPass& pass = *passes_.at(index);
+    pass.SetProduct(product, committed.frame);
+    pass.Execute(state, render_tags_);
+    if (auto rendered = pass.TakeResult(); !rendered.has_value()) {
+      return rendered;
+    }
+  }
+  return {};
 }
 
 }  // namespace umbra::ext::usd::internal
