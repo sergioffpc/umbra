@@ -20,11 +20,11 @@
 #include <cstddef>
 #include <optional>
 #include <ranges>
-#include <span>
 #include <utility>
 #include <vector>
 
 #include "host_copy.h"
+#include "motion_samples.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -109,52 +109,6 @@ TimedSamples<T> FromArray(
 }
 
 }  // namespace
-
-bool IsMotionBlurred(const host::Shutter& shutter) {
-  return shutter.open < shutter.close;
-}
-
-MotionSampleCount CountMotionSamples(std::span<const float> times,
-                                     const host::Shutter& shutter) {
-  if (!IsMotionBlurred(shutter) || times.size() < 2) {
-    return {};
-  }
-  const auto within =
-      static_cast<std::size_t>(std::ranges::count_if(times, [&](float time) {
-        // Hydra's times are floats: its ends are those of the shutter, in
-        // float.
-        return time > static_cast<float>(shutter.open) &&
-               time < static_cast<float>(shutter.close);
-      }));
-  if (within > kMaxMotionSamples) {
-    return {
-        .count = kMaxMotionSamples,
-        .outcome = MotionOutcome::kResampledDown,
-    };
-  }
-  return {
-      .count = std::max<std::size_t>(within, 2),
-      .outcome = MotionOutcome::kSampled,
-  };
-}
-
-MotionSampleCount Merge(const MotionSampleCount& lhs,
-                        const MotionSampleCount& rhs) {
-  return {
-      .count = std::max(lhs.count, rhs.count),
-      .outcome = std::max(lhs.outcome, rhs.outcome),
-  };
-}
-
-double UniformTime(const host::Shutter& shutter, std::size_t index,
-                   std::size_t count) {
-  if (count < 2) {
-    return 0.0;
-  }
-  const double fraction =
-      static_cast<double>(index) / static_cast<double>(count - 1);
-  return shutter.open + ((shutter.close - shutter.open) * fraction);
-}
 
 pxr::GfMatrix4d BlendTransforms(const pxr::GfMatrix4d& start,
                                 const pxr::GfMatrix4d& end, double weight) {

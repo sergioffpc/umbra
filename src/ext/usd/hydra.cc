@@ -61,6 +61,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "motion.h"
+#include "motion_samples.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"

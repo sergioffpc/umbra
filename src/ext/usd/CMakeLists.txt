@@ -33,6 +33,7 @@ umbra_add_ext_module(
   material.cc
   mesh.cc
   motion.cc
+  motion_samples.cc
   outputs.cc
   usd.cc
   views.cc
