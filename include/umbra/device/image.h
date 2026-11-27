@@ -2,9 +2,9 @@
 // Copyright The Umbra Authors
 //
 // The image a render product holds, as its render settings frame it: its
-// resolution, the pixels of its data window, and how the camera's aperture
-// is conformed to the image when their aspect ratios differ, as UsdRender
-// defines it.
+// resolution, the pixels of its data window, the quantities its render vars
+// hold, and how the camera's aperture is conformed to the image when their
+// aspect ratios differ, as UsdRender defines it.
 //
 // Pixels are numbered from the top left, x to the right and y down, as in an
 // OpenEXR file. NDC, as UsdRender defines it, runs from (0, 0) at the bottom
@@ -17,6 +17,7 @@
 #include <cstdint>
 
 #include "umbra/core/safety.h"
+#include "umbra/device/single_source.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -35,6 +36,18 @@ enum class AspectRatioConformPolicy : std::uint8_t {
   kAdjustApertureHeight,
   // The aperture is kept, and the pixels' aspect ratio changes to match.
   kAdjustPixelAspectRatio,
+};
+
+// The quantity a render var of a product holds per pixel.
+enum class VarSource : std::uint8_t {
+  // The radiance, RGBA.
+  kColor,
+  // The distance along the camera ray to the first hit, in meters.
+  kDepth,
+  // The normal of the first hit, in world space.
+  kNormal,
+  // The diffuse reflectance of the first hit.
+  kAlbedo,
 };
 
 // Whether a render product integrates the shutter, or the frame's instant.
@@ -59,11 +72,16 @@ struct PixelWindow {
   std::int32_t y_end = 0;
 
   // Whether it has no pixel.
-  [[nodiscard]] bool IsEmpty() const {
+  UMBRA_HOST_DEVICE [[nodiscard]] bool IsEmpty() const UMBRA_NONBLOCKING {
     return x_end <= x_min || y_end <= y_min;
   }
-  [[nodiscard]] std::int32_t width() const { return x_end - x_min; }
-  [[nodiscard]] std::int32_t height() const { return y_end - y_min; }
+  UMBRA_HOST_DEVICE [[nodiscard]] std::int32_t width() const UMBRA_NONBLOCKING {
+    return x_end - x_min;
+  }
+  UMBRA_HOST_DEVICE [[nodiscard]] std::int32_t height() const
+      UMBRA_NONBLOCKING {
+    return y_end - y_min;
+  }
 
   friend bool operator==(const PixelWindow&, const PixelWindow&) = default;
 };

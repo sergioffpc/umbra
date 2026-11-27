@@ -66,8 +66,9 @@ prototypes and lights refer to.
 
 A device renders with the placeholder integrator's OptiX pipeline
 (`placeholder.cu`): a ray generation program that runs the single-source
-camera model, pixel filter and sampler, one thread per pixel of a tile and
-one tile per layer of a launch; a closest-hit program for triangles; and an
+placeholder pixel and film of `umbra/device/film.h`, with the camera model,
+pixel filter and sampler, one thread per pixel of a tile and one tile per
+layer of a launch; a closest-hit program for triangles; and an
 intersection and a closest-hit program for the lights' shapes, which read
 each light's shape by its id. It traces graphs of any kind, with motion
 blur, up to three levels deep. It writes the color, depth, normal and
@@ -75,4 +76,6 @@ albedo the CPU devices write. The module makes each product's camera
 model on the host, from the device's copy of the camera, with the camera
 code of `src/device`, which it builds in. At its first render a device
 compiles the pipeline and uploads the sampler's cache; its film, in its
-memory, grows to the largest product it renders.
+memory, grows to the largest product it renders. The film's layout, planned
+on the host with the film code of `src/device`, which the module also
+builds in, travels in each launch's parameters.

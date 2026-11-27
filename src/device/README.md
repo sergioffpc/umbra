@@ -24,9 +24,8 @@ Public headers (`include/umbra/device/`):
   device's own memory and renders a render product from it, and the frame
   parameters a device receives for each product besides render data: its
   image, its samples per pixel and the render buffers of the vars it
-  renders (color, depth, normal and albedo). `TileQueue` is the counter
-  every device takes the product's tiles from, in batches, 64×64 pixels of
-  its data window each. A device finishes each tile once it has copied it
+  renders. `TileQueue` is the counter every device takes the product's
+  tiles from, in batches, 64×64 pixels of its data window each. A device finishes each tile once it has copied it
   into the render buffers, which marks its pixels final for a display and
   counts it in the product's progress phase
   (docs/adr/0014-frames-render-in-tiles-from-one-counter.md,
@@ -34,7 +33,8 @@ Public headers (`include/umbra/device/`):
   every device makes of a prototype's acceleration structure as its points
   change, before it rebuilds it, since every refit loosens its bounds.
 - `image.h`: the image of a render product: its resolution, its data
-  window, the pixels whose centers lie in its dataWindowNDC, and how a
+  window, the pixels whose centers lie in its dataWindowNDC, the quantity
+  each of its render vars holds (color, depth, normal and albedo), and how a
   camera's aperture conforms to it.
 - `geometry.h`: points, vectors and affine transforms, row vectors as in
   OpenUSD, for single-source code.
@@ -52,6 +52,16 @@ Public headers (`include/umbra/device/`):
   disk and cylinder), in the light's own space: their bounds, and where a
   ray first meets them. CPU and GPU devices intersect them with the same
   code.
+- `film.h`: the film every device renders a product into, single-source.
+  `PlanFilm` lays out one float32 plane per render var, at most
+  `kMaxFilmPlanes`, each as its var's render buffer, into a `FilmLayout` of
+  fixed capacity, which a GPU reads as plain data. `PixelIndex` and
+  `TileRowOffset` find a pixel and a tile's row in a plane and its render
+  buffer, `WritePixel` writes a pixel into each plane, and
+  `PlaceholderPixel`, a template over the device's trace of a camera ray,
+  is the placeholder integrator's pixel: the mean over its samples of the
+  color 0.5·direction + 0.5 with alpha 1, the depth of the first hit, +∞
+  where a ray meets nothing, and its geometric normal.
 - `single_source.h`: `UMBRA_HOST_DEVICE`, which marks the functions written
   once for the CPU and the GPU: clang compiles them for the CPU devices, and
   nvcc for the GPU devices. `UMBRA_NONBLOCKING` declares those of the hot

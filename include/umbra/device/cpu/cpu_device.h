@@ -75,13 +75,14 @@ struct Hit {
 //
 // It renders a product with a placeholder integrator: one tile per thread
 // of its arena in each batch it takes, each sample of a pixel a primary
-// ray, cast against its BVHs, and its pixels the mean of their samples:
+// ray, cast against its BVHs, and its pixels the mean of their samples, as
+// the single-source placeholder pixel of umbra/device/film.h gives them:
 // the color 0.5·d + 0.5 of the ray's world direction d, with an alpha of 1;
 // the depth of the first hit, in meters, +∞ where there is none; its
 // geometric normal in world space, facing the ray, 0 where there is none;
-// and an albedo of 0. Its film, in its node's memory, grows to the largest
-// product it renders, and its sampler's cache is initialized at its first
-// render.
+// and an albedo of 0. Its film, in its node's memory, holds at most
+// kMaxFilmPlanes vars and grows to the largest product it renders, and its
+// sampler's cache is initialized at its first render.
 //
 // kTopology rebuilds a prototype's BVH. kPoints refits it, but rebuilds it
 // when it was not built to be refitted, as at the first change of its

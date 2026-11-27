@@ -41,6 +41,7 @@
 #include "umbra/delegate/render_settings.h"
 #include "umbra/delegate/session.h"
 #include "umbra/device/device.h"
+#include "umbra/device/image.h"
 
 namespace umbra::delegate::internal {
 namespace {

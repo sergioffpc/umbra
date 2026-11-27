@@ -42,18 +42,6 @@ struct Shutter {
   friend bool operator==(const Shutter&, const Shutter&) = default;
 };
 
-// The quantity a render var of a film holds per pixel.
-enum class VarSource : std::uint8_t {
-  // The radiance, RGBA.
-  kColor,
-  // The distance along the camera ray to the first hit, in meters.
-  kDepth,
-  // The normal of the first hit, in world space.
-  kNormal,
-  // The diffuse reflectance of the first hit.
-  kAlbedo,
-};
-
 // A render var a device renders, and the render buffer it fills.
 struct FilmVar {
   VarSource source = VarSource::kColor;
