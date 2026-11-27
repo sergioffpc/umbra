@@ -88,6 +88,7 @@ struct PrototypeRecord {
   Digest topology = 0;
   Digest primvars = 0;
   Digest triangle_materials = 0;
+  Digest emission = 0;
 };
 
 // What the device keeps of a light: its path, the index of its shape, its
@@ -621,7 +622,7 @@ struct Member {
 };
 
 // The members of an updated prototype, in the order MemberSizes gives them.
-constexpr std::array<Member, 9> kMembers = {
+constexpr std::array<Member, 10> kMembers = {
     Member{.name = "instances", .flags = ChangeFlags::kPlacement},
     Member{
         .name = "points",
@@ -634,17 +635,23 @@ constexpr std::array<Member, 9> kMembers = {
     Member{.name = "primvars", .flags = ChangeFlags::kPrimvars},
     Member{.name = "materials", .flags = ChangeFlags::kMaterials},
     Member{.name = "triangle materials", .flags = ChangeFlags::kMaterials},
+    Member{.name = "emission", .flags = ChangeFlags::kEmission},
 };
 
 // How many elements `prototype` gives of each of kMembers.
 std::array<std::size_t, kMembers.size()> MemberSizes(
     const Prototype& prototype) {
   return {
-      prototype.instances.size(),          prototype.points.size(),
-      prototype.triangles.size(),          prototype.source_faces.size(),
-      prototype.face_vertex_counts.size(), IsEmpty(prototype.normals) ? 0U : 1U,
-      prototype.primvars.size(),           prototype.materials.size(),
+      prototype.instances.size(),
+      prototype.points.size(),
+      prototype.triangles.size(),
+      prototype.source_faces.size(),
+      prototype.face_vertex_counts.size(),
+      IsEmpty(prototype.normals) ? 0U : 1U,
+      prototype.primvars.size(),
+      prototype.materials.size(),
       prototype.triangle_materials.size(),
+      prototype.emission.has_value() ? 1U : 0U,
   };
 }
 
@@ -982,6 +989,20 @@ Digest TriangleMaterialsDigest(const Prototype& prototype) {
   return hasher.digest();
 }
 
+Digest EmissionDigest(const std::optional<Emission>& emission) {
+  Hasher hasher;
+  hasher.Value(emission.has_value());
+  if (emission.has_value()) {
+    hasher.Value(emission->intensity);
+    hasher.Value(emission->exposure);
+    hasher.Value(emission->normalization);
+    hasher.Value(emission->color.rgb);
+    hasher.Value(emission->color_temperature.has_value());
+    hasher.Value(emission->color_temperature.value_or(0.0F));
+  }
+  return hasher.digest();
+}
+
 // Applies to `record` the members of `prototype` that `changes` names.
 void Record(const Prototype& prototype, ChangeFlags changes,
             PrototypeRecord& record) {
@@ -1006,11 +1027,14 @@ void Record(const Prototype& prototype, ChangeFlags changes,
                             prototype.materials.end());
     record.triangle_materials = TriangleMaterialsDigest(prototype);
   }
+  if (HasAny(changes, ChangeFlags::kEmission)) {
+    record.emission = EmissionDigest(prototype.emission);
+  }
 }
 
 constexpr ChangeFlags kWhole = ChangeFlags::kPlacement |
                                ChangeFlags::kTopology | ChangeFlags::kPrimvars |
-                               ChangeFlags::kMaterials;
+                               ChangeFlags::kMaterials | ChangeFlags::kEmission;
 
 // Hashes `texts`, their count first.
 void HashTexts(std::span<const std::string_view> texts, Hasher& hasher) {
@@ -1187,12 +1211,13 @@ std::string FlagNames(ChangeFlags changes) {
     ChangeFlags flag;
     std::string_view name;
   };
-  static constexpr std::array<FlagName, 5> kNames = {
+  static constexpr std::array<FlagName, 6> kNames = {
       FlagName{.flag = ChangeFlags::kPlacement, .name = "placement"},
       FlagName{.flag = ChangeFlags::kPoints, .name = "points"},
       FlagName{.flag = ChangeFlags::kTopology, .name = "topology"},
       FlagName{.flag = ChangeFlags::kPrimvars, .name = "primvars"},
       FlagName{.flag = ChangeFlags::kMaterials, .name = "materials"},
+      FlagName{.flag = ChangeFlags::kEmission, .name = "emission"},
   };
   std::string names;
   for (const auto& [flag, name] : kNames) {
@@ -1485,6 +1510,7 @@ std::pair<std::string, Digest> EntryOf(const PrototypeRecord& record,
   resolved.Value(record.topology);
   resolved.Value(record.primvars);
   resolved.Value(record.triangle_materials);
+  resolved.Value(record.emission);
   for (const MaterialId material : record.materials) {
     resolved.Text(MaterialPath(state, material));
   }
@@ -1517,19 +1543,22 @@ Digest StateDigest(const State& state) {
   return hasher.digest();
 }
 
-// "12 prototypes (2.1M instances, 1.24M triangles), 14 lights, 57
-// materials, 1 camera, 210 textures".
+// "12 prototypes (2.1M instances, 1.24M triangles, 2 emissive), 14 lights,
+// 57 materials, 1 camera, 210 textures".
 std::string DescribeAdded(const ChangeSet& changes) {
   std::size_t instances = 0;
   std::size_t triangles = 0;
+  std::size_t emissive = 0;
   for (const Prototype& prototype : changes.prototypes.added) {
     instances += prototype.instances.size();
     triangles += prototype.triangles.size();
+    emissive += prototype.emission.has_value() ? 1U : 0U;
   }
-  return std::format("{} ({}, {}), {}, {}, {}, {}",
+  return std::format("{} ({}, {}, {} emissive), {}, {}, {}, {}",
                      Counted(changes.prototypes.added.size(), "prototype"),
                      Counted(instances, "instance"),
                      Counted(triangles, "triangle"),
+                     core::FormatCount(emissive),
                      Counted(changes.lights.added.size(), "light"),
                      Counted(changes.materials.added.size(), "material"),
                      Counted(changes.cameras.added.size(), "camera"),

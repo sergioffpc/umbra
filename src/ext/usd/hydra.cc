@@ -12,10 +12,13 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSource.h>
+#include <pxr/imaging/hd/dataSourceLocator.h>
+#include <pxr/imaging/hd/dirtyBitsTranslator.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/geomSubset.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/light.h>
+#include <pxr/imaging/hd/lightSchema.h>
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/renderIndex.h>
@@ -41,6 +44,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -73,6 +77,35 @@ void CountSync(SyncCounter* UMBRA_NULLABLE counter,
   }
   counter->Add(1);
   UMBRA_LOG_TRACE(kUsd, "synced {}", prim_id.GetString());
+}
+
+// Gives `bits` kDirtyEmission when `locators` hold a mesh's light data
+// source, which MeshLightAPI authors.
+void EmissionBitsOf(const pxr::HdDataSourceLocatorSet& locators,
+                    pxr::HdDirtyBits* bits) {
+  if (locators.Intersects(pxr::HdLightSchema::GetDefaultLocator())) {
+    *bits |= kDirtyEmission;
+  }
+}
+
+// Gives `locators` a mesh's light data source when `bits` hold
+// kDirtyEmission.
+void EmissionLocatorsOf(pxr::HdDirtyBits bits,
+                        pxr::HdDataSourceLocatorSet* locators) {
+  if ((bits & kDirtyEmission) != 0U) {
+    locators->append(pxr::HdLightSchema::GetDefaultLocator());
+  }
+}
+
+// Has Hydra mark a mesh kDirtyEmission when its light data source changes:
+// no dirty bit of Hydra's names it. The mapping is Hydra's, process-wide,
+// for every mesh rprim, and comes on top of Hydra's own.
+void MapEmissionToDirtyBit() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    pxr::HdDirtyBitsTranslator::RegisterTranslatorsForCustomRprimType(
+        pxr::HdPrimTypeTokens->mesh, EmissionBitsOf, EmissionLocatorsOf);
+  });
 }
 
 template <typename T>
@@ -346,7 +379,7 @@ MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
       shutter_(&shutter) {}
 
 pxr::HdDirtyBits MeshPrim::GetInitialDirtyBitsMask() const {
-  return pxr::HdChangeTracker::AllSceneDirtyBits;
+  return pxr::HdChangeTracker::AllSceneDirtyBits | kDirtyEmission;
 }
 
 void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
@@ -368,7 +401,7 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
   } else {
     Convert(*delegate);
   }
-  *dirty_bits &= ~pxr::HdChangeTracker::AllSceneDirtyBits;
+  *dirty_bits &= ~(pxr::HdChangeTracker::AllSceneDirtyBits | kDirtyEmission);
   counter_->Add(1);
   LogSync();
 }
@@ -411,6 +444,10 @@ void MeshPrim::Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits) {
   if ((bits & kPlacementBits) != 0U || points_outcome_ != outcome) {
     Place(delegate);
     flags = flags | device::ChangeFlags::kPlacement;
+  }
+  if ((bits & kDirtyEmission) != 0U) {
+    ReadEmission(delegate);
+    flags = flags | device::ChangeFlags::kEmission;
   }
   changes_ = changes_ | flags;
   KeepChanged();
@@ -520,8 +557,7 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
                                        })
                        ? DisplayColor::kPresent
                        : DisplayColor::kAbsent;
-  emission_ = internal::IsMeshLight(delegate, GetId()) ? Emission::kMeshLight
-                                                       : Emission::kNone;
+  ReadEmission(delegate);
   material_subsets_ = MaterialSubsets(source.topology);
   AssignTriangleMaterials();
 }
@@ -594,6 +630,11 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
   instance_count_ = instances_.size();
 }
 
+void MeshPrim::ReadEmission(pxr::HdSceneDelegate& delegate) {
+  emission_notes_.clear();
+  mesh_.emission = ReadMeshLight(delegate, GetId(), emission_notes_);
+}
+
 void MeshPrim::KeepChanged() {
   using device::ChangeFlags;
   using device::HasAny;
@@ -614,6 +655,9 @@ void MeshPrim::KeepChanged() {
   }
   if (!HasAny(changes_, ChangeFlags::kPlacement)) {
     instances_ = {};
+  }
+  if (!HasAny(changes_, ChangeFlags::kEmission)) {
+    mesh_.emission.reset();
   }
 }
 
@@ -673,7 +717,9 @@ RenderDelegate::RenderDelegate(SyncCounter& counter, double meters_per_unit,
     : counter_(&counter),
       meters_per_unit_(meters_per_unit),
       committer_(std::move(committer)),
-      registry_(std::make_shared<pxr::HdResourceRegistry>()) {}
+      registry_(std::make_shared<pxr::HdResourceRegistry>()) {
+  MapEmissionToDirtyBit();
+}
 
 RenderDelegate::~RenderDelegate() = default;
 

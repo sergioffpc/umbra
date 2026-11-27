@@ -114,6 +114,38 @@ enum class Sidedness : std::uint8_t {
   kDoubleSided,
 };
 
+// A color, in ACEScg, the reference color space. It has no spectral kind:
+// what reads it gives it one
+// (docs/adr/0007-spectral-rendering-from-acescg.md).
+struct Color {
+  std::array<float, 3> rgb{};
+};
+
+// Whether a light's emission is divided by its size, so that its power does
+// not change with it: by the world-space area of an area light or of
+// each instance of an emissive mesh, by the solid angle of a distant light.
+enum class Normalization : std::uint8_t {
+  kUnnormalized,
+  kNormalized,
+};
+
+// The light a mesh's surface emits, authored by UsdLux's MeshLightAPI, as a
+// Light's emission is: every instance of the mesh emits alike.
+struct Emission {
+  // Its luminance, in nits, before its color: intensity times 2 to the
+  // power of exposure.
+  float intensity = 1.0F;
+  float exposure = 0.0F;
+  Normalization normalization = Normalization::kUnnormalized;
+  // The color it emits, of the illuminant kind
+  // (docs/adr/0007-spectral-rendering-from-acescg.md).
+  Color color{.rgb = {1.0F, 1.0F, 1.0F}};
+  // The temperature, in kelvin, of the blackbody whose spectrum, normalized
+  // so that 6500 K is white, multiplies its color; none for its color alone.
+  // It is never turned into RGB.
+  std::optional<float> color_temperature;
+};
+
 // A triangle mesh, held once, in its object space, with the instances that
 // place it: one for a mesh that is not instanced, and one for each instance
 // of every instancer above it, nested instancers flattened. Its triangles
@@ -145,6 +177,8 @@ struct Prototype {
   std::span<const std::uint32_t> triangle_materials;
   // At least one.
   std::span<const Instance> instances;
+  // The light its surface emits; none for a mesh that is not a mesh light.
+  std::optional<Emission> emission;
 };
 
 // A texture, read by materials and lights, which the renderer converts to
@@ -157,13 +191,6 @@ struct Texture {
   // The color space of its texels, by its name in the OpenColorIO config
   // ("sRGB Encoded Rec.709 (sRGB)", "Raw").
   std::string_view color_space;
-};
-
-// A color, in ACEScg, the reference color space. It has no spectral kind:
-// what reads it gives it one
-// (docs/adr/0007-spectral-rendering-from-acescg.md).
-struct Color {
-  std::array<float, 3> rgb{};
 };
 
 // A color with an alpha, which is not converted.
@@ -238,14 +265,6 @@ struct MaterialNetwork {
   std::span<const MaterialNode> nodes;
   // The output its surface is.
   NodeOutput surface;
-};
-
-// Whether a light's emission is divided by its size, so that its power does
-// not change with it: by the world-space area of an area light, by the
-// solid angle of a distant light.
-enum class Normalization : std::uint8_t {
-  kUnnormalized,
-  kNormalized,
 };
 
 // How the texture of a dome light maps onto the directions around it.

@@ -37,6 +37,7 @@ static_assert(__STDCPP_DEFAULT_NEW_ALIGNMENT__ >= device::kBufferAlignment);
 using device::Color;
 using device::ColorAlpha;
 using device::DomeTextureFormat;
+using device::Emission;
 using device::Float3;
 using device::Matrix;
 using device::Normalization;
@@ -154,6 +155,9 @@ struct Mesh {
   // The material of each triangle, an index into `materials`; empty when
   // every triangle has materials[0].
   HostBuffer<std::uint32_t> triangle_materials;
+  // The light its surface emits (UsdLux's MeshLightAPI), its color in
+  // ACEScg; none for a mesh that is not a mesh light.
+  std::optional<Emission> emission;
 };
 
 // An IES profile, in type C photometry, its angles in radians.

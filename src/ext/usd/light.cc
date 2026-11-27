@@ -178,9 +178,10 @@ class Reader {
   // Its shape, for a light of the sprim type `type`, noting a texture that
   // is not read; none for an unknown type.
   std::optional<host::Light::Shape> Shape(const pxr::TfToken& type);
-  // Reads its emission into `light`: intensity, exposure, normalization,
-  // color and color temperature.
-  void ReadEmission(host::Light& light);
+  // Reads its emission into `emitter`, a light or a mesh's emission:
+  // intensity, exposure, normalization, color and color temperature.
+  template <typename Emitter>
+  void ReadEmission(Emitter& emitter);
   // Reads its cone and its IES profile into `light`, noting its filters.
   void ReadShaping(host::Light& light);
   // Notes the controls umbra does not take
@@ -308,13 +309,14 @@ std::optional<host::Texture> Reader::Texture() {
   };
 }
 
-void Reader::ReadEmission(host::Light& light) {
+template <typename Emitter>
+void Reader::ReadEmission(Emitter& emitter) {
   const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
-  light.intensity = params_->Get(tokens.intensity, light.intensity);
-  light.exposure = params_->Get(tokens.exposure, light.exposure);
-  light.normalization = params_->Flag(tokens.normalize) == true
-                            ? host::Normalization::kNormalized
-                            : host::Normalization::kUnnormalized;
+  emitter.intensity = params_->Get(tokens.intensity, emitter.intensity);
+  emitter.exposure = params_->Get(tokens.exposure, emitter.exposure);
+  emitter.normalization = params_->Flag(tokens.normalize) == true
+                              ? host::Normalization::kNormalized
+                              : host::Normalization::kUnnormalized;
   const pxr::GfVec3f color =
       params_->Get(tokens.color, pxr::GfVec3f(1.0F, 1.0F, 1.0F));
   std::array<float, 3> rgb = {color.x, color.y, color.z};
@@ -322,7 +324,7 @@ void Reader::ReadEmission(host::Light& light) {
   if (auto converted = ocio::ConvertToAcescg(
           space.IsEmpty() ? kDefaultColorSpace : space.GetString(), rgb);
       converted.has_value()) {
-    light.color.rgb = rgb;
+    emitter.color.rgb = rgb;
   } else {
     Note(LightIssue::kColorNotConverted,
          std::string(converted.error().message()));
@@ -334,7 +336,7 @@ void Reader::ReadEmission(host::Light& light) {
   // of a blackbody's.
   const float kelvin = params_->Get(tokens.colorTemperature, 6500.0F);
   if (kelvin > 0.0F) {
-    light.color_temperature = kelvin;
+    emitter.color_temperature = kelvin;
   } else {
     Note(LightIssue::kNonPositiveTemperature, std::format("{} K", kelvin));
   }
@@ -415,6 +417,10 @@ const pxr::TfTokenVector& LightPrimTypes() {
   return kTypes;
 }
 
+namespace {
+
+// Whether the mesh at `prim_id` is a mesh light: an emissive mesh, its
+// emission authored by UsdLux's MeshLightAPI.
 bool IsMeshLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
   const pxr::HdContainerDataSourceHandle light =
       pxr::HdLightSchema::GetFromParent(PrimDataSource(delegate, prim_id))
@@ -425,6 +431,23 @@ bool IsMeshLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
   const pxr::HdBoolDataSourceHandle is_light =
       pxr::HdBoolDataSource::Cast(light->Get(pxr::HdTokens->isLight));
   return is_light != nullptr && is_light->GetTypedValue(0.0F);
+}
+
+}  // namespace
+
+std::optional<host::Emission> ReadMeshLight(pxr::HdSceneDelegate& delegate,
+                                            const pxr::SdfPath& prim_id,
+                                            std::vector<LightNote>& notes) {
+  if (!IsMeshLight(delegate, prim_id)) {
+    return std::nullopt;
+  }
+  const Params params(delegate, prim_id, PrimDataSource(delegate, prim_id));
+  // The emission has no length: the scale of meters is never read.
+  Reader reader(params, prim_id, 1.0, notes);
+  host::Emission emission;
+  reader.ReadEmission(emission);
+  reader.NoteArtisticControls();
+  return emission;
 }
 
 LightPrim::LightPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
