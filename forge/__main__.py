@@ -228,6 +228,14 @@ def parser() -> argparse.ArgumentParser:
             "Builds, tests and checks Umbra through the CMake presets and"
             " the shared checks, locally and in CI."
         ),
+        epilog=(
+            "Every step is echoed to stderr, prefixed with '+ ', before it"
+            " runs, and a command stops at the first step that fails, with"
+            " its exit status. Under GitHub Actions errors are annotations;"
+            " elsewhere they are 'error:' lines on stderr. The commands"
+            " marked (CI) need the variables of a GitHub Actions run, and"
+            " fail when they are not set."
+        ),
     )
     subcommands = root.add_subparsers(
         dest="name", metavar="COMMAND", required=True
@@ -237,7 +245,9 @@ def parser() -> argparse.ArgumentParser:
         subcommands.add_parser(
             command.name,
             help=command.summary,
-            description=command.summary,
+            description=" ".join(
+                part for part in (command.summary, command.details) if part
+            ),
             parents=[parents[option] for option in command.options],
         ).set_defaults(command=command)
     return root

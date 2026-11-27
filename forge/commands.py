@@ -667,7 +667,8 @@ class Command:
 
     Attributes:
         name: The name given on the command line.
-        summary: What the command does, for its help.
+        summary: What the command does, for the list of commands.
+        details: What its help adds to the summary, if anything.
         steps: Returns the steps of the command for its options.
         options: The command-line options it takes.
     """
@@ -676,6 +677,7 @@ class Command:
     summary: str
     steps: Callable[[Options], list[Step]]
     options: tuple[Option, ...] = ()
+    details: str = ""
 
 
 COMMANDS = (
@@ -697,6 +699,9 @@ COMMANDS = (
         " under compute-sanitizer memcheck and initcheck.",
         check_asan,
         (Option.LABEL, Option.VERBOSE),
+        details=(
+            "--label gpu runs only the tests that need a GPU, on a GPU host."
+        ),
     ),
     Command(
         "check-tsan",
@@ -704,6 +709,10 @@ COMMANDS = (
         " --label, also under compute-sanitizer racecheck and synccheck.",
         check_tsan,
         (Option.LABEL, Option.VERBOSE),
+        details=(
+            "Its UBSan checks are the integer, conversion and nullability ones."
+            " --label gpu runs only the tests that need a GPU, on a GPU host."
+        ),
     ),
     Command(
         "check-rtsan",
@@ -711,6 +720,11 @@ COMMANDS = (
         " nonblocking neither allocate, lock nor block.",
         check_rtsan,
         (Option.VERBOSE,),
+        details=(
+            "A function declared [[clang::nonblocking]] that allocates, locks "
+            "or blocks, itself or through what it calls, inside third-party "
+            "libraries too, aborts its test."
+        ),
     ),
     Command(
         "check-all",
@@ -718,6 +732,7 @@ COMMANDS = (
         " before a pull request.",
         check_all,
         (Option.VERBOSE,),
+        details=("Stops at the first that fails."),
     ),
     Command(
         "coverage",
@@ -725,6 +740,10 @@ COMMANDS = (
         " build/coverage/report.",
         coverage,
         (Option.VERBOSE,),
+        details=(
+            "Clang source-based coverage of umbra's sources, tests excluded, "
+            "for local use: CI does not run it."
+        ),
     ),
     Command(
         "format",
@@ -732,12 +751,20 @@ COMMANDS = (
         " is not formatted instead.",
         format_sources,
         (Option.CHECK,),
+        details=("C++ with clang-format, Python with pyink and isort."),
     ),
     Command(
         "lint",
         "Check without changing any file: validators, formatting, static"
         " analysis.",
         lint,
+        details=(
+            "Runs the validators shared with the git hooks (the file "
+            "validators on every tracked file, the current branch name, the "
+            "commit messages since develop), the formatting check, then "
+            "clang-tidy, the clang-query rules, pylint, actionlint and the "
+            "embedded Python checks."
+        ),
     ),
     Command(
         "clean",
@@ -756,6 +783,11 @@ COMMANDS = (
         " runtime and no CUDA driver.",
         audit,
         (Option.AUDIT_PRESET,),
+        details=(
+            "The debug and release trees have the GPU module; no ELF file "
+            "needs a GCC runtime; none needs the CUDA driver unless it is a "
+            "module loaded at run time."
+        ),
     ),
     Command(
         "pin",
@@ -801,6 +833,11 @@ COMMANDS = (
         " (CI).",
         release_image,
         (Option.IMAGE,),
+        details=(
+            "The contract: user and group 65532, which own /work; its "
+            "entrypoint, command and working directory; no shell, package "
+            "manager or other program. umbra starts in it with no network."
+        ),
     ),
     Command(
         "release-tag",
@@ -808,6 +845,11 @@ COMMANDS = (
         " the release image's tags (CI).",
         release_tag,
         (Option.TAG,),
+        details=(
+            "The tag must be annotated and signed, on main, with the CMake "
+            "project version X.Y.Z; the image's tags are X.Y.Z, X.Y, X and "
+            "latest."
+        ),
     ),
     Command(
         "sbom",
@@ -815,6 +857,11 @@ COMMANDS = (
         " umbra and the submodules in it.",
         sbom,
         (Option.IMAGE, Option.OUTPUT),
+        details=(
+            "SPDX 2.3: the Ubuntu packages come from Chisel's manifest, with"
+            " their copyright files, and each submodule with its tag, commit"
+            " and license."
+        ),
     ),
     Command(
         "sign",
@@ -828,6 +875,7 @@ COMMANDS = (
         "Tag a pushed image in its registry with every given reference.",
         tag_image,
         (Option.PUSHED, Option.TAGS),
+        details=("Each reference points to the image's manifest itself."),
     ),
     Command(
         "layer-image",
@@ -835,12 +883,18 @@ COMMANDS = (
         " (CI).",
         layer_image,
         (Option.LAYER,),
+        details=(
+            "The reference is ghcr.io/<owner>/umbra-<layer>:<tag>, the tag a "
+            "hash of the layer's inputs at HEAD (and of its parent's "
+            "reference); it is written to the step outputs."
+        ),
     ),
     Command(
         "published",
         "Tell whether an image is published in its registry (CI).",
         published,
         (Option.PUBLISHED_REF,),
+        details=("The answer is written to the step output exists."),
     ),
     Command(
         "checkout-submodules",
@@ -848,6 +902,7 @@ COMMANDS = (
         " files their commit time (CI).",
         checkout_submodules,
         (Option.LAYER_OPTION, Option.TOUCH),
+        details=("--touch keeps a cached build tree newer than the sources."),
     ),
     Command(
         "buildkit-cache",
@@ -861,6 +916,10 @@ COMMANDS = (
         "Check that no ELF file under some paths needs a GCC runtime.",
         no_gcc_runtime,
         (Option.PATHS,),
+        details=(
+            "Directly or through its dependencies; every dependency must also "
+            "resolve."
+        ),
     ),
     Command(
         "no-libcuda",
@@ -874,6 +933,9 @@ COMMANDS = (
         "Verify the tools and runtimes of the toolchain image it runs in"
         " (CI).",
         verify_toolchain,
+        details=(
+            "Also checks that its test programs use only the LLVM runtimes."
+        ),
     ),
     Command(
         "pin-devcontainer",
