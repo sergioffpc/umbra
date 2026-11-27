@@ -4,7 +4,8 @@
 // How finely a subdivision surface is tessellated: until its edges look
 // shorter than the dicing rate, in pixels, from the active camera, on the
 // instance closest to it over the shutter
-// (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md).
+// (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md); and the
+// view the subdivided meshes are diced for, from that camera and its images.
 
 #ifndef UMBRA_DELEGATE_DICING_H_
 #define UMBRA_DELEGATE_DICING_H_
@@ -12,8 +13,11 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <vector>
 
+#include "host_copy.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -82,6 +86,29 @@ struct Viewpoint {
     std::span<const Point3> eyes);
 
 }  // namespace umbra::delegate::internal::subdivision
+
+namespace umbra::delegate::internal {
+
+// What subdivided meshes are diced for: the image of the active camera, its
+// positions over the shutter, in meters, and the dicing rate, in pixels
+// (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md). No
+// position when there is no camera: every edge is then one segment.
+struct DicingView {
+  subdivision::ImageScale scale;
+  std::vector<subdivision::Point3> eyes;
+  double rate = 1.0;
+
+  friend bool operator==(const DicingView&, const DicingView&) = default;
+};
+
+// The view of `camera`, sampled over the shutter, whose images are
+// `images`, for a dicing rate of `rate` pixels: its positions, one per
+// motion sample of its transform, and how its images scale a length.
+[[nodiscard]] DicingView DicingViewOf(const host::Camera& camera,
+                                      std::span<const device::Image> images,
+                                      double rate);
+
+}  // namespace umbra::delegate::internal
 
 UMBRA_ASSUME_NONNULL_END
 

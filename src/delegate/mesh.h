@@ -83,18 +83,6 @@ struct ConvertedMesh {
   double longest_edge = 0.0;
 };
 
-// What subdivided meshes are diced for: the image of the active camera, its
-// positions over the shutter, in meters, and the dicing rate, in pixels
-// (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md). No
-// position when there is no camera: every edge is then one segment.
-struct DicingView {
-  subdivision::ImageScale scale;
-  std::vector<subdivision::Point3> eyes;
-  double rate = 1.0;
-
-  friend bool operator==(const DicingView&, const DicingView&) = default;
-};
-
 // Converts `source` into its host copy, with its lengths scaled by
 // `meters_per_unit`: its polygons fanned into triangles, but for its holes,
 // wound counterclockwise (leftHanded ones flipped); its points one array per

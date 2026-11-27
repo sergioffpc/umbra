@@ -2,64 +2,52 @@
 // Copyright The Umbra Authors
 //
 // umbra's side of Hydra (docs/adr/0012-umbra-is-a-hydra-renderer.md): the
-// render delegate, created directly rather than as a plugin, its prims, which
-// convert what they sync into their host copies, and the task that runs in
-// HdEngine::Execute, which syncs, then renders each product through its
-// render pass. Hydra syncs rprims in parallel, each into its own prim. The
-// delegate's CommitResources commits the host copies to the devices, then
-// frees them (docs/adr/0013-devices-render-from-their-own-memory.md).
+// render delegate, created directly rather than as a plugin, which creates
+// the prims, each in a file of its own, that convert what they sync into
+// their host copies. Hydra syncs rprims in parallel, each into its own prim.
+// The delegate's CommitResources commits the host copies to the devices,
+// then frees them (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 #ifndef UMBRA_DELEGATE_HYDRA_H_
 #define UMBRA_DELEGATE_HYDRA_H_
 
-#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/bprim.h>
-#include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/instancer.h>
-#include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/renderIndex.h>
-#include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
 #include <pxr/imaging/hd/rprim.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/sprim.h>
-#include <pxr/imaging/hd/task.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
-#include <cstdint>
 #include <expected>
 #include <functional>
 #include <map>
-#include <memory>
 #include <optional>
 #include <set>
 #include <span>
 #include <string>
-#include <vector>
 
-#include "denoiser.h"
+#include "camera_prim.h"  // IWYU pragma: export
+#include "dicing.h"
 #include "host_copy.h"
 #include "ies_tilt.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
-#include "mesh.h"
-#include "motion_samples.h"
-#include "render_pass.h"
+#include "mesh_prim.h"             // IWYU pragma: export
+#include "render_settings_prim.h"  // IWYU pragma: export
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
-#include "umbra/delegate/session.h"
-#include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "unsupported_prim.h"  // IWYU pragma: export
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -67,394 +55,9 @@ namespace umbra::delegate::internal {
 
 namespace pxr = PXR_NS;
 
-// The components of a Gf vector of 2 or 4 (GfVec2i, GfVec4d, ...), as T,
-// read from its named fields.
-template <typename T, std::size_t N, typename Vector>
-std::array<T, N> Components(const Vector& vector) {
-  static_assert(Vector::dimension == N);
-  if constexpr (N == 2) {
-    return {
-        static_cast<T>(vector.x),
-        static_cast<T>(vector.y),
-    };
-  } else {
-    static_assert(N == 4);
-    return {
-        static_cast<T>(vector.x),
-        static_cast<T>(vector.y),
-        static_cast<T>(vector.z),
-        static_cast<T>(vector.w),
-    };
-  }
-}
-
-// The attributes of a RenderSettings prim that its products inherit, as
-// UsdRender resolves them (with the schema's fallbacks): the implicit
-// product of settings without products takes them.
-struct SettingsBase {
-  std::array<std::int32_t, 2> resolution{2048, 1080};
-  float pixel_aspect_ratio = 1.0F;
-  pxr::TfToken aspect_ratio_conform_policy;
-  std::array<float, 4> data_window_ndc{0.0F, 0.0F, 1.0F, 1.0F};
-  MotionBlur motion_blur = MotionBlur::kEnabled;
-  DepthOfField depth_of_field = DepthOfField::kEnabled;
-};
-
-// The policy of a conformPolicy token: expandAperture, the fallback, for an
-// unknown one.
-[[nodiscard]] AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token);
-
-// The dicing rate of subdivision surfaces, umbra:dicingRate, as a
-// RenderSettings prim authors it.
-struct DicingRate {
-  // In pixels: 1 when it is not authored, or invalid.
-  double pixels = 1.0;
-  // Why it is invalid: it is not a float or double above 0. Empty when it
-  // is valid.
-  std::string invalid;
-};
-
-// A RenderSettings prim, synced: Hydra's flattened products, the attributes
-// they inherit, and the dicing rate.
-class RenderSettingsPrim final : public pxr::HdRenderSettings {
- public:
-  // Counts its sync into `counter`, unless it is a fallback prim.
-  RenderSettingsPrim(const pxr::SdfPath& prim_id,
-                     SyncCounter* UMBRA_NULLABLE counter);
-
-  [[nodiscard]] const SettingsBase& base() const UMBRA_LIFETIMEBOUND {
-    return base_;
-  }
-  [[nodiscard]] const DicingRate& dicing_rate() const UMBRA_LIFETIMEBOUND {
-    return dicing_rate_;
-  }
-  // The camera it names, an empty path for none.
-  [[nodiscard]] pxr::SdfPath CameraPath() const;
-
- protected:
-  // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
-  // name of the method OpenUSD lets render settings override.
-  void _Sync(pxr::HdSceneDelegate* scene_delegate,
-             pxr::HdRenderParam* UMBRA_NULLABLE render_param,
-             const pxr::HdDirtyBits* dirty_bits) override;
-  // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-
- private:
-  SyncCounter* UMBRA_NULLABLE counter_;
-  SettingsBase base_;
-  DicingRate dicing_rate_;
-};
-
-// A Camera prim, synced, with the samples of its transform over its own
-// shutter: the cameras sync before the shutter the render uses is known.
-// Once it is, the commit places the camera: converts it into its host copy,
-// in meters, its transform resampled over that shutter.
-class CameraPrim final : public pxr::HdCamera {
- public:
-  // Counts its sync into `counter`, unless it is a fallback prim; its lengths
-  // are scaled by `meters_per_unit`.
-  CameraPrim(const pxr::SdfPath& prim_id, SyncCounter* UMBRA_NULLABLE counter,
-             double meters_per_unit);
-
-  void Sync(pxr::HdSceneDelegate* scene_delegate,
-            pxr::HdRenderParam* UMBRA_NULLABLE render_param,
-            pxr::HdDirtyBits* dirty_bits) override;
-
-  // Converts it into its host copy, its transform resampled over `shutter`.
-  void Place(const host::Shutter& shutter);
-
-  // It, in meters, its transform resampled over `shutter`.
-  [[nodiscard]] host::Camera Sampled(const host::Shutter& shutter) const;
-
-  // It at the frame, in meters, with the one transform it has at the frame.
-  [[nodiscard]] host::Camera AtFrame() const;
-
-  // Its host copy, once placed.
-  [[nodiscard]] const host::Camera& camera() const UMBRA_LIFETIMEBOUND {
-    return camera_;
-  }
-  // What resampling did with its motion, once placed.
-  [[nodiscard]] MotionOutcome motion_outcome() const { return motion_outcome_; }
-  // Whether it synced since its host copy was last committed.
-  [[nodiscard]] bool IsChanged() const { return changed_ == Changed::kYes; }
-  // Frees its host copy, once committed.
-  void FreeHostCopy();
-
- private:
-  enum class Changed : std::uint8_t { kNo, kYes };
-
-  // It, in meters, with the motion samples of its transform
-  // `camera_to_world`, in scene units.
-  [[nodiscard]] host::Camera Converted(
-      std::span<const pxr::GfMatrix4d> camera_to_world) const;
-
-  SyncCounter* UMBRA_NULLABLE counter_;
-  double meters_per_unit_;
-  Changed changed_ = Changed::kNo;
-  // The samples of its transform over its own shutter, in scene units: its
-  // transform at the frame alone when that shutter spans no interval.
-  TimedSamples<pxr::GfMatrix4d> transform_samples_;
-  MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
-  host::Camera camera_;
-};
-
-// What the sync of a mesh gave.
-enum class MeshState : std::uint8_t {
-  // It was not synced: its purpose is not rendered.
-  kNotSynced,
-  // It is invisible.
-  kInvisible,
-  // It is converted into its host copy, with its instances.
-  kConverted,
-  // It is invalid, and dropped.
-  kInvalid,
-};
-
-// A GeomSubset of a mesh bound to a material.
-struct MaterialSubset {
-  pxr::SdfPath material;
-  // The faces it holds: indices of the mesh's original polygons.
-  std::vector<std::uint32_t> faces;
-};
-
-// Whether a mesh has a displayColor primvar.
-enum class DisplayColor : std::uint8_t {
-  kAbsent,
-  kPresent,
-};
-
-// The change flags of a mesh converted whole: every member of its host copy
-// is given.
-inline constexpr device::ChangeFlags kWholeMesh =
-    device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
-    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
-    device::ChangeFlags::kEmission;
-
-// The dirty bit of a mesh whose MeshLightAPI changed, which Hydra has none
-// of: the delegate maps a change of a mesh's light data source to it.
-inline constexpr pxr::HdDirtyBits kDirtyEmission =
-    pxr::HdChangeTracker::CustomBitsBegin;
-
-// A Mesh prim, synced into its host copy when it is visible and valid,
-// with its instances: those its instancer places, flattened, or one of its
-// own when it has no instancer. Implicit surfaces reach it as meshes. Its
-// points are the output of its ext computation primvar `points` when it has
-// one, as a skinned mesh does. Its points and its transform are sampled over
-// the shutter, and its displayColor converted into ACEScg. Its material is
-// the one bound to it, and its GeomSubsets bound to one keep theirs, each
-// triangle given the index of its material: 0 for its own, i + 1 for that of
-// its i-th subset. A mesh light's emission is read as a light's, and every
-// instance emits it. A mesh that asks for subdivision is placed first, then
-// refined for the dicing view on its closest instance (RefineMesh).
-//
-// A sync that finds it placed, visible with an instance or more, converts
-// only what Hydra marked dirty, as change flags: its transform or its
-// instancer's give kPlacement; its points kPoints, alone, or kPrimvars too
-// when its normals are computed from them; its primvars or its normals
-// kPrimvars, and kMaterials too when it gains or loses a displayColor; its
-// material kMaterials; its topology or its sidedness kTopology, with
-// kPrimvars and kMaterials; and its MeshLightAPI kEmission. A subdivided mesh
-// is refined again when its topology, its subdivision tags, its points, its
-// primvars, its placement or its sidedness are dirty, or when the delegate
-// has it refined for a new dicing view, with kTopology, kPrimvars and
-// kMaterials, and kPlacement when its placement changed. Its host copy then
-// holds only the members those flags name. Any other sync converts all of it.
-class MeshPrim final : public pxr::HdMesh {
- public:
-  // Counts its sync into `counter`; its lengths are scaled by
-  // `meters_per_unit`. `shutter` and `dicing` are chosen before it syncs.
-  MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
-           double meters_per_unit,
-           const host::Shutter& shutter UMBRA_LIFETIMEBOUND,
-           const DicingView& dicing UMBRA_LIFETIMEBOUND);
-
-  [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
-  void Sync(pxr::HdSceneDelegate* delegate,
-            pxr::HdRenderParam* UMBRA_NULLABLE render_param,
-            pxr::HdDirtyBits* dirty_bits, const pxr::TfToken& repr) override;
-
-  [[nodiscard]] MeshState state() const { return state_; }
-  // Whether it is converted, and refined from a subdivision surface.
-  [[nodiscard]] bool IsRefined() const {
-    return state_ == MeshState::kConverted && !subdivision_scheme_.empty();
-  }
-  // The subdivisionScheme it asks for, once synced: empty for none.
-  [[nodiscard]] const std::string& subdivision_scheme() const
-      UMBRA_LIFETIMEBOUND {
-    return subdivision_scheme_;
-  }
-  // Why it is invalid.
-  [[nodiscard]] const std::string& invalid_reason() const UMBRA_LIFETIMEBOUND {
-    return invalid_reason_;
-  }
-  // What sampling did with its motion, once converted.
-  [[nodiscard]] MotionOutcome motion_outcome() const {
-    return std::max(points_outcome_, placement_outcome_);
-  }
-  // What its MeshLightAPI authors that umbra does not take, as of its last
-  // reading of its emission.
-  [[nodiscard]] const std::vector<LightNote>& emission_notes() const
-      UMBRA_LIFETIMEBOUND {
-    return emission_notes_;
-  }
-  // Whether it has a displayColor, once converted.
-  [[nodiscard]] DisplayColor display_color() const { return display_color_; }
-  // What its host copy holds since it was last committed: kWholeMesh when a
-  // sync converted all of it, the members of its updates otherwise, and
-  // kNone when it did not sync since.
-  [[nodiscard]] device::ChangeFlags changes() const { return changes_; }
-  // Its mesh, once converted: the host copy, whose materials the commit
-  // gives.
-  [[nodiscard]] host::Mesh& mesh() UMBRA_LIFETIMEBOUND { return mesh_; }
-  // Its GeomSubsets bound to a material, once converted.
-  [[nodiscard]] const std::vector<MaterialSubset>& material_subsets() const
-      UMBRA_LIFETIMEBOUND {
-    return material_subsets_;
-  }
-  // Its instances, once placed: their object-to-world transforms in meters,
-  // one per motion sample, and their own primvars. None when its instancer
-  // places none.
-  [[nodiscard]] const std::vector<host::Instance>& instances() const
-      UMBRA_LIFETIMEBOUND {
-    return instances_;
-  }
-  // The instances it placed when it was last placed, which its host copy no
-  // longer holds once committed.
-  [[nodiscard]] std::size_t instance_count() const { return instance_count_; }
-  // Frees its host copy, once committed.
-  void FreeHostCopy();
-  // Refines it again for the dicing view, which changed, through the scene
-  // delegate it last synced from: when it is refined and placed, and Hydra
-  // will not sync it for a change that refines it anyway. Hydra syncs the
-  // rprims in parallel only after the tasks, which choose the view; meshes
-  // may refine in parallel, each its own.
-  void RefineForView();
-
- protected:
-  // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
-  // names of the methods OpenUSD has rprims override.
-  [[nodiscard]] pxr::HdDirtyBits _PropagateDirtyBits(
-      pxr::HdDirtyBits bits) const override;
-  void _InitRepr(const pxr::TfToken& repr,
-                 pxr::HdDirtyBits* dirty_bits) override;
-  // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-
- private:
-  // Logs its sync at trace level: with its size when converted whole.
-  void LogSync() const;
-  // Logs its refinement at debug level: its triangles and the longest edge.
-  void LogRefined() const;
-  // Converts all of it.
-  void Convert(pxr::HdSceneDelegate& delegate);
-  // Converts what `bits` mark dirty, once placed.
-  void Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
-  // Refines it again, placed again, once placed: `bits` tell what else
-  // changed.
-  void Refine(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
-  // The flags of an update of what `bits` mark dirty, but its placement,
-  // the members they name converted; none when it turns out invalid.
-  // The members of the host copy that `bits` dirty: kPrimvars with
-  // kPoints when its normals are computed.
-  [[nodiscard]] device::ChangeFlags DirtiedOf(pxr::HdDirtyBits bits) const;
-  // Converts its geometry again, `dirtied` dirty, and gives what changed:
-  // none when it no longer converts.
-  std::optional<device::ChangeFlags> ReconvertGeometry(
-      pxr::HdSceneDelegate& delegate, device::ChangeFlags dirtied);
-  std::optional<device::ChangeFlags> UpdateGeometry(
-      pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
-  // What converting its points alone gave.
-  enum class PointsConversion : std::uint8_t {
-    kConverted,
-    // Their count, or the outcome of their sampling, changed: all of it
-    // must be converted.
-    kWholeNeeded,
-  };
-
-  // Converts its geometry, its primvars and the materials of its triangles:
-  // it is then converted, or invalid. A subdivided mesh is placed first.
-  void ConvertGeometry(pxr::HdSceneDelegate& delegate);
-  // The mesh as the scene delegate gives it, its points sampled over the
-  // shutter; records whether they move.
-  SourceMesh ReadSource(pxr::HdSceneDelegate& delegate);
-  // Converts the display color into the mesh's primvars and records
-  // whether it has one.
-  void ReadDisplayColor(pxr::HdSceneDelegate& delegate);
-  // Converts its points alone.
-  PointsConversion ConvertPointsAlone(pxr::HdSceneDelegate& delegate);
-  // Gives each triangle of its host copy the index of its material, from
-  // its subsets.
-  void AssignTriangleMaterials();
-  // Its instances, from its transform and its instancer's, over the shutter.
-  void Place(pxr::HdSceneDelegate& delegate);
-  // Frees the members of its host copy that its changes do not name.
-  void KeepChanged();
-  // Reads its emission into its host copy, and its notes.
-  void ReadEmission(pxr::HdSceneDelegate& delegate);
-
-  SyncCounter* counter_;
-  double meters_per_unit_;
-  const host::Shutter* shutter_;
-  const DicingView* dicing_;
-  // The scene delegate of its last sync.
-  pxr::HdSceneDelegate* UMBRA_NULLABLE delegate_ = nullptr;
-  MeshState state_ = MeshState::kNotSynced;
-  MotionOutcome points_outcome_ = MotionOutcome::kSampled;
-  MotionOutcome placement_outcome_ = MotionOutcome::kSampled;
-  NormalsSource normals_ = NormalsSource::kAuthored;
-  DisplayColor display_color_ = DisplayColor::kAbsent;
-  std::size_t point_count_ = 0;
-  std::size_t instance_count_ = 0;
-  // The longest edge of its triangles in pixels, when refined.
-  double longest_edge_ = 0.0;
-  device::ChangeFlags changes_ = device::ChangeFlags::kNone;
-  std::string subdivision_scheme_;
-  std::string invalid_reason_;
-  host::Mesh mesh_;
-  std::vector<MaterialSubset> material_subsets_;
-  std::vector<host::Instance> instances_;
-  std::vector<LightNote> emission_notes_;
-};
-
-// An rprim of a type umbra does not take (basisCurves, points, volume):
-// synced only to be counted, so that it is reported.
-class UnsupportedPrim final : public pxr::HdRprim {
- public:
-  // Counts its sync into `counter`.
-  UnsupportedPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
-                  SyncCounter& counter);
-
-  [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
-  void Sync(pxr::HdSceneDelegate* delegate,
-            pxr::HdRenderParam* UMBRA_NULLABLE render_param,
-            pxr::HdDirtyBits* dirty_bits, const pxr::TfToken& repr) override;
-  [[nodiscard]] const pxr::TfTokenVector& GetBuiltinPrimvarNames()
-      const override;
-
-  [[nodiscard]] const pxr::TfToken& type() const UMBRA_LIFETIMEBOUND {
-    return type_;
-  }
-  // Whether Hydra synced it: whether its purpose is rendered.
-  [[nodiscard]] bool IsSynced() const { return synced_ == Synced::kSynced; }
-
- protected:
-  // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
-  // names of the methods OpenUSD has rprims override.
-  [[nodiscard]] pxr::HdDirtyBits _PropagateDirtyBits(
-      pxr::HdDirtyBits bits) const override;
-  void _InitRepr(const pxr::TfToken& repr,
-                 pxr::HdDirtyBits* dirty_bits) override;
-  // NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-
- private:
-  enum class Synced : std::uint8_t { kNotSynced, kSynced };
-
-  pxr::TfToken type_;
-  SyncCounter* counter_;
-  Synced synced_ = Synced::kNotSynced;
-};
-
 // The prims the delegate synced, by path, as CommitResources sees them, and
-// the shutter they were sampled over.
+// the shutter they were sampled over. Their headers come with this one,
+// which the commit reads them through.
 struct SyncedPrims {
   host::Shutter shutter;
   DicingView dicing;
@@ -603,77 +206,6 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   SyncedPrims prims_;
   std::size_t commits_ = 0;
   std::optional<std::expected<Committed, core::Error>> committed_;
-};
-
-// The render buffers of a rendered product: one per var, in its order, then
-// one per input of its denoise (color, albedo, normal) it has no var of,
-// which no file holds.
-using ProductBuffers = std::vector<std::unique_ptr<RenderBuffer>>;
-
-// The task of umbra's that runs in HdEngine::Execute. It syncs the rprims of
-// the purposes the settings include, over the shutter it chooses. Once the
-// delegate has committed, it calls the callback it is given, then renders
-// each product of the settings committed through a render pass of its own,
-// into render buffers it creates, sized to the product's data window: one
-// per var, whose AOV is AovName of its source, and, for a product with a
-// denoisedColor var, one per input of the denoise it has no var of. The
-// buffers live until the next Execute. The denoiser of the denoisedColor
-// vars is created for the first product that has one, and serves every
-// later product and frame.
-class RenderTask final : public pxr::HdTask {
- public:
-  // Syncs the prims of the render index whose render delegate is
-  // `delegate`, denoises on `denoise_device`, and shows the products on
-  // `display`, if any, which outlives it.
-  RenderTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-             pxr::SdfPath settings, DenoiseDevice denoise_device,
-             Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND);
-
-  // What Execute calls once the delegate has committed, before it renders.
-  void SetOnCommitted(std::function<void()> on_committed);
-
-  void Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE delegate,
-            pxr::HdTaskContext* context, pxr::HdDirtyBits* dirty_bits) override;
-  void Prepare(pxr::HdTaskContext* context, pxr::HdRenderIndex* index) override;
-  void Execute(pxr::HdTaskContext* context) override;
-  [[nodiscard]] const pxr::TfTokenVector& GetRenderTags() const override;
-
-  // What the last Execute rendered: fails with the error of the product that
-  // failed, which stops the render. None when the commit failed, or before
-  // Execute.
-  [[nodiscard]] std::optional<std::expected<void, core::Error>> TakeResult();
-
-  // The render buffers of each product rendered last, in the settings'
-  // order.
-  [[nodiscard]] std::span<const ProductBuffers> buffers() const
-      UMBRA_LIFETIMEBOUND {
-    return buffers_;
-  }
-
- private:
-  // Renders each product of `committed`.
-  [[nodiscard]] std::expected<void, core::Error> Render(
-      const Committed& committed);
-  // Renders the `index`th product of `committed`, once the passes are
-  // created.
-  [[nodiscard]] std::expected<void, core::Error> RenderOne(
-      const Committed& committed, std::size_t index);
-  // The denoiser of `product`, created if it is not yet: null when it has
-  // no denoisedColor var.
-  [[nodiscard]] std::expected<Denoiser * UMBRA_NULLABLE, core::Error>
-  DenoiserOf(const RenderProduct& product);
-
-  RenderDelegate* delegate_;
-  pxr::SdfPath settings_;
-  DenoiseDevice denoise_device_;
-  std::unique_ptr<Denoiser> denoiser_;
-  pxr::TfTokenVector render_tags_;
-  pxr::HdRenderIndex* UMBRA_NULLABLE index_ = nullptr;
-  std::function<void()> on_committed_;
-  Display* UMBRA_NULLABLE display_;
-  std::vector<std::shared_ptr<RenderPass>> passes_;
-  std::vector<ProductBuffers> buffers_;
-  std::optional<std::expected<void, core::Error>> result_;
 };
 
 }  // namespace umbra::delegate::internal

@@ -25,7 +25,14 @@ Sources (`src/delegate/`):
 
 - `session.cc`: the session: the stage, the scene indices from it to the
   render index, and the render index on the delegate.
-- `hydra.h`: the render delegate, its prims and the render task.
+- `hydra.h`: the render delegate, which creates the prims, chooses the
+  shutter and the dicing view, places the lights, and commits.
+- `render_task.h`: the task that runs in HdEngine::Execute: it syncs, then
+  renders each product through its render pass, into the render buffers
+  it creates.
+- `render_settings_prim.h`, `camera_prim.h`, `mesh_prim.h`,
+  `unsupported_prim.h`: the RenderSettings, Camera and Mesh prims, and the
+  rprims of the types umbra does not take, which are only counted.
 - `mesh.h`, `instancer.h`, `light.h`, `material.h`: the prims' sync into
   their host copies (`host_copy.h`).
 - `commit.h`, `views.h`: the commit of the host copies to the devices, as
@@ -39,6 +46,6 @@ Sources (`src/delegate/`):
 - `ies_profile.h`, `ies_tilt.h`: IES profiles and their TILT data.
 - `motion.h`, `motion_samples.h`: motion within the shutter.
 - `subdivision.h`, `dicing.h`: the refinement of subdivision surfaces
-  through OpenSubdiv, diced to the dicing rate
-  (`docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md`).
+  through OpenSubdiv, diced to the dicing rate for the view of the active
+  camera (`docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md`).
 - `sync_counter.h`: the phase the prims count their syncs into.
