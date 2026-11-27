@@ -9,6 +9,9 @@ light and shadow linking (docs/adr/0009-lights-light-everything.md):
   of an area light along its normal and tint what falls outside it;
 - `shaping:cone:softness`, which fades the emission towards the edge of
   the cone;
+- `shaping:ies:angleScale`, which remaps the angles of an IES profile into
+  a distribution that no fixture emits, without conserving its power: a
+  narrower beam is another optic, measured in another IES file;
 - `ShadowAPI`'s `shadow:enable`, `shadow:color`, `shadow:distance`,
   `shadow:falloff` and `shadow:falloffGamma`, which turn off, tint or fade
   a light's shadows.
@@ -33,5 +36,6 @@ reports the lights that author it, with their count and the first.
   state.
 - A stage lit for another renderer with these controls renders differently
   in umbra: a light lights the lobe it was kept from, a focused light
-  spreads as UsdLux's unfocused emission, a soft cone ends sharply, and
-  shadows fall where the artist removed or tinted them.
+  spreads as UsdLux's unfocused emission, a soft cone ends sharply, an IES
+  profile keeps the beam it was measured with, and shadows fall where the
+  artist removed or tinted them.

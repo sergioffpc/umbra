@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ies_profile.h"
 #include "instancer.h"
 #include "material.h"
 #include "mesh.h"
@@ -180,7 +181,7 @@ class Reader {
   // Reads its emission into `light`: intensity, exposure, normalization,
   // color and color temperature.
   void ReadEmission(host::Light& light);
-  // Reads its cone into `light`, noting its filters and IES profile.
+  // Reads its cone and its IES profile into `light`, noting its filters.
   void ReadShaping(host::Light& light);
   // Notes the controls umbra does not take
   // (docs/adr/0010-lights-are-physical.md).
@@ -199,6 +200,13 @@ class Reader {
   // none or it is not read.
   std::optional<host::Texture> Texture();
   host::Light::Dome Dome();
+  // The light's IES profile; none when it has none or it is not read.
+  std::optional<host::IesProfile> IesProfile();
+  // The file of its IES profile, empty when it has none.
+  [[nodiscard]] pxr::SdfAssetPath IesFile() const {
+    return params_->Get(pxr::HdLightTokens->shapingIesFile,
+                        pxr::SdfAssetPath());
+  }
 
   const Params* params_;
   pxr::SdfPath prim_id_;
@@ -340,11 +348,30 @@ void Reader::ReadShaping(host::Light& light) {
   if (!params_->Get(pxr::HdTokens->filters, pxr::SdfPathVector()).empty()) {
     Note(LightIssue::kFilters);
   }
-  if (!params_->Get(tokens.shapingIesFile, pxr::SdfAssetPath())
-           .GetAssetPath()
-           .empty()) {
-    Note(LightIssue::kIesProfile);
+  light.ies_profile = IesProfile();
+}
+
+std::optional<host::IesProfile> Reader::IesProfile() {
+  const pxr::HdLightTokens_StaticTokenType& tokens = *pxr::HdLightTokens;
+  const pxr::SdfAssetPath asset = IesFile();
+  if (asset.GetAssetPath().empty()) {
+    return std::nullopt;
   }
+  if (asset.GetResolvedPath().empty()) {
+    Note(LightIssue::kIesProfileNotRead,
+         std::format("{} does not resolve", asset.GetAssetPath()));
+    return std::nullopt;
+  }
+  auto profile = ReadIesProfile(asset.GetResolvedPath());
+  if (!profile.has_value()) {
+    Note(LightIssue::kIesProfileNotRead,
+         std::format("{}: {}", asset.GetAssetPath(), profile.error()));
+    return std::nullopt;
+  }
+  profile->normalization = params_->Flag(tokens.shapingIesNormalize) == true
+                               ? host::Normalization::kNormalized
+                               : host::Normalization::kUnnormalized;
+  return std::move(*profile);
 }
 
 void Reader::NoteArtisticControls() {
@@ -360,6 +387,11 @@ void Reader::NoteArtisticControls() {
   if (params_->Get(tokens.shapingConeSoftness, 0.0F) != 0.0F &&
       params_->Get(tokens.shapingConeAngle, 180.0F) < 180.0F) {
     Note(LightIssue::kConeSoftness);
+  }
+  // The angle scale has no effect without a profile.
+  if (params_->Get(tokens.shapingIesAngleScale, 0.0F) != 0.0F &&
+      !IesFile().GetAssetPath().empty()) {
+    Note(LightIssue::kIesAngleScale);
   }
   const pxr::GfVec3f black(0.0F);
   if (params_->Flag(tokens.shadowEnable) == false ||
