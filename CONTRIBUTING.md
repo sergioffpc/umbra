@@ -368,6 +368,17 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   `include/umbra/ext/`) may enable RTTI or exceptions or include the headers
   of libraries that need them. They expose only umbra types and convert
   exceptions to `std::expected`.
+- A bridge is a thin layer over its dependency. It holds only RAII owners
+  of the dependency's handles, the translation of its errors, exceptions and
+  callbacks into `std::expected` and the log, redeclarations of the functions
+  the hot path calls with their effects, and conversions between its types
+  and umbra's. umbra's logic (algorithms, policies, the choice of a device)
+  lives outside `src/ext/`, in the module that uses the bridge.
+- Code outside `src/ext/` calls a dependency only through its bridge. The
+  two exceptions are the render delegate, which includes Hydra's headers to
+  derive from its classes, and the GPU device's programs, which call OptiX's
+  device intrinsics. Review checks this rule; no tool does
+  (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
 
 ### Memory and ownership
 
