@@ -155,10 +155,11 @@ struct CommitScene {
 // Commits to `devices` what changed in the synced prims since the commit
 // `ledger` records, and records this one, reading `scene`. Fails with kNotFound
 // when no RenderSettings prim is at the settings' path, and kInvalidArgument
-// when the settings or a product have no camera or one that is not a Camera, a
-// product has no orderedVars or none umbra renders, or a product's file is not
-// .exr; kUnavailable when a file cannot be written. Unsupported render vars are
-// left out, with one warning.
+// when the settings author an invalid umbra:dicingRate, when the settings or a
+// product have no camera or one that is not a Camera, a product has no
+// orderedVars or none umbra renders, or a product's file is not .exr;
+// kUnavailable when a file cannot be written. Unsupported render vars are left
+// out, with one warning.
 //
 // The cameras committed are those the settings and their products see
 // through: added when they first do, updated when they synced or the
@@ -179,8 +180,8 @@ struct CommitScene {
 // Fails with kInvalidArgument when one of the materials reads a texture or
 // shader inside a package, or a light a texture. One warning each reports
 // the materials that do not translate, the textures that do not resolve,
-// the materials that connect each terminal but the surface, the meshes
-// that ask for a subdivision scheme, the invalid ones, the rprims of each
+// the materials that connect each terminal but the surface, the invalid
+// meshes, the rprims of each
 // type not supported, the lights of each type not supported, the
 // PortalLights no dome light targets, the dome lights that target a prim
 // that is not a PortalLight as a portal, each issue of the lights and of

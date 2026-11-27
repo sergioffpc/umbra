@@ -14,6 +14,7 @@
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/pxOsd/subdivTags.h>
 #include <pxr/pxr.h>
 
 #include <array>
@@ -24,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "dicing.h"
 #include "host_copy.h"
 #include "umbra/core/safety.h"
 
@@ -49,6 +51,8 @@ struct SourcePrimvar {
 struct SourceMesh {
   std::string path;
   pxr::HdMeshTopology topology;
+  // Its creases, corners and interpolation rules, for subdivision.
+  pxr::PxOsdSubdivTags subdiv_tags;
   // Its points at the frame.
   pxr::VtValue points;
   // The motion samples of its points, each as long as `points`, when they
@@ -74,6 +78,21 @@ enum class NormalsSource : std::uint8_t {
 struct ConvertedMesh {
   host::Mesh mesh;
   NormalsSource normals = NormalsSource::kAuthored;
+  // The longest edge of its triangles, in pixels, measured as the dicing
+  // rate is, when it is subdivided; 0 otherwise.
+  double longest_edge = 0.0;
+};
+
+// What subdivided meshes are diced for: the image of the active camera, its
+// positions over the shutter, in meters, and the dicing rate, in pixels
+// (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md). No
+// position when there is no camera: every edge is then one segment.
+struct DicingView {
+  subdivision::ImageScale scale;
+  std::vector<subdivision::Point3> eyes;
+  double rate = 1.0;
+
+  friend bool operator==(const DicingView&, const DicingView&) = default;
 };
 
 // Converts `source` into its host copy, with its lengths scaled by
@@ -88,6 +107,23 @@ struct ConvertedMesh {
 // size does not match its interpolation.
 [[nodiscard]] std::expected<ConvertedMesh, std::string> ConvertMesh(
     const SourceMesh& source, double meters_per_unit);
+
+// Converts `source`, a mesh that asks for subdivision, into its host copy,
+// with its lengths scaled by `meters_per_unit`: its limit surface, refined
+// through OpenSubdiv into triangles whose edges look shorter than the dicing
+// rate of `view` on the closest of `instances`, with its creases, corners,
+// holes and interpolation rules (subdivision::Refine). Its points are one
+// array per motion sample; its normals, at each corner of a face's
+// tessellation, are the limit surface's, at the frame; its vertex and
+// varying primvars are refined as its points are, smoothly and linearly,
+// its face-varying ones as faceVaryingLinearInterpolation says, and its
+// uniform and constant ones kept, per source face and whole. Its authored
+// normals are ignored, and its primvars of integers but uniform and
+// constant ones dropped with a debug message. Fails as ConvertMesh does,
+// and with the reason OpenSubdiv cannot refine it.
+[[nodiscard]] std::expected<ConvertedMesh, std::string> RefineMesh(
+    const SourceMesh& source, double meters_per_unit, const DicingView& view,
+    std::span<const host::Instance> instances);
 
 // The points of a mesh, with their lengths scaled by `meters_per_unit`, one
 // array per motion sample: those of `motion`, each as long as `points`,

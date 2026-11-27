@@ -7,8 +7,10 @@
 umbra_add_test(
   umbra_ext_usd_tests
   SOURCES
+  dicing_test.cc
   ies_tilt_test.cc
   motion_samples_test.cc
+  "${PROJECT_SOURCE_DIR}/src/ext/usd/dicing.cc"
   "${PROJECT_SOURCE_DIR}/src/ext/usd/ies_tilt.cc"
   "${PROJECT_SOURCE_DIR}/src/ext/usd/motion_samples.cc"
   DEPENDS

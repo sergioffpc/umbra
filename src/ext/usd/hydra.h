@@ -100,8 +100,22 @@ struct SettingsBase {
   DepthOfField depth_of_field = DepthOfField::kEnabled;
 };
 
-// A RenderSettings prim, synced: Hydra's flattened products, and the
-// attributes they inherit.
+// The policy of a conformPolicy token: expandAperture, the fallback, for an
+// unknown one.
+[[nodiscard]] AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token);
+
+// The dicing rate of subdivision surfaces, umbra:dicingRate, as a
+// RenderSettings prim authors it.
+struct DicingRate {
+  // In pixels: 1 when it is not authored, or invalid.
+  double pixels = 1.0;
+  // Why it is invalid: it is not a float or double above 0. Empty when it
+  // is valid.
+  std::string invalid;
+};
+
+// A RenderSettings prim, synced: Hydra's flattened products, the attributes
+// they inherit, and the dicing rate.
 class RenderSettingsPrim final : public pxr::HdRenderSettings {
  public:
   // Counts its sync into `counter`, unless it is a fallback prim.
@@ -110,6 +124,9 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
 
   [[nodiscard]] const SettingsBase& base() const UMBRA_LIFETIMEBOUND {
     return base_;
+  }
+  [[nodiscard]] const DicingRate& dicing_rate() const UMBRA_LIFETIMEBOUND {
+    return dicing_rate_;
   }
   // The camera it names, an empty path for none.
   [[nodiscard]] pxr::SdfPath CameraPath() const;
@@ -125,6 +142,7 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
  private:
   SyncCounter* UMBRA_NULLABLE counter_;
   SettingsBase base_;
+  DicingRate dicing_rate_;
 };
 
 // A Camera prim, synced, with the samples of its transform over its own
@@ -144,6 +162,9 @@ class CameraPrim final : public pxr::HdCamera {
 
   // Converts it into its host copy, its transform resampled over `shutter`.
   void Place(const host::Shutter& shutter);
+
+  // It, in meters, its transform resampled over `shutter`.
+  [[nodiscard]] host::Camera Sampled(const host::Shutter& shutter) const;
 
   // It at the frame, in meters, with the one transform it has at the frame.
   [[nodiscard]] host::Camera AtFrame() const;
@@ -223,7 +244,8 @@ inline constexpr pxr::HdDirtyBits kDirtyEmission =
 // the one bound to it, and its GeomSubsets bound to one keep theirs, each
 // triangle given the index of its material: 0 for its own, i + 1 for that of
 // its i-th subset. A mesh light's emission is read as a light's, and every
-// instance emits it.
+// instance emits it. A mesh that asks for subdivision is placed first, then
+// refined for the dicing view on its closest instance (RefineMesh).
 //
 // A sync that finds it placed, visible with an instance or more, converts
 // only what Hydra marked dirty, as change flags: its transform or its
@@ -231,15 +253,20 @@ inline constexpr pxr::HdDirtyBits kDirtyEmission =
 // when its normals are computed from them; its primvars or its normals
 // kPrimvars, and kMaterials too when it gains or loses a displayColor; its
 // material kMaterials; its topology or its sidedness kTopology, with
-// kPrimvars and kMaterials; and its MeshLightAPI kEmission. Its host copy then
+// kPrimvars and kMaterials; and its MeshLightAPI kEmission. A subdivided mesh
+// is refined again when its topology, its subdivision tags, its points, its
+// primvars, its placement or its sidedness are dirty, or when the delegate
+// has it refined for a new dicing view, with kTopology, kPrimvars and
+// kMaterials, and kPlacement when its placement changed. Its host copy then
 // holds only the members those flags name. Any other sync converts all of it.
 class MeshPrim final : public pxr::HdMesh {
  public:
   // Counts its sync into `counter`; its lengths are scaled by
-  // `meters_per_unit`. `shutter` is chosen before it syncs.
+  // `meters_per_unit`. `shutter` and `dicing` are chosen before it syncs.
   MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
            double meters_per_unit,
-           const host::Shutter& shutter UMBRA_LIFETIMEBOUND);
+           const host::Shutter& shutter UMBRA_LIFETIMEBOUND,
+           const DicingView& dicing UMBRA_LIFETIMEBOUND);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* delegate,
@@ -247,6 +274,10 @@ class MeshPrim final : public pxr::HdMesh {
             pxr::HdDirtyBits* dirty_bits, const pxr::TfToken& repr) override;
 
   [[nodiscard]] MeshState state() const { return state_; }
+  // Whether it is converted, and refined from a subdivision surface.
+  [[nodiscard]] bool IsRefined() const {
+    return state_ == MeshState::kConverted && !subdivision_scheme_.empty();
+  }
   // The subdivisionScheme it asks for, once synced: empty for none.
   [[nodiscard]] const std::string& subdivision_scheme() const
       UMBRA_LIFETIMEBOUND {
@@ -292,6 +323,12 @@ class MeshPrim final : public pxr::HdMesh {
   [[nodiscard]] std::size_t instance_count() const { return instance_count_; }
   // Frees its host copy, once committed.
   void FreeHostCopy();
+  // Refines it again for the dicing view, which changed, through the scene
+  // delegate it last synced from: when it is refined and placed, and Hydra
+  // will not sync it for a change that refines it anyway. Hydra syncs the
+  // rprims in parallel only after the tasks, which choose the view; meshes
+  // may refine in parallel, each its own.
+  void RefineForView();
 
  protected:
   // NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the
@@ -305,10 +342,15 @@ class MeshPrim final : public pxr::HdMesh {
  private:
   // Logs its sync at trace level: with its size when converted whole.
   void LogSync() const;
+  // Logs its refinement at debug level: its triangles and the longest edge.
+  void LogRefined() const;
   // Converts all of it.
   void Convert(pxr::HdSceneDelegate& delegate);
   // Converts what `bits` mark dirty, once placed.
   void Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
+  // Refines it again, placed again, once placed: `bits` tell what else
+  // changed.
+  void Refine(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits);
   // The flags of an update of what `bits` mark dirty, but its placement,
   // the members they name converted; none when it turns out invalid.
   // The members of the host copy that `bits` dirty: kPrimvars with
@@ -329,8 +371,14 @@ class MeshPrim final : public pxr::HdMesh {
   };
 
   // Converts its geometry, its primvars and the materials of its triangles:
-  // it is then converted, or invalid.
+  // it is then converted, or invalid. A subdivided mesh is placed first.
   void ConvertGeometry(pxr::HdSceneDelegate& delegate);
+  // The mesh as the scene delegate gives it, its points sampled over the
+  // shutter; records whether they move.
+  SourceMesh ReadSource(pxr::HdSceneDelegate& delegate);
+  // Converts the display color into the mesh's primvars and records
+  // whether it has one.
+  void ReadDisplayColor(pxr::HdSceneDelegate& delegate);
   // Converts its points alone.
   PointsConversion ConvertPointsAlone(pxr::HdSceneDelegate& delegate);
   // Gives each triangle of its host copy the index of its material, from
@@ -346,6 +394,9 @@ class MeshPrim final : public pxr::HdMesh {
   SyncCounter* counter_;
   double meters_per_unit_;
   const host::Shutter* shutter_;
+  const DicingView* dicing_;
+  // The scene delegate of its last sync.
+  pxr::HdSceneDelegate* UMBRA_NULLABLE delegate_ = nullptr;
   MeshState state_ = MeshState::kNotSynced;
   MotionOutcome points_outcome_ = MotionOutcome::kSampled;
   MotionOutcome placement_outcome_ = MotionOutcome::kSampled;
@@ -353,6 +404,8 @@ class MeshPrim final : public pxr::HdMesh {
   DisplayColor display_color_ = DisplayColor::kAbsent;
   std::size_t point_count_ = 0;
   std::size_t instance_count_ = 0;
+  // The longest edge of its triangles in pixels, when refined.
+  double longest_edge_ = 0.0;
   device::ChangeFlags changes_ = device::ChangeFlags::kNone;
   std::string subdivision_scheme_;
   std::string invalid_reason_;
@@ -404,6 +457,7 @@ class UnsupportedPrim final : public pxr::HdRprim {
 // the shutter they were sampled over.
 struct SyncedPrims {
   host::Shutter shutter;
+  DicingView dicing;
   std::map<pxr::SdfPath, const RenderSettingsPrim*> settings;
   std::map<pxr::SdfPath, CameraPrim*> cameras;
   std::map<pxr::SdfPath, MaterialPrim*> materials;
@@ -466,6 +520,14 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // and the rprims and the instancers that sync after it are sampled over it.
   void ChooseShutter(const pxr::SdfPath& settings);
 
+  // Chooses the view the subdivided meshes are diced for, once the shutter
+  // is chosen: the settings' camera over the shutter, its image, the
+  // largest of those of the products that see through it, and the settings'
+  // dicing rate. When the view changes, every refined mesh is refined again
+  // (MeshPrim::RefineForView), in parallel. Hydra cannot be asked to sync
+  // them: it takes no invalidation while it syncs.
+  void ChooseDicing(const pxr::SdfPath& settings);
+
   // Places the lights that synced since the last commit over the shutter
   // chosen, hiding those whose render tag is not in `render_tags`, then
   // finds the portals the domes guide. When a portal becomes guided, or no
@@ -518,6 +580,8 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
  private:
   // The shutter of `settings`: see ChooseShutter.
   [[nodiscard]] host::Shutter ShutterOf(const pxr::SdfPath& settings) const;
+  // The dicing view of `settings`: see ChooseDicing.
+  [[nodiscard]] DicingView DicingOf(const pxr::SdfPath& settings) const;
   // Counts the rprims Hydra did not sync into the counter's phase, which then
   // ends complete.
   void CountNotSynced();
