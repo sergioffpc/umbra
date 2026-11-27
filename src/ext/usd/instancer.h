@@ -24,6 +24,7 @@
 
 #include "host_copy.h"
 #include "motion.h"
+#include "motion_samples.h"
 #include "sync_counter.h"
 #include "umbra/core/safety.h"
 

@@ -42,7 +42,7 @@
 #include "hydra.h"
 #include "light.h"
 #include "material.h"
-#include "motion.h"
+#include "motion_samples.h"
 #include "outputs.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
@@ -131,7 +131,7 @@ class MotionTallies {
 
   // "warning: usd: 3 prims change topology within the shutter, rendered
   // without motion blur (first /World/fluid)", and "warning: usd: 2 prims
-  // have more than 16 motion samples within the shutter, resampled down to
+  // have more than 16 motion samples over the shutter, resampled down to
   // 16 (first /World/sim)".
   void Report(Warnings& warnings) const {
     if (changing_.count() > 0) {
@@ -144,7 +144,7 @@ class MotionTallies {
     }
     if (resampled_.count() > 0) {
       warnings.Warn(std::format(
-          "{} {} more than {} motion samples within the "
+          "{} {} more than {} motion samples over the "
           "shutter, resampled down to {} ({})",
           resampled_.count(),
           Plural(resampled_.count(), "prim has", "prims have"),

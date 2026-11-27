@@ -4,3 +4,4 @@
 # GoogleTest tests, one directory per module, mirroring src/.
 
 add_subdirectory(core)
+add_subdirectory(ext/usd)
