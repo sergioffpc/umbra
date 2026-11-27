@@ -67,6 +67,7 @@
 #include <utility>
 #include <vector>
 
+#include "denoiser.h"
 #include "dicing.h"
 #include "host_copy.h"
 #include "ies_tilt.h"
@@ -87,7 +88,6 @@
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/device/image.h"
-#include "umbra/ext/oidn/oidn.h"
 
 namespace umbra::delegate::internal {
 namespace {
@@ -1504,7 +1504,7 @@ pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
 }  // namespace
 
 RenderTask::RenderTask(RenderDelegate& delegate, pxr::SdfPath settings,
-                       ext::oidn::DenoiseDevice denoise_device,
+                       DenoiseDevice denoise_device,
                        Display* UMBRA_NULLABLE display)
     : pxr::HdTask(TaskPath()),
       delegate_(&delegate),
@@ -1554,13 +1554,13 @@ std::optional<std::expected<void, core::Error>> RenderTask::TakeResult() {
   return std::exchange(result_, std::nullopt);
 }
 
-std::expected<ext::oidn::Denoiser * UMBRA_NULLABLE, core::Error>
-RenderTask::DenoiserOf(const RenderProduct& product) {
+std::expected<Denoiser * UMBRA_NULLABLE, core::Error> RenderTask::DenoiserOf(
+    const RenderProduct& product) {
   if (!HasVar(product, RenderVarSource::kDenoisedColor)) {
     return nullptr;
   }
   if (denoiser_ == nullptr) {
-    auto created = ext::oidn::Denoiser::Create(denoise_device_);
+    auto created = Denoiser::Create(denoise_device_);
     if (!created.has_value()) {
       return std::unexpected(std::move(created.error()));
     }

@@ -27,6 +27,7 @@ umbra_add_module(
   EXCEPTIONS
   SOURCES
   commit.cc
+  denoiser.cc
   dicing.cc
   host_copy.cc
   hydra.cc

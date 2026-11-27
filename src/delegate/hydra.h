@@ -44,6 +44,7 @@
 #include <string>
 #include <vector>
 
+#include "denoiser.h"
 #include "host_copy.h"
 #include "ies_tilt.h"
 #include "instancer.h"
@@ -59,7 +60,6 @@
 #include "umbra/delegate/session.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
-#include "umbra/ext/oidn/oidn.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -626,7 +626,7 @@ class RenderTask final : public pxr::HdTask {
   // `delegate`, denoises on `denoise_device`, and shows the products on
   // `display`, if any, which outlives it.
   RenderTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-             pxr::SdfPath settings, ext::oidn::DenoiseDevice denoise_device,
+             pxr::SdfPath settings, DenoiseDevice denoise_device,
              Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND);
 
   // What Execute calls once the delegate has committed, before it renders.
@@ -660,13 +660,13 @@ class RenderTask final : public pxr::HdTask {
       const Committed& committed, std::size_t index);
   // The denoiser of `product`, created if it is not yet: null when it has
   // no denoisedColor var.
-  [[nodiscard]] std::expected<ext::oidn::Denoiser * UMBRA_NULLABLE, core::Error>
+  [[nodiscard]] std::expected<Denoiser * UMBRA_NULLABLE, core::Error>
   DenoiserOf(const RenderProduct& product);
 
   RenderDelegate* delegate_;
   pxr::SdfPath settings_;
-  ext::oidn::DenoiseDevice denoise_device_;
-  std::unique_ptr<ext::oidn::Denoiser> denoiser_;
+  DenoiseDevice denoise_device_;
+  std::unique_ptr<Denoiser> denoiser_;
   pxr::TfTokenVector render_tags_;
   pxr::HdRenderIndex* UMBRA_NULLABLE index_ = nullptr;
   std::function<void()> on_committed_;
