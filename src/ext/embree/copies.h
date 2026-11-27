@@ -62,7 +62,7 @@ class UMBRA_OWNER Storage {
              Pool<device::Instance>, Pool<std::span<const device::Float3>>,
              Pool<device::MaterialId>, Pool<device::MaterialNode>,
              Pool<device::Parameter>, Pool<device::Connection>,
-             Pool<std::string_view>>
+             Pool<std::string_view>, Pool<device::LightId>>
       pools_;
 };
 
@@ -82,6 +82,7 @@ struct PrototypeCopy {
   Storage primvars;
   // kMaterials: its materials and the material of each triangle.
   Storage materials;
+  // kEmission: its emission, held in the view, which needs no storage.
 };
 
 // A light, a camera, a material network or a texture, copied whole.

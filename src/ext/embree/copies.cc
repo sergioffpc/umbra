@@ -196,6 +196,7 @@ void CopyPrototype(const device::Prototype& prototype, PrototypeCopy& copy) {
   CopyPrimvarsOf(prototype, copy);
   CopyMaterials(prototype, copy);
   CopyPlacement(prototype, copy);
+  copy.view.emission = prototype.emission;
 }
 
 void UpdatePrototype(const device::UpdatedPrototype& updated,
@@ -216,12 +217,24 @@ void UpdatePrototype(const device::UpdatedPrototype& updated,
   if (HasAny(updated.changes, ChangeFlags::kPlacement)) {
     CopyPlacement(prototype, copy);
   }
+  if (HasAny(updated.changes, ChangeFlags::kEmission)) {
+    copy.view.emission = prototype.emission;
+  }
 }
 
 device::Light CopyOf(const device::Light& light, Storage& storage) {
   device::Light copy = light;
   copy.path = storage.Keep(light.path);
   copy.instances = CopyInstances(light.instances, storage);
+  if (auto* dome = std::get_if<device::Light::Dome>(&copy.shape)) {
+    dome->portals = storage.Keep(dome->portals);
+  }
+  if (copy.ies_profile.has_value()) {
+    device::IesProfile& profile = *copy.ies_profile;
+    profile.vertical_angles = storage.Keep(profile.vertical_angles);
+    profile.horizontal_angles = storage.Keep(profile.horizontal_angles);
+    profile.candelas = storage.Keep(profile.candelas);
+  }
   return copy;
 }
 
