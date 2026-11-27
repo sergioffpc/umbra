@@ -3,27 +3,13 @@
 
 #include "support.h"
 
-#include <atomic>
-#include <string_view>
-
-#include "umbra/core/log.h"
-#include "umbra/device/gpu/module_abi.h"
+#include "umbra/core/log_hook.h"
 
 namespace umbra::device::gpu::backend {
 
-LogState& Logging() {
-  static LogState state;
-  return state;
-}
-
-void LogFromBridge(core::LogLevel level, std::string_view message,
-                   core::LogOrigin origin) {
-  const ModuleLogFunction log = Logging().log.load(std::memory_order_relaxed);
-  if (log == nullptr ||
-      level > Logging().threshold.load(std::memory_order_relaxed)) {
-    return;
-  }
-  log(level, message, origin);
+core::LogHook& Logging() {
+  static core::LogHook hook;
+  return hook;
 }
 
 }  // namespace umbra::device::gpu::backend

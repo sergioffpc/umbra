@@ -14,10 +14,11 @@
 #include <format>
 #include <span>
 #include <string_view>
-#include <utility>
 
 #include "log.h"
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/ext/cuda/conversions.h"
 #include "umbra/ext/cuda/errors.h"
 
@@ -37,27 +38,14 @@ Result<void> CheckFits(std::size_t bytes, std::size_t offset,
 
 }  // namespace
 
-DeviceBuffer::DeviceBuffer(DeviceBuffer&& other) noexcept
-    : address_(std::exchange(other.address_, 0)),
-      size_(std::exchange(other.size_, 0)) {}
-
-DeviceBuffer& DeviceBuffer::operator=(DeviceBuffer&& other) noexcept {
-  if (this != &other) {
-    const DeviceBuffer freed(std::move(*this));
-    address_ = std::exchange(other.address_, 0);
-    size_ = std::exchange(other.size_, 0);
-  }
-  return *this;
-}
-
-DeviceBuffer::~DeviceBuffer() {
-  if (address_ != 0 && cudaFree(PointerOf(address_)) != cudaSuccess) {
+void DeviceBuffer::Free(Memory memory) {
+  if (cudaFree(PointerOf(memory.address)) != cudaSuccess) {
     try {
-      Log(core::LogLevel::kWarning,
-          std::format("CUDA: cannot free {} bytes: {}", size_,
-                      cudaGetErrorString(cudaGetLastError())));
+      Logging().Log(core::LogLevel::kWarning,
+                    std::format("CUDA: cannot free {} bytes: {}", memory.size,
+                                cudaGetErrorString(cudaGetLastError())));
     } catch (const std::exception& error) {
-      Log(core::LogLevel::kWarning, error.what());
+      Logging().Log(core::LogLevel::kWarning, error.what());
     }
   }
 }
@@ -72,7 +60,8 @@ Result<DeviceBuffer> DeviceBuffer::Allocate(std::size_t bytes) {
       !allocated.has_value()) {
     return std::unexpected(allocated.error());
   }
-  return DeviceBuffer(std::bit_cast<CUdeviceptr>(pointer), bytes);
+  return DeviceBuffer(
+      Memory{.address = std::bit_cast<CUdeviceptr>(pointer), .size = bytes});
 }
 
 Result<DeviceBuffer> DeviceBuffer::Upload(std::span<const std::byte> bytes,
@@ -93,10 +82,10 @@ Result<void> DeviceBuffer::Write(std::span<const std::byte> bytes,
   if (bytes.empty()) {
     return {};
   }
-  if (auto fits = CheckFits(bytes.size(), offset, size_); !fits.has_value()) {
+  if (auto fits = CheckFits(bytes.size(), offset, size()); !fits.has_value()) {
     return fits;
   }
-  return Check(cudaMemcpyAsync(PointerOf(address_ + offset), bytes.data(),
+  return Check(cudaMemcpyAsync(PointerOf(address() + offset), bytes.data(),
                                bytes.size(), cudaMemcpyHostToDevice, stream),
                std::format("cannot upload {} bytes", bytes.size()));
 }
@@ -104,26 +93,27 @@ Result<void> DeviceBuffer::Write(std::span<const std::byte> bytes,
 // NOLINTNEXTLINE(readability-make-member-function-const): writes its memory.
 Result<void> DeviceBuffer::CopyFrom(const DeviceBuffer& source,
                                     std::size_t offset, cudaStream_t stream) {
-  if (source.size_ == 0) {
+  if (source.size() == 0) {
     return {};
   }
-  if (auto fits = CheckFits(source.size_, offset, size_); !fits.has_value()) {
+  if (auto fits = CheckFits(source.size(), offset, size()); !fits.has_value()) {
     return fits;
   }
-  return Check(
-      cudaMemcpyAsync(PointerOf(address_ + offset), PointerOf(source.address_),
-                      source.size_, cudaMemcpyDeviceToDevice, stream),
-      std::format("cannot copy {} bytes", source.size_));
+  return Check(cudaMemcpyAsync(PointerOf(address() + offset),
+                               PointerOf(source.address()), source.size(),
+                               cudaMemcpyDeviceToDevice, stream),
+               std::format("cannot copy {} bytes", source.size()));
 }
 
-Stream::~Stream() {
+void Stream::DestroyLogged(cudaStream_t stream) {
   try {
-    if (auto destroyed = Destroy("cannot destroy a stream");
+    if (auto destroyed =
+            Check(cudaStreamDestroy(stream), "cannot destroy a stream");
         !destroyed.has_value()) {
-      Log(core::LogLevel::kWarning, destroyed.error());
+      Logging().Log(core::LogLevel::kWarning, destroyed.error());
     }
   } catch (const std::exception& error) {
-    Log(core::LogLevel::kWarning, error.what());
+    Logging().Log(core::LogLevel::kWarning, error.what());
   }
 }
 
@@ -134,10 +124,10 @@ Result<Stream> Stream::Create(std::string_view what) {
 }
 
 Result<void> Stream::Destroy(std::string_view what) {
-  if (stream_ == nullptr) {
+  if (stream_.get() == nullptr) {
     return {};
   }
-  return Check(cudaStreamDestroy(std::exchange(stream_, nullptr)), what);
+  return Check(cudaStreamDestroy(stream_.release()), what);
 }
 
 }  // namespace umbra::ext::cuda

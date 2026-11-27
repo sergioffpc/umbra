@@ -13,11 +13,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
-#include <memory>
 #include <span>
 #include <string_view>
 
 #include "umbra/core/error.h"
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -38,12 +38,6 @@ class UMBRA_OWNER Device {
   [[nodiscard]] static std::expected<Device, core::Error> CreateCuda(
       int ordinal);
 
-  Device(const Device&) = delete;
-  Device& operator=(const Device&) = delete;
-  Device(Device&& other) noexcept;
-  Device& operator=(Device&& other) noexcept;
-  ~Device();
-
   // Fails with the error OIDN reported for the device, or for what was made
   // through it, since it was last asked, as the failure to `what`:
   // "Open Image Denoise: cannot <what>: <message>". kUnavailable when memory
@@ -54,16 +48,17 @@ class UMBRA_OWNER Device {
   // The threads of a CPU device.
   [[nodiscard]] int threads() const;
 
-  // OIDN's handle, which it owns: the bridge's own type.
-  struct Handle;
-
  private:
   friend class Buffer;
   friend class Filter;
 
-  explicit Device(std::unique_ptr<Handle> handle);
+  // Releases `device`, OIDN's.
+  static void Release(void* device);
 
-  std::unique_ptr<Handle> handle_;
+  explicit Device(void* device) : handle_(device) {}
+
+  // OIDN's device, whose type only the bridge's sources see.
+  core::HandleOwner<void* UMBRA_NULLABLE, &Device::Release> handle_;
 };
 
 // Bytes in the memory of a device, released when it is destroyed. Its
@@ -71,20 +66,14 @@ class UMBRA_OWNER Device {
 class UMBRA_OWNER Buffer {
  public:
   // No buffer.
-  Buffer();
+  Buffer() = default;
 
   // `bytes` bytes, uninitialized, in the memory of `device`; none when the
   // device cannot allocate them.
   [[nodiscard]] static Buffer Create(const Device& device, std::size_t bytes);
 
-  Buffer(const Buffer&) = delete;
-  Buffer& operator=(const Buffer&) = delete;
-  Buffer(Buffer&& other) noexcept;
-  Buffer& operator=(Buffer&& other) noexcept;
-  ~Buffer();
-
   // Whether it holds no buffer.
-  [[nodiscard]] bool IsEmpty() const { return handle_ == nullptr; }
+  [[nodiscard]] bool IsEmpty() const { return handle_.get() == nullptr; }
 
   // Copies `values` to the start of the buffer, and waits until they are.
   // NOLINTNEXTLINE(readability-make-member-function-const): writes its memory.
@@ -93,15 +82,16 @@ class UMBRA_OWNER Buffer {
   // Copies the start of the buffer into `values`, and waits until it is.
   void Read(std::span<float> values) const;
 
-  // OIDN's handle, which it owns: the bridge's own type.
-  struct Handle;
-
  private:
   friend class Filter;
 
-  explicit Buffer(std::unique_ptr<Handle> UMBRA_NULLABLE handle);
+  // Releases `buffer`, OIDN's.
+  static void Release(void* buffer);
 
-  std::unique_ptr<Handle> UMBRA_NULLABLE handle_;
+  explicit Buffer(void* buffer) : handle_(buffer) {}
+
+  // OIDN's buffer, whose type only the bridge's sources see.
+  core::HandleOwner<void* UMBRA_NULLABLE, &Buffer::Release> handle_;
 };
 
 // The format of a pixel of a filter's image.
@@ -142,17 +132,11 @@ using ProgressMonitor = bool (*)(void* UMBRA_NULLABLE user, double fraction)
 class UMBRA_OWNER Filter {
  public:
   // No filter.
-  Filter();
+  Filter() = default;
 
   // A filter of OIDN's type `type` ("RT") on `device`; none when the device
   // cannot create it.
   [[nodiscard]] static Filter Create(const Device& device, const char* type);
-
-  Filter(const Filter&) = delete;
-  Filter& operator=(const Filter&) = delete;
-  Filter(Filter&& other) noexcept;
-  Filter& operator=(Filter&& other) noexcept;
-  ~Filter();
 
   // Sets the bool parameter `name` ("hdr") to true.
   // NOLINTBEGIN(readability-make-member-function-const): they change the
@@ -176,13 +160,14 @@ class UMBRA_OWNER Filter {
   void Execute();
   // NOLINTEND(readability-make-member-function-const)
 
-  // OIDN's handle, which it owns: the bridge's own type.
-  struct Handle;
-
  private:
-  explicit Filter(std::unique_ptr<Handle> UMBRA_NULLABLE handle);
+  // Releases `filter`, OIDN's.
+  static void Release(void* filter);
 
-  std::unique_ptr<Handle> UMBRA_NULLABLE handle_;
+  explicit Filter(void* filter) : handle_(filter) {}
+
+  // OIDN's filter, whose type only the bridge's sources see.
+  core::HandleOwner<void* UMBRA_NULLABLE, &Filter::Release> handle_;
 };
 
 }  // namespace umbra::ext::oidn

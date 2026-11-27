@@ -13,6 +13,12 @@ Public headers (`include/umbra/core/`):
   `std::expected<T, Error>`.
 - `log.h`: the diagnostics on stderr, filtered by level per component, and
   the `UMBRA_LOG_*` macros (see `docs/adr/0002-cli-diagnostics-on-stderr.md`).
+- `log_hook.h`: a log through a function handed over at run time, and the
+  threshold it applies, header-only: the GPU module and the bridges linked
+  into it, which link no umbra module, log through umbra's diagnostics with
+  it.
+- `handle_owner.h`: the owner of a library's handle, which releases it with
+  the library's function, header-only for the same bridges.
 - `progress.h`: the progress of each phase of umbra's work on stderr, in
   place on a terminal and at every 10% otherwise, counted from any thread
   without allocating or locking.

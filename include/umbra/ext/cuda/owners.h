@@ -14,6 +14,7 @@
 #include <string_view>
 #include <utility>
 
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/cuda/errors.h"
 
@@ -27,11 +28,6 @@ namespace umbra::ext::cuda {
 class UMBRA_OWNER DeviceBuffer {
  public:
   DeviceBuffer() = default;
-  DeviceBuffer(const DeviceBuffer&) = delete;
-  DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-  DeviceBuffer(DeviceBuffer&& other) noexcept;
-  DeviceBuffer& operator=(DeviceBuffer&& other) noexcept;
-  ~DeviceBuffer();
 
   // `bytes` bytes, uninitialized; none for 0.
   [[nodiscard]] static Result<DeviceBuffer> Allocate(std::size_t bytes);
@@ -58,15 +54,24 @@ class UMBRA_OWNER DeviceBuffer {
                                       std::size_t offset, cudaStream_t stream);
 
   // Its address on the GPU; 0 when it is empty.
-  [[nodiscard]] CUdeviceptr address() const { return address_; }
-  [[nodiscard]] std::size_t size() const { return size_; }
+  [[nodiscard]] CUdeviceptr address() const { return memory_.get().address; }
+  [[nodiscard]] std::size_t size() const { return memory_.get().size; }
 
  private:
-  DeviceBuffer(CUdeviceptr address, std::size_t size)
-      : address_(address), size_(size) {}
+  // The memory it holds: none when its address is 0.
+  struct Memory {
+    CUdeviceptr address = 0;
+    std::size_t size = 0;
 
-  CUdeviceptr address_ = 0;
-  std::size_t size_ = 0;
+    bool operator==(const Memory&) const = default;
+  };
+
+  // Frees `memory`, and logs a failure.
+  static void Free(Memory memory);
+
+  explicit DeviceBuffer(Memory memory) : memory_(memory) {}
+
+  core::HandleOwner<Memory, &DeviceBuffer::Free> memory_;
 };
 
 // Uploads `values` on `stream` in place of what `buffer` holds.
@@ -84,15 +89,6 @@ template <typename T>
 class UMBRA_OWNER Stream {
  public:
   Stream() = default;
-  Stream(const Stream&) = delete;
-  Stream& operator=(const Stream&) = delete;
-  Stream(Stream&& other) noexcept
-      : stream_(std::exchange(other.stream_, nullptr)) {}
-  Stream& operator=(Stream&& other) noexcept {
-    std::swap(stream_, other.stream_);
-    return *this;
-  }
-  ~Stream();
 
   // A stream of the current GPU.
   [[nodiscard]] static Result<Stream> Create(std::string_view what);
@@ -102,14 +98,15 @@ class UMBRA_OWNER Stream {
   [[nodiscard]] Result<void> Destroy(std::string_view what);
 
   // The stream, which it must hold.
-  [[nodiscard]] cudaStream_t get() const {
-    return static_cast<cudaStream_t>(stream_);
-  }
+  [[nodiscard]] cudaStream_t get() const { return stream_.get(); }
 
  private:
-  explicit Stream(cudaStream_t UMBRA_NULLABLE stream) : stream_(stream) {}
+  // Destroys `stream`, and logs a failure.
+  static void DestroyLogged(cudaStream_t stream);
 
-  cudaStream_t UMBRA_NULLABLE stream_ = nullptr;
+  explicit Stream(cudaStream_t stream) : stream_(stream) {}
+
+  core::HandleOwner<cudaStream_t, &Stream::DestroyLogged> stream_;
 };
 
 }  // namespace umbra::ext::cuda

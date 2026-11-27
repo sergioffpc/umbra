@@ -9,10 +9,9 @@
 
 #include <optix_types.h>
 
-#include <memory>
 #include <string_view>
-#include <utility>
 
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/optix/errors.h"
 
@@ -26,15 +25,6 @@ namespace umbra::ext::optix {
 class UMBRA_OWNER DeviceContext {
  public:
   DeviceContext() = default;
-  DeviceContext(const DeviceContext&) = delete;
-  DeviceContext& operator=(const DeviceContext&) = delete;
-  DeviceContext(DeviceContext&& other) noexcept
-      : context_(std::exchange(other.context_, nullptr)) {}
-  DeviceContext& operator=(DeviceContext&& other) noexcept {
-    std::swap(context_, other.context_);
-    return *this;
-  }
-  ~DeviceContext();
 
   // A context on the current CUDA context, which the CUDA runtime made for
   // the current GPU.
@@ -44,34 +34,27 @@ class UMBRA_OWNER DeviceContext {
   [[nodiscard]] Result<void> Destroy(std::string_view what);
 
   // The context, which it must hold.
-  [[nodiscard]] OptixDeviceContext get() const {
-    return static_cast<OptixDeviceContext>(context_);
-  }
+  [[nodiscard]] OptixDeviceContext get() const { return context_.get(); }
 
  private:
-  explicit DeviceContext(OptixDeviceContext UMBRA_NULLABLE context)
-      : context_(context) {}
+  // Destroys `context`, and logs a failure.
+  static void DestroyLogged(OptixDeviceContext context);
 
-  OptixDeviceContext UMBRA_NULLABLE context_ = nullptr;
+  explicit DeviceContext(OptixDeviceContext context) : context_(context) {}
+
+  core::HandleOwner<OptixDeviceContext, &DeviceContext::DestroyLogged> context_;
 };
 
 // The destroyers of the objects compiled on a context, which ignore a
 // failure: nothing is left to do with an object OptiX cannot destroy.
-struct ModuleDestroyer {
-  void operator()(OptixModule module) const;
-};
-struct ProgramGroupDestroyer {
-  void operator()(OptixProgramGroup group) const;
-};
-struct PipelineDestroyer {
-  void operator()(OptixPipeline pipeline) const;
-};
+void DestroyModule(OptixModule module);
+void DestroyProgramGroup(OptixProgramGroup group);
+void DestroyPipeline(OptixPipeline pipeline);
 
 // A module, a program group and a pipeline, destroyed with their owner.
-using Module = std::unique_ptr<OptixModule_t, ModuleDestroyer>;
-using ProgramGroup =
-    std::unique_ptr<OptixProgramGroup_t, ProgramGroupDestroyer>;
-using Pipeline = std::unique_ptr<OptixPipeline_t, PipelineDestroyer>;
+using Module = core::HandleOwner<OptixModule, DestroyModule>;
+using ProgramGroup = core::HandleOwner<OptixProgramGroup, DestroyProgramGroup>;
+using Pipeline = core::HandleOwner<OptixPipeline, DestroyPipeline>;
 
 }  // namespace umbra::ext::optix
 

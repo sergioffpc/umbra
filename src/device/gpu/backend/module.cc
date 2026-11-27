@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -37,10 +36,9 @@ namespace umbra::device::gpu::backend {
 namespace {
 
 void SetLog(ModuleLogFunction log, core::LogLevel threshold) {
-  Logging().log.store(log, std::memory_order_relaxed);
-  Logging().threshold.store(threshold, std::memory_order_relaxed);
-  ext::cuda::SetLog(LogFromBridge);
-  ext::optix::SetLog(LogFromBridge);
+  Logging().Set(log, threshold);
+  ext::cuda::SetLog(log, threshold);
+  ext::optix::SetLog(log, threshold);
 }
 
 // Copies `text` into `out`, NUL-terminated and truncated to fit.

@@ -10,10 +10,11 @@
 #include <exception>
 #include <format>
 #include <string_view>
-#include <utility>
 
 #include "log.h"
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/optix/errors.h"
 
@@ -32,23 +33,25 @@ void LogFromOptix(unsigned level, const char* UMBRA_NULLABLE tag,
                                          ? core::LogLevel::kWarning
                                          : core::LogLevel::kDebug;
   try {
-    Log(umbra_level, std::format("OptiX: {}: {}", tag == nullptr ? "" : tag,
-                                 message == nullptr ? "" : message));
+    Logging().Log(umbra_level,
+                  std::format("OptiX: {}: {}", tag == nullptr ? "" : tag,
+                              message == nullptr ? "" : message));
   } catch (const std::exception& error) {
-    Log(umbra_level, error.what());
+    Logging().Log(umbra_level, error.what());
   }
 }
 
 }  // namespace
 
-DeviceContext::~DeviceContext() {
+void DeviceContext::DestroyLogged(OptixDeviceContext context) {
   try {
-    if (auto destroyed = Destroy("cannot destroy a context");
+    if (auto destroyed = Check(optixDeviceContextDestroy(context),
+                               "cannot destroy a context");
         !destroyed.has_value()) {
-      Log(core::LogLevel::kWarning, destroyed.error());
+      Logging().Log(core::LogLevel::kWarning, destroyed.error());
     }
   } catch (const std::exception& error) {
-    Log(core::LogLevel::kWarning, error.what());
+    Logging().Log(core::LogLevel::kWarning, error.what());
   }
 }
 
@@ -63,22 +66,21 @@ Result<DeviceContext> DeviceContext::Create(std::string_view what) {
 }
 
 Result<void> DeviceContext::Destroy(std::string_view what) {
-  if (context_ == nullptr) {
+  if (context_.get() == nullptr) {
     return {};
   }
-  return Check(optixDeviceContextDestroy(std::exchange(context_, nullptr)),
-               what);
+  return Check(optixDeviceContextDestroy(context_.release()), what);
 }
 
-void ModuleDestroyer::operator()(OptixModule module) const {
+void DestroyModule(OptixModule module) {
   static_cast<void>(optixModuleDestroy(module));
 }
 
-void ProgramGroupDestroyer::operator()(OptixProgramGroup group) const {
+void DestroyProgramGroup(OptixProgramGroup group) {
   static_cast<void>(optixProgramGroupDestroy(group));
 }
 
-void PipelineDestroyer::operator()(OptixPipeline pipeline) const {
+void DestroyPipeline(OptixPipeline pipeline) {
   static_cast<void>(optixPipelineDestroy(pipeline));
 }
 

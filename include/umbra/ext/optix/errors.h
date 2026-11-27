@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-#include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -31,13 +31,10 @@ using Result = std::expected<T, std::string>;
 [[nodiscard]] Result<void> Check(OptixResult result, std::string_view what);
 
 // Where the bridge logs what it cannot return: the messages of a context
-// and of what it compiles. A function of the code it is linked into, which
-// applies its own threshold.
-using LogFunction = void (*)(core::LogLevel level, std::string_view message,
-                             core::LogOrigin origin);
-
-// Logs through `log` from now on; nothing is logged while it is null.
-void SetLog(LogFunction UMBRA_NULLABLE log);
+// and of what it compiles. A function of the code it is linked into.
+// Logs through `log` from now on, the messages of `threshold` and more
+// severe ones; nothing is logged while it is null.
+void SetLog(core::LogFunction UMBRA_NULLABLE log, core::LogLevel threshold);
 
 }  // namespace umbra::ext::optix
 

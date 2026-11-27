@@ -8,7 +8,6 @@
 #ifndef UMBRA_DEVICE_GPU_BACKEND_SUPPORT_H_
 #define UMBRA_DEVICE_GPU_BACKEND_SUPPORT_H_
 
-#include <atomic>
 #include <concepts>
 #include <expected>
 #include <format>
@@ -19,22 +18,16 @@
 #include <utility>
 
 #include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
-#include "umbra/device/gpu/module_abi.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::device::gpu::backend {
 
-// umbra's log function and the gpu component's threshold, handed over by the
-// loader before any other call (ModuleApi::set_log).
-struct LogState {
-  std::atomic<ModuleLogFunction> log{nullptr};
-  std::atomic<core::LogLevel> threshold{core::LogLevel::kError};
-};
-
-// The module's one LogState.
-LogState& Logging();
+// The module's log: umbra's log function and the gpu component's threshold,
+// handed over by the loader before any other call (ModuleApi::set_log).
+core::LogHook& Logging();
 
 // A format string and the source line it is written on.
 template <typename... Args>
@@ -60,13 +53,11 @@ struct LocatedFormat {
 template <typename... Args>
 void Log(core::LogLevel level,
          LocatedFormat<std::type_identity_t<Args>...> format, Args&&... args) {
-  const ModuleLogFunction log = Logging().log.load(std::memory_order_relaxed);
-  if (log == nullptr ||
-      level > Logging().threshold.load(std::memory_order_relaxed)) {
-    return;
+  if (const core::LogFunction UMBRA_NULLABLE log = Logging().For(level);
+      log != nullptr) {
+    log(level, std::format(format.format, std::forward<Args>(args)...),
+        {.file = format.location.file_name(), .line = format.location.line()});
   }
-  log(level, std::format(format.format, std::forward<Args>(args)...),
-      {.file = format.location.file_name(), .line = format.location.line()});
 }
 
 // The oldest GPU architecture the module is built for: sm_120.
@@ -76,12 +67,6 @@ inline constexpr int kMinComputeCapabilityMajor = 12;
 // OptiX are; the entry points turn them into a ModuleStatus.
 template <typename T>
 using Result = std::expected<T, std::string>;
-
-// Logs `message` through umbra, from the source line `origin` names, when
-// the gpu component's threshold shows it: what the bridges to CUDA and OptiX
-// log through (ext::cuda::SetLog, ext::optix::SetLog).
-void LogFromBridge(core::LogLevel level, std::string_view message,
-                   core::LogOrigin origin);
 
 }  // namespace umbra::device::gpu::backend
 
