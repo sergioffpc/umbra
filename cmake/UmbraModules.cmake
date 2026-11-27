@@ -14,6 +14,9 @@
 # sources in src/<module>/. Its public headers are include/umbra/<module>/,
 # included as "umbra/<module>/<header>.h". A module sees only its own headers
 # and those of the modules in DEPENDS; LINK names other (third-party) targets.
+# A module nested in another is named by its path, as device/cpu: its target
+# is umbra_device_cpu and its alias umbra::device::cpu, and the modules that
+# see its parent's headers see its own too, since they lie under them.
 # EXCEPTIONS builds it as a bridge is built, with exceptions and RTTI and
 # default visibility in Release: only the render delegate, which derives from
 # Hydra's classes (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
@@ -105,15 +108,17 @@ function(umbra_enable_exceptions target)
 endfunction()
 
 function(umbra_add_module module)
-  if(module STREQUAL "ext")
+  if(module MATCHES "^ext(/|$)")
     message(FATAL_ERROR "use umbra_add_ext_module for bridge modules")
   endif()
   cmake_parse_arguments(PARSE_ARGV 1 arg "EXCEPTIONS" "" "SOURCES;DEPENDS;LINK")
-  umbra_define_module(umbra_${module} umbra::${module} ${module}
+  string(REPLACE "/" "_" name "${module}")
+  string(REPLACE "/" "::" alias "${module}")
+  umbra_define_module(umbra_${name} umbra::${alias} ${module}
                       SOURCES ${arg_SOURCES} DEPENDS ${arg_DEPENDS}
                       LINK ${arg_LINK})
   if(arg_EXCEPTIONS)
-    umbra_enable_exceptions(umbra_${module})
+    umbra_enable_exceptions(umbra_${name})
   endif()
 endfunction()
 

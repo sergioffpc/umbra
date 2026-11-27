@@ -17,10 +17,10 @@
 #include <vector>
 
 #include "umbra/device/change_set.h"
+#include "umbra/device/cpu/cpu_device.h"
 #include "umbra/device/device.h"
 #include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
-#include "umbra/ext/embree/cpu_device.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/gpu/module_abi.h"
 
@@ -299,7 +299,7 @@ TEST(GpuRenderTest, RendersTheDepthAndNormalsOfTheCpuDevice) {
   }
   const auto embree = ext::embree::Initialize();
   ASSERT_TRUE(embree.has_value()) << embree.error().message();
-  ext::embree::CpuDevice cpu(0);
+  device::cpu::CpuDevice cpu(0);
   Scene scene;
   const device::ChangeSet changes = scene.Changes();
   const auto cpu_committed = cpu.Commit(changes);

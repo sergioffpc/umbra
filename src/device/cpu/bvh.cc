@@ -11,11 +11,8 @@
 #include <embree4/rtcore_scene.h>
 
 #include <array>
-#include <cstddef>
 #include <expected>
-#include <format>
 #include <span>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -23,32 +20,22 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
+#include "umbra/ext/embree/conversions.h"
+#include "umbra/ext/embree/errors.h"
+#include "umbra/ext/embree/owners.h"
 
-namespace umbra::ext::embree::internal {
+namespace umbra::device::cpu::internal {
 namespace {
 
 using ::umbra::core::Error;
-using ::umbra::core::ErrorCode;
-
-// The error of a build of `what` that failed with `code`.
-Error BuildError(RTCError code, std::string_view what) {
-  return {ErrorCode::kUnavailable, std::format("Embree cannot build {}: {}",
-                                               what, rtcGetErrorString(code))};
-}
-
-// Embree's error on the calling thread, which reading clears, naming `what`.
-Error EmbreeError(RTCDevice device, std::string_view what) {
-  return BuildError(rtcGetDeviceError(device), what);
-}
-
-// Fails with Embree's error on the calling thread, if any, naming `what`.
-Status CheckEmbree(RTCDevice device, std::string_view what) {
-  const RTCError code = rtcGetDeviceError(device);
-  if (code == RTC_ERROR_NONE) {
-    return {};
-  }
-  return std::unexpected(BuildError(code, what));
-}
+using ::umbra::ext::embree::BuildError;
+using ::umbra::ext::embree::CheckBuild;
+using ::umbra::ext::embree::EmbreeBounds;
+using ::umbra::ext::embree::EmbreeMatrix;
+using ::umbra::ext::embree::Geometry;
+using ::umbra::ext::embree::HitOf;
+using ::umbra::ext::embree::Lanes;
+using ::umbra::ext::embree::ShapeRayOf;
 
 // Gives the points of each motion sample of `prototype` to `geometry`, which
 // reads them in place.
@@ -65,7 +52,8 @@ void SetPoints(RTCGeometry geometry, const device::Prototype& prototype) {
 // Attaches to `scene` the triangles of `prototype`.
 void AttachTriangles(RTCDevice device, RTCScene scene,
                      const device::Prototype& prototype, BvhKind kind) {
-  RTCGeometry geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
+  const Geometry owner(rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE));
+  RTCGeometry UMBRA_NULLABLE const geometry = owner.get();
   if (geometry == nullptr) {
     return;
   }
@@ -81,7 +69,6 @@ void AttachTriangles(RTCDevice device, RTCScene scene,
                              prototype.triangles.size());
   rtcCommitGeometry(geometry);
   rtcAttachGeometryByID(scene, geometry, 0);
-  rtcReleaseGeometry(geometry);
 }
 
 // The shape a light geometry's user data points to: BuildLight sets it,
@@ -92,50 +79,8 @@ const device::LightShape& ShapeOf(void* UMBRA_NULLABLE user)
 }
 
 void LightBounds(const RTCBoundsFunctionArguments* args) {
-  const device::ShapeBounds bounds =
-      device::BoundsOf(ShapeOf(args->geometryUserPtr));
-  *args->bounds_o = {
-      .lower_x = bounds.lower.x,
-      .lower_y = bounds.lower.y,
-      .lower_z = bounds.lower.z,
-      .align0 = 0.0F,
-      .upper_x = bounds.upper.x,
-      .upper_y = bounds.upper.y,
-      .upper_z = bounds.upper.z,
-      .align1 = 0.0F,
-  };
-}
-
-// The lanes of a packet of `count` rays, nonzero where a ray is valid.
-std::span<const int> Lanes(const int* valid UMBRA_LIFETIMEBOUND,
-                           unsigned int count) [[clang::nonblocking]] {
-  // SAFETY: Embree passes a valid mask of one int per ray of the packet.
-  UMBRA_UNSAFE_BUFFER_BEGIN
-  return {valid, count};
-  UMBRA_UNSAFE_BUFFER_END
-}
-
-device::ShapeRay ShapeRayOf(const RTCRay& ray) [[clang::nonblocking]] {
-  return {
-      .origin = {.x = ray.org_x, .y = ray.org_y, .z = ray.org_z},
-      .direction = {.x = ray.dir_x, .y = ray.dir_y, .z = ray.dir_z},
-      .t_min = ray.tnear,
-      .t_max = ray.tfar,
-  };
-}
-
-// The hit of `shape_hit` on the light primitive `args` intersects.
-RTCHit HitOf(const device::ShapeHit& shape_hit,
-             const RTCIntersectFunctionNArguments& args)
-    [[clang::nonblocking]] {
-  RTCHit hit{};
-  hit.Ng_x = shape_hit.normal.x;
-  hit.Ng_y = shape_hit.normal.y;
-  hit.Ng_z = shape_hit.normal.z;
-  hit.primID = args.primID;
-  hit.geomID = args.geomID;
-  hit.instID[0] = args.context->instID[0];
-  return hit;
+  *args->bounds_o =
+      EmbreeBounds(device::BoundsOf(ShapeOf(args->geometryUserPtr)));
 }
 
 void LightIntersect(const RTCIntersectFunctionNArguments* args)
@@ -173,30 +118,33 @@ void LightOccluded(const RTCOccludedFunctionNArguments* args)
   }
 }
 
-// `matrix`, row-major for row vectors, as the floats of Embree's
-// column-major matrix for column vectors: the same numbers in order.
-std::array<float, 16> EmbreeMatrix(const device::Matrix& matrix) {
-  std::array<float, 16> floats{};
-  for (std::size_t index = 0; index < floats.size(); ++index) {
-    floats.at(index) = static_cast<float>(matrix.at(index));
+// Attaches to `scene` a user geometry of one primitive, `shape`. Fails with
+// kUnavailable, with Embree's error, when Embree cannot create it.
+Status AttachLight(RTCDevice device, RTCScene scene,
+                   device::LightShape& shape) {
+  const Geometry owner(rtcNewGeometry(device, RTC_GEOMETRY_TYPE_USER));
+  RTCGeometry UMBRA_NULLABLE const geometry = owner.get();
+  if (geometry == nullptr) {
+    return std::unexpected(BuildError(device, "a light"));
   }
-  return floats;
+  rtcSetGeometryUserPrimitiveCount(geometry, 1);
+  rtcSetGeometryUserData(geometry, &shape);
+  rtcSetGeometryBoundsFunction(geometry, LightBounds, nullptr);
+  rtcSetGeometryIntersectFunction(geometry, LightIntersect);
+  rtcSetGeometryOccludedFunction(geometry, LightOccluded);
+  rtcCommitGeometry(geometry);
+  rtcAttachGeometryByID(scene, geometry, 0);
+  return {};
 }
 
 }  // namespace
-
-Scene::~Scene() {
-  if (scene_ != nullptr) {
-    rtcReleaseScene(scene_);
-  }
-}
 
 std::expected<Scene, Error> BuildPrototype(RTCDevice device,
                                            const device::Prototype& prototype,
                                            BvhKind kind) {
   Scene scene(rtcNewScene(device));
   if (scene.get() == nullptr) {
-    return std::unexpected(EmbreeError(device, prototype.path));
+    return std::unexpected(BuildError(device, prototype.path));
   }
   if (kind == BvhKind::kRefittable) {
     // Embree builds each geometry's BVH apart, with its own quality, only
@@ -208,8 +156,7 @@ std::expected<Scene, Error> BuildPrototype(RTCDevice device,
     AttachTriangles(device, scene.get(), prototype, kind);
   }
   rtcCommitScene(scene.get());
-  if (auto checked = CheckEmbree(device, prototype.path);
-      !checked.has_value()) {
+  if (auto checked = CheckBuild(device, prototype.path); !checked.has_value()) {
     return std::unexpected(std::move(checked.error()));
   }
   return scene;
@@ -224,29 +171,21 @@ Status RefitPrototype(RTCDevice device, const Scene& scene,
   SetPoints(geometry, prototype);
   rtcCommitGeometry(geometry);
   rtcCommitScene(scene.get());
-  return CheckEmbree(device, prototype.path);
+  return CheckBuild(device, prototype.path);
 }
 
 std::expected<Scene, Error> BuildLight(RTCDevice device,
                                        device::LightShape& shape) {
   Scene scene(rtcNewScene(device));
   if (scene.get() == nullptr) {
-    return std::unexpected(EmbreeError(device, "a light"));
+    return std::unexpected(BuildError(device, "a light"));
   }
-  RTCGeometry geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_USER);
-  if (geometry == nullptr) {
-    return std::unexpected(EmbreeError(device, "a light"));
+  if (auto attached = AttachLight(device, scene.get(), shape);
+      !attached.has_value()) {
+    return std::unexpected(std::move(attached.error()));
   }
-  rtcSetGeometryUserPrimitiveCount(geometry, 1);
-  rtcSetGeometryUserData(geometry, &shape);
-  rtcSetGeometryBoundsFunction(geometry, LightBounds, nullptr);
-  rtcSetGeometryIntersectFunction(geometry, LightIntersect);
-  rtcSetGeometryOccludedFunction(geometry, LightOccluded);
-  rtcCommitGeometry(geometry);
-  rtcAttachGeometryByID(scene.get(), geometry, 0);
-  rtcReleaseGeometry(geometry);
   rtcCommitScene(scene.get());
-  if (auto checked = CheckEmbree(device, "a light"); !checked.has_value()) {
+  if (auto checked = CheckBuild(device, "a light"); !checked.has_value()) {
     return std::unexpected(std::move(checked.error()));
   }
   return scene;
@@ -260,7 +199,8 @@ void TopLevel::Add(const Scene& bvh, const device::Instance& instance,
   if (scene_.get() == nullptr || bvh.get() == nullptr) {
     return;
   }
-  RTCGeometry geometry = rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_INSTANCE);
+  const Geometry owner(rtcNewGeometry(device_, RTC_GEOMETRY_TYPE_INSTANCE));
+  RTCGeometry UMBRA_NULLABLE const geometry = owner.get();
   if (geometry == nullptr) {
     return;
   }
@@ -277,7 +217,6 @@ void TopLevel::Add(const Scene& bvh, const device::Instance& instance,
   rtcCommitGeometry(geometry);
   rtcAttachGeometryByID(scene_.get(), geometry,
                         static_cast<unsigned int>(placements_.size()));
-  rtcReleaseGeometry(geometry);
   placements_.push_back(placement);
 }
 
@@ -286,11 +225,11 @@ TopLevel::Build() && {
   if (scene_.get() != nullptr) {
     rtcCommitScene(scene_.get());
   }
-  if (auto checked = CheckEmbree(device_, "the top level");
+  if (auto checked = CheckBuild(device_, "the top level");
       !checked.has_value()) {
     return std::unexpected(std::move(checked.error()));
   }
   return std::pair(std::move(scene_), std::move(placements_));
 }
 
-}  // namespace umbra::ext::embree::internal
+}  // namespace umbra::device::cpu::internal

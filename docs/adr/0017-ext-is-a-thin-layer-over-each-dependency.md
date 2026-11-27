@@ -27,7 +27,7 @@ uses the bridge.
 
 ## Who calls what
 
-Code outside `ext/` calls the bridges, never a dependency's own API. Two
+Code outside `ext/` calls the bridges, never a dependency's own API. Three
 exceptions are declared:
 
 - **The render delegate may include Hydra's headers.** It derives from
@@ -36,6 +36,12 @@ exceptions are declared:
   not throw through these calls. Anything that can fail on OpenUSD's side
   goes through the OpenUSD bridge: initialization, plugins, opening the
   stage, and Tf's diagnostics.
+- **The CPU device may call Embree's API.** It builds its BVHs and traces
+  its rays through Embree's C API, which neither throws nor allocates on
+  the hot path, so wrapping each call would add nothing but a layer to
+  pass through. It holds Embree's handles through the bridge's owners,
+  reports its errors through the bridge's translation, and calls on the
+  hot path only the functions the bridge redeclares nonblocking.
 - **The GPU device's programs may call OptiX's device intrinsics**
   (`optixTrace`, `optixGetPayload_*` and the like). They neither throw nor
   allocate, and wrapping each of them would add nothing but a layer to
@@ -83,8 +89,9 @@ They go in this order:
 - **A scene module with no OpenUSD types, behind a minimal Hydra layer.**
   It would move the sync out of Hydra's prims, which is where Hydra hands
   over what changed. That is much work, and no device or test needs it.
-- **Wrapping Hydra's base classes and OptiX's intrinsics in the bridges.**
-  The wrappers would only pass calls through, in hot code on the GPU's side.
+- **Wrapping Hydra's base classes, Embree's API and OptiX's intrinsics in
+  the bridges.** The wrappers would only pass calls through, in hot code on
+  both the CPU's side and the GPU's.
 - **Enforcing the include rule with a check, or with one install prefix per
   dependency.** Review is enough for a rule this small. A separate prefix
   per dependency would mean changing the deps layer and every
