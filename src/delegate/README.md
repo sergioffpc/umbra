@@ -37,6 +37,16 @@ Sources (`src/delegate/`):
   their host copies (`host_copy.h`).
 - `commit.h`, `views.h`: the commit of the host copies to the devices, as
   the change set.
+- `ledger.h`: what the devices hold after a commit, which the next one
+  starts from: a held table per kind of prim, by key, with dense ids.
+- `commit_cameras.h`, `commit_textures.h`, `commit_materials.h`,
+  `commit_geometry.h`, `commit_lights.h`: what a commit gives the devices
+  of each kind, from the synced prims and the ledger.
+- `commit_products.h`: the render products the render settings commit, as
+  the render writes them.
+- `commit_warnings.h`: the warnings of the commits, each logged once.
+- `commit_description.h`: the debug description of a commit.
+- `plural.h`: the words of a count in the messages logged.
 - `render_pass.h`: the render pass and the render buffers; it runs the
   denoise of a product's color once the devices have rendered it.
 - `denoiser.h`: the denoise through Open Image Denoise, through the OIDN
