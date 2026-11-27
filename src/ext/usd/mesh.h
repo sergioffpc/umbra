@@ -40,6 +40,8 @@ struct SourcePrimvar {
   pxr::VtValue value;
   // The index of the value of each element, or none when it is not indexed.
   pxr::VtIntArray indices;
+  // The number of values that make up each element.
+  int element_size = 1;
 };
 
 // A mesh, as Hydra gives it: its topology, its points and its primvars, the

@@ -390,6 +390,13 @@ std::expected<HostBuffer<std::uint32_t>, std::string> CornerIndices(
 std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvar(
     const SourcePrimvar& source, const Triangulation& shape,
     std::string_view path) {
+  if (source.element_size > 1) {
+    UMBRA_LOG_DEBUG(kUsd,
+                    "{}: primvar {} of element size {} not supported; "
+                    "dropped",
+                    path, source.name.GetString(), source.element_size);
+    return std::nullopt;
+  }
   const auto rate = RateOf(source.interpolation);
   auto values = NumericValues(source.value);
   if (!rate.has_value() || !values.has_value()) {
@@ -539,14 +546,21 @@ NormalsSource SetNormals(std::optional<host::Primvar> authored,
   return NormalsSource::kComputed;
 }
 
+// Whether a primvar is in the skel: namespace: an input to skinning the
+// points, not data for the materials.
+bool IsSkinningInput(const SourcePrimvar& primvar) {
+  return primvar.name.GetString().starts_with("skel:");
+}
+
 // Converts the primvars of `source` into `mesh`, its normals apart: none
-// when the mesh asks for subdivision, which ignores them.
+// when the mesh asks for subdivision, which ignores them. Its skinning
+// inputs are left out.
 std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvars(
     const SourceMesh& source, const Triangulation& shape, host::Mesh& mesh) {
   std::optional<host::Primvar> normals;
   const bool ignores_normals = IsSubdivided(source.topology);
   for (const SourcePrimvar& primvar : source.primvars) {
-    if (primvar.name == pxr::HdTokens->points ||
+    if (primvar.name == pxr::HdTokens->points || IsSkinningInput(primvar) ||
         (ignores_normals && primvar.name == pxr::HdTokens->normals)) {
       continue;
     }
