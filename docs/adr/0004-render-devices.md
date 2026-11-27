@@ -19,12 +19,12 @@ command's result, so it goes to stdout:
 ```
 $ umbra devices
 cpu0  AMD Ryzen Threadripper PRO 3975WX
-      NUMA node 0: 32 cores, 64 threads, 125 GiB
-      L1d 32 KiB, L1i 32 KiB, L2 512 KiB per core, 64 B lines
-      L3 16 MiB per 4 cores, 128 MiB in 8 slices
+      NUMA node 0: 32 cores, 64 threads, 125.6 GiB
+      L1d 32.0 KiB, L1i 32.0 KiB, L2 512.0 KiB per core, 64 B lines
+      L3 16.0 MiB per 4 cores, 128.0 MiB in 8 slices
       AVX2, Embree AVX2, OSL batched 8
 gpu0  NVIDIA GeForce RTX 5070 Ti (sm_120)
-      16 GiB, NUMA node 0
+      15.5 GiB, NUMA node 0
       driver 615.71, CUDA 13.4, OptiX 9.1.0
 ```
 
