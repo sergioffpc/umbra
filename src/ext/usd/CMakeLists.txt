@@ -28,6 +28,7 @@ umbra_add_ext_module(
   host_copy.cc
   hydra.cc
   ies_profile.cc
+  ies_tilt.cc
   instancer.cc
   light.cc
   material.cc

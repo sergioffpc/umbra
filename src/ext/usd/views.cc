@@ -237,6 +237,7 @@ device::Light ChangeSetBuilder::LightOf(device::LightId prim_id,
       .cone_angle = light.cone_angle,
       .ies_profile = IesProfileOf(light.ies_profile),
       .instances = InstancesOf(light.instances),
+      .tilt_factors = light.tilt_factors,
   };
 }
 

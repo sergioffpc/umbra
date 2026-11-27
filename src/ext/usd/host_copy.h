@@ -19,6 +19,7 @@
 #include <variant>
 #include <vector>
 
+#include "ies_tilt.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
 #include "umbra/device/render_data.h"
@@ -168,6 +169,9 @@ struct IesProfile {
   HostBuffer<float> candelas;
   float power = 0.0F;
   Normalization normalization = Normalization::kUnnormalized;
+  // Its TILT data, which gives each instance of its light a tilt factor;
+  // none for TILT=NONE.
+  std::optional<IesTilt> tilt;
 };
 
 // A light, an emitter of one of six shapes or a portal, in meters.
@@ -216,6 +220,9 @@ struct Light {
   std::optional<IesProfile> ies_profile;
   // Its placements, light-to-world, without primvars.
   std::vector<Instance> instances;
+  // The tilt factor of each instance, which scales its emission: 1 when its
+  // IES profile has no TILT data.
+  HostBuffer<float> tilt_factors;
 };
 
 // A camera, in meters.

@@ -198,8 +198,9 @@ Result<GpuLight> UploadLight(const device::Light& light, const Gpu& gpu) {
       .and_then([&] { return UploadPlacements(light.instances, gpu.stream); })
       .and_then([&](HeldPlacements placements) {
         held.placements = std::move(placements);
-        return BuildShape(local, light, held, gpu);
+        return Replace(held.tilt_factors, light.tilt_factors, gpu.stream);
       })
+      .and_then([&] { return BuildShape(local, light, held, gpu); })
       .and_then([&] {
         return CheckCuda(cudaStreamSynchronize(gpu.stream),
                          "cannot upload a light");

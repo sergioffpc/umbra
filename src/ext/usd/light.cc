@@ -40,9 +40,12 @@
 
 #include "host_copy.h"
 #include "ies_profile.h"
+#include "ies_tilt.h"
 #include "instancer.h"
 #include "material.h"
 #include "mesh.h"
+#include "motion.h"
+#include "motion_samples.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -364,16 +367,21 @@ std::optional<host::IesProfile> Reader::IesProfile() {
          std::format("{} does not resolve", asset.GetAssetPath()));
     return std::nullopt;
   }
-  auto profile = ReadIesProfile(asset.GetResolvedPath());
-  if (!profile.has_value()) {
+  auto read = ReadIesProfile(asset.GetResolvedPath());
+  if (!read.has_value()) {
     Note(LightIssue::kIesProfileNotRead,
-         std::format("{}: {}", asset.GetAssetPath(), profile.error()));
+         std::format("{}: {}", asset.GetAssetPath(), read.error()));
     return std::nullopt;
   }
-  profile->normalization = params_->Flag(tokens.shapingIesNormalize) == true
-                               ? host::Normalization::kNormalized
-                               : host::Normalization::kUnnormalized;
-  return std::move(*profile);
+  if (!read->tilt_not_read.empty()) {
+    Note(LightIssue::kIesTiltNotRead,
+         std::format("{}: {}", asset.GetAssetPath(), read->tilt_not_read));
+  }
+  host::IesProfile& profile = read->profile;
+  profile.normalization = params_->Flag(tokens.shapingIesNormalize) == true
+                              ? host::Normalization::kNormalized
+                              : host::Normalization::kUnnormalized;
+  return std::move(profile);
 }
 
 void Reader::NoteArtisticControls() {
@@ -419,6 +427,48 @@ const pxr::TfTokenVector& LightPrimTypes() {
 
 namespace {
 
+// The transform whose motion samples, equally spaced over `shutter`, are
+// `motion`, at the frame: at the end of the shutter nearest to the frame
+// when the shutter does not span it.
+pxr::GfMatrix4d AtFrame(const TransformMotion& motion,
+                        const host::Shutter& shutter) {
+  if (motion.empty()) {
+    return pxr::GfMatrix4d(1.0);
+  }
+  if (motion.size() == 1 || !IsMotionBlurred(shutter)) {
+    return motion.front();
+  }
+  const double weight =
+      std::clamp(-shutter.open / (shutter.close - shutter.open), 0.0, 1.0);
+  const double position = weight * static_cast<double>(motion.size() - 1);
+  const std::size_t index =
+      std::min(static_cast<std::size_t>(position), motion.size() - 2);
+  return BlendTransforms(motion.at(index), motion.at(index + 1),
+                         position - static_cast<double>(index));
+}
+
+// The tilt factor of each of `instances`, sampled over `shutter`, of a
+// light whose IES profile is `profile`, on a stage whose up axis is
+// `up_axis`: 1 for each when the profile has no TILT data.
+host::HostBuffer<float> TiltFactors(
+    std::span<const FlatInstance> instances,
+    const std::optional<host::IesProfile>& profile,
+    const host::Shutter& shutter, UpAxis up_axis) {
+  host::HostBuffer<float> factors;
+  if (!profile.has_value() || !profile->tilt.has_value()) {
+    factors.assign(instances.size(), 1.0F);
+    return factors;
+  }
+  factors.reserve(instances.size());
+  for (const FlatInstance& instance : instances) {
+    factors.push_back(IesTiltFactor(
+        *profile->tilt,
+        IesInclination(RowMajor(AtFrame(instance.transforms, shutter)),
+                       up_axis)));
+  }
+  return factors;
+}
+
 // Whether the mesh at `prim_id` is a mesh light: an emissive mesh, its
 // emission authored by UsdLux's MeshLightAPI.
 bool IsMeshLight(pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
@@ -452,11 +502,12 @@ std::optional<host::Emission> ReadMeshLight(pxr::HdSceneDelegate& delegate,
 
 LightPrim::LightPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
                      SyncCounter* UMBRA_NULLABLE counter,
-                     double meters_per_unit)
+                     double meters_per_unit, UpAxis up_axis)
     : pxr::HdLight(prim_id),
       type_(std::move(type_id)),
       counter_(counter),
-      meters_per_unit_(meters_per_unit) {}
+      meters_per_unit_(meters_per_unit),
+      up_axis_(up_axis) {}
 
 pxr::HdDirtyBits LightPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdLight::AllDirty;
@@ -565,6 +616,12 @@ void LightPrim::Place(const host::Shutter& shutter,
             TransformsInMeters(instance.transforms, meters_per_unit_),
         .primvars = {},
     });
+  }
+  light_.tilt_factors =
+      TiltFactors(placement.instances, light_.ies_profile, shutter, up_axis_);
+  if (light_.ies_profile.has_value() && light_.ies_profile->tilt.has_value()) {
+    UMBRA_LOG_TRACE(kUsd, "placed {} with the tilt factors {}",
+                    GetId().GetString(), light_.tilt_factors);
   }
 }
 

@@ -788,7 +788,7 @@ struct IssueWords {
   std::array<std::string_view, 2> predicate;
 };
 
-constexpr std::array<IssueWords, 10> kIssueWords = {
+constexpr std::array<IssueWords, 11> kIssueWords = {
     IssueWords{
         .issue = LightIssue::kFilters,
         .subject = {"light has", "lights have"},
@@ -805,6 +805,19 @@ constexpr std::array<IssueWords, 10> kIssueWords = {
             {
                 "not read, rendered without it",
                 "not read, rendered without them",
+            },
+    },
+    IssueWords{
+        .issue = LightIssue::kIesTiltNotRead,
+        .subject =
+            {
+                "light's IES profile has TILT data that is",
+                "lights' IES profiles have TILT data that is",
+            },
+        .predicate =
+            {
+                "not read, rendered without it",
+                "not read, rendered without it",
             },
     },
     IssueWords{

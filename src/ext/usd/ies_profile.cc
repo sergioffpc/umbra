@@ -21,9 +21,11 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "host_copy.h"
+#include "ies_tilt.h"
 
 namespace umbra::ext::usd::internal {
 
@@ -102,6 +104,7 @@ class Profile final : public pxr::PxrIESFile {
         .candelas = {},
         .power = power(),
         .normalization = host::Normalization::kUnnormalized,
+        .tilt = std::nullopt,
     };
     profile.candelas.reserve(v_angles.size() * h_angles.size());
     for (const std::vector<float>& row : intensity) {
@@ -118,9 +121,63 @@ class Profile final : public pxr::PxrIESFile {
   }
 };
 
+// The TILT data of the TILT file `name`, which Ar resolves next to the
+// profile at `resolved`.
+std::expected<IesTilt, std::string> ReadTiltFile(const std::string& name,
+                                                 const std::string& resolved) {
+  const pxr::ArResolver& resolver = pxr::ArGetResolver();
+  const pxr::ArResolvedPath file = resolver.Resolve(
+      resolver.CreateIdentifier(name, pxr::ArResolvedPath(resolved)));
+  if (file.empty()) {
+    return Failure(std::format("its TILT file {} does not resolve", name));
+  }
+  const std::optional<std::string> text = ReadAsset(file.GetPathString());
+  if (!text.has_value()) {
+    return Failure(std::format("its TILT file {} cannot be opened", name));
+  }
+  auto tilt = ParseIesTiltFile(*text);
+  if (!tilt.has_value()) {
+    return Failure(std::format("its TILT file {}: {}", name, tilt.error()));
+  }
+  return tilt;
+}
+
+// The TILT data of the profile `text`, which Ar resolved to `resolved`:
+// none for TILT=NONE.
+std::expected<std::optional<IesTilt>, std::string> ReadTilt(
+    const std::string& text, const std::string& resolved) {
+  auto line = ParseIesTiltLine(text);
+  if (!line.has_value()) {
+    return Failure(std::move(line.error()));
+  }
+  if (auto* included = std::get_if<IesTilt>(&*line)) {
+    return std::move(*included);
+  }
+  if (const auto* file = std::get_if<IesTiltFile>(&*line)) {
+    return ReadTiltFile(file->name, resolved);
+  }
+  return std::nullopt;
+}
+
+// Reads the TILT data of the profile `text`, which Ar resolved to
+// `resolved`, into `tilt`; why it is not read, or empty.
+std::string ReadTiltInto(const std::string& text, const std::string& resolved,
+                         std::optional<IesTilt>& tilt) {
+  try {
+    auto read = ReadTilt(text, resolved);
+    if (!read.has_value()) {
+      return std::move(read.error());
+    }
+    tilt = std::move(*read);
+    return {};
+  } catch (const std::exception& error) {
+    return std::format("its TILT data cannot be read ({})", error.what());
+  }
+}
+
 }  // namespace
 
-std::expected<host::IesProfile, std::string> ReadIesProfile(
+std::expected<ReadProfile, std::string> ReadIesProfile(
     const std::string& resolved) {
   try {
     const std::optional<std::string> text = ReadAsset(resolved);
@@ -131,7 +188,13 @@ std::expected<host::IesProfile, std::string> ReadIesProfile(
     if (auto loaded = profile.Load(*text); !loaded.has_value()) {
       return Failure(std::move(loaded.error()));
     }
-    return profile.Table();
+    auto table = profile.Table();
+    if (!table.has_value()) {
+      return Failure(std::move(table.error()));
+    }
+    ReadProfile read{.profile = std::move(*table), .tilt_not_read = {}};
+    read.tilt_not_read = ReadTiltInto(*text, resolved, read.profile.tilt);
+    return read;
   } catch (const std::exception& error) {
     // pxrIES sizes its arrays by the counts the file gives, which may be
     // negative or too large.

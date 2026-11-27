@@ -385,6 +385,11 @@ struct Light {
   std::optional<IesProfile> ies_profile;
   // Its placements, light-to-world, without primvars: at least one.
   std::span<const Instance> instances;
+  // The tilt factor of each instance, in the order of `instances`: how its
+  // IES profile's TILT data scales its emission at the inclination it is
+  // mounted at, applied whether or not the profile is normalized. 1 when it
+  // has no IES profile, or the profile has no TILT data.
+  std::span<const float> tilt_factors;
 };
 
 // The name of each shape of a light, in the order of Light::Shape.

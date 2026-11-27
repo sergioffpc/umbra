@@ -67,6 +67,14 @@ only emits, lights every instance and has no artistic control
 (docs/adr/0010-lights-are-physical.md).
 _Avoid:_ light for a mesh light (an emissive mesh)
 
+**Tilt factor**:
+What scales one instance of a Light's emission when its IES profile has
+TILT data (IESNA LM-63): the profile's multiplying factor at the
+inclination of that instance at the frame, the angle between the profile's
+nadir, in world space, and the stage's down direction. It is 1 when the
+profile has no TILT data, and applies whether or not the profile is
+normalized.
+
 **Emissive mesh**:
 A mesh whose surface emits light: its emission authored by UsdLux's
 MeshLightAPI (a mesh light) or by its material. Its shape is its triangles,

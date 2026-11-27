@@ -43,6 +43,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ies_tilt.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
@@ -418,8 +419,9 @@ using Committer =
 
 // umbra's render delegate. It syncs cameras, render settings, materials,
 // meshes and their instancers, and lights, with their lengths scaled by
-// `meters_per_unit` and the meshes bound to their materials for the full
-// purpose, and counts the rprims and lights of the types umbra does not
+// `meters_per_unit`, the lights inclined from the down direction of a stage
+// whose up axis is `up_axis`, and the meshes bound to their materials for the
+// full purpose, and counts the rprims and lights of the types umbra does not
 // take; its prims count their syncs into the counter. Its ext computations,
 // which the meshes run for their points, are Hydra's own, neither counted
 // nor committed. Hydra creates and destroys its prims on one thread. The
@@ -428,7 +430,7 @@ using Committer =
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(SyncCounter& counter UMBRA_LIFETIMEBOUND,
-                 double meters_per_unit, Committer committer);
+                 double meters_per_unit, UpAxis up_axis, Committer committer);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
   RenderDelegate(RenderDelegate&&) = delete;
@@ -511,6 +513,7 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
 
   SyncCounter* counter_;
   double meters_per_unit_;
+  UpAxis up_axis_;
   Committer committer_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;
