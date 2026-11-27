@@ -17,6 +17,7 @@
 #include <new>
 #include <span>
 #include <string_view>
+#include <vector>
 
 #include "umbra/core/error.h"
 #include "umbra/core/progress.h"
@@ -83,8 +84,9 @@ inline constexpr std::int32_t kTileSize = 64;
 // them from (docs/adr/0014-frames-render-in-tiles-from-one-counter.md): the
 // window cut into tiles of kTileSize pixels, smaller on its right and bottom
 // edges, numbered row by row from its top left. Devices take tiles in
-// batches, one atomic add per batch, until none is left, and count each
-// tile they finish into the product's progress.
+// batches, one atomic add per batch, until none is left, and finish each
+// tile once its pixels are in the render buffers, which counts it into the
+// product's progress.
 class TileQueue {
  public:
   // The first tile of a batch, and the tile after its last.
@@ -97,6 +99,12 @@ class TileQueue {
 
   // The queue of the tiles of `window`, whose devices count the tiles they
   // finish into `progress`, if any.
+  //
+  // Each device copies each tile it renders into the render buffers as soon
+  // as the tile is rendered, then calls Finish: a tile IsFinished once its
+  // pixels in the render buffers are final, which a display may read while
+  // the other tiles render
+  // (docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md).
   explicit TileQueue(const PixelWindow& window,
                      core::ProgressPhase* UMBRA_NULLABLE progress = nullptr);
 
@@ -123,12 +131,22 @@ class TileQueue {
   // The pixels of tile `tile`.
   [[nodiscard]] PixelWindow TileWindow(std::uint64_t tile) const;
 
-  // Counts `tiles` tiles finished into the progress. Callable from any
-  // thread, on the hot path: it neither allocates nor locks.
-  void Finish(std::uint64_t tiles) [[clang::nonblocking]] {
+  // Marks tile `tile` finished, its pixels in the render buffers final, and
+  // counts it into the progress. Callable from any thread, once per tile, on
+  // the hot path: it neither allocates nor locks.
+  void Finish(std::uint64_t tile) [[clang::nonblocking]] {
+    std::span(finished_).subspan(tile, 1).front().store(
+        1, std::memory_order_release);
     if (progress_ != nullptr) {
-      progress_->Add(tiles);
+      progress_->Add(1);
     }
+  }
+
+  // Whether tile `tile` is finished: once it is, the pixels of its window in
+  // the render buffers are final, and the thread that saw it may read them.
+  [[nodiscard]] bool IsFinished(std::uint64_t tile) const {
+    return std::span(finished_).subspan(tile, 1).front().load(
+               std::memory_order_acquire) != 0;
   }
 
  private:
@@ -139,6 +157,8 @@ class TileQueue {
   std::uint64_t columns_ = 0;
   std::uint64_t count_ = 0;
   core::ProgressPhase* UMBRA_NULLABLE progress_;
+  // Whether each tile is finished: 1 once it is.
+  std::vector<std::atomic<std::uint8_t>> finished_;
 };
 
 // The refits in a row after which a device rebuilds, instead of refitting
@@ -167,10 +187,12 @@ class Device {
       const ChangeSet& changes) = 0;
 
   // Renders the render product `frame` describes, from what it committed:
-  // takes batches of tiles from `tiles`, renders them into its own film
-  // until none is left, then copies the tiles it rendered into the render
-  // buffers of `frame`'s vars. Other devices take the other tiles at the
-  // same time. Fails with the cause when it cannot: the render then stops.
+  // takes batches of tiles from `tiles` until none is left, renders them
+  // into its own film, copies each tile into the render buffers of
+  // `frame`'s vars as soon as it is rendered, and finishes it in `tiles`
+  // (docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md). Other
+  // devices take the other tiles at the same time. Fails with the cause when
+  // it cannot: the render then stops.
   [[nodiscard]] virtual std::expected<void, core::Error> Render(
       const FrameParameters& frame, TileQueue& tiles) = 0;
 };

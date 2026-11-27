@@ -80,6 +80,7 @@
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
+#include "umbra/ext/usd/usd.h"
 
 namespace umbra::ext::usd::internal {
 namespace {
@@ -1175,10 +1176,12 @@ pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
 
 }  // namespace
 
-RenderTask::RenderTask(RenderDelegate& delegate, pxr::SdfPath settings)
+RenderTask::RenderTask(RenderDelegate& delegate, pxr::SdfPath settings,
+                       Display* UMBRA_NULLABLE display)
     : pxr::HdTask(TaskPath()),
       delegate_(&delegate),
-      settings_(std::move(settings)) {}
+      settings_(std::move(settings)),
+      display_(display) {}
 
 void RenderTask::SetOnCommitted(std::function<void()> on_committed) {
   on_committed_ = std::move(on_committed);
@@ -1246,7 +1249,7 @@ std::expected<void, core::Error> RenderTask::Render(
     const auto state = std::make_shared<pxr::HdRenderPassState>();
     state->SetAovBindings(BindingsOf(product, buffers_.at(index)));
     RenderPass& pass = *passes_.at(index);
-    pass.SetProduct(product, committed.frame);
+    pass.SetProduct(product, committed.frame, display_);
     pass.Execute(state, render_tags_);
     if (auto rendered = pass.TakeResult(); !rendered.has_value()) {
       return rendered;

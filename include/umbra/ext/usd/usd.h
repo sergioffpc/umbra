@@ -63,6 +63,30 @@ struct RenderedProduct {
   std::vector<RenderedVar> vars;
 };
 
+// What shows the products while they render, tile by tile. The render
+// calls it from a host thread of its own, one call at a time: Begin as a
+// product starts, Update for each region of its data window whose pixels are
+// final, as its tiles finish, and End once it has rendered, failed or not.
+// It never fails a render: a display that cannot show stops on its own.
+class Display {
+ public:
+  Display() = default;
+  Display(const Display&) = delete;
+  Display& operator=(const Display&) = delete;
+  Display(Display&&) = delete;
+  Display& operator=(Display&&) = delete;
+  virtual ~Display();
+
+  // `product` starts rendering into `vars`, whose pixels stay valid until
+  // End.
+  virtual void Begin(const RenderProduct& product,
+                     std::span<const RenderedVar> vars) = 0;
+  // The pixels of `region`, within the product's data window, are final.
+  virtual void Update(const device::PixelWindow& region) = 0;
+  // The product has rendered, or failed.
+  virtual void End() = 0;
+};
+
 // What a render keeps alive while it renders: the stage, its render index
 // and umbra's render delegate, whose prims stay synced from frame to frame,
 // and the render settings and frame parameters of the frame committed last.
@@ -187,14 +211,15 @@ class Session {
 // "Loading stage": opens its stage, with every payload loaded and no
 // session layer; warnings while composing (a missing sublayer) go to the
 // log. Its frames are committed to `devices`, which must outlive the
-// session.
+// session, and its products shown on `display`, if any, which must too.
 //
 // Fails with kNotFound when the file does not exist, and kInvalidArgument
 // when the file cannot be read or its stage does not open or compose, there
 // are no settings, or the settings' path is not that of a prim.
 [[nodiscard]] std::expected<std::unique_ptr<Session>, core::Error> OpenSession(
     std::string_view path, const LoadOptions& options,
-    std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND);
+    std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND,
+    Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND = nullptr);
 
 }  // namespace umbra::ext::usd
 

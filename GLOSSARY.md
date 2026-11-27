@@ -48,8 +48,13 @@ the counter they share while the product renders
 **Film**:
 Where a device renders its tiles, in its own memory: float32 values of
 every render var over a render product's data window, from which the device
-copies its tiles into the render buffers once the product's tiles are all
-taken (docs/adr/0014-frames-render-in-tiles-from-one-counter.md).
+copies each tile into the render buffers as soon as it has rendered it
+(docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md).
+
+**Display**:
+What shows the render products while they render, tile by tile, from a host
+thread of its own: tev, with `--display`
+(docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md).
 
 ## What umbra renders
 

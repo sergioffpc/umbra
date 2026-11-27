@@ -36,7 +36,8 @@ TileQueue::TileQueue(const PixelWindow& window,
     : window_(window),
       columns_(TilesAlong(window.width())),
       count_(columns_ * TilesAlong(window.height())),
-      progress_(progress) {}
+      progress_(progress),
+      finished_(static_cast<std::size_t>(count_)) {}
 
 std::uint64_t TileQueue::taken() const {
   return std::min(next_.load(std::memory_order_relaxed), count_);

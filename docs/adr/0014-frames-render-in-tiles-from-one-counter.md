@@ -4,7 +4,10 @@ This decision revises docs/adr/0013-devices-render-from-their-own-memory.md
 on what devices share after the commit: besides the commit and the merge of
 their films, they share one counter while a render product renders. It
 settles how the work is split between the devices of a render, which
-docs/adr/0004-render-devices.md left open.
+docs/adr/0004-render-devices.md left open. Its section "Films and the
+merge" is revised by
+docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md: devices copy
+each tile into the render buffers as soon as it is rendered.
 
 umbra's render pass renders a frame one render product at a time, each with
 its camera, its image and its render vars. It splits a product's data

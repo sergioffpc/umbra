@@ -58,6 +58,7 @@
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/ext/usd/render_settings.h"
+#include "umbra/ext/usd/usd.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -553,8 +554,10 @@ class RenderTask final : public pxr::HdTask {
  public:
   // Syncs the prims of the render index whose render delegate is
   // `delegate`.
+  // Shows the products on `display`, if any, which outlives it.
   RenderTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-             pxr::SdfPath settings);
+             pxr::SdfPath settings,
+             Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND);
 
   // What Execute calls once the delegate has committed, before it renders.
   void SetOnCommitted(std::function<void()> on_committed);
@@ -587,6 +590,7 @@ class RenderTask final : public pxr::HdTask {
   pxr::TfTokenVector render_tags_;
   pxr::HdRenderIndex* UMBRA_NULLABLE index_ = nullptr;
   std::function<void()> on_committed_;
+  Display* UMBRA_NULLABLE display_;
   std::vector<std::shared_ptr<RenderPass>> passes_;
   std::vector<ProductBuffers> buffers_;
   std::optional<std::expected<void, core::Error>> result_;
