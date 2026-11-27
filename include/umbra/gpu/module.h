@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,6 +19,7 @@
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/device.h"
 #include "umbra/gpu/module_abi.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -75,6 +77,13 @@ class UMBRA_OWNER Module {
   // Every GPU, usable or not. Fails with kUnavailable when the CUDA runtime
   // cannot be initialized.
   [[nodiscard]] std::expected<GpuDevices, core::Error> DescribeDevices() const;
+
+  // A device on the usable GPU of CUDA ordinal `ordinal`, named
+  // gpu<ordinal>, which commits into the GPU's memory through the module:
+  // the module must stay loaded while it lives. Fails with kUnavailable, and
+  // the cause, when the GPU cannot be used.
+  [[nodiscard]] std::expected<std::unique_ptr<device::Device>, core::Error>
+  CreateDevice(int ordinal) const UMBRA_LIFETIMEBOUND;
 
  private:
   Module(void* handle, const ModuleApi& api);

@@ -17,7 +17,9 @@ Public headers (`include/umbra/device/`):
   removed by id, with the change flags of an updated prototype.
 - `device.h`: the `Device` interface, which commits a change set into the
   device's own memory, and the frame parameters a device receives for each
-  frame besides render data.
+  frame besides render data. `kMaxRefits`, 8, is how many refits in a row
+  every device makes of a prototype's acceleration structure as its points
+  change, before it rebuilds it, since every refit loosens its bounds.
 - `diagnostic_device.h`: a device that renders nothing, and checks each
   change set it receives instead, against what it holds from the commits
   before: ids in range, an id removed or updated held and an id added free,

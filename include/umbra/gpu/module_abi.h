@@ -19,14 +19,15 @@
 
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::gpu {
 
 // The version of ModuleApi. Bump it whenever ModuleApi or ModuleStatus
-// changes.
-inline constexpr std::uint32_t kModuleAbiVersion = 3;
+// changes, or a type of the change set (umbra/device/change_set.h) does.
+inline constexpr std::uint32_t kModuleAbiVersion = 4;
 
 // The name of the exported entry point, of type ModuleEntryPoint.
 inline constexpr const char* kModuleEntryPoint = "umbra_gpu_module";
@@ -113,6 +114,14 @@ inline std::span<const GpuDescription> DescribedGpus(
                       kMaxGpus));
 }
 
+// A device the module created on a GPU, which only the module reads.
+class ModuleDevice;
+
+// Creates a device on the GPU of a CUDA ordinal: null, with a failed
+// *status, when it cannot.
+using CreateDeviceFunction = ModuleDevice* UMBRA_NULLABLE (*)(
+    std::int32_t ordinal, ModuleStatus* status);
+
 // The functions of the module.
 struct ModuleApi {
   // kModuleAbiVersion of the build that produced the module.
@@ -128,6 +137,20 @@ struct ModuleApi {
   // driver's OptiX runtime.
   // Fails when the CUDA runtime cannot be initialized.
   ModuleStatus (*describe_devices)(GpuInventory* inventory);
+
+  // Creates a device on the usable GPU of CUDA ordinal `ordinal`, with its
+  // own stream and OptiX context. Fails, setting *status and returning null,
+  // when the GPU cannot be used.
+  CreateDeviceFunction create_device;
+
+  // Destroys a device made by create_device, freeing its memory on the GPU.
+  void (*destroy_device)(ModuleDevice* device);
+
+  // Commits `changes` to `gpu`: uploads what they give into its memory,
+  // builds or updates its acceleration structures from it, and waits for
+  // both, so that the change set is read only during the call. Fails with
+  // the cause when it cannot; the device must then not render.
+  ModuleStatus (*commit)(ModuleDevice* gpu, const device::ChangeSet* changes);
 };
 
 // The type of the module's entry point.
