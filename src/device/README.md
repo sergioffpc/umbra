@@ -2,8 +2,8 @@
 
 What a device builds its render data from, and the interface every device
 implements (see `docs/adr/0013-devices-render-from-their-own-memory.md`). It
-holds no OpenUSD type and owns no host copy: the OpenUSD bridge,
-`umbra::ext::usd`, converts what its prims sync into host copies, and hands
+holds no OpenUSD type and owns no host copy: the render delegate,
+`umbra::delegate`, converts what its prims sync into host copies, and hands
 every device views of them at each commit.
 
 Public headers (`include/umbra/device/`):

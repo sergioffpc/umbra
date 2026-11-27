@@ -27,9 +27,9 @@
 #include "channels.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
+#include "umbra/delegate/render_settings.h"
+#include "umbra/delegate/session.h"
 #include "umbra/device/image.h"
-#include "umbra/ext/usd/render_settings.h"
-#include "umbra/ext/usd/usd.h"
 
 namespace umbra {
 namespace {
@@ -155,7 +155,7 @@ std::expected<int, Error> Connect(const TevAddress& address) {
 }
 
 // The channels of `var` that have a name, and are shown: its first ones.
-std::size_t ShownChannels(const ext::usd::RenderedVar& var) {
+std::size_t ShownChannels(const delegate::RenderedVar& var) {
   return ChannelNames(var.var->source, var.var->channels).size();
 }
 
@@ -264,12 +264,12 @@ void TevDisplay::Close() {
   connection_ = Connection::kClosed;
 }
 
-void TevDisplay::Begin(const ext::usd::RenderProduct& product,
-                       std::span<const ext::usd::RenderedVar> vars) {
+void TevDisplay::Begin(const delegate::RenderProduct& product,
+                       std::span<const delegate::RenderedVar> vars) {
   product_ = &product;
   vars_ = vars;
   channels_.clear();
-  for (const ext::usd::RenderedVar& var : vars) {
+  for (const delegate::RenderedVar& var : vars) {
     for (const std::string_view channel :
          ChannelNames(var.var->source, var.var->channels)) {
       channels_.push_back(std::format("{}.{}", var.var->name, channel));
@@ -309,7 +309,7 @@ void TevDisplay::Update(const device::PixelWindow& region) {
   packet_.Put(static_cast<std::int32_t>(region.width()));
   packet_.Put(static_cast<std::int32_t>(region.height()));
   PutLayout(region);
-  for (const ext::usd::RenderedVar& var : vars_) {
+  for (const delegate::RenderedVar& var : vars_) {
     PutPixels(var, region);
   }
   Send();
@@ -321,27 +321,27 @@ void TevDisplay::PutLayout(const device::PixelWindow& region) {
   const auto count = static_cast<std::size_t>(region.width()) *
                      static_cast<std::size_t>(region.height());
   std::size_t first_value = 0;
-  for (const ext::usd::RenderedVar& var : vars_) {
+  for (const delegate::RenderedVar& var : vars_) {
     for (std::size_t channel = 0; channel < ShownChannels(var); ++channel) {
       packet_.Put(static_cast<std::int64_t>(first_value + channel));
     }
     first_value += count * var.var->channels;
   }
-  for (const ext::usd::RenderedVar& var : vars_) {
+  for (const delegate::RenderedVar& var : vars_) {
     for (std::size_t channel = 0; channel < ShownChannels(var); ++channel) {
       packet_.Put(static_cast<std::int64_t>(var.var->channels));
     }
   }
 }
 
-void TevDisplay::PutPixels(const ext::usd::RenderedVar& var,
+void TevDisplay::PutPixels(const delegate::RenderedVar& var,
                            const device::PixelWindow& region) {
   const device::PixelWindow& window = product_->window;
   const auto window_width = static_cast<std::size_t>(window.width());
   const std::size_t channels = var.var->channels;
   const std::size_t values =
       static_cast<std::size_t>(region.width()) * channels;
-  const bool is_half = var.var->type == ext::usd::ChannelType::kHalf;
+  const bool is_half = var.var->type == delegate::ChannelType::kHalf;
   for (std::int32_t row = region.y_min; row < region.y_end; ++row) {
     const std::size_t first =
         (static_cast<std::size_t>(row - window.y_min) * window_width) +

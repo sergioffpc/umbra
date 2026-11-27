@@ -22,8 +22,9 @@ data from it (docs/adr/0013-devices-render-from-their-own-memory.md). A
 device's render data is its acceleration structures (Embree's BVHs on a CPU
 device, OptiX's GAS and IAS on a GPU) and the buffers its kernels shade
 from. The integrator reads only render data and holds no OpenUSD type.
-OpenUSD stays in the bridge, `src/ext/usd`, which is the only code that
-holds OpenUSD's types, exceptions and RTTI.
+OpenUSD stays in the bridge, `src/ext/usd`, and the render delegate,
+`src/delegate`, the only code that holds OpenUSD's types, exceptions and
+RTTI.
 
 The prims hand the devices:
 

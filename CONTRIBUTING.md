@@ -368,10 +368,13 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 - Results are must-use, as in Rust: discarding any `std::expected` fails
   lint (`bugprone-unused-return-value`), and a cast to `void` does not
   silence it.
-- Only `umbra::ext::<dep>` bridge modules (under `src/ext/` and
-  `include/umbra/ext/`) may enable RTTI or exceptions or include the headers
-  of libraries that need them. They expose only umbra types and convert
-  exceptions to `std::expected`.
+- Only the `umbra::ext::<dep>` bridge modules (under `src/ext/` and
+  `include/umbra/ext/`) and the render delegate, `umbra::delegate` (under
+  `src/delegate/` and `include/umbra/delegate/`), may enable RTTI or
+  exceptions or include the headers of libraries that need them. They
+  expose only umbra types, except the OpenUSD bridge's `stage.h`, which
+  hands the render delegate the stage it opens, and they convert exceptions
+  to `std::expected`.
 - A bridge is a thin layer over its dependency. It holds only RAII owners
   of the dependency's handles, the translation of its errors, exceptions and
   callbacks into `std::expected` and the log, redeclarations of the functions
@@ -379,9 +382,9 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   and umbra's. umbra's logic (algorithms, policies, the choice of a device)
   lives outside `src/ext/`, in the module that uses the bridge.
 - Code outside `src/ext/` calls a dependency only through its bridge. The
-  two exceptions are the render delegate, which includes Hydra's headers to
-  derive from its classes, and the GPU device's programs, which call OptiX's
-  device intrinsics. Review checks this rule; no tool does
+  two exceptions are the render delegate (`src/delegate/`), which includes
+  Hydra's headers to derive from its classes, and the GPU device's programs,
+  which call OptiX's device intrinsics. Review checks this rule; no tool does
   (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
 
 ### Memory and ownership

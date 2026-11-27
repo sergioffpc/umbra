@@ -50,7 +50,7 @@ and material. Each device keeps its structures in tables indexed by id, and
 gives nothing back.
 
 An updated prim carries umbra's change flags, which the bridge maps from
-Hydra's dirty bits, so dirty bits stay in `src/ext/usd`. A mesh has six:
+Hydra's dirty bits, so dirty bits stay in `src/delegate`. A mesh has six:
 
 - `kPlacement`: its instances, or their transforms, changed;
 - `kPoints`: its points changed, and its topology did not;

@@ -10,13 +10,13 @@
 #include <span>
 #include <string_view>
 
-#include "umbra/ext/usd/render_settings.h"
+#include "umbra/delegate/render_settings.h"
 
 namespace umbra {
 
-std::span<const std::string_view> ChannelNames(ext::usd::RenderVarSource source,
+std::span<const std::string_view> ChannelNames(delegate::RenderVarSource source,
                                                std::uint32_t channels) {
-  using ext::usd::RenderVarSource;
+  using delegate::RenderVarSource;
   static constexpr std::array<std::string_view, 4> kColor{"R", "G", "B", "A"};
   static constexpr std::array<std::string_view, 1> kDepth{"Z"};
   static constexpr std::array<std::string_view, 4> kVector{"X", "Y", "Z", "W"};

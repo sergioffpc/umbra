@@ -12,7 +12,7 @@
 #include <string_view>
 
 #include "umbra/core/safety.h"
-#include "umbra/ext/usd/render_settings.h"
+#include "umbra/delegate/render_settings.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -21,7 +21,7 @@ namespace umbra {
 // The names of the channels of a layer of `source` with `channels`
 // channels: R, G, B, A for colors, Z for depth, X, Y, Z, W for vectors.
 [[nodiscard]] std::span<const std::string_view> ChannelNames(
-    ext::usd::RenderVarSource source, std::uint32_t channels);
+    delegate::RenderVarSource source, std::uint32_t channels);
 
 }  // namespace umbra
 

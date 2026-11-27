@@ -19,9 +19,9 @@
 
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/delegate/render_settings.h"
+#include "umbra/delegate/session.h"
 #include "umbra/device/image.h"
-#include "umbra/ext/usd/render_settings.h"
-#include "umbra/ext/usd/usd.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -79,7 +79,7 @@ class Packet {
 // product begins; when it cannot, or the connection drops or stalls for
 // kTevTimeoutMs, it warns once and shows nothing more. It never waits longer
 // than kTevTimeoutMs on tev.
-class TevDisplay final : public ext::usd::Display {
+class TevDisplay final : public delegate::Display {
  public:
   explicit TevDisplay(TevAddress address);
   TevDisplay(const TevDisplay&) = delete;
@@ -88,8 +88,8 @@ class TevDisplay final : public ext::usd::Display {
   TevDisplay& operator=(TevDisplay&&) = delete;
   ~TevDisplay() override;
 
-  void Begin(const ext::usd::RenderProduct& product,
-             std::span<const ext::usd::RenderedVar> vars) override;
+  void Begin(const delegate::RenderProduct& product,
+             std::span<const delegate::RenderedVar> vars) override;
   void Update(const device::PixelWindow& region) override;
   void End() override;
 
@@ -106,7 +106,7 @@ class TevDisplay final : public ext::usd::Display {
   // Appends to the packet where each channel's values of `region` are.
   void PutLayout(const device::PixelWindow& region);
   // Appends to the packet the values of `var` over `region`.
-  void PutPixels(const ext::usd::RenderedVar& var,
+  void PutPixels(const delegate::RenderedVar& var,
                  const device::PixelWindow& region);
 
   TevAddress address_;
@@ -114,8 +114,8 @@ class TevDisplay final : public ext::usd::Display {
   // The socket, while the connection is open.
   int socket_ = -1;
   // The product shown, its vars and the names of their channels.
-  const ext::usd::RenderProduct* UMBRA_NULLABLE product_ = nullptr;
-  std::span<const ext::usd::RenderedVar> vars_;
+  const delegate::RenderProduct* UMBRA_NULLABLE product_ = nullptr;
+  std::span<const delegate::RenderedVar> vars_;
   std::vector<std::string> channels_;
   // The packet being built.
   Packet packet_;

@@ -8,7 +8,8 @@
 #     compiler-rt and libunwind, linked with lld: no GCC runtime library;
 #   - the LLVM binary tools (llvm-ar, llvm-ranlib, llvm-nm), required to
 #     archive the LTO bitcode of the static modules;
-#   - no exceptions and no RTTI (umbra_add_ext_module re-enables both);
+#   - no exceptions and no RTTI (the bridges and the render delegate
+#     re-enable both, through umbra_enable_exceptions);
 #   - every build type targets UMBRA_ARCH and uses the same floating-point
 #     flags, so Debug and Release compute identical results;
 #   - Release adds -O3 (CMake's default), full LTO, whole-program vtables,
@@ -17,10 +18,10 @@
 #     whole-program vtables devirtualize its virtual calls, and gives its
 #     type_info a copy of umbra's own. Both are wrong for the classes of a
 #     third-party library, whose shared objects hold subclasses umbra never
-#     sees and the type_info that libc++ compares by address. The bridges,
-#     the only code that includes third-party headers, keep the default
-#     visibility (umbra_add_ext_module), as Debug does; the rest of umbra
-#     keeps both for its own classes;
+#     sees and the type_info that libc++ compares by address. The bridges
+#     and the render delegate, the only code that includes third-party
+#     headers, keep the default visibility (umbra_enable_exceptions), as
+#     Debug does; the rest of umbra keeps both for its own classes;
 #   - Release keeps the frame pointers, including in leaf functions, so that
 #     profilers (perf) unwind call stacks cheaply and reliably; the cost is
 #     about 1%, and the major Linux distributions build this way too;
