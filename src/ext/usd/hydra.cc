@@ -9,6 +9,7 @@
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/base/vt/value.h>
+#include <pxr/base/work/loops.h>
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
@@ -42,10 +43,12 @@
 #include <pxr/imaging/hd/types.h>
 #include <pxr/imaging/hdsi/renderSettingsFilteringSceneIndex.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usdRender/tokens.h>
 #include <pxr/usdImaging/usdImaging/usdRenderSettingsSchema.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -64,6 +67,7 @@
 #include <utility>
 #include <vector>
 
+#include "dicing.h"
 #include "host_copy.h"
 #include "ies_tilt.h"
 #include "instancer.h"
@@ -80,6 +84,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/image.h"
 #include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
@@ -160,6 +165,39 @@ SettingsBase ReadSettingsBase(const pxr::HdContainerDataSourceHandle& prim) {
     base.depth_of_field = DepthOfField::kDisabled;
   }
   return base;
+}
+
+// The name of the dicing rate on a RenderSettings prim.
+const pxr::TfToken& DicingRateName() {
+  static const pxr::TfToken kName("umbra:dicingRate");
+  return kName;
+}
+
+// umbra:dicingRate, from the prim's UsdRender data source in the terminal
+// scene index.
+DicingRate ReadDicingRate(const pxr::HdContainerDataSourceHandle& prim) {
+  const pxr::HdContainerDataSourceHandle settings =
+      pxr::UsdImagingUsdRenderSettingsSchema::GetFromParent(prim)
+          .GetNamespacedSettings();
+  const auto source = pxr::HdSampledDataSource::Cast(
+      settings != nullptr ? settings->Get(DicingRateName()) : nullptr);
+  if (source == nullptr) {
+    return {};
+  }
+  const pxr::VtValue value = source->GetValue(0.0F);
+  double pixels = 0.0;
+  if (value.IsHolding<float>()) {
+    pixels = static_cast<double>(value.UncheckedGet<float>());
+  } else if (value.IsHolding<double>()) {
+    pixels = value.UncheckedGet<double>();
+  }
+  if (!(pixels > 0.0) || !std::isfinite(pixels)) {
+    return {
+        .pixels = 1.0,
+        .invalid = "umbra:dicingRate must be a float above 0",
+    };
+  }
+  return {.pixels = pixels, .invalid = {}};
 }
 
 // A prim for Hydra to own: it gives it back to its Destroy method.
@@ -367,6 +405,23 @@ const pxr::SdfPath& TaskPath() {
 
 }  // namespace
 
+AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token) {
+  using enum AspectRatioConformPolicy;
+  if (token == pxr::UsdRenderTokens->cropAperture) {
+    return kCropAperture;
+  }
+  if (token == pxr::UsdRenderTokens->adjustApertureWidth) {
+    return kAdjustApertureWidth;
+  }
+  if (token == pxr::UsdRenderTokens->adjustApertureHeight) {
+    return kAdjustApertureHeight;
+  }
+  if (token == pxr::UsdRenderTokens->adjustPixelAspectRatio) {
+    return kAdjustPixelAspectRatio;
+  }
+  return kExpandAperture;
+}
+
 RenderSettingsPrim::RenderSettingsPrim(const pxr::SdfPath& prim_id,
                                        SyncCounter* UMBRA_NULLABLE counter)
     : pxr::HdRenderSettings(prim_id), counter_(counter) {}
@@ -378,7 +433,10 @@ void RenderSettingsPrim::_Sync(
   const pxr::HdSceneIndexBaseRefPtr terminal =
       scene_delegate->GetRenderIndex().GetTerminalSceneIndex();
   if (terminal != nullptr) {
-    base_ = ReadSettingsBase(terminal->GetPrim(GetId()).dataSource);
+    const pxr::HdContainerDataSourceHandle prim =
+        terminal->GetPrim(GetId()).dataSource;
+    base_ = ReadSettingsBase(prim);
+    dicing_rate_ = ReadDicingRate(prim);
   }
   CountSync(counter_, GetId());
 }
@@ -455,6 +513,11 @@ void CameraPrim::Place(const host::Shutter& shutter) {
   camera_ = Converted(camera_to_world.motion);
 }
 
+host::Camera CameraPrim::Sampled(const host::Shutter& shutter) const {
+  return Converted(
+      ResampleTransform(transform_samples_, GetTransform(), shutter).motion);
+}
+
 host::Camera CameraPrim::AtFrame() const {
   const std::array<pxr::GfMatrix4d, 1> at_frame{GetTransform()};
   return Converted(at_frame);
@@ -466,11 +529,13 @@ void CameraPrim::FreeHostCopy() {
 }
 
 MeshPrim::MeshPrim(const pxr::SdfPath& prim_id, SyncCounter& counter,
-                   double meters_per_unit, const host::Shutter& shutter)
+                   double meters_per_unit, const host::Shutter& shutter,
+                   const DicingView& dicing)
     : pxr::HdMesh(prim_id),
       counter_(&counter),
       meters_per_unit_(meters_per_unit),
-      shutter_(&shutter) {}
+      shutter_(&shutter),
+      dicing_(&dicing) {}
 
 pxr::HdDirtyBits MeshPrim::GetInitialDirtyBitsMask() const {
   return pxr::HdChangeTracker::AllSceneDirtyBits | kDirtyEmission;
@@ -481,6 +546,7 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
                     pxr::HdDirtyBits* dirty_bits,
                     const pxr::TfToken& /*repr*/) {
   const pxr::HdDirtyBits bits = *dirty_bits;
+  delegate_ = delegate;
   _UpdateVisibility(delegate, dirty_bits);
   _UpdateInstancer(delegate, dirty_bits);
   if ((bits & pxr::HdChangeTracker::DirtyMaterialId) != 0U) {
@@ -512,20 +578,81 @@ void MeshPrim::LogSync() const {
                   instance_count_ == 1 ? "" : "s");
 }
 
+void MeshPrim::LogRefined() const {
+  const std::size_t triangles = mesh_.triangles.size();
+  UMBRA_LOG_DEBUG(kUsd,
+                  "{}: {} subdivision refined into {} triangle{}, the "
+                  "longest edge {:.3g} pixels, for a dicing rate of {}",
+                  GetId().GetString(), subdivision_scheme_,
+                  core::FormatCount(triangles), triangles == 1 ? "" : "s",
+                  longest_edge_, dicing_->rate);
+}
+
 void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   ConvertGeometry(delegate);
   if (state_ != MeshState::kConverted) {
     return;
   }
-  Place(delegate);
+  // A subdivided mesh is placed before it is refined.
+  if (subdivision_scheme_.empty()) {
+    Place(delegate);
+  }
   changes_ = kWholeMesh;
 }
 
+namespace {
+
+// The dirty bits of a mesh's placement.
+constexpr pxr::HdDirtyBits kPlacementBits =
+    pxr::HdChangeTracker::DirtyTransform |
+    pxr::HdChangeTracker::DirtyInstancer |
+    pxr::HdChangeTracker::DirtyInstanceIndex;
+
+// The dirty bits that have a subdivided mesh refined again.
+constexpr pxr::HdDirtyBits kRefineBits =
+    kPlacementBits | pxr::HdChangeTracker::DirtyTopology |
+    pxr::HdChangeTracker::DirtySubdivTags | pxr::HdChangeTracker::DirtyPoints |
+    pxr::HdChangeTracker::DirtyPrimvar | pxr::HdChangeTracker::DirtyDoubleSided;
+
+}  // namespace
+
+void MeshPrim::Refine(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits) {
+  using device::ChangeFlags;
+  const MotionOutcome outcome = points_outcome_;
+  ConvertGeometry(delegate);
+  if (state_ != MeshState::kConverted) {
+    return;
+  }
+  ChangeFlags flags =
+      ChangeFlags::kTopology | ChangeFlags::kPrimvars | ChangeFlags::kMaterials;
+  if ((bits & kPlacementBits) != 0U || points_outcome_ != outcome) {
+    flags = flags | ChangeFlags::kPlacement;
+  }
+  if ((bits & kDirtyEmission) != 0U) {
+    flags = flags | ChangeFlags::kEmission;
+  }
+  changes_ = changes_ | flags;
+  KeepChanged();
+}
+
+void MeshPrim::RefineForView() {
+  if (delegate_ == nullptr || !IsRefined() || instance_count_ == 0) {
+    return;
+  }
+  // Hydra syncs it after the tasks, which refines it.
+  const pxr::HdDirtyBits dirty =
+      delegate_->GetRenderIndex().GetChangeTracker().GetRprimDirtyBits(GetId());
+  if ((dirty & (kRefineBits | pxr::HdChangeTracker::DirtyVisibility)) != 0U) {
+    return;
+  }
+  Refine(*delegate_, pxr::HdChangeTracker::Clean);
+}
+
 void MeshPrim::Update(pxr::HdSceneDelegate& delegate, pxr::HdDirtyBits bits) {
-  constexpr pxr::HdDirtyBits kPlacementBits =
-      pxr::HdChangeTracker::DirtyTransform |
-      pxr::HdChangeTracker::DirtyInstancer |
-      pxr::HdChangeTracker::DirtyInstanceIndex;
+  if (!subdivision_scheme_.empty() && (bits & kRefineBits) != 0U) {
+    Refine(delegate, bits);
+    return;
+  }
   const MotionOutcome outcome = points_outcome_;
   const std::optional<device::ChangeFlags> geometry =
       UpdateGeometry(delegate, bits);
@@ -616,12 +743,13 @@ std::optional<device::ChangeFlags> MeshPrim::ReconvertGeometry(
   return dirtied;
 }
 
-void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
+SourceMesh MeshPrim::ReadSource(pxr::HdSceneDelegate& delegate) {
   const std::optional<pxr::HdExtComputationPrimvarDescriptor> computed =
       ComputedPointsOf(delegate, GetId());
   SourceMesh source{
       .path = GetId().GetString(),
       .topology = GetMeshTopology(&delegate),
+      .subdiv_tags = GetSubdivTags(&delegate),
       .points = PointsAtFrame(delegate, GetId(), computed),
       .point_motion = {},
       .primvars = ReadPrimvars(delegate, GetId()),
@@ -632,10 +760,31 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
       SamplePoints(delegate, GetId(), computed, source.points, *shutter_);
   source.point_motion = std::move(motion.samples);
   points_outcome_ = motion.outcome;
+  return source;
+}
+
+void MeshPrim::ReadDisplayColor(pxr::HdSceneDelegate& delegate) {
+  ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
+  display_color_ = std::ranges::any_of(mesh_.primvars,
+                                       [](const host::Primvar& primvar) {
+                                         return primvar.name == kDisplayColor;
+                                       })
+                       ? DisplayColor::kPresent
+                       : DisplayColor::kAbsent;
+}
+
+void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
+  const SourceMesh source = ReadSource(delegate);
   subdivision_scheme_ = IsSubdivided(source.topology)
                             ? source.topology.GetScheme().GetString()
                             : std::string();
-  auto converted = ConvertMesh(source, meters_per_unit_);
+  if (!subdivision_scheme_.empty()) {
+    Place(delegate);
+  }
+  auto converted =
+      subdivision_scheme_.empty()
+          ? ConvertMesh(source, meters_per_unit_)
+          : RefineMesh(source, meters_per_unit_, *dicing_, instances_);
   if (!converted.has_value()) {
     state_ = MeshState::kInvalid;
     instance_count_ = 0;
@@ -645,14 +794,12 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
   state_ = MeshState::kConverted;
   mesh_ = std::move(converted->mesh);
   normals_ = converted->normals;
+  longest_edge_ = converted->longest_edge;
+  if (!subdivision_scheme_.empty()) {
+    LogRefined();
+  }
   point_count_ = mesh_.points.front().size();
-  ConvertDisplayColor(delegate, GetId(), mesh_.primvars);
-  display_color_ = std::ranges::any_of(mesh_.primvars,
-                                       [](const host::Primvar& primvar) {
-                                         return primvar.name == kDisplayColor;
-                                       })
-                       ? DisplayColor::kPresent
-                       : DisplayColor::kAbsent;
+  ReadDisplayColor(delegate);
   ReadEmission(delegate);
   material_subsets_ = MaterialSubsets(source.topology);
   AssignTriangleMaterials();
@@ -852,6 +999,123 @@ void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
   prims_.shutter = ShutterOf(settings);
 }
 
+namespace {
+
+// The images of the products of `settings` that see through its camera,
+// or the settings' own when none does.
+std::vector<device::Image> ImagesOf(const RenderSettingsPrim& settings) {
+  std::vector<device::Image> images;
+  for (const pxr::HdRenderSettings::RenderProduct& product :
+       settings.GetRenderProducts()) {
+    if (product.cameraPath == settings.CameraPath()) {
+      images.push_back({
+          .resolution = Components<std::int32_t, 2>(product.resolution),
+          .window = {},
+          .pixel_aspect_ratio = product.pixelAspectRatio,
+          .aspect_ratio_conform_policy =
+              ConformPolicy(product.aspectRatioConformPolicy),
+      });
+    }
+  }
+  if (images.empty()) {
+    const SettingsBase& base = settings.base();
+    images.push_back({
+        .resolution = base.resolution,
+        .window = {},
+        .pixel_aspect_ratio = base.pixel_aspect_ratio,
+        .aspect_ratio_conform_policy =
+            ConformPolicy(base.aspect_ratio_conform_policy),
+    });
+  }
+  return images;
+}
+
+// The pixels per unit of length of the aperture of `camera` on `image`:
+// the larger of its width's and its height's.
+double PixelsPerAperture(const host::Camera& camera,
+                         const device::Image& image) {
+  const device::ConformedAperture conformed =
+      device::ConformAperture(camera.aperture, image.resolution,
+                              static_cast<double>(image.pixel_aspect_ratio),
+                              image.aspect_ratio_conform_policy);
+  double pixels = 0.0;
+  for (std::size_t axis = 0; axis < 2; ++axis) {
+    const double aperture = conformed.aperture.at(axis);
+    if (aperture > 0.0) {
+      pixels = std::max(
+          pixels, static_cast<double>(image.resolution.at(axis)) / aperture);
+    }
+  }
+  return pixels;
+}
+
+// How the images of `settings` scale a length seen through `camera`.
+subdivision::ImageScale ImageScaleOf(const host::Camera& camera,
+                                     const RenderSettingsPrim& settings) {
+  double pixels = 0.0;
+  for (const device::Image& image : ImagesOf(settings)) {
+    pixels = std::max(pixels, PixelsPerAperture(camera, image));
+  }
+  // A perspective camera's aperture spans its focal length per radian.
+  const bool perspective = camera.projection == host::Projection::kPerspective;
+  return {
+      .projection = camera.projection,
+      .pixels_per_unit = perspective ? pixels * camera.focal_length : pixels,
+      .near = camera.clipping_range.at(0),
+  };
+}
+
+}  // namespace
+
+DicingView RenderDelegate::DicingOf(const pxr::SdfPath& settings) const {
+  const auto found = prims_.settings.find(settings);
+  if (found == prims_.settings.end()) {
+    return {};
+  }
+  const RenderSettingsPrim& prim = *found->second;
+  DicingView view{
+      .scale = {},
+      .eyes = {},
+      .rate = prim.dicing_rate().pixels,
+  };
+  const auto camera = prims_.cameras.find(prim.CameraPath());
+  if (camera == prims_.cameras.end()) {
+    return view;
+  }
+  const host::Camera sampled = camera->second->Sampled(prims_.shutter);
+  for (const host::Matrix& camera_to_world : sampled.camera_to_world) {
+    view.eyes.push_back({
+        camera_to_world.at(12),
+        camera_to_world.at(13),
+        camera_to_world.at(14),
+    });
+  }
+  view.scale = ImageScaleOf(sampled, prim);
+  return view;
+}
+
+void RenderDelegate::ChooseDicing(const pxr::SdfPath& settings) {
+  DicingView view = DicingOf(settings);
+  if (view == prims_.dicing) {
+    return;
+  }
+  prims_.dicing = std::move(view);
+  std::vector<MeshPrim*> refined;
+  for (const auto& [path, mesh] : prims_.meshes) {
+    if (mesh->IsRefined()) {
+      refined.push_back(mesh);
+    }
+  }
+  if (refined.empty()) {
+    return;
+  }
+  pxr::WorkParallelForEach(refined.begin(), refined.end(),
+                           [](MeshPrim* mesh) { mesh->RefineForView(); });
+  UMBRA_LOG_DEBUG(kUsd, "the view changed: {} subdivided mesh{} refined again",
+                  core::FormatCount(refined.size()),
+                  refined.size() == 1 ? "" : "es");
+}
+
 void RenderDelegate::Place(const pxr::TfTokenVector& render_tags) {
   for (const auto& [path, light] : prims_.lights) {
     if (light->IsChanged()) {
@@ -984,7 +1248,7 @@ pxr::HdRprim* UMBRA_NULLABLE RenderDelegate::CreateRprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
   if (type_id == pxr::HdPrimTypeTokens->mesh) {
     auto mesh = std::make_unique<MeshPrim>(prim_id, *counter_, meters_per_unit_,
-                                           prims_.shutter);
+                                           prims_.shutter, prims_.dicing);
     prims_.meshes[prim_id] = mesh.get();
     return Release<pxr::HdRprim>(std::move(mesh));
   }
@@ -1259,6 +1523,7 @@ void RenderTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
   // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
   delegate_->ChooseShutter(settings_);
+  delegate_->ChooseDicing(settings_);
   delegate_->Place(render_tags_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }

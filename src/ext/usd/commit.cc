@@ -643,8 +643,8 @@ class Geometry {
   // Removes the prototypes whose mesh is gone.
   void RemoveGone(const SyncedPrims& prims);
 
-  // "warning: usd: 120 meshes ask for catmullClark subdivision, rendered
-  // as their cage (first /World/Car/Body)", and so on.
+  // "warning: usd: 3 meshes are invalid, dropped (first /World/Car/Body:
+  // ...)", and so on.
   void Report(Warnings& warnings) const {
     ReportMeshes(warnings);
     ReportUnsupported(warnings);
@@ -678,7 +678,6 @@ class Geometry {
   MotionTallies* motion_;
   Materials* materials_;
   ChangeSetBuilder* changes_;
-  std::map<std::string, Tally> subdivided_;
   Tally invalid_;
   std::map<pxr::TfToken, Tally> unsupported_;
   // The issues of the mesh lights whose emission changed.
@@ -715,9 +714,6 @@ void Geometry::Count(const pxr::SdfPath& path, const MeshPrim& mesh) {
   }
   if (!IsPlaced(mesh)) {
     return;
-  }
-  if (!mesh.subdivision_scheme().empty()) {
-    subdivided_[mesh.subdivision_scheme()].Add(path);
   }
   if (device::HasAny(mesh.changes(), device::ChangeFlags::kEmission)) {
     for (const LightNote& note : mesh.emission_notes()) {
@@ -775,12 +771,6 @@ void Geometry::Add(const UnsupportedPrim& prim) {
 }
 
 void Geometry::ReportMeshes(Warnings& warnings) const {
-  for (const auto& [scheme, tally] : subdivided_) {
-    warnings.Warn(std::format("{} for {} subdivision, rendered as {} cage ({})",
-                              Meshes(tally.count(), "asks", "ask"), scheme,
-                              Plural(tally.count(), "its", "their"),
-                              tally.First()));
-  }
   if (invalid_.count() > 0) {
     warnings.Warn(std::format("{} invalid, dropped ({}: {})",
                               Meshes(invalid_.count(), "is", "are"),
@@ -1294,25 +1284,6 @@ std::vector<RenderVar> ProductVars(const Product& product,
     });
   }
   return vars;
-}
-
-// The policy of a conformPolicy token: expandAperture, the fallback, for an
-// unknown one.
-AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token) {
-  using enum AspectRatioConformPolicy;
-  if (token == pxr::UsdRenderTokens->cropAperture) {
-    return kCropAperture;
-  }
-  if (token == pxr::UsdRenderTokens->adjustApertureWidth) {
-    return kAdjustApertureWidth;
-  }
-  if (token == pxr::UsdRenderTokens->adjustApertureHeight) {
-    return kAdjustApertureHeight;
-  }
-  if (token == pxr::UsdRenderTokens->adjustPixelAspectRatio) {
-    return kAdjustPixelAspectRatio;
-  }
-  return kExpandAperture;
 }
 
 // A camera model holds every motion sample of a camera's transform.
@@ -1932,8 +1903,29 @@ class FrameCommit {
   std::string camera_;
 };
 
+namespace {
+
+// An invalid argument when `settings`, at `path`, have an invalid dicing
+// rate.
+std::expected<void, Error> CheckDicingRate(const RenderSettingsPrim& settings,
+                                           const std::string& path) {
+  if (const std::string& invalid = settings.dicing_rate().invalid;
+      !invalid.empty()) {
+    return std::unexpected(
+        Error(ErrorCode::kInvalidArgument,
+              std::format("render settings {}: {}", path, invalid)));
+  }
+  return {};
+}
+
+}  // namespace
+
 std::expected<Committed, Error> FrameCommit::CommitSettings(
     const RenderSettingsPrim& settings) {
+  if (auto checked = CheckDicingRate(settings, inputs_->settings.GetString());
+      !checked.has_value()) {
+    return std::unexpected(std::move(checked.error()));
+  }
   const pxr::SdfPath camera_path = settings.CameraPath();
   const auto camera = cameras_.Index(
       camera_path,

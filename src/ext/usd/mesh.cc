@@ -25,8 +25,10 @@
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/pxOsd/subdivTags.h>
 #include <pxr/imaging/pxOsd/tokens.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -34,6 +36,7 @@
 #include <expected>
 #include <format>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <string>
@@ -43,7 +46,9 @@
 #include <variant>
 #include <vector>
 
+#include "dicing.h"
 #include "host_copy.h"
+#include "subdivision.h"
 #include "umbra/core/log.h"
 
 namespace umbra::ext::usd::internal {
@@ -269,8 +274,15 @@ void Fan(const pxr::HdMeshTopology& topology,
   }
 }
 
-// Checks the topology of a mesh of `point_count` points and fans it.
-std::expected<Triangulation, std::string> Triangulate(
+// A polygon mesh's topology, checked.
+struct Polygons {
+  HostBuffer<std::uint32_t> face_vertex_counts;
+  // The point of each face-vertex.
+  std::vector<std::uint32_t> indices;
+};
+
+// Checks the topology of a mesh of `point_count` points.
+std::expected<Polygons, std::string> CheckTopology(
     const pxr::HdMeshTopology& topology, std::size_t point_count) {
   const pxr::VtIntArray& face_vertex_indices = topology.GetFaceVertexIndices();
   auto counts =
@@ -281,16 +293,29 @@ std::expected<Triangulation, std::string> Triangulate(
   if (face_vertex_indices.size() > std::numeric_limits<std::uint32_t>::max()) {
     return std::unexpected(std::string("more than 2^32 face vertices"));
   }
-  const auto indices =
+  auto indices =
       CheckedIndices(face_vertex_indices, point_count, "faceVertexIndices");
   if (!indices.has_value()) {
     return std::unexpected(indices.error());
   }
+  return Polygons{
+      .face_vertex_counts = std::move(*counts),
+      .indices = std::move(*indices),
+  };
+}
+
+// Checks the topology of a mesh of `point_count` points and fans it.
+std::expected<Triangulation, std::string> Triangulate(
+    const pxr::HdMeshTopology& topology, std::size_t point_count) {
+  auto polygons = CheckTopology(topology, point_count);
+  if (!polygons.has_value()) {
+    return std::unexpected(polygons.error());
+  }
   Triangulation triangulation;
-  triangulation.face_vertex_counts = std::move(*counts);
-  triangulation.face_vertices = face_vertex_indices.size();
+  triangulation.face_vertex_counts = std::move(polygons->face_vertex_counts);
+  triangulation.face_vertices = polygons->indices.size();
   triangulation.points = point_count;
-  Fan(topology, *indices, triangulation);
+  Fan(topology, polygons->indices, triangulation);
   return triangulation;
 }
 
@@ -592,6 +617,414 @@ host::Matrix TransformInMeters(const pxr::GfMatrix4d& transform,
   return converted;
 }
 
+// A primvar of a subdivided mesh that OpenSubdiv refines: per point, or
+// per face-vertex.
+struct RefinedPrimvar {
+  std::string name;
+  host::PrimvarRate rate = host::PrimvarRate::kPerVertex;
+  subdivision::Smoothness smoothness = subdivision::Smoothness::kSmooth;
+  std::uint32_t components = 1;
+  HostBuffer<float> numbers;
+  // kPerCorner only: the value of each face-vertex.
+  std::vector<std::uint32_t> indices;
+};
+
+// The primvars of a subdivided mesh: those kept as they are, constant and
+// uniform, and those refined.
+struct SubdividedPrimvars {
+  std::vector<host::Primvar> kept;
+  std::vector<RefinedPrimvar> refined;
+};
+
+// The value of each face-vertex of a face-varying primvar of `values`:
+// its indices, checked, or each face-vertex its own.
+std::expected<std::vector<std::uint32_t>, std::string> FaceVertexValues(
+    const Values& values, const SourcePrimvar& source,
+    std::size_t face_vertices) {
+  const std::size_t given =
+      source.indices.empty() ? values.count : source.indices.size();
+  if (given != face_vertices) {
+    return std::unexpected(WrongCount(source, given, face_vertices));
+  }
+  if (!source.indices.empty()) {
+    return CheckedIndices(source.indices, values.count,
+                          std::format("primvar {}", source.name.GetString()));
+  }
+  std::vector<std::uint32_t> indices(face_vertices);
+  std::ranges::iota(indices, 0U);
+  return indices;
+}
+
+// A primvar of a subdivided mesh that OpenSubdiv refines, from its values
+// at `rate`, kPerVertex or kPerCorner.
+std::expected<RefinedPrimvar, std::string> Refined(Values values,
+                                                   const SourcePrimvar& source,
+                                                   host::PrimvarRate rate,
+                                                   const Polygons& shape,
+                                                   std::size_t points) {
+  RefinedPrimvar refined{
+      .name = source.name.GetString(),
+      .rate = rate,
+      .smoothness = source.interpolation == pxr::HdInterpolationVarying
+                        ? subdivision::Smoothness::kLinear
+                        : subdivision::Smoothness::kSmooth,
+      .components = values.components,
+      .numbers = {},
+      .indices = {},
+  };
+  if (rate == host::PrimvarRate::kPerCorner) {
+    auto indices = FaceVertexValues(values, source, shape.indices.size());
+    if (!indices.has_value()) {
+      return std::unexpected(indices.error());
+    }
+    refined.indices = std::move(*indices);
+  } else {
+    auto elements = Elements(std::move(values), source, rate, points);
+    if (!elements.has_value()) {
+      return std::unexpected(elements.error());
+    }
+    values = std::move(*elements);
+  }
+  refined.numbers = std::get<HostBuffer<float>>(std::move(values.numbers));
+  return refined;
+}
+
+// Sorts a primvar of a subdivided mesh of `points` points into `out`: kept,
+// refined, or dropped with a debug message.
+std::expected<void, std::string> SortPrimvar(const SourcePrimvar& source,
+                                             const Polygons& shape,
+                                             std::size_t points,
+                                             std::string_view path,
+                                             SubdividedPrimvars& out) {
+  const auto rate = RateOf(source.interpolation);
+  auto values = NumericValues(source.value);
+  if (source.element_size > 1 || !rate.has_value() || !values.has_value()) {
+    UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of type {} not supported; dropped",
+                    path, source.name.GetString(), source.value.GetTypeName());
+    return {};
+  }
+  if (*rate == host::PrimvarRate::kConstant ||
+      *rate == host::PrimvarRate::kPerFace) {
+    const std::size_t needed = *rate == host::PrimvarRate::kConstant
+                                   ? 1
+                                   : shape.face_vertex_counts.size();
+    auto elements = Elements(std::move(*values), source, *rate, needed);
+    if (!elements.has_value()) {
+      return std::unexpected(elements.error());
+    }
+    out.kept.push_back({
+        .name = source.name.GetString(),
+        .rate = *rate,
+        .components = elements->components,
+        .values = std::move(elements->numbers),
+        .indices = {},
+    });
+    return {};
+  }
+  if (!std::holds_alternative<HostBuffer<float>>(values->numbers)) {
+    UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of integers not refined; dropped",
+                    path, source.name.GetString());
+    return {};
+  }
+  auto refined = Refined(std::move(*values), source, *rate, shape, points);
+  if (!refined.has_value()) {
+    return std::unexpected(refined.error());
+  }
+  out.refined.push_back(std::move(*refined));
+  return {};
+}
+
+// The primvars of `source`, a subdivided mesh of `points` points, but its
+// points, its normals and its skinning inputs.
+std::expected<SubdividedPrimvars, std::string> SortPrimvars(
+    const SourceMesh& source, const Polygons& shape, std::size_t points) {
+  SubdividedPrimvars sorted;
+  for (const SourcePrimvar& primvar : source.primvars) {
+    if (primvar.name == pxr::HdTokens->points ||
+        primvar.name == pxr::HdTokens->normals || IsSkinningInput(primvar)) {
+      continue;
+    }
+    if (auto done = SortPrimvar(primvar, shape, points, source.path, sorted);
+        !done.has_value()) {
+      return std::unexpected(done.error());
+    }
+  }
+  return sorted;
+}
+
+subdivision::Scheme SchemeOf(const pxr::TfToken& scheme) {
+  if (scheme == pxr::PxOsdOpenSubdivTokens->loop) {
+    return subdivision::Scheme::kLoop;
+  }
+  if (scheme == pxr::PxOsdOpenSubdivTokens->bilinear) {
+    return subdivision::Scheme::kBilinear;
+  }
+  return subdivision::Scheme::kCatmullClark;
+}
+
+subdivision::BoundaryInterpolation BoundaryOf(const pxr::TfToken& rule) {
+  if (rule == pxr::PxOsdOpenSubdivTokens->none) {
+    return subdivision::BoundaryInterpolation::kNone;
+  }
+  if (rule == pxr::PxOsdOpenSubdivTokens->edgeOnly) {
+    return subdivision::BoundaryInterpolation::kEdgeOnly;
+  }
+  return subdivision::BoundaryInterpolation::kEdgeAndCorner;
+}
+
+subdivision::FaceVaryingInterpolation FaceVaryingOf(const pxr::TfToken& rule) {
+  using subdivision::FaceVaryingInterpolation;
+  const auto& tokens = *pxr::PxOsdOpenSubdivTokens;
+  const std::array<std::pair<pxr::TfToken, FaceVaryingInterpolation>, 5> rules{
+      {
+          {tokens.none, FaceVaryingInterpolation::kNone},
+          {tokens.cornersOnly, FaceVaryingInterpolation::kCornersOnly},
+          {tokens.cornersPlus2, FaceVaryingInterpolation::kCornersPlus2},
+          {tokens.boundaries, FaceVaryingInterpolation::kBoundaries},
+          {tokens.all, FaceVaryingInterpolation::kAll},
+      },
+  };
+  const auto* const found = std::ranges::find(
+      rules, rule, &std::pair<pxr::TfToken, FaceVaryingInterpolation>::first);
+  return found != rules.end() ? found->second
+                              : FaceVaryingInterpolation::kCornersPlus1;
+}
+
+// The values of `array`, which may be indexed with bounds checks.
+template <typename T>
+std::vector<T> CopyOf(const pxr::VtArray<T>& array) {
+  return {array.begin(), array.end()};
+}
+
+// Whether `point` is the index of one of `points` points.
+bool IsPoint(int point, std::size_t points) {
+  return std::cmp_greater_equal(point, 0) && std::cmp_less(point, points);
+}
+
+// The creases of `tags`, as the scene delegate gives them.
+struct CreaseTags {
+  std::vector<int> indices;
+  std::vector<int> lengths;
+  std::vector<float> weights;
+};
+
+// The sharp edges, between points below `points`, of crease number
+// `crease` of `tags`, whose points start at `first` in `tags.indices`;
+// `made` sharp edges precede them.
+std::vector<subdivision::Crease> CreaseEdges(const CreaseTags& tags,
+                                             std::size_t crease,
+                                             std::size_t first,
+                                             std::size_t made,
+                                             std::size_t points) {
+  const bool per_crease = tags.weights.size() == tags.lengths.size();
+  const auto length =
+      static_cast<std::size_t>(std::max(tags.lengths.at(crease), 0));
+  std::vector<subdivision::Crease> edges;
+  for (std::size_t edge = first + 1; edge < first + length; ++edge) {
+    const std::size_t weight = per_crease ? crease : made + edges.size();
+    if (edge >= tags.indices.size() || weight >= tags.weights.size() ||
+        !IsPoint(tags.indices.at(edge - 1), points) ||
+        !IsPoint(tags.indices.at(edge), points)) {
+      continue;
+    }
+    edges.push_back({
+        .from = static_cast<std::uint32_t>(tags.indices.at(edge - 1)),
+        .to = static_cast<std::uint32_t>(tags.indices.at(edge)),
+        .sharpness = tags.weights.at(weight),
+    });
+  }
+  return edges;
+}
+
+// The sharp edges of the creases of `tags`, between points below `points`:
+// each crease a chain of points, sharp as a whole or edge by edge.
+std::vector<subdivision::Crease> CreasesOf(const pxr::PxOsdSubdivTags& tags,
+                                           std::size_t points) {
+  const CreaseTags crease_tags{
+      .indices = CopyOf(tags.GetCreaseIndices()),
+      .lengths = CopyOf(tags.GetCreaseLengths()),
+      .weights = CopyOf(tags.GetCreaseWeights()),
+  };
+  std::vector<subdivision::Crease> creases;
+  std::size_t first = 0;
+  for (std::size_t crease = 0; crease < crease_tags.lengths.size(); ++crease) {
+    const std::vector<subdivision::Crease> edges =
+        CreaseEdges(crease_tags, crease, first, creases.size(), points);
+    creases.insert(creases.end(), edges.begin(), edges.end());
+    first +=
+        static_cast<std::size_t>(std::max(crease_tags.lengths.at(crease), 0));
+  }
+  return creases;
+}
+
+// The sharp corners of `tags`, at points below `points`.
+std::vector<subdivision::Corner> CornersOf(const pxr::PxOsdSubdivTags& tags,
+                                           std::size_t points) {
+  const std::vector<int> indices = CopyOf(tags.GetCornerIndices());
+  const std::vector<float> weights = CopyOf(tags.GetCornerWeights());
+  std::vector<subdivision::Corner> corners;
+  for (std::size_t corner = 0;
+       corner < std::min(indices.size(), weights.size()); ++corner) {
+    const int point = indices.at(corner);
+    if (IsPoint(point, points)) {
+      corners.push_back({
+          .point = static_cast<std::uint32_t>(point),
+          .sharpness = weights.at(corner),
+      });
+    }
+  }
+  return corners;
+}
+
+// The faces of a mesh of `face_count` faces that are holes: those of
+// `holes` in range.
+std::vector<std::uint32_t> HolesOf(const pxr::VtIntArray& holes,
+                                   std::size_t face_count) {
+  std::vector<std::uint32_t> faces;
+  for (const int hole : holes) {
+    if (std::cmp_greater_equal(hole, 0) && std::cmp_less(hole, face_count)) {
+      faces.push_back(static_cast<std::uint32_t>(hole));
+    }
+  }
+  return faces;
+}
+
+// What a cage points into, besides the source mesh.
+struct CageArrays {
+  Polygons shape;
+  std::vector<std::uint32_t> holes;
+  std::vector<subdivision::Crease> creases;
+  std::vector<subdivision::Corner> corners;
+  HostBuffer<host::Float3> frame;
+  std::vector<HostBuffer<host::Float3>> motion;
+  std::vector<std::span<const host::Float3>> motion_spans;
+};
+
+// The control cage of `source`, from `arrays`.
+subdivision::Cage CageOf(const SourceMesh& source, const CageArrays& arrays) {
+  const pxr::PxOsdSubdivTags& tags = source.subdiv_tags;
+  return {
+      .scheme = SchemeOf(source.topology.GetScheme()),
+      .boundary = BoundaryOf(tags.GetVertexInterpolationRule()),
+      .face_varying = FaceVaryingOf(tags.GetFaceVaryingInterpolationRule()),
+      .triangles =
+          tags.GetTriangleSubdivision() == pxr::PxOsdOpenSubdivTokens->smooth
+              ? subdivision::TriangleSubdivision::kSmooth
+              : subdivision::TriangleSubdivision::kCatmullClark,
+      .creasing = tags.GetCreaseMethod() == pxr::PxOsdOpenSubdivTokens->chaikin
+                      ? subdivision::Creasing::kChaikin
+                      : subdivision::Creasing::kUniform,
+      .orientation =
+          source.topology.GetOrientation() == pxr::HdTokens->leftHanded
+              ? subdivision::Orientation::kLeftHanded
+              : subdivision::Orientation::kRightHanded,
+      .face_vertex_counts = arrays.shape.face_vertex_counts,
+      .face_vertex_indices = arrays.shape.indices,
+      .holes = arrays.holes,
+      .creases = arrays.creases,
+      .corners = arrays.corners,
+      .points = arrays.frame,
+      .point_motion = arrays.motion_spans,
+  };
+}
+
+// Reads the cage of `source` into `arrays`, with its lengths scaled by
+// `meters_per_unit`.
+std::expected<void, std::string> ReadCage(const SourceMesh& source,
+                                          double meters_per_unit,
+                                          CageArrays& arrays) {
+  auto frame = PointsInMeters(source.points, meters_per_unit);
+  if (!frame.has_value()) {
+    return std::unexpected(frame.error());
+  }
+  auto shape = CheckTopology(source.topology, frame->size());
+  if (!shape.has_value()) {
+    return std::unexpected(shape.error());
+  }
+  arrays.holes = HolesOf(source.topology.GetHoleIndices(),
+                         shape->face_vertex_counts.size());
+  arrays.creases = CreasesOf(source.subdiv_tags, frame->size());
+  arrays.corners = CornersOf(source.subdiv_tags, frame->size());
+  arrays.shape = std::move(*shape);
+  arrays.frame = std::move(*frame);
+  for (const pxr::VtVec3fArray& sample : source.point_motion) {
+    arrays.motion.push_back(InMeters(sample, meters_per_unit));
+  }
+  for (const HostBuffer<host::Float3>& sample : arrays.motion) {
+    arrays.motion_spans.emplace_back(sample);
+  }
+  return {};
+}
+
+// What `view` dices a surface whose points at the frame are `frame` for:
+// its closest instance of `instances`.
+subdivision::Dicing DicingOf(const DicingView& view,
+                             std::span<const host::Float3> frame,
+                             std::span<const host::Instance> instances) {
+  std::vector<std::span<const host::Matrix>> transforms;
+  transforms.reserve(instances.size());
+  for (const host::Instance& instance : instances) {
+    transforms.emplace_back(instance.object_to_world);
+  }
+  return {
+      .scale = view.scale,
+      .viewpoint = subdivision::ClosestViewpoint(frame, transforms, view.eyes),
+      .rate = view.rate,
+  };
+}
+
+// The primvars of a refined mesh: `sorted`, those refined at the rates
+// `refinement` gives them.
+std::vector<host::Primvar> RefinedPrimvars(
+    SubdividedPrimvars sorted, subdivision::Refinement& refinement) {
+  std::vector<host::Primvar> primvars = std::move(sorted.kept);
+  std::size_t point_values = 0;
+  std::size_t face_varying = 0;
+  for (RefinedPrimvar& refined : sorted.refined) {
+    const bool per_corner = refined.rate == host::PrimvarRate::kPerCorner;
+    std::vector<float>& values =
+        per_corner ? refinement.face_varying.at(face_varying++)
+                   : refinement.point_values.at(point_values++);
+    primvars.push_back({
+        .name = std::move(refined.name),
+        .rate = refined.rate,
+        .components = refined.components,
+        .values = std::move(values),
+        .indices =
+            per_corner ? refinement.corners : HostBuffer<std::uint32_t>(),
+    });
+  }
+  return primvars;
+}
+
+// The host copy of `source`, refined into `refinement` from its cage
+// `shape`, its primvars `sorted`.
+ConvertedMesh Assemble(const SourceMesh& source, Polygons shape,
+                       SubdividedPrimvars sorted,
+                       subdivision::Refinement refinement) {
+  ConvertedMesh converted{
+      .mesh = {},
+      .normals = NormalsSource::kComputed,
+      .longest_edge = refinement.longest_edge,
+  };
+  host::Mesh& mesh = converted.mesh;
+  mesh.path = source.path;
+  mesh.sidedness = source.sidedness;
+  mesh.primvars = RefinedPrimvars(std::move(sorted), refinement);
+  mesh.points = std::move(refinement.points);
+  mesh.triangles = std::move(refinement.triangles);
+  mesh.source_faces = std::move(refinement.source_faces);
+  mesh.face_vertex_counts = std::move(shape.face_vertex_counts);
+  mesh.normals = {
+      .name = "normals",
+      .rate = host::PrimvarRate::kPerCorner,
+      .components = 3,
+      .values = std::move(refinement.normals),
+      .indices = std::move(refinement.corners),
+  };
+  return converted;
+}
+
 }  // namespace
 
 bool IsSubdivided(const pxr::HdMeshTopology& topology) {
@@ -630,6 +1063,48 @@ std::expected<ConvertedMesh, std::string> ConvertMesh(const SourceMesh& source,
     mesh.points.push_back(InMeters(sample, meters_per_unit));
   }
   return converted;
+}
+
+std::expected<ConvertedMesh, std::string> RefineMesh(
+    const SourceMesh& source, double meters_per_unit, const DicingView& view,
+    std::span<const host::Instance> instances) {
+  CageArrays arrays;
+  if (auto read = ReadCage(source, meters_per_unit, arrays);
+      !read.has_value()) {
+    return std::unexpected(read.error());
+  }
+  auto sorted = SortPrimvars(source, arrays.shape, arrays.frame.size());
+  if (!sorted.has_value()) {
+    return std::unexpected(sorted.error());
+  }
+  std::vector<subdivision::PointValues> point_values;
+  std::vector<subdivision::FaceVaryingValues> face_varying;
+  for (const RefinedPrimvar& refined : sorted->refined) {
+    if (refined.rate == host::PrimvarRate::kPerCorner) {
+      face_varying.push_back({
+          .values = refined.numbers,
+          .components = refined.components,
+          .indices = refined.indices,
+      });
+    } else {
+      point_values.push_back({
+          .values = refined.numbers,
+          .components = refined.components,
+          .smoothness = refined.smoothness,
+      });
+    }
+  }
+  auto refinement = subdivision::Refine({
+      .cage = CageOf(source, arrays),
+      .point_values = point_values,
+      .face_varying = face_varying,
+      .dicing = DicingOf(view, arrays.frame, instances),
+  });
+  if (!refinement.has_value()) {
+    return std::unexpected(std::move(refinement.error()));
+  }
+  return Assemble(source, std::move(arrays.shape), *std::move(sorted),
+                  *std::move(refinement));
 }
 
 std::expected<std::vector<HostBuffer<host::Float3>>, std::string> ConvertPoints(

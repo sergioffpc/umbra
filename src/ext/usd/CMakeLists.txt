@@ -2,6 +2,7 @@
 # Copyright The Umbra Authors
 
 find_package(pxr CONFIG REQUIRED)
+find_package(OpenSubdiv 3.6 CONFIG REQUIRED)
 
 # OpenUSD's IES parser, pxrIES (Cycles' LM-63 parser and USD's photometric
 # layer), which OpenUSD builds only into hdEmbree and does not install: umbra
@@ -25,6 +26,7 @@ umbra_add_ext_module(
   usd
   SOURCES
   commit.cc
+  dicing.cc
   host_copy.cc
   hydra.cc
   ies_profile.cc
@@ -37,6 +39,7 @@ umbra_add_ext_module(
   motion_samples.cc
   outputs.cc
   render_pass.cc
+  subdivision.cc
   usd.cc
   views.cc
   ${umbra_pxr_ies_sources}
@@ -61,7 +64,8 @@ umbra_add_ext_module(
   hio
   pxOsd
   hdsi
-  usdImaging)
+  usdImaging
+  OpenSubdiv::osdCPU)
 
 # pxrIES is OpenUSD's code, not umbra's: it is compiled without umbra's
 # warnings, which are errors. ies.cpp calls strtod and strtol without

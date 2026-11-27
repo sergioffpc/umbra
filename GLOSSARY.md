@@ -91,6 +91,18 @@ and it reflects light as well as it emits: it is geometry, not a Light.
 **Emitter**:
 Anything that emits light: a Light or an emissive mesh.
 
+**Limit surface**:
+The smooth surface a mesh whose `subdivisionScheme` is not `none` stands
+for, of which its points are the cage; umbra renders its triangles,
+refined from the cage
+(docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md).
+_Avoid:_ subdivision surface for the cage
+
+**Dicing rate**:
+The longest, in pixels, an edge of the triangles of a limit surface may
+look from the active camera: `umbra:dicingRate` on the render settings,
+1 by default (docs/adr/0016-subdivision-surfaces-are-diced-in-the-sync.md).
+
 **Source face**:
 The polygon of a mesh a triangle comes from, as an index into the mesh's
 original faces: per-face texturing (Ptex) maps a hit through it.

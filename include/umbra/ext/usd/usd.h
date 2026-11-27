@@ -143,8 +143,15 @@ class Session {
   // none when the settings disable motion blur: the transforms of the
   // instances and cameras, and the points of the meshes, that move get
   // equally spaced samples over it, as many as they have within it, at least
-  // 2 and at most 16. Every Material prim is committed, from its first sync
-  // to its removal, as a neutral network of its surface, of MaterialX
+  // 2 and at most 16. A mesh whose subdivisionScheme is catmullClark,
+  // loop or bilinear is refined through OpenSubdiv into triangles of its
+  // limit surface, with its creases, corners, holes and
+  // faceVaryingLinearInterpolation, until its edges span at most
+  // umbra:dicingRate pixels, a float from the settings, else 1, seen from
+  // the settings' camera on its instance closest to it over the shutter.
+  // It is refined again at a frame when that view, its instances or what it
+  // is refined from changed. Every Material prim is committed, from its first
+  // sync to its removal, as a neutral network of its surface, of MaterialX
   // nodedefs (UsdPreviewSurface's nodes as MaterialX's) and .oso shaders,
   // their colors converted into ACEScg through OpenColorIO from their color
   // space, and their textures resolved by Ar to absolute files, a UDIM set
@@ -164,16 +171,15 @@ class Session {
   // committed with its emission, read as a light's. Lights and mesh lights
   // are physical: their diffuse and specular multipliers, focus, cone
   // softness, IES angle scale and shadow controls are not taken. One warning
-  // each reports the meshes rendered as the cage of the subdivision they ask
-  // for, the invalid ones, dropped, the curves, points and volumes, left out,
-  // the materials that do not translate, the textures that do not resolve,
-  // rendered with their node's fallback value, the materials that connect a
-  // displacement or a volume, not rendered, the lights that link geometry
-  // (every light lights everything), the geometry and plugin lights, left
-  // out, the PortalLights no rendered dome light targets, left out, the dome
-  // lights that target a prim that is not a PortalLight, the lights' filters,
-  // ignored, their IES profiles not read, rendered without them, the TILT
-  // data of their IES profiles not read, rendered without it, their color
+  // each reports the invalid meshes, dropped, the curves, points and volumes,
+  // left out, the materials that do not translate, the textures that do not
+  // resolve, rendered with their node's fallback value, the materials that
+  // connect a displacement or a volume, not rendered, the lights that link
+  // geometry (every light lights everything), the geometry and plugin lights,
+  // left out, the PortalLights no rendered dome light targets, left out, the
+  // dome lights that target a prim that is not a PortalLight, the lights'
+  // filters, ignored, their IES profiles not read, rendered without them, the
+  // TILT data of their IES profiles not read, rendered without it, their color
   // temperatures not above 0 K, their colors that do not convert, rendered
   // white, their textures not read, each artistic control the lights and the
   // mesh lights author, the prims whose topology changes within the shutter,
@@ -201,7 +207,8 @@ class Session {
   // path; kInvalidArgument when the settings or a product have no camera or
   // one that is not a Camera, a product has no orderedVars or its file is
   // not .exr, its dataWindowNDC holds no pixel or umbra:samplesPerPixel is
-  // not an int above 0, or a material reads a texture or shader, or a light
+  // not an int above 0, the settings' umbra:dicingRate is not a float
+  // above 0, or a material reads a texture or shader, or a light
   // a texture, inside a package (.usdz); kUnavailable when a product's file
   // cannot be written, or no device takes the tiles of a product; with a
   // device's error, naming the device, when its commit or its render fails;
