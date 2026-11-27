@@ -50,6 +50,7 @@
 #include "denoiser.h"
 #include "hydra.h"
 #include "ies_tilt.h"
+#include "ledger.h"
 #include "render_task.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"

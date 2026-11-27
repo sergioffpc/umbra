@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ledger.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/render_data.h"
@@ -46,7 +47,7 @@ std::optional<device::IesProfile> IesProfileOf(
 
 device::TextureId ChangeSetBuilder::TextureIdOf(
     const host::Texture& texture) const {
-  return textures_->at(texture);
+  return textures_->at(texture).id;
 }
 
 std::optional<device::TextureId> ChangeSetBuilder::TextureIdOf(

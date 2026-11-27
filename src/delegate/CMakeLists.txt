@@ -28,6 +28,14 @@ umbra_add_module(
   SOURCES
   camera_prim.cc
   commit.cc
+  commit_cameras.cc
+  commit_description.cc
+  commit_geometry.cc
+  commit_lights.cc
+  commit_materials.cc
+  commit_products.cc
+  commit_textures.cc
+  commit_warnings.cc
   denoiser.cc
   dicing.cc
   host_copy.cc

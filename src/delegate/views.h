@@ -7,7 +7,6 @@
 #ifndef UMBRA_DELEGATE_VIEWS_H_
 #define UMBRA_DELEGATE_VIEWS_H_
 
-#include <map>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -16,6 +15,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ledger.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/render_data.h"
@@ -23,9 +23,6 @@
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::delegate::internal {
-
-// The ids of the textures held, by file and color space.
-using TextureIds = std::map<host::Texture, device::TextureId>;
 
 // The prims of one kind a change set adds, updates and removes.
 template <typename View, typename Id>
@@ -42,7 +39,7 @@ struct ChangeLists {
 // it is added or updated.
 class ChangeSetBuilder {
  public:
-  explicit ChangeSetBuilder(const TextureIds& textures UMBRA_LIFETIMEBOUND)
+  explicit ChangeSetBuilder(const HeldTextures& textures UMBRA_LIFETIMEBOUND)
       : textures_(&textures) {}
   ChangeSetBuilder(const ChangeSetBuilder&) = delete;
   ChangeSetBuilder& operator=(const ChangeSetBuilder&) = delete;
@@ -146,7 +143,7 @@ class ChangeSetBuilder {
       std::span<const host::Instance> instances UMBRA_LIFETIMEBOUND,
       device::ChangeFlags changes);
 
-  const TextureIds* textures_;
+  const HeldTextures* textures_;
   KeptArrays<std::span<const device::Float3>, device::Primvar, device::Instance,
              device::Parameter, device::Connection, device::MaterialNode,
              std::string_view>
