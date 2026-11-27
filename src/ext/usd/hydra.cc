@@ -748,25 +748,8 @@ host::Shutter RenderDelegate::ShutterOf(const pxr::SdfPath& settings) const {
   return IsMotionBlurred(shutter) ? shutter : host::Shutter{};
 }
 
-void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings,
-                                   pxr::HdChangeTracker& tracker) {
+void RenderDelegate::ChooseShutter(const pxr::SdfPath& settings) {
   prims_.shutter = ShutterOf(settings);
-  const std::optional<host::Shutter> last =
-      std::exchange(last_shutter_, prims_.shutter);
-  if (!last.has_value() || *last == prims_.shutter) {
-    return;
-  }
-  UMBRA_LOG_DEBUG(kUsd, "shutter {}..{}, from {}..{}: every prim sampled again",
-                  prims_.shutter.open, prims_.shutter.close, last->open,
-                  last->close);
-  tracker.MarkAllRprimsDirty(pxr::HdChangeTracker::AllSceneDirtyBits);
-  for (const auto& [path, instancer] : prims_.instancers) {
-    tracker.MarkInstancerDirty(path, pxr::HdChangeTracker::AllSceneDirtyBits);
-  }
-  for (const auto& [path, light] : prims_.lights) {
-    tracker.MarkSprimDirty(path, pxr::HdLight::AllDirty);
-  }
-  pass_ = Pass::kAnotherNeeded;
 }
 
 void RenderDelegate::Place(const pxr::TfTokenVector& render_tags) {
@@ -1029,10 +1012,6 @@ void RenderDelegate::FreeHostCopies() {
 }
 
 void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
-  if (std::exchange(pass_, Pass::kFinal) == Pass::kAnotherNeeded) {
-    // The host copies stay until the pass that commits them.
-    return;
-  }
   if (commits_ == 0) {
     CountNotSynced();
   }
@@ -1042,11 +1021,9 @@ void RenderDelegate::CommitResources(pxr::HdChangeTracker* /*tracker*/) {
   FreeHostCopies();
 }
 
-SyncTask::SyncTask(RenderDelegate& delegate, pxr::HdRenderIndex& index,
-                   pxr::SdfPath settings)
+SyncTask::SyncTask(RenderDelegate& delegate, pxr::SdfPath settings)
     : pxr::HdTask(SyncTaskPath()),
       delegate_(&delegate),
-      index_(&index),
       settings_(std::move(settings)) {}
 
 void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
@@ -1055,7 +1032,7 @@ void SyncTask::Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE /*delegate*/,
   // The sprims (the render settings, the cameras, the lights) are synced
   // before the tasks, and the rprims after.
   render_tags_ = delegate_->RenderTags(settings_);
-  delegate_->ChooseShutter(settings_, index_->GetChangeTracker());
+  delegate_->ChooseShutter(settings_);
   delegate_->Place(render_tags_);
   *dirty_bits = pxr::HdChangeTracker::Clean;
 }

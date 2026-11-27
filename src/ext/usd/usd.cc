@@ -367,7 +367,7 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
                                 /*needsPrefixing=*/false);
   phase.SetTotal(state.delegate->PrimCount());
   state.tasks = {
-      std::make_shared<internal::SyncTask>(*state.delegate, *state.index,
+      std::make_shared<internal::SyncTask>(*state.delegate,
                                            state.inputs.settings),
   };
   return {};
@@ -381,22 +381,18 @@ void SetTime(const Session::State& state, pxr::UsdTimeCode time) {
   }
 }
 
-// Runs HdEngine::Execute: the prims that changed sync, and the delegate
-// commits them to the devices. A pass that samples the prims over a new
-// shutter needs another before the commit. Gives what the debug line says
-// was committed.
+// Runs HdEngine::Execute once: the prims that changed sync, and the
+// delegate commits them to the devices. Gives what the debug line says was
+// committed.
 std::expected<std::string, Error> Execute(Session::State& state) {
-  constexpr int kMaxPasses = 2;
-  std::optional<std::expected<internal::Committed, Error>> committed;
-  for (int pass = 0; pass < kMaxPasses && !committed.has_value(); ++pass) {
-    // Hydra syncs the rprims of the collections queued, in their reprs, and
-    // empties the queue: one collection of every rprim, whose repr umbra
-    // never draws, queued again for each pass.
-    state.index->EnqueueCollectionToSync(pxr::HdRprimCollection(
-        pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->hull)));
-    state.engine.Execute(state.index.get(), &state.tasks);
-    committed = state.delegate->TakeCommitted();
-  }
+  // Hydra syncs the rprims of the collections queued, in their reprs, and
+  // empties the queue: one collection of every rprim, whose repr umbra never
+  // draws, queued again for each frame.
+  state.index->EnqueueCollectionToSync(pxr::HdRprimCollection(
+      pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->hull)));
+  state.engine.Execute(state.index.get(), &state.tasks);
+  std::optional<std::expected<internal::Committed, Error>> committed =
+      state.delegate->TakeCommitted();
   if (!committed.has_value()) {
     return std::unexpected(
         Error(ErrorCode::kInternal, "Hydra did not commit the prims"));

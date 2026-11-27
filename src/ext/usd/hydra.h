@@ -443,12 +443,9 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // Chooses the shutter the rprims are sampled over, once the settings and
   // the cameras are synced: that of the settings' camera, or none when the
   // settings disable motion blur, the camera is not synced or its shutter
-  // spans no interval. When it differs from the shutter of the last sync,
-  // every rprim, instancer and light is marked dirty in `tracker`, to be
-  // sampled again: the rprims and the instancers sync in this pass, the
-  // lights in the next, and CommitResources commits nothing until then.
-  void ChooseShutter(const pxr::SdfPath& settings,
-                     pxr::HdChangeTracker& tracker);
+  // spans no interval. The lights that synced before it are placed over it,
+  // and the rprims and the instancers that sync after it are sampled over it.
+  void ChooseShutter(const pxr::SdfPath& settings);
 
   // Places the lights that synced since the last commit over the shutter
   // chosen, hiding those whose render tag is not in `render_tags`, then
@@ -458,8 +455,7 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   // target it.
   void Place(const pxr::TfTokenVector& render_tags);
 
-  // What CommitResources committed, or its error; none before, and none
-  // after a pass that must be followed by another (see ChooseShutter).
+  // What CommitResources committed, or its error; none before.
   [[nodiscard]] std::optional<std::expected<Committed, core::Error>>
   TakeCommitted();
 
@@ -510,18 +506,11 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   void ReadDomesAgain(const pxr::SdfPath& portal,
                       const pxr::TfTokenVector& render_tags);
 
-  // Whether the pass that runs must be followed by another before the
-  // prims commit.
-  enum class Pass : std::uint8_t { kFinal, kAnotherNeeded };
-
   SyncCounter* counter_;
   double meters_per_unit_;
   Committer committer_;
   pxr::HdResourceRegistrySharedPtr registry_;
   SyncedPrims prims_;
-  // The shutter of the last pass; none before the first.
-  std::optional<host::Shutter> last_shutter_;
-  Pass pass_ = Pass::kFinal;
   std::size_t commits_ = 0;
   std::optional<std::expected<Committed, core::Error>> committed_;
 };
@@ -530,10 +519,9 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
 // rprims of the purposes the settings include, over the shutter it chooses.
 class SyncTask final : public pxr::HdTask {
  public:
-  // Syncs the prims of `index`, whose render delegate is `delegate`.
-  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-           pxr::HdRenderIndex& index UMBRA_LIFETIMEBOUND,
-           pxr::SdfPath settings);
+  // Syncs the prims of the render index whose render delegate is
+  // `delegate`.
+  SyncTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND, pxr::SdfPath settings);
 
   void Sync(pxr::HdSceneDelegate* UMBRA_NULLABLE delegate,
             pxr::HdTaskContext* context, pxr::HdDirtyBits* dirty_bits) override;
@@ -543,7 +531,6 @@ class SyncTask final : public pxr::HdTask {
 
  private:
   RenderDelegate* delegate_;
-  pxr::HdRenderIndex* index_;
   pxr::SdfPath settings_;
   pxr::TfTokenVector render_tags_;
 };
