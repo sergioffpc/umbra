@@ -33,6 +33,14 @@ device::TextureId ChangeSetBuilder::TextureIdOf(
   return textures_->at(texture);
 }
 
+std::optional<device::TextureId> ChangeSetBuilder::TextureIdOf(
+    const std::optional<host::Texture>& texture) const {
+  if (!texture.has_value()) {
+    return std::nullopt;
+  }
+  return TextureIdOf(*texture);
+}
+
 device::Primvar ChangeSetBuilder::PrimvarOf(const host::Primvar& primvar) {
   device::Primvar view{
       .name = primvar.name,
@@ -102,13 +110,6 @@ device::ParameterValue ChangeSetBuilder::ValueOf(
 
 device::Light::Shape ChangeSetBuilder::ShapeOf(
     const host::Light::Shape& shape) {
-  const auto texture = [this](const std::optional<host::Texture>& texture)
-      -> std::optional<device::TextureId> {
-    if (!texture.has_value()) {
-      return std::nullopt;
-    }
-    return TextureIdOf(*texture);
-  };
   return std::visit(
       [&]<typename T>(const T& held) -> device::Light::Shape {
         if constexpr (std::is_same_v<T, host::Light::Sphere>) {
@@ -117,7 +118,7 @@ device::Light::Shape ChangeSetBuilder::ShapeOf(
           return device::Light::Rect{
               .width = held.width,
               .height = held.height,
-              .texture = texture(held.texture),
+              .texture = TextureIdOf(held.texture),
           };
         } else if constexpr (std::is_same_v<T, host::Light::Disk>) {
           return device::Light::Disk{.radius = held.radius};
@@ -128,13 +129,16 @@ device::Light::Shape ChangeSetBuilder::ShapeOf(
           };
         } else if constexpr (std::is_same_v<T, host::Light::Distant>) {
           return device::Light::Distant{.angle = held.angle};
-        } else {
-          static_assert(std::is_same_v<T, host::Light::Dome>);
+        } else if constexpr (std::is_same_v<T, host::Light::Dome>) {
           return device::Light::Dome{
-              .texture = texture(held.texture),
+              .texture = TextureIdOf(held.texture),
               .format = held.format,
               .orientation = held.orientation,
+              .portals = held.portals,
           };
+        } else {
+          static_assert(std::is_same_v<T, host::Light::Portal>);
+          return held;
         }
       },
       shape);

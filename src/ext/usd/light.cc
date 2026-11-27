@@ -31,9 +31,11 @@
 #include <cstddef>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "host_copy.h"
@@ -76,6 +78,9 @@ pxr::HdMaterialNodeSchema LightNode(
   return nodes.Get(names.front());
 }
 
+// The identifier of the shader of a PortalLight.
+constexpr std::string_view kPortalLight = "PortalLight";
+
 // The identifier of the light's shader ("PortalLight"), or empty.
 std::string ShaderId(const pxr::HdContainerDataSourceHandle& prim) {
   const pxr::HdTokenDataSourceHandle identifier =
@@ -91,7 +96,7 @@ std::string UnsupportedType(const pxr::TfToken& type,
   if (type == pxr::HdPrimTypeTokens->pluginLight) {
     return "PluginLight";
   }
-  if (type == pxr::HdPrimTypeTokens->light) {
+  if (type == pxr::HdPrimTypeTokens->light && shader_id != kPortalLight) {
     // Hydra gives PortalLights and GeometryLights as generic lights.
     return shader_id.empty() ? "generic light" : shader_id;
   }
@@ -232,6 +237,13 @@ std::optional<host::Light::Shape> Reader::Shape(const pxr::TfToken& type) {
   if (type == types.domeLight) {
     return Dome();
   }
+  if (type == types.light) {
+    // A generic light that reaches its shape is a PortalLight.
+    return host::Light::Portal{
+        .width = Meters(tokens.width, 1.0F),
+        .height = Meters(tokens.height, 1.0F),
+    };
+  }
   return std::nullopt;
 }
 
@@ -240,6 +252,7 @@ host::Light::Dome Reader::Dome() {
       .texture = Texture(),
       .format = DomeFormat(
           params_->Get(pxr::HdLightTokens->textureFormat, pxr::TfToken())),
+      .portals = {},
   };
   // A DomeLight_1 aligns its pole as its poleAxis says, with the stage's
   // up axis for "scene"; a DomeLight's pole is +Y.
@@ -404,16 +417,7 @@ void LightPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   _UpdateInstancer(scene_delegate, dirty_bits);
   *dirty_bits = pxr::HdLight::Clean;
   delegate_ = scene_delegate;
-  changed_ = Changed::kYes;
-  state_ = LightState::kHidden;
-  instance_count_ = 0;
-  notes_.clear();
-  fatal_.reset();
-  light_ = {};
-  render_tag_ = scene_delegate->GetRenderTag(GetId());
-  if (scene_delegate->GetVisible(GetId())) {
-    Convert(*scene_delegate);
-  }
+  Read(*scene_delegate);
   counter_->Add(1);
   if (state_ == LightState::kConverted) {
     UMBRA_LOG_TRACE(kUsd, "synced {} ({} light)", GetId().GetString(),
@@ -421,6 +425,34 @@ void LightPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   } else {
     UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
   }
+}
+
+void LightPrim::Read(pxr::HdSceneDelegate& delegate) {
+  changed_ = Changed::kYes;
+  state_ = LightState::kHidden;
+  instance_count_ = 0;
+  notes_.clear();
+  fatal_.reset();
+  portals_.clear();
+  light_ = {};
+  role_ = type_ == pxr::HdPrimTypeTokens->light &&
+                  ShaderId(PrimDataSource(delegate, GetId())) == kPortalLight
+              ? Role::kPortal
+              : Role::kEmitter;
+  render_tag_ = delegate.GetRenderTag(GetId());
+  if (delegate.GetVisible(GetId())) {
+    Convert(delegate);
+  }
+}
+
+void LightPrim::ReadAgain(const host::Shutter& shutter,
+                          const pxr::TfTokenVector& render_tags) {
+  if (delegate_ == nullptr || IsChanged()) {
+    return;
+  }
+  Read(*delegate_);
+  Place(shutter, render_tags);
+  UMBRA_LOG_TRACE(kUsd, "read {} again", GetId().GetString());
 }
 
 void LightPrim::Convert(pxr::HdSceneDelegate& delegate) {
@@ -439,11 +471,18 @@ void LightPrim::Convert(pxr::HdSceneDelegate& delegate) {
   }
   light_.path = GetId().GetString();
   light_.shape = std::move(*shape);
+  state_ = LightState::kConverted;
+  if (IsPortal()) {
+    // A portal emits nothing: it keeps the default emission.
+    return;
+  }
+  if (type_ == pxr::HdPrimTypeTokens->domeLight) {
+    portals_ = params.Get(pxr::HdTokens->portals, pxr::SdfPathVector());
+  }
   reader.ReadEmission(light_);
   reader.ReadShaping(light_);
   reader.NoteArtisticControls();
   fatal_ = reader.TakeFatal();
-  state_ = LightState::kConverted;
 }
 
 void LightPrim::Place(const host::Shutter& shutter,
@@ -471,6 +510,12 @@ void LightPrim::Place(const host::Shutter& shutter,
             TransformsInMeters(instance.transforms, meters_per_unit_),
         .primvars = {},
     });
+  }
+}
+
+void LightPrim::AssignPortals(std::span<const device::LightId> ids) {
+  if (auto* dome = std::get_if<host::Light::Dome>(&light_.shape)) {
+    dome->portals.assign(ids.begin(), ids.end());
   }
 }
 

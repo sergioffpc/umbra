@@ -156,7 +156,7 @@ struct Mesh {
   HostBuffer<std::uint32_t> triangle_materials;
 };
 
-// A light, an emitter of one of six shapes, in meters.
+// A light, an emitter of one of six shapes or a portal, in meters.
 struct Light {
   struct Sphere {
     double radius = 0.0;
@@ -184,8 +184,12 @@ struct Light {
         1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     };
+    // Its portals, by the ids the commit assigns.
+    HostBuffer<device::LightId> portals;
   };
-  using Shape = std::variant<Sphere, Rect, Disk, Cylinder, Distant, Dome>;
+  using Portal = device::Light::Portal;
+  using Shape =
+      std::variant<Sphere, Rect, Disk, Cylinder, Distant, Dome, Portal>;
 
   std::string path;
   Shape shape;

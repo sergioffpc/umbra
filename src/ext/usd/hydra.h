@@ -38,6 +38,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -387,6 +388,9 @@ struct SyncedPrims {
   std::map<pxr::SdfPath, const InstancerPrim*> instancers;
   std::map<pxr::SdfPath, const UnsupportedPrim*> unsupported;
   std::map<pxr::SdfPath, LightPrim*> lights;
+  // The PortalLights placed that a dome light placed targets: those
+  // committed.
+  std::set<pxr::SdfPath> guided_portals;
 };
 
 // What a commit gives the host: the render settings, the parameters of the
@@ -440,7 +444,11 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
                      pxr::HdChangeTracker& tracker);
 
   // Places the lights that synced since the last commit over the shutter
-  // chosen, hiding those whose render tag is not in `render_tags`.
+  // chosen, hiding those whose render tag is not in `render_tags`, then
+  // finds the portals the domes guide. When a portal becomes guided, or no
+  // longer is, the lights the commit needs are read again, if they did not
+  // sync: the portal, when it becomes guided, and the placed domes that
+  // target it.
   void Place(const pxr::TfTokenVector& render_tags);
 
   // What CommitResources committed, or its error; none before, and none
@@ -488,6 +496,12 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   void CountNotSynced();
   // Frees the host copies of every prim.
   void FreeHostCopies();
+  // Finds the portals the domes guide: see Place.
+  void GuidePortals(const pxr::TfTokenVector& render_tags);
+  // Reads again the placed lights that target `portal`, if they did not
+  // sync.
+  void ReadDomesAgain(const pxr::SdfPath& portal,
+                      const pxr::TfTokenVector& render_tags);
 
   // Whether the pass that runs must be followed by another before the
   // prims commit.

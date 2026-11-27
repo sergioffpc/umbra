@@ -172,8 +172,9 @@ struct CommitScene {
 // material when the mesh has a displayColor, and the fallback material
 // otherwise. umbra's two materials are committed while a prototype reads
 // them. The lights converted with an instance or more are committed as the
-// meshes are, updated whole. A texture is committed while a material or a
-// light reads it, once.
+// meshes are, updated whole: a PortalLight only while a dome light
+// committed targets it, and a dome light with the ids of its portals. A
+// texture is committed while a material or a light reads it, once.
 //
 // Fails with kInvalidArgument when one of the materials reads a texture or
 // shader inside a package, or a light a texture. One warning each reports
@@ -181,9 +182,10 @@ struct CommitScene {
 // the materials that connect each terminal but the surface, the meshes
 // that ask for a subdivision scheme, the invalid ones, the rprims of each
 // type not supported, the mesh lights, the lights of each type not
-// supported, each issue of the lights (LightIssue), the lights that synced
-// that link geometry, the prims whose topology changes within the shutter
-// and those resampled down to
+// supported, the PortalLights no dome light targets, the dome lights that
+// target a prim that is not a PortalLight as a portal, each issue of the
+// lights (LightIssue), the lights that synced that link geometry, the prims
+// whose topology changes within the shutter and those resampled down to
 // kMaxMotionSamples, with their count and the first; a warning a commit
 // logged before is not logged again. The frame's shutter is that the prims
 // were sampled over. Then each device commits the change set, in order;

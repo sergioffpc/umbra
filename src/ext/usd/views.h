@@ -8,6 +8,7 @@
 #define UMBRA_EXT_USD_VIEWS_H_
 
 #include <map>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -110,6 +111,9 @@ class ChangeSetBuilder {
   // The id of `texture`, which `textures_` holds.
   [[nodiscard]] device::TextureId TextureIdOf(
       const host::Texture& texture) const;
+  // The id of `texture`, if any.
+  [[nodiscard]] std::optional<device::TextureId> TextureIdOf(
+      const std::optional<host::Texture>& texture) const;
   [[nodiscard]] static device::Primvar PrimvarOf(
       const host::Primvar& primvar UMBRA_LIFETIMEBOUND);
   // The views of the motion samples of points `samples`.

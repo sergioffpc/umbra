@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/render_data.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -37,8 +39,8 @@ namespace umbra::ext::usd::internal {
 namespace pxr = PXR_NS;
 
 // The light sprim types the delegate syncs: UsdLux's six kinds, and the
-// generic light and plugin light types, which umbra does not take, only
-// counts.
+// generic light and plugin light types, of which umbra takes only the
+// PortalLights, and counts the others.
 [[nodiscard]] const pxr::TfTokenVector& LightPrimTypes();
 
 // Whether the mesh at `prim_id` is a mesh light: an emissive mesh, its
@@ -54,8 +56,8 @@ enum class LightState : std::uint8_t {
   kHidden,
   // It is converted into its host copy, with its instances.
   kConverted,
-  // It is of a kind umbra does not take (PortalLight, GeometryLight,
-  // PluginLight): only counted.
+  // It is of a kind umbra does not take (GeometryLight, PluginLight): only
+  // counted.
   kUnsupported,
 };
 
@@ -140,13 +142,36 @@ class LightPrim final : public pxr::HdLight {
   [[nodiscard]] std::size_t instance_count() const { return instance_count_; }
   // Whether it synced since its host copy was last committed.
   [[nodiscard]] bool IsChanged() const { return changed_ == Changed::kYes; }
+  // Whether it is converted, with an instance or more, once placed.
+  [[nodiscard]] bool IsPlaced() const {
+    return state_ == LightState::kConverted && instance_count_ > 0;
+  }
+  // Whether it is a PortalLight, once synced, visible or not.
+  [[nodiscard]] bool IsPortal() const { return role_ == Role::kPortal; }
+  // The prims its portals relationship targets, once converted: a dome's.
+  [[nodiscard]] const pxr::SdfPathVector& portals() const UMBRA_LIFETIMEBOUND {
+    return portals_;
+  }
+  // Reads it again, as it last synced, when it did not sync since its host
+  // copy was last committed, and places it over `shutter`: the commit needs
+  // its host copy.
+  void ReadAgain(const host::Shutter& shutter,
+                 const pxr::TfTokenVector& render_tags);
+  // Gives its host copy, a dome's, the ids of its portals.
+  void AssignPortals(std::span<const device::LightId> ids);
   // Frees its host copy, once committed.
   void FreeHostCopy();
 
  private:
+  // Reads its parameters from `delegate`, and converts it when it is
+  // visible.
+  void Read(pxr::HdSceneDelegate& delegate);
   void Convert(pxr::HdSceneDelegate& delegate);
 
   enum class Changed : std::uint8_t { kNo, kYes };
+  // Whether it emits, or is a PortalLight, which guides the domes'
+  // sampling.
+  enum class Role : std::uint8_t { kEmitter, kPortal };
 
   pxr::TfToken type_;
   SyncCounter* UMBRA_NULLABLE counter_;
@@ -162,6 +187,8 @@ class LightPrim final : public pxr::HdLight {
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
   std::size_t instance_count_ = 0;
   Changed changed_ = Changed::kNo;
+  Role role_ = Role::kEmitter;
+  pxr::SdfPathVector portals_;
   host::Light light_;
 };
 
