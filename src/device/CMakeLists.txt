@@ -9,6 +9,7 @@ umbra_add_module(
   camera_rays.cc
   device.cc
   diagnostic_device.cc
+  film.cc
   image.cc
   DEPENDS
   core

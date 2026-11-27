@@ -17,7 +17,6 @@
 
 #include <optional>
 #include <span>
-#include <vector>
 
 #include "launch.h"
 #include "pipeline.h"
@@ -25,6 +24,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/camera_rays.h"
 #include "umbra/device/device.h"
+#include "umbra/device/film.h"
 #include "umbra/device/image.h"
 #include "umbra/ext/cuda/owners.h"
 
@@ -72,9 +72,8 @@ class Renderer {
 
   std::optional<Pipeline> pipeline_;
   ext::cuda::DeviceBuffer sampler_cache_;
-  // The planes of the product prepared, on the host and in the GPU's memory.
-  std::vector<FilmPlane> planes_;
-  ext::cuda::DeviceBuffer gpu_planes_;
+  // The film's layout for the product prepared, and the film.
+  device::FilmLayout layout_;
   ext::cuda::DeviceBuffer film_;
   // The tiles of a launch: room for kTilesPerLaunch.
   ext::cuda::DeviceBuffer tiles_;

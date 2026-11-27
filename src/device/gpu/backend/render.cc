@@ -6,12 +6,12 @@
 #include <driver_types.h>
 #include <optix_types.h>
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <utility>
@@ -21,6 +21,7 @@
 #include "pipeline.h"
 #include "support.h"
 #include "umbra/device/device.h"
+#include "umbra/device/film.h"
 #include "umbra/device/gpu/module_abi.h"
 #include "umbra/device/image.h"
 #include "umbra/device/sampler.h"
@@ -33,49 +34,6 @@ namespace umbra::device::gpu::backend {
 using ext::cuda::DeviceBuffer;
 
 namespace {
-
-// The plane of a var of `source`, from the float `offset` of the film on:
-// the pixel's values it takes.
-FilmPlane PlaneOf(device::VarSource source, std::uint64_t offset,
-                  std::uint32_t channels) {
-  FilmPlane plane{.offset = offset, .channels = channels};
-  switch (source) {
-    case device::VarSource::kColor:
-      plane.first_value = kColorValue;
-      plane.values = kDepthValue - kColorValue;
-      break;
-    case device::VarSource::kDepth:
-      plane.first_value = kDepthValue;
-      plane.values = 1;
-      break;
-    case device::VarSource::kNormal:
-      plane.first_value = kNormalValue;
-      plane.values = kPixelValues - kNormalValue;
-      break;
-    case device::VarSource::kAlbedo:
-      break;
-  }
-  return plane;
-}
-
-// The pixels of `window`.
-std::uint64_t PixelsOf(const device::PixelWindow& window) {
-  return static_cast<std::uint64_t>(std::max(window.width(), 0)) *
-         static_cast<std::uint64_t>(std::max(window.height(), 0));
-}
-
-// The film's planes for the vars of `frame`, and the floats they need.
-std::pair<std::vector<FilmPlane>, std::uint64_t> PlanFilm(
-    const device::FrameParameters& frame) {
-  const std::uint64_t pixels = PixelsOf(frame.image.window);
-  std::vector<FilmPlane> planes;
-  std::uint64_t floats = 0;
-  for (const device::FilmVar& var : frame.vars) {
-    planes.push_back(PlaneOf(var.source, floats, var.channels));
-    floats += pixels * var.channels;
-  }
-  return {std::move(planes), floats};
-}
 
 // Makes `buffer` hold at least `bytes` bytes, reallocating it when it holds
 // fewer.
@@ -108,15 +66,14 @@ struct FilmSource {
 
 // Copies `tile` of `plane` from `source` into `var`'s render buffer, on
 // `stream`.
-Result<void> CopyTile(const device::FilmVar& var, const FilmPlane& plane,
-                      const FilmSource& source, const device::PixelWindow& tile,
-                      cudaStream_t stream) {
+Result<void> CopyTile(const device::FilmVar& var,
+                      const device::FilmPlane& plane, const FilmSource& source,
+                      const device::PixelWindow& tile, cudaStream_t stream) {
   const device::PixelWindow& window = source.window;
   const std::size_t row_floats =
       static_cast<std::size_t>(window.width()) * plane.channels;
   const std::size_t first =
-      (static_cast<std::size_t>(tile.y_min - window.y_min) * row_floats) +
-      (static_cast<std::size_t>(tile.x_min - window.x_min) * plane.channels);
+      device::TileRowOffset(window, tile, tile.y_min, plane.channels);
   const std::size_t count =
       static_cast<std::size_t>(tile.width()) * plane.channels;
   const auto rows = static_cast<std::size_t>(tile.height());
@@ -147,7 +104,7 @@ Result<void> CopyTile(const device::FilmVar& var, const FilmPlane& plane,
 // Copies `tile` of every plane of `planes` from `source` into the render
 // buffer of its var of `vars`, on `stream`.
 Result<void> CopyTileOfVars(std::span<const device::FilmVar> vars,
-                            std::span<const FilmPlane> planes,
+                            std::span<const device::FilmPlane> planes,
                             const FilmSource& source,
                             const device::PixelWindow& tile,
                             cudaStream_t stream) {
@@ -188,19 +145,18 @@ Result<void> Renderer::Prepare(const device::FrameParameters& frame,
       !initialized.has_value()) {
     return initialized;
   }
-  auto [planes, floats] = PlanFilm(frame);
-  planes_ = std::move(planes);
-  return Reserve(film_, floats * sizeof(float))
-      .and_then([&] {
-        return Reserve(gpu_planes_, planes_.size() * sizeof(FilmPlane));
-      })
+  const std::optional<device::FilmLayout> layout = device::PlanFilm(frame);
+  if (!layout.has_value()) {
+    return std::unexpected(std::format("a GPU renders at most {} vars, not {}",
+                                       device::kMaxFilmPlanes,
+                                       frame.vars.size()));
+  }
+  layout_ = *layout;
+  return Reserve(film_, layout_.floats * sizeof(float))
       .and_then([&] {
         return Reserve(tiles_, kTilesPerLaunch * sizeof(device::PixelWindow));
       })
       .and_then([&] { return Reserve(params_, sizeof(LaunchParams)); })
-      .and_then([&] {
-        return gpu_planes_.Write(std::as_bytes(std::span(planes_)), 0, stream);
-      })
       .and_then([&] {
         const std::array params = {
             LaunchParams{
@@ -209,11 +165,10 @@ Result<void> Renderer::Prepare(const device::FrameParameters& frame,
                 .sampler_cache = sampler_cache_.address(),
                 .light_shapes = scene.light_shapes,
                 .tiles = tiles_.address(),
-                .planes = gpu_planes_.address(),
                 .film = film_.address(),
+                .layout = layout_,
                 .window = frame.image.window,
-                .plane_count = static_cast<std::uint32_t>(planes_.size()),
-                .samples_per_pixel = std::max(frame.samples_per_pixel, 1U),
+                .samples_per_pixel = frame.samples_per_pixel,
             },
         };
         return params_.Write(std::as_bytes(std::span(params)), 0, stream);
@@ -240,16 +195,17 @@ Result<void> Renderer::RenderTiles(std::span<const device::PixelWindow> tiles,
 Result<void> Renderer::CopyTiles(const device::FrameParameters& frame,
                                  std::span<const device::PixelWindow> tiles,
                                  cudaStream_t stream) const {
-  if (frame.vars.size() != planes_.size()) {
+  if (frame.vars.size() != layout_.count) {
     return std::unexpected(std::format("{} vars to copy, but {} prepared",
-                                       frame.vars.size(), planes_.size()));
+                                       frame.vars.size(), layout_.count));
   }
   const FilmSource source{
       .film = film_.address(),
       .window = frame.image.window,
   };
   for (const device::PixelWindow& tile : tiles) {
-    if (auto copied = CopyTileOfVars(frame.vars, planes_, source, tile, stream);
+    if (auto copied =
+            CopyTileOfVars(frame.vars, layout_.Planes(), source, tile, stream);
         !copied.has_value()) {
       return copied;
     }
