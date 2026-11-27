@@ -5,10 +5,12 @@
 Fails when an ELF file under the given files or directories needs a GCC
 runtime (libstdc++, libgcc_s or GCC's libatomic), directly (NEEDED) or
 through its dependencies (ldd), or has a dependency that does not resolve,
-and when there is no ELF file at all (a wrong path). Needs llvm-readelf and
-ldd. ``python3 -m forge audit`` checks the build trees with it, the deps
-workflow the toolchain and deps images, and verify-toolchain its test
-programs.
+and when there is no ELF file at all (a wrong path). The CUDA driver,
+libcuda.so.1, may stay unresolved in a module loaded at run time
+(no_libcuda.RUNTIME_MODULES): it comes from the host, which CI runners
+lack. Needs llvm-readelf and ldd. ``python3 -m forge audit`` checks the
+build trees with it, the deps workflow the toolchain and deps images, and
+verify-toolchain its test programs.
 
 Usage: python3 -m forge no-gcc-runtime PATH...
 """
@@ -19,6 +21,7 @@ import re
 
 from forge import elf
 from forge import github
+from forge import no_libcuda
 
 # compiler-rt's own atomics library is libclang_rt.atomic.so, which this does
 # not match.
@@ -26,6 +29,7 @@ GCC_RUNTIME = re.compile(
     r"libstdc\+\+\.so|libgcc_s\.so|(^|[^_.0-9A-Za-z])libatomic\.so"
 )
 UNRESOLVED = "not found"
+LIBCUDA = re.compile(r"^\s*libcuda\.so\.1 ")
 
 
 def file_errors(path: str) -> list[str]:
@@ -44,6 +48,8 @@ def file_errors(path: str) -> list[str]:
     if runtimes:
         errors.append(f"{path} loads a GCC runtime: {elf.joined(runtimes)}")
     unresolved = [line for line in libraries if UNRESOLVED in line]
+    if no_libcuda.is_runtime_module(path):
+        unresolved = [line for line in unresolved if not LIBCUDA.match(line)]
     if unresolved:
         errors.append(
             f"{path} has unresolved libraries: {elf.joined(unresolved)}"
