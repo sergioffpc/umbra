@@ -19,6 +19,10 @@
 # CPU device with its ISPC. Like the toolchain image, this image is a private
 # package.
 #
+# The image also carries tev, the HDR image viewer, in /opt/tev, on PATH: a
+# tool umbra does not use, taken prebuilt from its release
+# (docs/adr/0018-prebuilt-tools-of-the-deps-image.md).
+#
 # Build from the repository root with the layer's submodules checked out, on
 # top of the toolchain image whose tag the deps layer hash includes:
 #   docker buildx build -f docker/deps.Dockerfile \
@@ -58,6 +62,27 @@ RUN --mount=type=cache,id=umbra-deps-ccache,target=/var/cache/ccache,sharing=loc
   && cmake --build /tmp/dependency-build --target layer-deps \
   && ccache --show-stats
 
+# tev's Linux release is an AppImage, unpacked here without FUSE. Its
+# executable finds the libraries the AppImage bundles in ../lib; the window
+# libraries come from Ubuntu, in the final stage.
+FROM ${TOOLCHAIN_IMAGE} AS tev
+ARG DEBIAN_FRONTEND=noninteractive
+ARG TEV_VERSION=2.14.0
+ARG TEV_SHA256=a7d4147c2984b93c135ac2559422cb1f80310cf971b07056320e8fbbd63fdf82
+SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSLo /tmp/tev.appimage \
+    "https://github.com/Tom94/tev/releases/download/v${TEV_VERSION}/tev.appimage"; \
+  echo "${TEV_SHA256}  /tmp/tev.appimage" | sha256sum -c -; \
+  chmod +x /tmp/tev.appimage; \
+  cd /tmp; \
+  ./tev.appimage --appimage-extract >/dev/null; \
+  install -d /opt/tev; \
+  cp -a /tmp/squashfs-root/usr/. /opt/tev/; \
+  rm -rf /tmp/tev.appimage /tmp/squashfs-root
+
 FROM ${TOOLCHAIN_IMAGE} AS deps
 ARG DEBIAN_FRONTEND=noninteractive
 # hwloc: oneTBB's libtbbbind, for NUMA-aware task arenas. libdeflate and
@@ -67,16 +92,25 @@ ARG DEBIAN_FRONTEND=noninteractive
 # JPEG, PNG, WebP, GIF and JPEG 2000 formats and its text rendering; libjpeg,
 # libwebp and zstd also libtiff's codecs. zlib and zstd: OpenVDB's grid
 # compression; their -dev packages too, since FindOpenVDB.cmake, through
-# which umbra finds OpenVDB, finds them for its own targets.
+# which umbra finds OpenVDB, finds them for its own targets. The X11,
+# Wayland, xkbcommon and OpenGL libraries: tev's window, most of which its
+# GLFW loads at run time, and its clipboard; Mesa draws it where the NVIDIA
+# driver's OpenGL is not mounted.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libhwloc15 libdeflate0 libzstd1 libexpat1 zlib1g libminizip-ng4t64 \
     zlib1g-dev libzstd-dev \
     libjpeg-turbo8 libpng16-16t64 libwebp7 libwebpdemux2 libwebpmux3 \
     libgif7 libopenjp2-7 libfreetype6 \
+    libx11-6 libx11-xcb1 libxcb1 libxrandr2 libxinerama1 libxcursor1 libxi6 \
+    libxext6 libxrender1 libxkbcommon0 libwayland-client0 libwayland-cursor0 \
+    libwayland-egl1 libgl1 libegl1 \
+    libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/umbra/ /opt/umbra/
-ENV CMAKE_PREFIX_PATH=/opt/umbra
+COPY --from=tev /opt/tev/ /opt/tev/
+ENV CMAKE_PREFIX_PATH=/opt/umbra \
+    PATH=${PATH}:/opt/tev/bin
 
 # The devcontainer's non-root user. It takes uid/gid 1000 from Ubuntu's
 # default user, which the devcontainer maps the host user onto (podman

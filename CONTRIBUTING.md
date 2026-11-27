@@ -11,6 +11,7 @@ are written in English.
 
 - [Environment](#environment)
   - [GPU hosts](#gpu-hosts)
+  - [Viewing images](#viewing-images)
 - [Compatibility policy](#compatibility-policy)
 - [Daily commands](#daily-commands)
 - [Git flow](#git-flow)
@@ -47,7 +48,9 @@ be reproduced inside the devcontainer are not supported.
 
 Nothing depends on a GCC runtime: CI fails when any binary of the toolchain,
 of the dependencies or of an umbra build tree needs libstdc++, libgcc_s or
-GCC's libatomic (`python3 -m forge no-gcc-runtime`).
+GCC's libatomic (`python3 -m forge no-gcc-runtime`). The prebuilt tools of
+the image, such as tev in `/opt/tev`, are outside that rule: umbra does not
+use them (docs/adr/0018-prebuilt-tools-of-the-deps-image.md).
 
 The image also carries the NVIDIA development stack under `/opt/cuda`: CUDA
 13.5 (nvcc, cudart, CCCL) and the OptiX 9.1 headers. nvcc compiles device code
@@ -138,6 +141,42 @@ the host is set up:
 
 4. Rebuild the devcontainer and check: `nvidia-smi -L` lists the GPU,
    and `build/debug/bin/umbra devices` lists the GPU as `gpu0`.
+
+### Viewing images
+
+The image carries tev, an HDR image viewer built for comparing renders:
+`tev image.exr` opens every channel and layer of an EXR, and `tev a.exr
+b.exr` lets you diff the two. A program in the container can also stream
+images into a running tev over its TCP protocol (port 14158).
+
+tev opens a window on the host's display, which the devcontainer does not
+mount: the mount would stop it from starting on a host without one. Give
+your rootless Podman containers your display in
+`~/.config/containers/containers.conf`, next to the GPU's `devices` if you
+have them. For a Wayland session, replace `1000` with your uid (`id -u`)
+and `wayland-0` with your `$WAYLAND_DISPLAY`:
+
+```toml
+[containers]
+volumes = ["/run/user/1000/wayland-0:/run/user/1000/wayland-0"]
+env = ["XDG_RUNTIME_DIR=/run/user/1000", "WAYLAND_DISPLAY=wayland-0"]
+```
+
+For an X11 session, mount the X server's sockets and name the display
+(your `$DISPLAY`):
+
+```toml
+[containers]
+volumes = ["/tmp/.X11-unix:/tmp/.X11-unix"]
+env = ["DISPLAY=:0"]
+```
+
+The container's `dev` user is your host user, so the display accepts it
+when it accepts you; an X server that checks clients by user needs `xhost
++SI:localuser:$USER` on the host. Like the GPU's devices, these apply to
+every container of your user. Rebuild the devcontainer afterwards. tev
+draws with the NVIDIA driver's OpenGL on a GPU host, and with Mesa's
+software renderer elsewhere.
 
 ## Compatibility policy
 
@@ -533,6 +572,12 @@ clang-tidy families and the function limits below), this document wins.
   Apache-2.0 (including `Apache-2.0 WITH LLVM-exception`), BSD-2-Clause,
   BSD-3-Clause, MIT, Zlib or BSL-1.0. CI checks the license expressions of
   the versions manifest.
+- A tool of the deps image, a program that umbra neither links nor loads
+  nor runs, such as tev, may instead be taken prebuilt from its release,
+  pinned by version and SHA-256, into `/opt/<tool>`. It may then have a
+  copyleft license, is listed under **Prebuilt tools** in the versions
+  manifest, and never enters a release image
+  (docs/adr/0018-prebuilt-tools-of-the-deps-image.md).
 
 ## Testing policy
 
