@@ -15,6 +15,8 @@
 #include <pxr/imaging/hd/dataSourceLocator.h>
 #include <pxr/imaging/hd/dirtyBitsTranslator.h>
 #include <pxr/imaging/hd/enums.h>
+#include <pxr/imaging/hd/extComputation.h>
+#include <pxr/imaging/hd/extComputationUtils.h>
 #include <pxr/imaging/hd/geomSubset.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/light.h>
@@ -30,6 +32,7 @@
 #include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/sprim.h>
 #include <pxr/imaging/hd/task.h>
+#include <pxr/imaging/hd/timeSampleArray.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/types.h>
 #include <pxr/imaging/hdsi/renderSettingsFilteringSceneIndex.h>
@@ -42,6 +45,7 @@
 #include <cstdint>
 #include <expected>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -184,18 +188,82 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
   return primvars;
 }
 
+// The ext computation primvar that gives the points of the mesh at
+// `prim_id`, as usdSkelImaging gives those of a skinned mesh: none when its
+// points are a plain primvar.
+std::optional<pxr::HdExtComputationPrimvarDescriptor> ComputedPointsOf(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id) {
+  for (pxr::HdExtComputationPrimvarDescriptor& descriptor :
+       delegate.GetExtComputationPrimvarDescriptors(
+           prim_id, pxr::HdInterpolationVertex)) {
+    if (descriptor.name == pxr::HdTokens->points) {
+      return std::move(descriptor);
+    }
+  }
+  return std::nullopt;
+}
+
+// The points of the mesh at `prim_id` at the frame: the output of `computed`
+// when they are computed.
+pxr::VtValue PointsAtFrame(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    const std::optional<pxr::HdExtComputationPrimvarDescriptor>& computed) {
+  if (!computed.has_value()) {
+    return delegate.Get(prim_id, pxr::HdTokens->points);
+  }
+  pxr::HdExtComputationUtils::ValueStore values =
+      pxr::HdExtComputationUtils::GetComputedPrimvarValues({*computed},
+                                                           &delegate);
+  const auto found = values.find(pxr::HdTokens->points);
+  return found != values.end() ? std::move(found->second) : pxr::VtValue();
+}
+
+// The samples of the output of `computed` over `shutter`, which spans an
+// interval: one at each time its inputs are sampled at.
+TimedSamples<pxr::VtValue> SampleComputedPoints(
+    pxr::HdSceneDelegate& delegate,
+    const pxr::HdExtComputationPrimvarDescriptor& computed,
+    const host::Shutter& shutter) {
+  using Utils = pxr::HdExtComputationUtils;
+  Utils::SampledValueStore<kMaxMotionSamples> values;
+  // Every time is computed, none dropped: more than kMaxMotionSamples are
+  // resampled down, as a plain primvar's are.
+  Utils::SampleComputedPrimvarValues<kMaxMotionSamples>(
+      {computed}, &delegate, static_cast<float>(shutter.open),
+      static_cast<float>(shutter.close),
+      std::numeric_limits<std::size_t>::max(), &values);
+  const auto found = values.find(pxr::HdTokens->points);
+  if (found == values.end()) {
+    return {};
+  }
+  const pxr::HdTimeSampleArray<pxr::VtValue, kMaxMotionSamples>& sampled =
+      found->second;
+  TimedSamples<pxr::VtValue> samples;
+  samples.times.reserve(sampled.count);
+  samples.values.reserve(sampled.count);
+  for (const auto& [time, value] :
+       std::views::zip(sampled.times, sampled.values) |
+           std::views::take(sampled.count)) {
+    samples.times.push_back(time);
+    samples.values.push_back(value);
+  }
+  return samples;
+}
+
 // The motion samples of the points of the mesh at `prim_id`, whose points at
 // the frame are `frame`, over `shutter`: none when their count changes within
-// it.
-Motion<pxr::VtVec3fArray> SamplePoints(pxr::HdSceneDelegate& delegate,
-                                       const pxr::SdfPath& prim_id,
-                                       const pxr::VtValue& frame,
-                                       const host::Shutter& shutter) {
+// it. They are sampled from the output of `computed` when they are computed.
+Motion<pxr::VtVec3fArray> SamplePoints(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    const std::optional<pxr::HdExtComputationPrimvarDescriptor>& computed,
+    const pxr::VtValue& frame, const host::Shutter& shutter) {
   if (!IsMotionBlurred(shutter) || !frame.IsHolding<pxr::VtVec3fArray>()) {
     return {};
   }
   const TimedSamples<pxr::VtValue> sampled =
-      SamplePrimvar(delegate, prim_id, pxr::HdTokens->points, shutter);
+      computed.has_value()
+          ? SampleComputedPoints(delegate, *computed, shutter)
+          : SamplePrimvar(delegate, prim_id, pxr::HdTokens->points, shutter);
   const std::size_t count = frame.UncheckedGet<pxr::VtVec3fArray>().size();
   TimedSamples<pxr::VtVec3fArray> samples{
       .times = sampled.times,
@@ -524,17 +592,19 @@ std::optional<device::ChangeFlags> MeshPrim::ReconvertGeometry(
 }
 
 void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
+  const std::optional<pxr::HdExtComputationPrimvarDescriptor> computed =
+      ComputedPointsOf(delegate, GetId());
   SourceMesh source{
       .path = GetId().GetString(),
       .topology = GetMeshTopology(&delegate),
-      .points = GetPoints(&delegate),
+      .points = PointsAtFrame(delegate, GetId(), computed),
       .point_motion = {},
       .primvars = ReadPrimvars(delegate, GetId()),
       .sidedness = IsDoubleSided(&delegate) ? host::Sidedness::kDoubleSided
                                             : host::Sidedness::kSingleSided,
   };
   Motion<pxr::VtVec3fArray> motion =
-      SamplePoints(delegate, GetId(), source.points, *shutter_);
+      SamplePoints(delegate, GetId(), computed, source.points, *shutter_);
   source.point_motion = std::move(motion.samples);
   points_outcome_ = motion.outcome;
   subdivision_scheme_ = IsSubdivided(source.topology)
@@ -565,9 +635,11 @@ void MeshPrim::ConvertGeometry(pxr::HdSceneDelegate& delegate) {
 
 MeshPrim::PointsConversion MeshPrim::ConvertPointsAlone(
     pxr::HdSceneDelegate& delegate) {
-  const pxr::VtValue frame = GetPoints(&delegate);
+  const std::optional<pxr::HdExtComputationPrimvarDescriptor> computed =
+      ComputedPointsOf(delegate, GetId());
+  const pxr::VtValue frame = PointsAtFrame(delegate, GetId(), computed);
   Motion<pxr::VtVec3fArray> motion =
-      SamplePoints(delegate, GetId(), frame, *shutter_);
+      SamplePoints(delegate, GetId(), computed, frame, *shutter_);
   if (motion.outcome != points_outcome_) {
     return PointsConversion::kWholeNeeded;
   }
@@ -824,6 +896,7 @@ const pxr::TfTokenVector& RenderDelegate::GetSupportedSprimTypes() const {
     pxr::TfTokenVector types = {
         pxr::HdPrimTypeTokens->camera,
         pxr::HdPrimTypeTokens->material,
+        pxr::HdPrimTypeTokens->extComputation,
     };
     const pxr::TfTokenVector& lights = LightPrimTypes();
     types.insert(types.end(), lights.begin(), lights.end());
@@ -914,6 +987,12 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     prims_.materials[prim_id] = material.get();
     return Release<pxr::HdSprim>(std::move(material));
   }
+  // An ext computation holds no render data: the meshes whose primvars it
+  // computes run it as they sync. It is neither counted nor committed.
+  if (type_id == pxr::HdPrimTypeTokens->extComputation) {
+    return Release<pxr::HdSprim>(
+        std::make_unique<pxr::HdExtComputation>(prim_id));
+  }
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
   }
@@ -932,6 +1011,10 @@ RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
   if (type_id == pxr::HdPrimTypeTokens->material) {
     return Release<pxr::HdSprim>(
         std::make_unique<MaterialPrim>(pxr::SdfPath::EmptyPath(), nullptr));
+  }
+  if (type_id == pxr::HdPrimTypeTokens->extComputation) {
+    return Release<pxr::HdSprim>(
+        std::make_unique<pxr::HdExtComputation>(pxr::SdfPath::EmptyPath()));
   }
   if (type_id != pxr::HdPrimTypeTokens->camera) {
     return nullptr;
