@@ -9,42 +9,134 @@ are written in English.
 
 ## Contents
 
+- [How umbra works](#how-umbra-works)
 - [Environment](#environment)
   - [GPU hosts](#gpu-hosts)
   - [Viewing images](#viewing-images)
-- [Compatibility policy](#compatibility-policy)
 - [Daily commands](#daily-commands)
-- [Git flow](#git-flow)
-- [Commit messages](#commit-messages)
-- [Signed commits and tags](#signed-commits-and-tags)
-- [Developer Certificate of Origin](#developer-certificate-of-origin)
-- [Git hooks](#git-hooks)
-- [Safety rules](#safety-rules)
-  - [Errors and language features](#errors-and-language-features)
-  - [Memory and ownership](#memory-and-ownership)
-  - [Lifetimes](#lifetimes)
-  - [Thread safety](#thread-safety)
-  - [Nullability](#nullability)
-  - [Integers, conversions and booleans](#integers-conversions-and-booleans)
-  - [Floating point](#floating-point)
-  - [Style and lint](#style-and-lint)
-  - [Modules](#modules)
-  - [Licensing](#licensing)
-- [Testing policy](#testing-policy)
-- [Pull requests](#pull-requests)
-- [Versioning and releases](#versioning-and-releases)
-  - [Running the release image with Podman](#running-the-release-image-with-podman)
+- [Writing code](#writing-code)
+  - [Safety rules](#safety-rules)
+  - [Testing policy](#testing-policy)
 - [Third-party dependencies](#third-party-dependencies)
+- [Proposing changes](#proposing-changes)
+  - [Git flow](#git-flow)
+  - [Commit messages](#commit-messages)
+  - [Signed commits and tags](#signed-commits-and-tags)
+  - [Developer Certificate of Origin](#developer-certificate-of-origin)
+  - [Git hooks](#git-hooks)
+  - [Pull requests](#pull-requests)
+- [Releases](#releases)
+  - [Compatibility policy](#compatibility-policy)
+  - [Versioning and releases](#versioning-and-releases)
 - [Reporting issues](#reporting-issues)
 - [License](#license)
 
+## How umbra works
+
+umbra is a Hydra renderer: it has no scene of its own. Its render delegate
+syncs a USD stage's prims into host copies, commits what changed to every
+device, and each device renders from the render data it built in its own
+memory. The terms below are those of [GLOSSARY.md](GLOSSARY.md), and
+[docs/adr/](docs/adr/) records why umbra is shaped this way.
+
+### A render's path
+
+```text
+umbra render scene.usda                                     apps/umbra
+  open the stage                                            ext::usd
+  for each frame:
+    sync the prims that changed into host copies            delegate
+      (subdivision surfaces are diced here)
+    commit the change set to every device                   delegate
+      each device updates its render data in its own memory device::cpu, device::gpu
+    for each render product:
+      the devices take tiles from one counter and render    device::cpu, device::gpu
+        them into their film
+      each finished tile is copied into the render buffers  device::cpu, device::gpu
+        and shown on the display (tev)                      apps/umbra
+      the denoised color is denoised from the whole image   delegate
+      the product is written as an OpenEXR file             apps/umbra
+```
+
+### Modules
+
+Each directory under `src/` is a module, with its public headers under
+`include/umbra/<module>/` and a README stating its responsibility:
+
+| Module | Responsibility |
+| --- | --- |
+| [`core`](src/core/README.md) | The foundation: version and build information, errors, the log and progress on stderr, CPU topology, NUMA memory policy and floating-point configuration |
+| [`delegate`](src/delegate/README.md) | The render delegate: its prims sync the stage into host copies, it commits them to every device, renders each render product through a render pass and denoises it |
+| [`device`](src/device/README.md) | The device interface, the views of render data and change sets, and the rendering code shared by every device |
+| [`device/cpu`](src/device/README.md) | The CPU device, one per NUMA node, over Embree and oneTBB |
+| [`device/gpu`](src/device/gpu/README.md) | The GPU device: a loader in umbra, and a module, `libumbra-gpu.so`, over CUDA and OptiX, loaded at run time |
+| [`ext`](src/ext/README.md) | The bridges to third-party libraries, one thin layer per dependency |
+
+The `umbra` executable, in `apps/umbra/`, parses the command line, chooses
+the devices, opens a session of the render delegate, and writes and shows
+the render products. The rest of the repository:
+
+| Path | Contents |
+| --- | --- |
+| `tests/<module>/` | GoogleTest tests, mirroring the module tree; `tests/scenes/` holds the reference scenes |
+| `benchmarks/` | Google Benchmark benchmarks |
+| `cmake/` | CMake modules (compiler, warnings, safety, sanitizers, hardening, build info) |
+| `checks/` | Validators shared by the git hooks and CI, and clang-query rules |
+| `forge/` | Developer and CI commands over the CMake presets and the checks |
+| `sanitizers/` | Sanitizer suppressions and default options |
+| `third_party/` | Submodules, dependency build, patches and the versions manifest |
+| `docker/` | Container image definitions |
+| `.devcontainer/` | Devcontainer configuration |
+| `.githooks/` | Python git hooks |
+| `.github/` | Workflows, issue forms and repository metadata |
+
+### Decisions that shape the code
+
+- The render hot path never allocates, locks or blocks
+  ([0003](docs/adr/0003-no-allocations-on-the-hot-path.md)).
+- Devices are CPU NUMA nodes and GPUs, chosen per render, and each renders
+  only from its own memory, fed a change set at each commit
+  ([0004](docs/adr/0004-render-devices.md),
+  [0013](docs/adr/0013-devices-render-from-their-own-memory.md)).
+- Scenes enter only through Hydra
+  ([0006](docs/adr/0006-scenes-enter-through-hydra.md),
+  [0012](docs/adr/0012-umbra-is-a-hydra-renderer.md)); materials cross as
+  neutral networks ([0008](docs/adr/0008-materials-cross-as-neutral-networks.md)).
+- Rendering is spectral, from ACEScg inputs
+  ([0007](docs/adr/0007-spectral-rendering-from-acescg.md)), and lights are
+  physical: no linking and no artistic controls
+  ([0009](docs/adr/0009-lights-light-everything.md),
+  [0010](docs/adr/0010-lights-are-physical.md)).
+- A frame renders in tiles that devices take from one counter, and tiles
+  reach the render buffers as they finish
+  ([0014](docs/adr/0014-frames-render-in-tiles-from-one-counter.md),
+  [0015](docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md)).
+- `ext/` is a thin layer over each dependency
+  ([0017](docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md)).
+- C++ gets as many Rust-like guarantees as it allows, from an LLVM-only
+  toolchain: see [Safety rules](#safety-rules) and
+  [Environment](#environment).
+
 ## Environment
 
-**The devcontainer is the only supported environment.** It pulls a prebuilt
-image pinned by content hash in `.devcontainer/`, so every machine and every
-CI run uses the same LLVM 23.1.6 toolchain (clang, libc++, compiler-rt,
-libunwind, lld, lldb) and the same third-party libraries. Problems that cannot
-be reproduced inside the devcontainer are not supported.
+**The devcontainer is the only supported environment.** Builds outside it are
+not supported, and issues that cannot be reproduced inside it are closed.
+Only Linux on x86-64 is targeted; the default architecture level is
+`x86-64-v3`. An NVIDIA GPU is optional; see [GPU hosts](#gpu-hosts).
+
+To start:
+
+1. Install rootless Podman and VS Code with the Dev Containers extension, and
+   set `"dev.containers.dockerPath": "podman"` in your VS Code user settings.
+2. Log in to the GitHub Container Registry, as below.
+3. Clone the repository and open it in the devcontainer
+   ("Dev Containers: Reopen in Container").
+4. Build and run the tests: `python3 -m forge check`.
+
+The devcontainer pulls a prebuilt image pinned by content hash in
+`.devcontainer/`, so every machine and every CI run uses the same LLVM 23.1.6
+toolchain (clang, libc++, compiler-rt, libunwind, lld, lldb) and the same
+third-party libraries; you never compile the toolchain locally.
 
 Nothing depends on a GCC runtime: CI fails when any binary of the toolchain,
 of the dependencies or of an umbra build tree needs libstdc++, libgcc_s or
@@ -78,8 +170,7 @@ The Dev Containers extension reads only `~/.docker/config.json`, never
 Podman's own login file, which lives in `$XDG_RUNTIME_DIR` and is gone after a
 reboot; Podman reads `~/.docker/config.json` too.
 
-The devcontainer is set up for VS Code Dev Containers on rootless Podman
-(set `"dev.containers.dockerPath": "podman"` in your VS Code user settings).
+The devcontainer is set up for VS Code Dev Containers on rootless Podman.
 It maps your host user onto the container's non-root `dev` user (keep-id user
 namespace), so workspace files keep your ownership, and allows ptrace with an
 unconfined seccomp profile so that lldb and the sanitizers work. When it is
@@ -178,38 +269,22 @@ every container of your user. Rebuild the devcontainer afterwards. tev
 draws with the NVIDIA driver's OpenGL on a GPU host, and with Mesa's
 software renderer elsewhere.
 
-## Compatibility policy
-
-Umbra is pre-1.0. **The API may break in any release before 1.0.0.** Breaking
-changes bump the minor version until then; see
-[Versioning and releases](#versioning-and-releases).
-
 ## Daily commands
 
 `forge` runs the CMake presets and the shared checks, as
 `python3 -m forge <command>` from the repository root:
 
-| Command | Action |
-| --- | --- |
-| `build` | Debug build; `--preset release` builds the release preset (LTO) instead |
-| `check` | Build and run the tests, except those that need a GPU; `--label gpu` runs only the tests with that CTest label; `--preset release` as for `build` |
-| `check-asan` | AddressSanitizer + UndefinedBehaviorSanitizer build and tests; `--label gpu` runs only the tests with that label, also under NVIDIA's compute-sanitizer (memcheck and initcheck), on a GPU host |
-| `check-tsan` | ThreadSanitizer + UndefinedBehaviorSanitizer integer, conversion and nullability checks build and tests; `--label gpu` runs only the tests with that label, also under compute-sanitizer (racecheck and synccheck), on a GPU host |
-| `check-rtsan` | RealtimeSanitizer build and tests: a function declared `[[clang::nonblocking]]`, or what it calls, inside third-party libraries too, that allocates, locks or blocks aborts its test |
-| `check-all` | `lint`, `check`, `check-asan`, `check-tsan` and `check-rtsan`, stopping at the first failure: everything to run before a pull request |
-| `coverage` | Coverage build and tests, then the coverage report (local only) |
-| `format` | Format the C++ (clang-format) and Python (pyink, isort) sources; `--check` changes no file and fails when one is not formatted |
-| `lint` | Check without changing any file: the validators shared with the git hooks (the file validators on every tracked file, the current branch name, the commit messages since `develop`), the formatting, then clang-tidy, the clang-query rules, pylint, actionlint and the embedded Python checks |
-| `clean` | Remove what the builds built, keeping their configuration |
-| `distclean` | Remove the build trees, with their configuration |
+```sh
+python3 -m forge build                # debug build
+python3 -m forge check                # build and run the tests
+python3 -m forge check --label gpu    # the tests that need a GPU
+python3 -m forge build --preset release
+python3 -m forge format               # format the C++ and Python sources
+python3 -m forge check-all            # everything to run before a pull request
+```
 
-`python3 -m forge --help` lists the commands, and
-`python3 -m forge <command> --help` their options. `-v`/`--verbose` makes
-any command that runs CMake or CTest as verbose as its tools allow: the
-configure's messages down to `TRACE`, every command the build runs, and the
-full output of every test, e.g. `python3 -m forge check -v`. Every step is
-echoed to stderr before it runs, prefixed with `+ `, and a command stops at
-the first step that fails, with its exit status.
+`python3 -m forge --help` lists every command, those CI runs included, and
+`python3 -m forge <command> --help` says what one does and its options.
 
 CI runs through forge too: every step of the workflows that runs a command
 is one forge command, apart from trusting the checkout, pushing an image and
@@ -218,187 +293,19 @@ command inside it, with `docker run` on a read-only mount of the checkout and
 `python3 -B`, so that nothing is written there. The build jobs run
 `check --preset debug`, `check --preset release`, `check-asan`,
 `check-tsan` and `check-rtsan`, then `audit` on their build tree; the other jobs run
-`format --check`, `lint` and the commands below, which check what CI checks:
+`format --check`, `lint` and the commands that check what CI checks, such as
+`pin`, `third-party`, `modules` and `release-image`.
 
-| Command | Action |
-| --- | --- |
-| `audit` | Check a build tree (`--preset debug`, `release`, `asan`, `tsan` or `rtsan`): the debug and release trees have the GPU module, no ELF file needs a GCC runtime, and none needs the CUDA driver unless it is a module loaded at run time |
-| `pin` | Check that `.devcontainer/devcontainer.json` pins `--ref`, the deps image of the current inputs |
-| `pull-request` | Check the branch name, title and commits of the pull request of the GitHub Actions run (CI only) |
-| `third-party` | Check `third_party/versions.md` against the submodules, the license allow-list and the upstream tags |
-| `release` | Check the version, changelog and tags of a release or hotfix branch, `--branch` or that of the run |
-| `changes` | Tell whether the pull request of the run changes more than documentation (CI only) |
-| `image` | Resolve the pinned deps image and check that it is published |
-| `modules` | Check that the target graph is acyclic |
-| `release-image` | Check the contract of a release image, in docker or in its registry (user and group 65532, which own `/work`; entrypoint, command, working directory; no shell, package manager or other program) and start umbra in it with no network |
-| `release-tag` | Check that a release tag (`--tag`, or that of the GitHub Actions run) is `vX.Y.Z`, annotated and signed, on `main`, with the CMake project version `X.Y.Z`, and name the release image with its tags `X.Y.Z`, `X.Y`, `X` and `latest` |
-| `sbom` | Write the SPDX 2.3 SBOM of a release image, in docker or in its registry, to `--output`: its Ubuntu packages from Chisel's manifest, with their copyright files, umbra, and the submodules whose license texts it carries, with their tags, commits and licenses |
-| `sign` | Sign a pushed image, `IMAGE@DIGEST`, with cosign, keyless, under the identity of the GitHub Actions job (CI only) |
-| `tag-image` | Tag a pushed image, `IMAGE@DIGEST`, in its registry with each of the comma-separated references `TAGS`, pointing to its manifest itself |
-| `no-gcc-runtime` | Check that no ELF file under the given paths needs a GCC runtime, directly or through its dependencies, and that every dependency resolves |
-| `no-libcuda` | Check that no ELF file under the given paths needs `libcuda.so.1`, except the modules loaded at run time |
+## Writing code
 
-The deps and submodules workflows build the images and move the submodules
-through these commands:
+### Safety rules
 
-| Command | Action |
-| --- | --- |
-| `layer-image` | Compute the reference of a layer image (`toolchain` or `deps`), `ghcr.io/<owner>/umbra-<layer>:<tag>`, the tag a hash of the layer's inputs at `HEAD` (and its parent's reference), and write it to the step outputs |
-| `published` | Tell whether an image is published, in the step output `exists` |
-| `checkout-submodules` | Check out the submodules among the inputs of a layer (`--layer`); `--touch` gives their files their commit time, so that a cached build tree stays newer than the sources |
-| `buildkit-cache` | Copy a directory (`--from-dir`) or a package image (`--from-package`) into a BuildKit cache mount (`load`), or the mount into a directory (`--to-dir`) or a pushed package image (`--to-package`) (`save`) |
-| `verify-toolchain` | Check the tools and runtimes of the toolchain image it runs in, and that its test programs use only the LLVM runtimes |
-| `pin-devcontainer` | Pin `--ref` in `.devcontainer/devcontainer.json` on `--branch` with a commit that GitHub signs, then dispatch CI on the branch |
-| `bump-submodules` | Open a pull request per submodule with a newer upstream release tag, on `--base`, labelled `--label` |
+Umbra aims for as many Rust-like guarantees as C++ allows: memory, thread,
+lifetime, nullability, integer and conversion safety, and explicit
+ownership. These rules are enforced by compiler errors, clang-tidy,
+clang-query, the hooks and CI.
 
-Under GitHub Actions their errors are annotations; elsewhere they are plain
-`error:` lines on stderr. A command that needs the variables of a GitHub
-Actions run fails with an error when they are not set.
-
-## Git flow
-
-Umbra follows git flow:
-
-| Branch | Purpose | Branches from | Merges into |
-| --- | --- | --- | --- |
-| `main` | Released code; every merge is tagged `vX.Y.Z` | | |
-| `develop` | Integration of the next release | `main` | |
-| `feature/<name>` | New work | `develop` | `develop` (squash) |
-| `bugfix/<name>` | Fixes for unreleased code | `develop` | `develop` (squash) |
-| `release/X.Y.Z` | Release preparation | `develop` | `main` and `develop` (`--no-ff`) |
-| `hotfix/X.Y.Z` | Urgent fixes for a release | `main` | `main` and `develop` (`--no-ff`) |
-
-- Disposable branches hold research and prototyping work: `research/<name>`
-  and `prototype/<name>`. They may be committed to and pushed, but they never
-  get a pull request, are never merged, and may be deleted at any time. Their
-  outcome, findings or a prototype, is posted as a comment on the issue that
-  asked for it, so deleting the branch loses nothing. Only the git flow
-  branches in the table above are opened as pull requests.
-- Branch names are kebab-case, for example `feature/wrapping-arithmetic`.
-  The pre-push hook rejects other names, and CI also rejects `research/` and
-  `prototype/` as pull request branches; only Dependabot's own
-  `dependabot/...` branches are exempt in CI.
-- Features and bugfixes are **squash-merged** into `develop`. Squash is the
-  only merge method the repository allows on GitHub: merge commits and
-  rebase merging are disabled.
-- The squash commit takes the pull request title as its header, so the title
-  must be a valid Conventional Commit; CI checks it. The commit body joins
-  the messages of the branch's commits.
-- Releases and hotfixes are merged with `--no-ff` and tagged `vX.Y.Z` on
-  `main`. GitHub cannot create those merge commits, so they are made
-  locally and pushed; see
-  [Versioning and releases](#versioning-and-releases).
-- git-flow-next is available in the devcontainer as an optional helper.
-
-## Commit messages
-
-Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
-The commit-msg hook checks every commit, and CI checks every commit of a pull
-request.
-
-```text
-<type>[(<scope>)][!]: <description>
-
-[body]
-
-[footers]
-```
-
-- **Types**: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
-  `style`, `chore`, `revert`.
-- **Scope** is optional. When present it must be the name of an existing
-  module (a directory directly under `src/`) or one of `deps`, `ci`,
-  `devcontainer`, `lint`.
-- **Description**: English (ASCII only), imperative mood, starting in
-  lowercase, no trailing period.
-- **Header** at most 72 characters, followed by a blank line when there is a
-  body.
-- **Breaking changes** are marked with `!` after the type or scope, or with a
-  `BREAKING CHANGE:` footer.
-- `fixup!`, `squash!` and `amend!` commits are accepted by the commit-msg
-  hook but rejected by CI; squash them locally (`git rebase --autosquash`)
-  before opening or updating a pull request.
-- Pull request history is linear: rebase instead of merging. Only release and
-  hotfix pull requests into `main` may contain merge commits (the git flow
-  back-merges), and neither the commit-msg hook (on a release or hotfix
-  branch) nor CI checks those as Conventional Commits. CI checks only the
-  commits of such a pull request that are not on `develop`; the others
-  passed the checks in their own pull requests.
-
-Examples:
-
-```text
-feat(core): add wrapping multiply helper
-fix: report the dirty flag when only untracked files changed
-build(deps): bump googletest to v1.18.0
-```
-
-## Signed commits and tags
-
-Every commit and release tag must be cryptographically signed.
-
-- Signing uses SSH (`gpg.format ssh`) with your existing signing key, kept in
-  the host's ssh-agent. The devcontainer forwards the agent and your host git
-  configuration, so private keys never enter the container.
-- The pre-push hook rejects pushes that contain unsigned commits.
-- CI requires every pull request commit to be reported as verified by GitHub,
-  and the release job verifies that release tags are signed. Add your signing
-  key to your GitHub account as a **signing key** so your commits verify.
-- Squash merges, Dependabot commits and automation commits (the devcontainer
-  image pin update and the submodule bumps) are signed by GitHub.
-
-## Developer Certificate of Origin
-
-Every commit must be signed off under the
-[Developer Certificate of Origin 1.1](DCO): by adding a
-`Signed-off-by: Name <email>` trailer, you certify that you wrote the change,
-or otherwise have the right to submit it under the project's license, and
-that the record of your contribution, sign-off included, is public. The
-sign-off is a statement, not a cryptographic signature; commits need both.
-
-- Commit with `git commit -s`, which adds the trailer from your `user.name`
-  and `user.email`. The sign-off must carry the email of the commit author.
-  Commits from VS Code's Source Control view are signed off automatically
-  (`git.alwaysSignOff` in `.vscode/settings.json`).
-- Sign off with your real name. A sign-off cannot be made on someone else's
-  behalf: when you submit work written by others, keep their sign-off and add
-  yours.
-- To add a forgotten sign-off, amend the last commit
-  (`git commit --amend --no-edit -s`) or rebase the branch
-  (`git rebase --signoff develop`), then force-push it.
-- The commit-msg hook and CI reject commits without a sign-off matching the
-  author. Merge commits and commits authored by bots (Dependabot and the
-  automation workflows) are exempt.
-
-## Git hooks
-
-The hooks in `.githooks/` are Python 3 standard-library executables that
-share their validators (in `checks/`) with CI, so local feedback matches CI:
-
-- **pre-commit** checks staged files only: formatting (git-clang-format,
-  pyink, isort), the shared validators, clang-tidy in parallel and the
-  clang-query rules on the affected translation units (those that include a
-  staged file), pylint on staged Python files, and actionlint and the
-  embedded Python checks on staged workflows.
-- **commit-msg** validates the Conventional Commit format and the
-  Developer Certificate of Origin sign-off, except on merge commits of a
-  release or hotfix branch.
-- **pre-push** validates branch names, rejects unsigned commits, and runs a
-  quick debug build and test.
-
-The hooks use LLVM's own tools (git-clang-format, run-clang-tidy,
-clang-query) rather than reimplementations.
-
-The hooks check the working tree git runs them in, with that tree's
-`build/debug`. A commit from a git worktree is checked against the worktree's
-files, even when `core.hooksPath` names another checkout's `.githooks`.
-
-## Safety rules
-
-Umbra aims for as many Rust-like guarantees as C++ allows. These rules are
-enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
-
-### Errors and language features
+#### Errors and language features
 
 - C++23 with compiler extensions off.
 - Exceptions and RTTI are disabled. Errors are returned as
@@ -430,7 +337,7 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   intrinsics. Review checks this rule; no tool does
   (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
 
-### Memory and ownership
+#### Memory and ownership
 
 - `-Wunsafe-buffer-usage` is an error: no pointer arithmetic or raw indexing.
   Unsafe buffer access is allowed only between the unsafe-buffer begin/end
@@ -440,7 +347,7 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   five, make locals `const` by default, initialize everything, and mark
   single-argument constructors `explicit`. Use-after-move is detected.
 
-### Lifetimes
+#### Lifetimes
 
 - Functions that return references, pointers, spans or views derived from
   `this` or from a parameter **must** be marked with the lifetimebound macro
@@ -451,7 +358,7 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   The experimental and beta analyses sit behind the `UMBRA_EXPERIMENTAL_SAFETY`
   CMake option (ON); turn it off only to work around a noisy compiler release.
 
-### Thread safety
+#### Thread safety
 
 - Shared mutable state must be guarded by a capability, atomic, or `const`.
 - Clang Thread Safety Analysis is an error. Annotate locks and guarded data
@@ -464,7 +371,7 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 - Call the core floating-point configuration function (FTZ/DAZ) first on
   every thread, tests included.
 
-### Nullability
+#### Nullability
 
 - Every header wraps its declarations in the assume-nonnull begin/end macros;
   the hooks and CI verify it. Pointers are non-null by default, and nullable
@@ -472,7 +379,7 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
 - Nullability warnings are errors, the clang analyzer nullability checks run,
   and test builds run the nullability sanitizer.
 
-### Integers, conversions and booleans
+#### Integers, conversions and booleans
 
 - Implicit narrowing, sign, 64-to-32, int, float and double-promotion
   conversions are errors: write an explicit `static_cast`.
@@ -487,13 +394,13 @@ enforced by compiler errors, clang-tidy, clang-query, the hooks and CI.
   `Is`, `Has`, `Can`, `Should`, `Contains` or `Equals`.
 - Implicit conversions to `bool` are errors: compare explicitly.
 
-### Floating point
+#### Floating point
 
 - `-ffast-math` is never applied globally. Fast-math is allowed only in local
   regions using clang floating-point pragmas, **preceded by a `// SAFETY:`
   comment** that justifies the precision trade-off.
 
-### Style and lint
+#### Style and lint
 
 C++ follows the
 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)
@@ -555,14 +462,14 @@ clang-tidy families and the function limits below), this document wins.
   path before importing `checks`. `forge/__main__.py` also disables
   `invalid-name`, because Python fixes the name of a package's entry point.
 
-### Modules
+#### Modules
 
 - Each module is an isolated static CMake library that sees only the headers
   of the modules it explicitly depends on. The module graph must be acyclic;
   CI checks it.
 - Each module has a short README stating its single responsibility.
 
-### Licensing
+#### Licensing
 
 - Every source file starts with an SPDX header identifying the license as
   `Apache-2.0` (`SPDX-License-Identifier: Apache-2.0`); the hooks and CI
@@ -579,7 +486,7 @@ clang-tidy families and the function limits below), this document wins.
   manifest, and never enters a release image
   (docs/adr/0018-prebuilt-tools-of-the-deps-image.md).
 
-## Testing policy
+### Testing policy
 
 - Tests use GoogleTest through CTest and exercise the **public interface** of
   a module only, never generated headers or internal plumbing.
@@ -602,113 +509,6 @@ clang-tidy families and the function limits below), this document wins.
   (`ctest -LE gpu`); run them on a GPU host with
   `python3 -m forge check --label gpu` (`ctest -L gpu`). CI still builds
   them, and the GPU module.
-
-## Pull requests
-
-1. Open an issue first for anything beyond a small fix.
-2. Branch from `develop` following the git flow naming rules.
-3. Keep commits small, themed and signed.
-4. Run `python3 -m forge lint` and `python3 -m forge check` inside the
-   devcontainer.
-5. Open the pull request against `develop` and fill in the template. Its title
-   must be a Conventional Commit.
-
-Every pull request must pass the required CI jobs: conventions, format, lint,
-build-debug, build-release, sanitize-address, sanitize-thread, modules,
-third-party and, on release and hotfix branches, release and release-image.
-
-## Versioning and releases
-
-Umbra follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html),
-starting at 0.1.0. The version is declared in the CMake project.
-
-| Change | Before 1.0.0 | From 1.0.0 |
-| --- | --- | --- |
-| Breaking change | minor | major |
-| `feat` | minor | minor |
-| `fix` | patch | patch |
-
-The move to 1.0.0 is a deliberate, manual decision by the maintainers
-(`git cliff --bump major`); git-cliff never makes it on its own.
-
-git-cliff (configured in `cliff.toml`, installed in the devcontainer) computes
-the next version from the Conventional Commits since the last `vX.Y.Z` tag and
-drafts the changelog. Only `feat`, `fix`, `perf`, `revert` and breaking
-commits reach the changelog, under ⚠ Breaking Changes, Added, Fixed,
-Performance and Reverted.
-
-To cut a release:
-
-1. Run `git cliff --bumped-version` to compute the next version, `vX.Y.Z`.
-   The first release is 0.1.0.
-2. Create `release/X.Y.Z` from `develop`.
-3. Set the CMake project version to `X.Y.Z`
-   (`project(umbra VERSION X.Y.Z ...)`).
-4. Run `git cliff --bump --unreleased --strip all` and paste the dated
-   `## [X.Y.Z] - YYYY-MM-DD` section it drafts into
-   [CHANGELOG.md](CHANGELOG.md), right below `## [Unreleased]`, in
-   [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Edit the
-   entries if they need it.
-5. Open a pull request into `main`. The CI `release` job checks that the
-   branch version equals the CMake project version and git-cliff's bumped
-   version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
-   section for it, and that every existing release tag is signed. The CI
-   `release-image` job builds the release image, `docker/release.Dockerfile`,
-   without publishing it, and `python3 -m forge release-image` checks that it
-   runs as UID 65532, which owns `/work`, with no shell and no package
-   manager, and runs `umbra version --build-options`,
-   `umbra devices` and `umbra render` in it, without a GPU.
-6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
-   merge button (the repository allows only squash merges), create the
-   signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
-   `git flow release finish` with signing enabled), merge `main` back into
-   `develop`, and push both branches and the tag. GitHub marks the pull
-   request as merged when `main` receives its commits. The tag starts the
-   release workflow, `.github/workflows/release.yml`:
-   `python3 -m forge release-tag` checks that the tag is `vX.Y.Z`, annotated
-   and signed, on a commit of `main` whose CMake project version is `X.Y.Z`;
-   the workflow then builds the release image on the pinned deps image,
-   checks it with `python3 -m forge release-image`, writes its SPDX SBOM
-   with `python3 -m forge sbom`, pushes it to `ghcr.io/<owner>/umbra` with
-   the tags `X.Y.Z`, `X.Y`, `X` and `latest`, signs it with cosign, keyless,
-   under the workflow's identity, and attests its SLSA build provenance and
-   its SBOM. The README's [Install](README.md#install) section shows how to
-   verify them.
-
-Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
-
-### Running the release image with Podman
-
-On rootless Podman, the user of the release image, UID 65532, is one of your
-subordinate UIDs on the host, so it cannot write to a directory of yours
-mounted on `/work`. `--userns=keep-id:uid=65532,gid=65532` maps your own user
-to it instead, and umbra's outputs belong to you. To list the published tags
-(Podman shows at most 25 unless `--limit` says otherwise):
-
-```sh
-podman search --list-tags --limit 100 ghcr.io/sergioffpc/umbra
-```
-
-Then run one of them:
-
-```sh
-podman run --rm --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
-  ghcr.io/sergioffpc/umbra:X.Y.Z render
-```
-
-On SELinux hosts, `:z` relabels the mounted directory so the container can
-read it: run the command from the directory of your scenes, never from your
-home directory.
-
-On a GPU host set up as in [GPU hosts](#gpu-hosts), every container of your
-user already gets the GPUs; on any other host with the NVIDIA Container
-Toolkit, give them to the container with `--device nvidia.com/gpu=all`:
-
-```sh
-podman run --rm --device nvidia.com/gpu=all \
-  --userns=keep-id:uid=65532,gid=65532 -v "$PWD:/work:z" \
-  ghcr.io/sergioffpc/umbra:X.Y.Z render --devices=gpu0
-```
 
 ## Third-party dependencies
 
@@ -766,6 +566,229 @@ podman run --rm --device nvidia.com/gpu=all \
   workflow do not trigger the deps workflow at all. Run it manually on such a
   branch: `gh workflow run deps.yml --ref <branch>`, or Actions, deps, Run
   workflow.
+
+## Proposing changes
+
+### Git flow
+
+Umbra follows git flow:
+
+| Branch | Purpose | Branches from | Merges into |
+| --- | --- | --- | --- |
+| `main` | Released code; every merge is tagged `vX.Y.Z` | | |
+| `develop` | Integration of the next release | `main` | |
+| `feature/<name>` | New work | `develop` | `develop` (squash) |
+| `bugfix/<name>` | Fixes for unreleased code | `develop` | `develop` (squash) |
+| `release/X.Y.Z` | Release preparation | `develop` | `main` and `develop` (`--no-ff`) |
+| `hotfix/X.Y.Z` | Urgent fixes for a release | `main` | `main` and `develop` (`--no-ff`) |
+
+- Disposable branches hold research and prototyping work: `research/<name>`
+  and `prototype/<name>`. They may be committed to and pushed, but they never
+  get a pull request, are never merged, and may be deleted at any time. Their
+  outcome, findings or a prototype, is posted as a comment on the issue that
+  asked for it, so deleting the branch loses nothing. Only the git flow
+  branches in the table above are opened as pull requests.
+- Branch names are kebab-case, for example `feature/wrapping-arithmetic`.
+  The pre-push hook rejects other names, and CI also rejects `research/` and
+  `prototype/` as pull request branches; only Dependabot's own
+  `dependabot/...` branches are exempt in CI.
+- Features and bugfixes are **squash-merged** into `develop`. Squash is the
+  only merge method the repository allows on GitHub: merge commits and
+  rebase merging are disabled.
+- The squash commit takes the pull request title as its header, so the title
+  must be a valid Conventional Commit; CI checks it. The commit body joins
+  the messages of the branch's commits.
+- Releases and hotfixes are merged with `--no-ff` and tagged `vX.Y.Z` on
+  `main`. GitHub cannot create those merge commits, so they are made
+  locally and pushed; see
+  [Versioning and releases](#versioning-and-releases).
+- git-flow-next is available in the devcontainer as an optional helper.
+
+### Commit messages
+
+Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+The commit-msg hook checks every commit, and CI checks every commit of a pull
+request.
+
+```text
+<type>[(<scope>)][!]: <description>
+
+[body]
+
+[footers]
+```
+
+- **Types**: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
+  `style`, `chore`, `revert`.
+- **Scope** is optional. When present it must be the name of an existing
+  module (a directory directly under `src/`) or one of `deps`, `ci`,
+  `devcontainer`, `lint`.
+- **Description**: English (ASCII only), imperative mood, starting in
+  lowercase, no trailing period.
+- **Header** at most 72 characters, followed by a blank line when there is a
+  body.
+- **Breaking changes** are marked with `!` after the type or scope, or with a
+  `BREAKING CHANGE:` footer.
+- `fixup!`, `squash!` and `amend!` commits are accepted by the commit-msg
+  hook but rejected by CI; squash them locally (`git rebase --autosquash`)
+  before opening or updating a pull request.
+- Pull request history is linear: rebase instead of merging. Only release and
+  hotfix pull requests into `main` may contain merge commits (the git flow
+  back-merges), and neither the commit-msg hook (on a release or hotfix
+  branch) nor CI checks those as Conventional Commits. CI checks only the
+  commits of such a pull request that are not on `develop`; the others
+  passed the checks in their own pull requests.
+
+Examples:
+
+```text
+feat(core): add wrapping multiply helper
+fix: report the dirty flag when only untracked files changed
+build(deps): bump googletest to v1.18.0
+```
+
+### Signed commits and tags
+
+Every commit and release tag must be cryptographically signed.
+
+- Signing uses SSH (`gpg.format ssh`) with your existing signing key, kept in
+  the host's ssh-agent. The devcontainer forwards the agent and your host git
+  configuration, so private keys never enter the container.
+- The pre-push hook rejects pushes that contain unsigned commits.
+- CI requires every pull request commit to be reported as verified by GitHub,
+  and the release job verifies that release tags are signed. Add your signing
+  key to your GitHub account as a **signing key** so your commits verify.
+- Squash merges, Dependabot commits and automation commits (the devcontainer
+  image pin update and the submodule bumps) are signed by GitHub.
+
+### Developer Certificate of Origin
+
+Every commit must be signed off under the
+[Developer Certificate of Origin 1.1](DCO): by adding a
+`Signed-off-by: Name <email>` trailer, you certify that you wrote the change,
+or otherwise have the right to submit it under the project's license, and
+that the record of your contribution, sign-off included, is public. The
+sign-off is a statement, not a cryptographic signature; commits need both.
+
+- Commit with `git commit -s`, which adds the trailer from your `user.name`
+  and `user.email`. The sign-off must carry the email of the commit author.
+  Commits from VS Code's Source Control view are signed off automatically
+  (`git.alwaysSignOff` in `.vscode/settings.json`).
+- Sign off with your real name. A sign-off cannot be made on someone else's
+  behalf: when you submit work written by others, keep their sign-off and add
+  yours.
+- To add a forgotten sign-off, amend the last commit
+  (`git commit --amend --no-edit -s`) or rebase the branch
+  (`git rebase --signoff develop`), then force-push it.
+- The commit-msg hook and CI reject commits without a sign-off matching the
+  author. Merge commits and commits authored by bots (Dependabot and the
+  automation workflows) are exempt.
+
+### Git hooks
+
+The hooks in `.githooks/` are Python 3 standard-library executables that
+share their validators (in `checks/`) with CI, so local feedback matches CI:
+
+- **pre-commit** checks staged files only: formatting (git-clang-format,
+  pyink, isort), the shared validators, clang-tidy in parallel and the
+  clang-query rules on the affected translation units (those that include a
+  staged file), pylint on staged Python files, and actionlint and the
+  embedded Python checks on staged workflows.
+- **commit-msg** validates the Conventional Commit format and the
+  Developer Certificate of Origin sign-off, except on merge commits of a
+  release or hotfix branch.
+- **pre-push** validates branch names, rejects unsigned commits, and runs a
+  quick debug build and test.
+
+The hooks use LLVM's own tools (git-clang-format, run-clang-tidy,
+clang-query) rather than reimplementations.
+
+The hooks check the working tree git runs them in, with that tree's
+`build/debug`. A commit from a git worktree is checked against the worktree's
+files, even when `core.hooksPath` names another checkout's `.githooks`.
+
+### Pull requests
+
+1. Open an issue first for anything beyond a small fix.
+2. Branch from `develop` following the git flow naming rules.
+3. Keep commits small, themed and signed.
+4. Run `python3 -m forge lint` and `python3 -m forge check` inside the
+   devcontainer.
+5. Open the pull request against `develop` and fill in the template. Its title
+   must be a Conventional Commit.
+
+Every pull request must pass the required CI jobs: conventions, format, lint,
+build-debug, build-release, sanitize-address, sanitize-thread, modules,
+third-party and, on release and hotfix branches, release and release-image.
+
+## Releases
+
+### Compatibility policy
+
+Umbra is pre-1.0. **The API may break in any release before 1.0.0.** Breaking
+changes bump the minor version until then; see
+[Versioning and releases](#versioning-and-releases).
+
+### Versioning and releases
+
+Umbra follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html),
+starting at 0.1.0. The version is declared in the CMake project.
+
+| Change | Before 1.0.0 | From 1.0.0 |
+| --- | --- | --- |
+| Breaking change | minor | major |
+| `feat` | minor | minor |
+| `fix` | patch | patch |
+
+The move to 1.0.0 is a deliberate, manual decision by the maintainers
+(`git cliff --bump major`); git-cliff never makes it on its own.
+
+git-cliff (configured in `cliff.toml`, installed in the devcontainer) computes
+the next version from the Conventional Commits since the last `vX.Y.Z` tag and
+drafts the changelog. Only `feat`, `fix`, `perf`, `revert` and breaking
+commits reach the changelog, under ⚠ Breaking Changes, Added, Fixed,
+Performance and Reverted.
+
+To cut a release:
+
+1. Run `git cliff --bumped-version` to compute the next version, `vX.Y.Z`.
+   The first release is 0.1.0.
+2. Create `release/X.Y.Z` from `develop`.
+3. Set the CMake project version to `X.Y.Z`
+   (`project(umbra VERSION X.Y.Z ...)`).
+4. Run `git cliff --bump --unreleased --strip all` and paste the dated
+   `## [X.Y.Z] - YYYY-MM-DD` section it drafts into
+   [CHANGELOG.md](CHANGELOG.md), right below `## [Unreleased]`, in
+   [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Edit the
+   entries if they need it.
+5. Open a pull request into `main`. The CI `release` job checks that the
+   branch version equals the CMake project version and git-cliff's bumped
+   version, that `vX.Y.Z` is not tagged yet, that the changelog has a dated
+   section for it, and that every existing release tag is signed. The CI
+   `release-image` job builds the release image, `docker/release.Dockerfile`,
+   without publishing it, and `python3 -m forge release-image` checks that it
+   runs as UID 65532, which owns `/work`, with no shell and no package
+   manager, and runs `umbra version --build-options`,
+   `umbra devices` and `umbra render` in it, without a GPU.
+6. Once CI passes, merge locally with `--no-ff`, not with the pull request's
+   merge button (the repository allows only squash merges), create the
+   signed annotated tag `vX.Y.Z` on `main` (`git tag -s`, or
+   `git flow release finish` with signing enabled), merge `main` back into
+   `develop`, and push both branches and the tag. GitHub marks the pull
+   request as merged when `main` receives its commits. The tag starts the
+   release workflow, `.github/workflows/release.yml`:
+   `python3 -m forge release-tag` checks that the tag is `vX.Y.Z`, annotated
+   and signed, on a commit of `main` whose CMake project version is `X.Y.Z`;
+   the workflow then builds the release image on the pinned deps image,
+   checks it with `python3 -m forge release-image`, writes its SPDX SBOM
+   with `python3 -m forge sbom`, pushes it to `ghcr.io/<owner>/umbra` with
+   the tags `X.Y.Z`, `X.Y`, `X` and `latest`, signs it with cosign, keyless,
+   under the workflow's identity, and attests its SLSA build provenance and
+   its SBOM. The README's
+   [Verify the image](README.md#verify-the-image) section shows how to
+   verify them.
+
+Hotfixes follow the same steps from `main` with `hotfix/X.Y.Z`.
 
 ## Reporting issues
 
