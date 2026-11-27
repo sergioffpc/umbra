@@ -7,6 +7,7 @@ umbra_add_module(core
     error.cc
     floating_point.cc
     log.cc
+    memory_policy.cc
     number_format.cc
     progress.cc
     stderr_output.cc

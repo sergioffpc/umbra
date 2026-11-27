@@ -30,26 +30,28 @@ struct Vector3 {
   float z = 0.0F;
 };
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator+(Vector3 lhs,
-                                                         Vector3 rhs) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator+(
+    Vector3 lhs, Vector3 rhs) UMBRA_NONBLOCKING {
   return {.x = lhs.x + rhs.x, .y = lhs.y + rhs.y, .z = lhs.z + rhs.z};
 }
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator-(Vector3 lhs,
-                                                         Vector3 rhs) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator-(
+    Vector3 lhs, Vector3 rhs) UMBRA_NONBLOCKING {
   return {.x = lhs.x - rhs.x, .y = lhs.y - rhs.y, .z = lhs.z - rhs.z};
 }
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator*(float scale,
-                                                         Vector3 vector) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 operator*(
+    float scale, Vector3 vector) UMBRA_NONBLOCKING {
   return {.x = scale * vector.x, .y = scale * vector.y, .z = scale * vector.z};
 }
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline float Dot(Vector3 lhs, Vector3 rhs) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline float Dot(Vector3 lhs, Vector3 rhs)
+    UMBRA_NONBLOCKING {
   return (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z);
 }
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Cross(Vector3 lhs, Vector3 rhs) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Cross(Vector3 lhs, Vector3 rhs)
+    UMBRA_NONBLOCKING {
   return {
       .x = (lhs.y * rhs.z) - (lhs.z * rhs.y),
       .y = (lhs.z * rhs.x) - (lhs.x * rhs.z),
@@ -57,12 +59,14 @@ UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Cross(Vector3 lhs, Vector3 rhs) {
   };
 }
 
-UMBRA_HOST_DEVICE [[nodiscard]] inline float Length(Vector3 vector) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline float Length(Vector3 vector)
+    UMBRA_NONBLOCKING {
   return std::sqrt(Dot(vector, vector));
 }
 
 // `vector` at unit length; a zero vector stays zero.
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Normalize(Vector3 vector) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Normalize(Vector3 vector)
+    UMBRA_NONBLOCKING {
   const float length = Length(vector);
   return length > 0.0F ? (1.0F / length) * vector : vector;
 }
@@ -79,28 +83,27 @@ struct Affine {
 
 // The image of the vector `vector` by `transform`: without its translation.
 UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 TransformVector(
-    const Affine& transform, Vector3 vector) {
+    const Affine& transform, Vector3 vector) UMBRA_NONBLOCKING {
   return (vector.x * transform.x_axis) + (vector.y * transform.y_axis) +
          (vector.z * transform.z_axis);
 }
 
 // The image of the point `point` by `transform`.
 UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 TransformPoint(
-    const Affine& transform, Vector3 point) {
+    const Affine& transform, Vector3 point) UMBRA_NONBLOCKING {
   return TransformVector(transform, point) + transform.translation;
 }
 
 // The vector between `start`, at 0, and `end`, at 1, at `weight`.
-UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Lerp(Vector3 start, Vector3 end,
-                                                    float weight) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Vector3 Lerp(
+    Vector3 start, Vector3 end, float weight) UMBRA_NONBLOCKING {
   return start + (weight * (end - start));
 }
 
 // The transform between `start`, at 0, and `end`, at 1, at `weight`, each
 // of its numbers interpolated linearly.
-UMBRA_HOST_DEVICE [[nodiscard]] inline Affine Lerp(const Affine& start,
-                                                   const Affine& end,
-                                                   float weight) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline Affine Lerp(
+    const Affine& start, const Affine& end, float weight) UMBRA_NONBLOCKING {
   return {
       .x_axis = Lerp(start.x_axis, end.x_axis, weight),
       .y_axis = Lerp(start.y_axis, end.y_axis, weight),

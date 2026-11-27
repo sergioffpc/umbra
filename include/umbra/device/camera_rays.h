@@ -100,7 +100,8 @@ namespace camera_rays_internal {
 
 // The point of the unit disk at `uniform`, by Shirley and Chiu's concentric
 // mapping.
-UMBRA_HOST_DEVICE inline Point2 ConcentricDisk(Point2 uniform) {
+UMBRA_HOST_DEVICE inline Point2 ConcentricDisk(Point2 uniform)
+    UMBRA_NONBLOCKING {
   constexpr float kQuarterPi = 0.25F * std::numbers::pi_v<float>;
   const float across = (2.0F * uniform.x) - 1.0F;
   const float down = (2.0F * uniform.y) - 1.0F;
@@ -117,7 +118,7 @@ UMBRA_HOST_DEVICE inline Point2 ConcentricDisk(Point2 uniform) {
 
 // The camera-to-world transform of `model` at `time`, from 0 to 1.
 UMBRA_HOST_DEVICE inline Affine CameraToWorld(const CameraModel& model,
-                                              float time) {
+                                              float time) UMBRA_NONBLOCKING {
   if (model.samples <= 1) {
     return model.camera_to_world.front();
   }
@@ -133,10 +134,9 @@ UMBRA_HOST_DEVICE inline Affine CameraToWorld(const CameraModel& model,
 
 // The point of the screen window, in camera space, that the sample of
 // `filter` at the pixel at `column` and `row` sees.
-UMBRA_HOST_DEVICE inline Point2 ScreenPoint(const CameraModel& model,
-                                            std::int32_t column,
-                                            std::int32_t row,
-                                            FilterOffset filter) {
+UMBRA_HOST_DEVICE inline Point2 ScreenPoint(
+    const CameraModel& model, std::int32_t column, std::int32_t row,
+    FilterOffset filter) UMBRA_NONBLOCKING {
   // The sample's NDC: y up from the bottom.
   const float ndc_x =
       (static_cast<float>(column) + 0.5F + filter.x) / model.resolution.x;
@@ -156,8 +156,8 @@ struct LocalRay {
 
 // The ray in camera space through `screen`, from the point of the lens at
 // `lens`.
-UMBRA_HOST_DEVICE inline LocalRay CameraSpaceRay(const CameraModel& model,
-                                                 Point2 screen, Point2 lens) {
+UMBRA_HOST_DEVICE inline LocalRay CameraSpaceRay(
+    const CameraModel& model, Point2 screen, Point2 lens) UMBRA_NONBLOCKING {
   if (model.projection == Projection::kOrthographic) {
     return {
         .origin = {.x = screen.x, .y = screen.y, .z = 0.0F},
@@ -190,7 +190,7 @@ UMBRA_HOST_DEVICE inline LocalRay CameraSpaceRay(const CameraModel& model,
 // frame's without motion blur.
 UMBRA_HOST_DEVICE [[nodiscard]] inline CameraRay GenerateRay(
     const CameraModel& model, std::int32_t column, std::int32_t row,
-    const CameraSamples& samples) {
+    const CameraSamples& samples) UMBRA_NONBLOCKING {
   using camera_rays_internal::CameraSpaceRay;
   using camera_rays_internal::CameraToWorld;
   using camera_rays_internal::LocalRay;

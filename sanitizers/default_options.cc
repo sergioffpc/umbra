@@ -3,8 +3,8 @@
 //
 // Default runtime options of the sanitizers, linked into every executable of
 // a sanitizer build (see cmake/UmbraSanitizers.cmake). Each runtime calls its
-// hook at startup; ASAN_OPTIONS, UBSAN_OPTIONS and TSAN_OPTIONS in the
-// environment override these defaults.
+// hook at startup; ASAN_OPTIONS, UBSAN_OPTIONS, TSAN_OPTIONS and
+// RTSAN_OPTIONS in the environment override these defaults.
 //
 // Every runtime stops at the first error and aborts, so a test that triggers
 // a report fails, and symbolizes its reports (file:line) with the toolchain's
@@ -12,6 +12,7 @@
 // absolute paths defined by cmake/UmbraSanitizers.cmake.
 
 #include <sanitizer/asan_interface.h>
+#include <sanitizer/rtsan_interface.h>
 #include <sanitizer/tsan_interface.h>
 #include <sanitizer/ubsan_interface.h>
 
@@ -42,4 +43,12 @@ extern "C" const char* __ubsan_default_options() {
 extern "C" const char* __tsan_default_options() {
   return UMBRA_SANITIZER_COMMON_OPTIONS
       ":second_deadlock_stack=1:suppressions=" UMBRA_TSAN_SUPPRESSIONS;
+}
+
+// RealtimeSanitizer: its interface header does not declare its hook.
+extern "C" const char* __rtsan_default_options();
+
+// RealtimeSanitizer: the common options; it aborts at its first report.
+extern "C" const char* __rtsan_default_options() {
+  return UMBRA_SANITIZER_COMMON_OPTIONS;
 }

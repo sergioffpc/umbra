@@ -86,7 +86,8 @@ void AttachTriangles(RTCDevice device, RTCScene scene,
 
 // The shape a light geometry's user data points to: BuildLight sets it,
 // and the shape outlives the geometry.
-const device::LightShape& ShapeOf(void* UMBRA_NULLABLE user) {
+const device::LightShape& ShapeOf(void* UMBRA_NULLABLE user)
+    [[clang::nonblocking]] {
   return *static_cast<const device::LightShape*>(user);
 }
 
@@ -107,14 +108,14 @@ void LightBounds(const RTCBoundsFunctionArguments* args) {
 
 // The lanes of a packet of `count` rays, nonzero where a ray is valid.
 std::span<const int> Lanes(const int* valid UMBRA_LIFETIMEBOUND,
-                           unsigned int count) {
+                           unsigned int count) [[clang::nonblocking]] {
   // SAFETY: Embree passes a valid mask of one int per ray of the packet.
   UMBRA_UNSAFE_BUFFER_BEGIN
   return {valid, count};
   UMBRA_UNSAFE_BUFFER_END
 }
 
-device::ShapeRay ShapeRayOf(const RTCRay& ray) {
+device::ShapeRay ShapeRayOf(const RTCRay& ray) [[clang::nonblocking]] {
   return {
       .origin = {.x = ray.org_x, .y = ray.org_y, .z = ray.org_z},
       .direction = {.x = ray.dir_x, .y = ray.dir_y, .z = ray.dir_z},
@@ -125,7 +126,8 @@ device::ShapeRay ShapeRayOf(const RTCRay& ray) {
 
 // The hit of `shape_hit` on the light primitive `args` intersects.
 RTCHit HitOf(const device::ShapeHit& shape_hit,
-             const RTCIntersectFunctionNArguments& args) {
+             const RTCIntersectFunctionNArguments& args)
+    [[clang::nonblocking]] {
   RTCHit hit{};
   hit.Ng_x = shape_hit.normal.x;
   hit.Ng_y = shape_hit.normal.y;
@@ -136,7 +138,8 @@ RTCHit HitOf(const device::ShapeHit& shape_hit,
   return hit;
 }
 
-void LightIntersect(const RTCIntersectFunctionNArguments* args) {
+void LightIntersect(const RTCIntersectFunctionNArguments* args)
+    [[clang::nonblocking]] {
   const device::LightShape& shape = ShapeOf(args->geometryUserPtr);
   RTCRayN* const rays = RTCRayHitN_RayN(args->rayhit, args->N);
   RTCHitN* const hits = RTCRayHitN_HitN(args->rayhit, args->N);
@@ -156,7 +159,8 @@ void LightIntersect(const RTCIntersectFunctionNArguments* args) {
   }
 }
 
-void LightOccluded(const RTCOccludedFunctionNArguments* args) {
+void LightOccluded(const RTCOccludedFunctionNArguments* args)
+    [[clang::nonblocking]] {
   const device::LightShape& shape = ShapeOf(args->geometryUserPtr);
   unsigned int lane = 0;
   for (const int valid : Lanes(args->valid, args->N)) {

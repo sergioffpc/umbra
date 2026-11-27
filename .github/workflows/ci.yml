@@ -337,6 +337,33 @@ jobs:
       - name: Build tree
         run: python3 -m forge audit --preset tsan
 
+  # RTSan: the functions declared [[clang::nonblocking]], and what they call
+  # in third-party libraries, neither allocate, lock nor block.
+  sanitize-realtime:
+    needs: image
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test
+        run: python3 -m forge check-rtsan
+
+      # No binary needs a GCC runtime, nor the CUDA driver unless it is a
+      # module loaded at run time.
+      - name: Build tree
+        run: python3 -m forge audit --preset rtsan
+
   # Fails when the formatters would change any file.
   format:
     needs: image

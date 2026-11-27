@@ -42,14 +42,14 @@ inline constexpr float kA3 = 0.01168F;
 inline constexpr float kTwoPi = 2.0F * std::numbers::pi_v<float>;
 
 // The window at `across`, from 0 to 1 across its width: 1 at its center.
-UMBRA_HOST_DEVICE inline float Window(float across) {
+UMBRA_HOST_DEVICE inline float Window(float across) UMBRA_NONBLOCKING {
   return kA0 - (kA1 * std::cos(kTwoPi * across)) +
          (kA2 * std::cos(2.0F * kTwoPi * across)) -
          (kA3 * std::cos(3.0F * kTwoPi * across));
 }
 
 // The fraction of the window's integral from 0 to `across`.
-UMBRA_HOST_DEVICE inline float Cumulative(float across) {
+UMBRA_HOST_DEVICE inline float Cumulative(float across) UMBRA_NONBLOCKING {
   const float integral =
       (kA0 * across) - (kA1 / kTwoPi * std::sin(kTwoPi * across)) +
       (kA2 / (2.0F * kTwoPi) * std::sin(2.0F * kTwoPi * across)) -
@@ -58,7 +58,7 @@ UMBRA_HOST_DEVICE inline float Cumulative(float across) {
 }
 
 // `value` within 0 and 1.
-UMBRA_HOST_DEVICE inline float Saturate(float value) {
+UMBRA_HOST_DEVICE inline float Saturate(float value) UMBRA_NONBLOCKING {
   return std::fmin(std::fmax(value, 0.0F), 1.0F);
 }
 
@@ -67,7 +67,8 @@ UMBRA_HOST_DEVICE inline float Saturate(float value) {
 // The density of the filter's distribution along one axis, per pixel, at
 // `offset` pixels from the center: it integrates to 1 over the filter's
 // width, and is 0 beyond it.
-UMBRA_HOST_DEVICE [[nodiscard]] inline float PixelFilterDensity(float offset) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline float PixelFilterDensity(float offset)
+    UMBRA_NONBLOCKING {
   using pixel_filter_internal::kA0;
   using pixel_filter_internal::Window;
   if (std::fabs(offset) > 0.5F * kPixelFilterWidth) {
@@ -80,7 +81,8 @@ UMBRA_HOST_DEVICE [[nodiscard]] inline float PixelFilterDensity(float offset) {
 // The offset along one axis, within the filter's width, at which a fraction
 // `uniform`, from 0 to 1, of the distribution lies below: the inverse of its
 // cumulative distribution, by Newton's method kept within a bracket.
-UMBRA_HOST_DEVICE [[nodiscard]] inline float SamplePixelFilter(float uniform) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline float SamplePixelFilter(float uniform)
+    UMBRA_NONBLOCKING {
   using pixel_filter_internal::Cumulative;
   using pixel_filter_internal::kA0;
   using pixel_filter_internal::Saturate;
@@ -116,7 +118,7 @@ UMBRA_HOST_DEVICE [[nodiscard]] inline float SamplePixelFilter(float uniform) {
 // are `uniform_x` and `uniform_y`: each axis sampled apart, the filter
 // being separable.
 UMBRA_HOST_DEVICE [[nodiscard]] inline FilterOffset SamplePixelFilter(
-    float uniform_x, float uniform_y) {
+    float uniform_x, float uniform_y) UMBRA_NONBLOCKING {
   return {.x = SamplePixelFilter(uniform_x), .y = SamplePixelFilter(uniform_y)};
 }
 

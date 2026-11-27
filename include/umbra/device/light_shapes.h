@@ -74,7 +74,8 @@ struct ShapeHit {
 };
 
 // Whether `hit` meets the shape.
-UMBRA_HOST_DEVICE [[nodiscard]] inline bool IsHit(const ShapeHit& hit) {
+UMBRA_HOST_DEVICE [[nodiscard]] inline bool IsHit(const ShapeHit& hit)
+    UMBRA_NONBLOCKING {
   return hit.distance != kNoHit;
 }
 
@@ -82,7 +83,7 @@ namespace light_shapes_internal {
 
 // origin + distance·direction.
 UMBRA_HOST_DEVICE inline Vector3 Along(Vector3 origin, Vector3 direction,
-                                       float distance) {
+                                       float distance) UMBRA_NONBLOCKING {
   return {
       .x = origin.x + (distance * direction.x),
       .y = origin.y + (distance * direction.y),
@@ -90,19 +91,21 @@ UMBRA_HOST_DEVICE inline Vector3 Along(Vector3 origin, Vector3 direction,
   };
 }
 
-UMBRA_HOST_DEVICE inline Vector3 At(const ShapeRay& ray, float distance) {
+UMBRA_HOST_DEVICE inline Vector3 At(const ShapeRay& ray,
+                                    float distance) UMBRA_NONBLOCKING {
   return Along(ray.origin, ray.direction, distance);
 }
 
 // `distance` when it is within the ray's range, or kNoHit.
-UMBRA_HOST_DEVICE inline float InRange(float distance, const ShapeRay& ray) {
+UMBRA_HOST_DEVICE inline float InRange(float distance,
+                                       const ShapeRay& ray) UMBRA_NONBLOCKING {
   return distance >= ray.t_min && distance <= ray.t_max ? distance : kNoHit;
 }
 
 // The first of `near_t` and `far_t`, near_t <= far_t, within the ray's
 // range, or kNoHit.
-UMBRA_HOST_DEVICE inline float FirstInRange(float near_t, float far_t,
-                                            const ShapeRay& ray) {
+UMBRA_HOST_DEVICE inline float FirstInRange(
+    float near_t, float far_t, const ShapeRay& ray) UMBRA_NONBLOCKING {
   const float near_in = InRange(near_t, ray);
   return near_in != kNoHit ? near_in : InRange(far_t, ray);
 }
@@ -120,7 +123,7 @@ struct Roots {
 
 UMBRA_HOST_DEVICE inline Roots QuadricRoots(float dir_dir, float org_dir,
                                             float org_org, float closest_sq,
-                                            float radius) {
+                                            float radius) UMBRA_NONBLOCKING {
   const float radius_sq = radius * radius;
   const float discriminant = dir_dir * (radius_sq - closest_sq);
   if (dir_dir == 0.0F || discriminant < 0.0F) {
@@ -137,8 +140,8 @@ UMBRA_HOST_DEVICE inline Roots QuadricRoots(float dir_dir, float org_dir,
                          : Roots{.near_t = second, .far_t = first};
 }
 
-UMBRA_HOST_DEVICE inline ShapeHit IntersectSphere(const ShapeRay& ray,
-                                                  float radius) {
+UMBRA_HOST_DEVICE inline ShapeHit IntersectSphere(
+    const ShapeRay& ray, float radius) UMBRA_NONBLOCKING {
   const float dir_dir = Dot(ray.direction, ray.direction);
   const float org_dir = Dot(ray.origin, ray.direction);
   const Vector3 closest =
@@ -164,7 +167,8 @@ UMBRA_HOST_DEVICE inline ShapeHit IntersectSphere(const ShapeRay& ray,
 
 // Where a ray meets the XY plane, within its range, or kNoHit; a ray
 // parallel to it never does.
-UMBRA_HOST_DEVICE inline float PlaneDistance(const ShapeRay& ray) {
+UMBRA_HOST_DEVICE inline float PlaneDistance(const ShapeRay& ray)
+    UMBRA_NONBLOCKING {
   if (ray.direction.z == 0.0F) {
     return kNoHit;
   }
@@ -172,8 +176,8 @@ UMBRA_HOST_DEVICE inline float PlaneDistance(const ShapeRay& ray) {
   return FirstInRange(distance, distance, ray);
 }
 
-UMBRA_HOST_DEVICE inline ShapeHit IntersectRect(const ShapeRay& ray,
-                                                float width, float height) {
+UMBRA_HOST_DEVICE inline ShapeHit IntersectRect(
+    const ShapeRay& ray, float width, float height) UMBRA_NONBLOCKING {
   const float distance = PlaneDistance(ray);
   if (distance == kNoHit) {
     return {};
@@ -185,8 +189,8 @@ UMBRA_HOST_DEVICE inline ShapeHit IntersectRect(const ShapeRay& ray,
   return {.distance = distance, .normal = {.x = 0.0F, .y = 0.0F, .z = -1.0F}};
 }
 
-UMBRA_HOST_DEVICE inline ShapeHit IntersectDisk(const ShapeRay& ray,
-                                                float radius) {
+UMBRA_HOST_DEVICE inline ShapeHit IntersectDisk(
+    const ShapeRay& ray, float radius) UMBRA_NONBLOCKING {
   const float distance = PlaneDistance(ray);
   if (distance == kNoHit) {
     return {};
@@ -199,9 +203,9 @@ UMBRA_HOST_DEVICE inline ShapeHit IntersectDisk(const ShapeRay& ray,
 }
 
 // The cylinder's hit at `distance`, when it lies within its length.
-UMBRA_HOST_DEVICE inline ShapeHit CylinderHitAt(const ShapeRay& ray,
-                                                float distance,
-                                                const LightShape& shape) {
+UMBRA_HOST_DEVICE inline ShapeHit CylinderHitAt(
+    const ShapeRay& ray, float distance,
+    const LightShape& shape) UMBRA_NONBLOCKING {
   if (distance == kNoHit) {
     return {};
   }
@@ -220,8 +224,8 @@ UMBRA_HOST_DEVICE inline ShapeHit CylinderHitAt(const ShapeRay& ray,
   };
 }
 
-UMBRA_HOST_DEVICE inline ShapeHit IntersectCylinder(const ShapeRay& ray,
-                                                    const LightShape& shape) {
+UMBRA_HOST_DEVICE inline ShapeHit IntersectCylinder(
+    const ShapeRay& ray, const LightShape& shape) UMBRA_NONBLOCKING {
   // Across the axis, the cylinder is a circle in YZ.
   const Vector3 origin{.x = 0.0F, .y = ray.origin.y, .z = ray.origin.z};
   const Vector3 direction{
@@ -247,7 +251,7 @@ UMBRA_HOST_DEVICE inline ShapeHit IntersectCylinder(const ShapeRay& ray,
 
 // The box that bounds `shape`.
 UMBRA_HOST_DEVICE [[nodiscard]] inline ShapeBounds BoundsOf(
-    const LightShape& shape) {
+    const LightShape& shape) UMBRA_NONBLOCKING {
   switch (shape.kind) {
     case LightShapeKind::kSphere:
       return {
@@ -285,7 +289,7 @@ UMBRA_HOST_DEVICE [[nodiscard]] inline ShapeBounds BoundsOf(
 
 // Where `ray` first meets `shape`, within its range.
 UMBRA_HOST_DEVICE [[nodiscard]] inline ShapeHit Intersect(
-    const LightShape& shape, const ShapeRay& ray) {
+    const LightShape& shape, const ShapeRay& ray) UMBRA_NONBLOCKING {
   switch (shape.kind) {
     case LightShapeKind::kSphere:
       return light_shapes_internal::IntersectSphere(ray, shape.radius);
