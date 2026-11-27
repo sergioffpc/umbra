@@ -172,6 +172,7 @@ std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
           .interpolation = interpolation,
           .value = {},
           .indices = {},
+          .element_size = descriptor.elementSize,
       };
       primvar.value = descriptor.indexed
                           ? delegate.GetIndexedPrimvar(prim_id, descriptor.name,
