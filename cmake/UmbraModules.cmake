@@ -7,21 +7,24 @@
 # may include its headers directly (docs/adr/0001-onetbb-thread-pool.md);
 # executables get it through their modules.
 #
-#   umbra_add_module(<module> SOURCES <file>... [DEPENDS <module>...]
-#                    [LINK <target>...])
+#   umbra_add_module(<module> [EXCEPTIONS] SOURCES <file>...
+#                    [DEPENDS <module>...] [LINK <target>...])
 #
 # Adds the static library umbra_<module> (alias umbra::<module>) from the
 # sources in src/<module>/. Its public headers are include/umbra/<module>/,
 # included as "umbra/<module>/<header>.h". A module sees only its own headers
 # and those of the modules in DEPENDS; LINK names other (third-party) targets.
+# EXCEPTIONS builds it as a bridge is built, with exceptions and RTTI and
+# default visibility in Release: only the render delegate, which derives from
+# Hydra's classes (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
 #
 #   umbra_add_ext_module(<dependency> SOURCES <file>... [DEPENDS <module>...]
 #                        [LINK <target>...])
 #
 # Adds the bridge module umbra_ext_<dependency> (alias umbra::ext::<dependency>)
 # from src/ext/<dependency>/, with headers in include/umbra/ext/<dependency>/.
-# It is the only kind of target built with exceptions and RTTI, and the only
-# one with default visibility in Release; see src/ext/README.md.
+# It is built with exceptions and RTTI, and with default visibility in
+# Release; see src/ext/README.md.
 #
 #   umbra_add_loadable_module(<target> SOURCES <file>... [HEADERS <module>...]
 #                             [LINK <target>...])
@@ -93,11 +96,25 @@ function(umbra_define_module target alias header_dir)
   umbra_apply_settings(${target})
 endfunction()
 
+# Builds a target with exceptions and RTTI. The library's classes are those
+# of its shared objects, so the target keeps their default visibility (see
+# UmbraCompiler.cmake).
+function(umbra_enable_exceptions target)
+  target_compile_options(${target} PRIVATE -fexceptions -frtti
+                         $<$<CONFIG:Release>:-fvisibility=default>)
+endfunction()
+
 function(umbra_add_module module)
   if(module STREQUAL "ext")
     message(FATAL_ERROR "use umbra_add_ext_module for bridge modules")
   endif()
-  umbra_define_module(umbra_${module} umbra::${module} ${module} ${ARGN})
+  cmake_parse_arguments(PARSE_ARGV 1 arg "EXCEPTIONS" "" "SOURCES;DEPENDS;LINK")
+  umbra_define_module(umbra_${module} umbra::${module} ${module}
+                      SOURCES ${arg_SOURCES} DEPENDS ${arg_DEPENDS}
+                      LINK ${arg_LINK})
+  if(arg_EXCEPTIONS)
+    umbra_enable_exceptions(umbra_${module})
+  endif()
 endfunction()
 
 function(umbra_add_ext_module dependency)
@@ -108,10 +125,7 @@ function(umbra_add_ext_module dependency)
   set(target umbra_ext_${dependency})
   umbra_define_module(${target} umbra::ext::${dependency} ext/${dependency}
                       ${ARGN})
-  # The library's classes are those of its shared objects, so a bridge keeps
-  # their default visibility (see UmbraCompiler.cmake).
-  target_compile_options(${target} PRIVATE -fexceptions -frtti
-                         $<$<CONFIG:Release>:-fvisibility=default>)
+  umbra_enable_exceptions(${target})
 endfunction()
 
 function(umbra_add_loadable_module target)

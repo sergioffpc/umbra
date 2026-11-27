@@ -30,4 +30,4 @@ gray diffuse, and so does a prim without a material, unless its
 - The Scene stays a description: it can be built and inspected without
   MaterialX or OSL, and the renderer decides how to compile what it holds.
 - MaterialX and OSL each stay in their own bridge, as OpenUSD stays in
-  `src/ext/usd`.
+  `src/ext/usd` and `src/delegate`.

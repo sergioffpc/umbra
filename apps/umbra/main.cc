@@ -55,6 +55,8 @@
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
+#include "umbra/delegate/render_settings.h"
+#include "umbra/delegate/session.h"
 #include "umbra/device/device.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/embree/embree.h"
@@ -64,7 +66,6 @@
 #include "umbra/ext/opensubdiv/opensubdiv.h"
 #include "umbra/ext/openvdb/openvdb.h"
 #include "umbra/ext/osl/osl.h"
-#include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
 
 namespace {
@@ -286,12 +287,12 @@ void PrintRenderBlock(const umbra::devices::Hardware& hardware,
              umbra::devices::FormatRenderDevices(hardware, chosen));
 }
 
-using FrameRange = umbra::ext::usd::TimeCodes;
+using FrameRange = umbra::delegate::TimeCodes;
 
 // What `umbra render` renders: its scene, how to load it, and its frames.
 struct RenderRequest {
   std::string_view scene;
-  umbra::ext::usd::LoadOptions options;
+  umbra::delegate::LoadOptions options;
   // The frames of --frames, or none for the stage's.
   std::optional<FrameRange> frames;
   double step = 1.0;
@@ -485,11 +486,11 @@ std::expected<RenderRequest, Error> ParseRender(const ParsedCommand& render) {
 // alone. Fails with kInvalidArgument when the stage's end precedes its
 // start, or its range gives more than Frames::kMaxCount frames.
 std::expected<Frames, Error> FramesOf(const RenderRequest& request,
-                                      const umbra::ext::usd::Session& session) {
+                                      const umbra::delegate::Session& session) {
   if (request.frames.has_value()) {
     return Frames(*request.frames, request.step);
   }
-  const std::optional<umbra::ext::usd::TimeCodes> codes = session.time_codes();
+  const std::optional<umbra::delegate::TimeCodes> codes = session.time_codes();
   if (!codes.has_value()) {
     return Frames();
   }
@@ -518,17 +519,17 @@ std::array<float, 16> FloatMatrix(const umbra::device::Matrix& matrix) {
 
 // Writes `rendered`, a product of `frame`, as its OpenEXR file.
 std::expected<void, Error> WriteProduct(
-    const umbra::ext::usd::RenderedProduct& rendered,
+    const umbra::delegate::RenderedProduct& rendered,
     std::optional<double> frame) {
   using umbra::ext::oiio::ChannelFormat;
-  const umbra::ext::usd::RenderProduct& product = *rendered.product;
+  const umbra::delegate::RenderProduct& product = *rendered.product;
   std::vector<umbra::ext::oiio::ExrLayer> layers;
   layers.reserve(rendered.vars.size());
-  for (const umbra::ext::usd::RenderedVar& var : rendered.vars) {
+  for (const umbra::delegate::RenderedVar& var : rendered.vars) {
     layers.push_back({
         .name = var.var->name,
         .channels = umbra::ChannelNames(var.var->source, var.var->channels),
-        .format = var.var->type == umbra::ext::usd::ChannelType::kHalf
+        .format = var.var->type == umbra::delegate::ChannelType::kHalf
                       ? ChannelFormat::kHalf
                       : ChannelFormat::kFloat,
         .pixels = var.pixels,
@@ -550,12 +551,12 @@ std::expected<void, Error> WriteProduct(
 }
 
 // Renders `frame` in `session` and writes its products.
-std::expected<void, Error> RenderAndWrite(umbra::ext::usd::Session& session,
+std::expected<void, Error> RenderAndWrite(umbra::delegate::Session& session,
                                           std::optional<double> frame) {
   if (auto rendered = session.RenderFrame(frame); !rendered.has_value()) {
     return rendered;
   }
-  for (const umbra::ext::usd::RenderedProduct& product : session.Rendered()) {
+  for (const umbra::delegate::RenderedProduct& product : session.Rendered()) {
     if (auto written = WriteProduct(product, frame); !written.has_value()) {
       return written;
     }
@@ -587,7 +588,7 @@ int RenderFrames(const RenderRequest& request,
   if (request.display.has_value()) {
     display.emplace(*request.display);
   }
-  const auto session = umbra::ext::usd::OpenSession(
+  const auto session = umbra::delegate::OpenSession(
       request.scene, request.options, devices, denoise_device,
       display.has_value() ? &*display : nullptr);
   if (!session.has_value()) {

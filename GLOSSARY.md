@@ -16,6 +16,13 @@ the buffers its kernels shade from, in its own memory
 (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 _Avoid:_ scene
 
+**Render delegate**:
+umbra's Hydra render delegate, `src/delegate`: its prims sync the stage into
+host copies, it commits them to every device, and it renders each render
+product through a render pass of its own
+(docs/adr/0012-umbra-is-a-hydra-renderer.md,
+docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
+
 **Host copy**:
 What a prim of the render delegate converts its sync into, in umbra's
 types, and holds until the end of the commit
