@@ -5,8 +5,9 @@
 # submodule by the dependency build (layer "toolchain"), ISPC and the NVIDIA
 # development stack, plus the C-ABI libraries and build tools that come from
 # Ubuntu, git, git-lfs and ssh-keygen (for SSH commit signing), release tools
-# (git-cliff, git-flow-next), the lint tools (actionlint, shellcheck and the
-# Python lint and format tools) and Linux perf.
+# (git-cliff, git-flow-next), the lint tools (actionlint, shellcheck, the
+# ctcache result cache of clang-tidy and the Python lint and format tools) and
+# Linux perf.
 #
 # nvcc, ptxas, libnvvm, the CUDA headers and the OptiX headers are not
 # redistributable, so this image, and the deps image built on it, are
@@ -23,7 +24,9 @@ ARG UBUNTU=ubuntu:26.04
 # Release binaries of git-cliff, git-flow-next, actionlint and shellcheck,
 # verified by SHA256. All four are statically linked and need no GCC runtime
 # (for git-cliff that is the musl build). actionlint runs shellcheck on the
-# workflows' scripts when it is on PATH.
+# workflows' scripts when it is on PATH. With them, the client of ctcache
+# (Python, standard library only in its local mode) from its source release,
+# also verified by SHA256, through which checks.lint runs clang-tidy.
 FROM ${UBUNTU} AS build
 ARG DEBIAN_FRONTEND=noninteractive
 ARG GIT_CLIFF_VERSION=2.14.2
@@ -34,6 +37,8 @@ ARG ACTIONLINT_VERSION=1.7.12
 ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 ARG SHELLCHECK_VERSION=0.11.0
 ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+ARG CTCACHE_VERSION=1.2.0
+ARG CTCACHE_SHA256=8a5423bf81599f4613c771b144dbbad1125af86eac622fc0d500f8dc1105a16b
 SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
@@ -63,16 +68,26 @@ actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
     "${GITHUB}/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/\
 shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
     "${SHELLCHECK_SHA256}"; \
+  fetch ctcache.tar.gz \
+    "${GITHUB}/matus-chochlik/ctcache/archive/refs/tags/\
+${CTCACHE_VERSION}.tar.gz" \
+    "${CTCACHE_SHA256}"; \
   tar -xzf git-cliff.tar.gz; \
   tar -xzf git-flow-next.tar.gz; \
   tar -xzf actionlint.tar.gz; \
   tar -xJf shellcheck.tar.xz; \
+  tar -xzf ctcache.tar.gz; \
   install -D -m 0755 "git-cliff-${GIT_CLIFF_VERSION}/git-cliff" \
     /out/bin/git-cliff; \
   install -D -m 0755 git-flow /out/bin/git-flow; \
   install -D -m 0755 actionlint /out/bin/actionlint; \
   install -D -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
-    /out/bin/shellcheck
+    /out/bin/shellcheck; \
+  install -D -m 0644 \
+    "ctcache-${CTCACHE_VERSION}/src/ctcache/clang_tidy_cache.py" \
+    /out/ctcache/clang_tidy_cache.py; \
+  install -D -m 0644 "ctcache-${CTCACHE_VERSION}/LICENSE" \
+    /out/ctcache/LICENSE
 
 # Stage 1 compiler (apt.llvm.org clang) and the dependency build run. Discarded.
 FROM ${UBUNTU} AS llvm
@@ -268,6 +283,7 @@ RUN --mount=type=bind,source=third_party/llvm-project/LICENSE.TXT,target=/tmp/LI
   install -D -m 0644 /tmp/LICENSE.TXT \
     /usr/local/share/licenses/llvm-project/LICENSE.TXT
 COPY --from=build /out/bin/ /usr/local/bin/
+COPY --from=build /out/ctcache/ /opt/ctcache/
 COPY --from=ispc /opt/ispc/ /opt/ispc/
 COPY --from=python /opt/python-tools /opt/python-tools
 COPY --from=nvidia /opt/cuda/ /opt/cuda/

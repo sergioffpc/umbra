@@ -391,7 +391,9 @@ jobs:
 
   # The shared validators (SPDX, NOLINT, SAFETY, assume-nonnull, namespaces),
   # then clang-tidy, the clang-query rules, pylint, actionlint and the checks
-  # of the Python embedded in the workflows.
+  # of the Python embedded in the workflows. clang-tidy's cache (see
+  # checks/lint.py) is restored from the latest one of the image, on the
+  # branch or else its base branch, and saved even when the job fails.
   lint:
     needs: image
     runs-on: ubuntu-26.04
@@ -413,8 +415,22 @@ jobs:
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Restore the clang-tidy cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/umbra/clang-tidy
+          key: clang-tidy-${{ needs.image.outputs.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: clang-tidy-${{ needs.image.outputs.ref }}-
+
       - name: Lint
         run: python3 -m forge lint
+
+      - name: Save the clang-tidy cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/umbra/clang-tidy
+          key: clang-tidy-${{ needs.image.outputs.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   # The target graph (modules, executables, tests) must be acyclic. CMake
   # accepts cycles between static libraries, so forge checks the graph that

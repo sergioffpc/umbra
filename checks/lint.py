@@ -9,6 +9,17 @@ actionlint (with shellcheck) the workflows, all of them or those given. The
 Python embedded in the workflows (see ``checks.embedded``) is checked for
 formatting and linted with pylint too.
 
+When the image provides ctcache, clang-tidy runs through it, by way of
+``checks/clang_tidy_cache.py``: a translation unit whose inputs match those
+of an earlier clean run is not analysed again. The inputs are the
+preprocessed translation unit, with its comments (so a NOLINT counts) and
+its #define and #include directives, clang-tidy's arguments and its
+configuration (``--dump-config``). The cache lives under
+``$XDG_CACHE_HOME/umbra/clang-tidy`` (``~/.cache`` by default), in a
+directory per clang-tidy binary, so that another clang-tidy starts from an
+empty cache; the directories of other binaries are removed. Only clean runs
+are cached: a translation unit with findings is always analysed again.
+
 The compilation database is this module's: it comes from the debug preset,
 which ``run`` configures (``cmake --preset debug``) so the database is
 current. Another build tree given with -p must already have one.
@@ -18,11 +29,13 @@ Usage: python3 -m checks.lint [-p BUILD_DIR] [PATH...]
 
 import argparse
 from collections.abc import Sequence
+import hashlib
 import os
 import pathlib
 import re
 import shutil
 import sys
+from typing import NamedTuple
 
 from checks import affected
 from checks import clang_query
@@ -31,6 +44,11 @@ from checks import formatting
 from checks import git
 from checks import report
 from checks import sources
+
+# ctcache's client, which the image installs.
+CTCACHE_CLIENT = pathlib.Path("/opt/ctcache/clang_tidy_cache.py")
+# The script through which run-clang-tidy runs clang-tidy and ctcache.
+CLANG_TIDY_CACHE = git.PACKAGE_ROOT / "checks" / "clang_tidy_cache.py"
 
 TOOLS = (
     "cmake",
@@ -45,6 +63,68 @@ TOOLS = (
 def missing_tools() -> list[str]:
     """Returns the lint tools that are not on PATH."""
     return [tool for tool in TOOLS if shutil.which(tool) is None]
+
+
+class ClangTidyCache(NamedTuple):
+    """How run-clang-tidy runs clang-tidy through ctcache.
+
+    Attributes:
+        arguments: The arguments of run-clang-tidy that select
+            ``checks/clang_tidy_cache.py`` as its clang-tidy.
+        environment: The variables that script and ctcache read.
+    """
+
+    arguments: list[str]
+    environment: dict[str, str]
+
+
+def clang_tidy_cache_root() -> pathlib.Path:
+    """Returns the directory that holds clang-tidy's caches."""
+    base = os.environ.get("XDG_CACHE_HOME") or str(
+        pathlib.Path.home() / ".cache"
+    )
+    return pathlib.Path(base) / "umbra" / "clang-tidy"
+
+
+def binary_digest(path: pathlib.Path) -> str:
+    """Returns a short digest of the contents of a file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as binary:
+        for chunk in iter(lambda: binary.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+def prepare_clang_tidy_cache() -> ClangTidyCache:
+    """Prepares the cache of the clang-tidy on PATH, which ctcache runs.
+
+    Creates the cache directory of that binary and removes those of other
+    binaries.
+
+    Returns:
+        How run-clang-tidy runs clang-tidy through the cache; empty when the
+        image has no ctcache, and clang-tidy then runs uncached.
+    """
+    found = shutil.which("clang-tidy")
+    if not CTCACHE_CLIENT.is_file() or found is None:
+        return ClangTidyCache([], {})
+    binary = pathlib.Path(found).resolve()
+    root = clang_tidy_cache_root()
+    directory = root / binary_digest(binary)
+    if root.is_dir():
+        for other in root.iterdir():
+            if other != directory and other.is_dir():
+                shutil.rmtree(other, ignore_errors=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    return ClangTidyCache(
+        ["-clang-tidy-binary", str(CLANG_TIDY_CACHE)],
+        {
+            "CTCACHE_CLIENT": str(CTCACHE_CLIENT),
+            "CTCACHE_CLANG_TIDY": str(binary),
+            "CTCACHE_DIR": str(directory),
+            "CTCACHE_KEEP_COMMENTS": "1",
+        },
+    )
 
 
 def ensure_compile_database(build_dir: pathlib.Path) -> int:
@@ -76,6 +156,8 @@ def clang_tidy(
 ) -> int:
     """Runs clang-tidy over translation units, in parallel.
 
+    It runs through the cache when the image has ctcache.
+
     Args:
         translation_units: The sources, relative to the repository root.
         build_dir: The build tree holding compile_commands.json.
@@ -83,6 +165,7 @@ def clang_tidy(
     Returns:
         The process exit status: 0 when clang-tidy reports nothing.
     """
+    cache = prepare_clang_tidy_cache()
     # run-clang-tidy selects the database entries whose path matches.
     patterns = [
         f"^{re.escape(str(git.REPO_ROOT / path))}$"
@@ -95,9 +178,10 @@ def clang_tidy(
         str(build_dir),
         "-j",
         str(os.cpu_count() or 1),
+        *cache.arguments,
         *patterns,
     ]
-    status = git.call(command).returncode
+    status = git.call(command, env=cache.environment).returncode
     return report.exit_status(
         "clang-tidy found problems", "run-clang-tidy", status
     )

@@ -467,7 +467,11 @@ clang-tidy families and the function limits below), this document wins.
   (`int* p`), as in Google style.
 - clang-tidy runs the google, bugprone, cert, cppcoreguidelines,
   clang-analyzer, concurrency, misc, modernize, performance, portability and
-  readability families, all as errors.
+  readability families, all as errors. It runs through
+  [ctcache](https://github.com/matus-chochlik/ctcache), pinned in the
+  devcontainer image, which skips a translation unit whose inputs match an
+  earlier clean run; `checks/lint.py` describes what it compares and where
+  the cache lives, and CI keeps it between runs.
 - Google naming: `CamelCase` types and functions, `lower_case` variables,
   trailing underscore for class members, `kConstants`, `UMBRA_` macros.
 - Functions are limited to 40 lines, 30 statements, 8 branches, nesting depth
