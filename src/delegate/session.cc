@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "commit.h"
+#include "denoiser.h"
 #include "hydra.h"
 #include "ies_tilt.h"
 #include "sync_counter.h"
@@ -57,7 +58,6 @@
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/device/device.h"
-#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/stage.h"
 
 namespace umbra::delegate {
@@ -73,7 +73,7 @@ struct Session::State {
   pxr::HdsiSceneGlobalsSceneIndexRefPtr globals;
   internal::CommitInputs inputs;
   std::span<device::Device* const> devices;
-  ext::oidn::DenoiseDevice denoise_device;
+  internal::DenoiseDevice denoise_device;
   // What shows the products while they render, if anything.
   Display* UMBRA_NULLABLE display = nullptr;
   // What the prims count their syncs into: the phase of the frame syncing.
@@ -414,8 +414,7 @@ std::expected<void, Error> Session::RenderFrame(std::optional<double> frame) {
 
 std::expected<std::unique_ptr<Session>, Error> OpenSession(
     std::string_view path, const LoadOptions& options,
-    std::span<device::Device* const> devices,
-    const ext::oidn::DenoiseDevice& denoise_device,
+    std::span<device::Device* const> devices, std::span<const Gpu> gpus,
     Display* UMBRA_NULLABLE display) {
   auto stage = LoadStage(path);
   if (!stage.has_value()) {
@@ -428,7 +427,7 @@ std::expected<std::unique_ptr<Session>, Error> OpenSession(
   auto state = std::make_unique<Session::State>();
   state->stage = std::move(*stage);
   state->devices = devices;
-  state->denoise_device = denoise_device;
+  state->denoise_device = internal::DenoiseDeviceOf(gpus);
   state->display = display;
   state->inputs = {
       .settings = *settings,

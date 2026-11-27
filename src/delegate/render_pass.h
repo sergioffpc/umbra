@@ -28,12 +28,12 @@
 #include <span>
 #include <vector>
 
+#include "denoiser.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/delegate/session.h"
 #include "umbra/device/device.h"
-#include "umbra/ext/oidn/oidn.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
@@ -130,8 +130,7 @@ class RenderPass final : public pxr::HdRenderPass {
   void SetProduct(
       const RenderProduct& product UMBRA_LIFETIME_CAPTURE_BY_THIS,
       const device::FrameParameters& frame UMBRA_LIFETIME_CAPTURE_BY_THIS,
-      ext::oidn::Denoiser* UMBRA_NULLABLE denoiser
-          UMBRA_LIFETIME_CAPTURE_BY_THIS,
+      Denoiser* UMBRA_NULLABLE denoiser UMBRA_LIFETIME_CAPTURE_BY_THIS,
       Display* UMBRA_NULLABLE display UMBRA_LIFETIME_CAPTURE_BY_THIS);
 
   // What the last Execute gave: fails with the first device's error, in
@@ -159,7 +158,7 @@ class RenderPass final : public pxr::HdRenderPass {
   std::span<device::Device* const> devices_;
   const RenderProduct* UMBRA_NULLABLE product_ = nullptr;
   const device::FrameParameters* UMBRA_NULLABLE frame_ = nullptr;
-  ext::oidn::Denoiser* UMBRA_NULLABLE denoiser_ = nullptr;
+  Denoiser* UMBRA_NULLABLE denoiser_ = nullptr;
   Display* UMBRA_NULLABLE display_ = nullptr;
   std::optional<std::expected<void, core::Error>> result_;
 };

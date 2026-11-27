@@ -22,11 +22,18 @@
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/device/device.h"
-#include "umbra/ext/oidn/oidn.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::delegate {
+
+// A GPU a render uses, on which it may denoise its products.
+struct Gpu {
+  // Its CUDA ordinal.
+  int cuda_ordinal = 0;
+  // umbra's name of it ("gpu0").
+  std::string name;
+};
 
 // How a stage is loaded.
 struct LoadOptions {
@@ -222,7 +229,8 @@ class Session {
 // "Loading stage": opens its stage, with every payload loaded and no
 // session layer; warnings while composing (a missing sublayer) go to the
 // log. Its frames are committed to `devices`, which must outlive the
-// session, its products' denoisedColor vars denoised on `denoise_device`,
+// session, its products' denoisedColor vars denoised on the GPU of `gpus`,
+// the GPUs among `devices`, of the lowest CUDA ordinal, else on the CPU,
 // and its products shown on `display`, if any, which must outlive it too.
 //
 // Fails with kNotFound when the file does not exist, and kInvalidArgument
@@ -231,7 +239,7 @@ class Session {
 [[nodiscard]] std::expected<std::unique_ptr<Session>, core::Error> OpenSession(
     std::string_view path, const LoadOptions& options,
     std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND,
-    const ext::oidn::DenoiseDevice& denoise_device,
+    std::span<const Gpu> gpus,
     Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND = nullptr);
 
 }  // namespace umbra::delegate

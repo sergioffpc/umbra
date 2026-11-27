@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "denoiser.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/progress.h"
@@ -40,7 +41,6 @@
 #include "umbra/delegate/render_settings.h"
 #include "umbra/delegate/session.h"
 #include "umbra/device/device.h"
-#include "umbra/ext/oidn/oidn.h"
 
 namespace umbra::delegate::internal {
 namespace {
@@ -312,7 +312,7 @@ RenderPass::RenderPass(pxr::HdRenderIndex* index,
 
 void RenderPass::SetProduct(const RenderProduct& product,
                             const device::FrameParameters& frame,
-                            ext::oidn::Denoiser* UMBRA_NULLABLE denoiser,
+                            Denoiser* UMBRA_NULLABLE denoiser,
                             Display* UMBRA_NULLABLE display) {
   product_ = &product;
   frame_ = &frame;

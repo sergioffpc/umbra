@@ -30,8 +30,11 @@ Sources (`src/delegate/`):
   their host copies (`host_copy.h`).
 - `commit.h`, `views.h`: the commit of the host copies to the devices, as
   the change set.
-- `render_pass.h`: the render pass and the render buffers, and the denoise
-  of a product's color.
+- `render_pass.h`: the render pass and the render buffers; it runs the
+  denoise of a product's color once the devices have rendered it.
+- `denoiser.h`: the denoise through Open Image Denoise, through the OIDN
+  bridge, `umbra::ext::oidn`: the device it runs on, its three filters,
+  its buffers and its progress.
 - `outputs.h`: the files of the render products.
 - `ies_profile.h`, `ies_tilt.h`: IES profiles and their TILT data.
 - `motion.h`, `motion_samples.h`: motion within the shutter.

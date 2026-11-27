@@ -564,32 +564,29 @@ std::expected<void, Error> RenderAndWrite(umbra::delegate::Session& session,
   return {};
 }
 
-// Where the products' color is denoised among `chosen`: on the GPU of the
-// lowest CUDA ordinal, else on the CPU.
-umbra::ext::oidn::DenoiseDevice DenoiseDeviceOf(
+// The GPUs among `chosen`, in its order.
+std::vector<umbra::delegate::Gpu> GpusOf(
     std::span<const umbra::devices::Device> chosen) {
-  umbra::ext::oidn::DenoiseDevice denoise_device;
+  std::vector<umbra::delegate::Gpu> gpus;
   for (const umbra::devices::Device& device : chosen) {
-    if (device.kind == umbra::devices::DeviceKind::kGpu &&
-        (!denoise_device.cuda_ordinal.has_value() ||
-         device.index < *denoise_device.cuda_ordinal)) {
-      denoise_device = {.cuda_ordinal = device.index, .name = device.name};
+    if (device.kind == umbra::devices::DeviceKind::kGpu) {
+      gpus.push_back({.cuda_ordinal = device.index, .name = device.name});
     }
   }
-  return denoise_device;
+  return gpus;
 }
 
-// Renders each frame `request` renders of its scene on `devices`, denoising
-// on `denoise_device`, and writes its products.
+// Renders each frame `request` renders of its scene on `devices`, the GPUs
+// among them `gpus`, and writes its products.
 int RenderFrames(const RenderRequest& request,
                  std::span<umbra::device::Device* const> devices,
-                 const umbra::ext::oidn::DenoiseDevice& denoise_device) {
+                 std::span<const umbra::delegate::Gpu> gpus) {
   std::optional<umbra::TevDisplay> display;
   if (request.display.has_value()) {
     display.emplace(*request.display);
   }
   const auto session = umbra::delegate::OpenSession(
-      request.scene, request.options, devices, denoise_device,
+      request.scene, request.options, devices, gpus,
       display.has_value() ? &*display : nullptr);
   if (!session.has_value()) {
     return Failure(session.error());
@@ -635,7 +632,7 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
        created->devices) {
     committed_to.push_back(device.get());
   }
-  return RenderFrames(request, committed_to, DenoiseDeviceOf(*chosen));
+  return RenderFrames(request, committed_to, GpusOf(*chosen));
 }
 
 // `umbra help [<command>]`: the help of umbra, or of a command.

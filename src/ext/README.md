@@ -32,6 +32,13 @@ runtime and defines its function table (`optix.h`), translates its errors
 (`owners.h`), routes the context's messages and those of its compiles into
 the log, and wraps the host calls the module makes (`host.h`).
 
+The Open Image Denoise bridge, `umbra::ext::oidn`, logs OIDN's version
+(`oidn.h`), owns its devices, buffers and filters, with the calls made
+through them (`owners.h`), creates its devices with their output off and,
+on the CPU, their threads left to oneTBB, turns the errors a device
+reports into a `core::Error`, and converts umbra's image formats and
+qualities into OIDN's. The render delegate denoises with them.
+
 Rules:
 
 - Bridges and the render delegate (`src/delegate/`) are the only targets
