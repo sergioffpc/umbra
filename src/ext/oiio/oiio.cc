@@ -47,28 +47,55 @@ Error CannotWrite(std::string_view file, std::string_view reason) {
           std::format("cannot write '{}': {}", file, reason)};
 }
 
-// The spec of `image`: its windows, its channels and its metadata.
-OIIO::ImageSpec SpecOf(const ExrImage& image) {
+// The channels of an image: their names, the format of the spec and, when
+// they differ, each channel's format.
+struct Channels {
   std::vector<std::string> names;
+  OIIO::TypeDesc format = OIIO::TypeDesc::FLOAT;
   std::vector<OIIO::TypeDesc> formats;
+};
+
+// The channels of `image`. When every channel has the same format, that
+// format is the spec's and `formats` is empty, since OpenImageIO's OpenEXR
+// writer ignores per-channel formats that are all equal and writes the
+// spec's format. When they differ, they are in `formats` and the spec's
+// format is float, the most precise of them.
+Channels ChannelsOf(const ExrImage& image) {
+  Channels channels;
   for (const ExrLayer& layer : image.layers) {
     for (const std::string_view channel : layer.channels) {
-      names.push_back(std::format("{}.{}", layer.name, channel));
-      formats.emplace_back(layer.format == ChannelFormat::kHalf
-                               ? OIIO::TypeDesc::HALF
-                               : OIIO::TypeDesc::FLOAT);
+      channels.names.push_back(std::format("{}.{}", layer.name, channel));
+      channels.formats.emplace_back(layer.format == ChannelFormat::kHalf
+                                        ? OIIO::TypeDesc::HALF
+                                        : OIIO::TypeDesc::FLOAT);
     }
   }
+  const std::vector<OIIO::TypeDesc>& formats = channels.formats;
+  const bool is_uniform =
+      std::ranges::all_of(formats, [&formats](const OIIO::TypeDesc& format) {
+        return format == formats.front();
+      });
+  if (is_uniform && !formats.empty()) {
+    channels.format = formats.front();
+    channels.formats.clear();
+  }
+  return channels;
+}
+
+// The spec of `image`: its windows, its channels and its metadata.
+OIIO::ImageSpec SpecOf(const ExrImage& image) {
+  Channels channels = ChannelsOf(image);
   OIIO::ImageSpec spec(image.data_size.at(0), image.data_size.at(1),
-                       static_cast<int>(names.size()), OIIO::TypeDesc::FLOAT);
+                       static_cast<int>(channels.names.size()),
+                       channels.format);
   spec.x = image.data_origin.at(0);
   spec.y = image.data_origin.at(1);
   spec.full_x = 0;
   spec.full_y = 0;
   spec.full_width = image.resolution.at(0);
   spec.full_height = image.resolution.at(1);
-  spec.channelnames = std::move(names);
-  spec.channelformats = std::move(formats);
+  spec.channelnames = std::move(channels.names);
+  spec.channelformats = std::move(channels.formats);
   spec.attribute("compression", "zip");
   spec.attribute("worldtocamera", OIIO::TypeMatrix44,
                  image.world_to_camera.data());
