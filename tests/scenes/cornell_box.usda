@@ -1,0 +1,183 @@
+#usda 1.0
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Umbra Authors
+(
+    doc = "The Cornell box, after the measurements of the Cornell University Program of Computer Graphics, in millimetres."
+    defaultPrim = "World"
+    metersPerUnit = 0.001
+    upAxis = "Y"
+    renderSettingsPrimPath = "/Render/settings"
+)
+
+def Xform "World"
+{
+    def Camera "camera"
+    {
+        float focalLength = 35
+        float horizontalAperture = 25
+        float verticalAperture = 25
+        float2 clippingRange = (10, 10000)
+        double3 xformOp:translate = (278, 273, -800)
+        float xformOp:rotateY = 180
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateY"]
+    }
+
+    def RectLight "light"
+    {
+        float inputs:width = 130
+        float inputs:height = 105
+        float inputs:intensity = 2000
+        color3f inputs:color = (1, 0.85, 0.6)
+        double3 xformOp:translate = (278, 548.7, 279.5)
+        float xformOp:rotateX = -90
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateX"]
+    }
+
+    def Scope "materials"
+    {
+        def Material "white"
+        {
+            token outputs:surface.connect = </World/materials/white/surface.outputs:surface>
+            def Shader "surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.73, 0.73, 0.73)
+                float inputs:roughness = 1
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+        def Material "red"
+        {
+            token outputs:surface.connect = </World/materials/red/surface.outputs:surface>
+            def Shader "surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.63, 0.065, 0.05)
+                float inputs:roughness = 1
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+        def Material "green"
+        {
+            token outputs:surface.connect = </World/materials/green/surface.outputs:surface>
+            def Shader "surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.14, 0.45, 0.091)
+                float inputs:roughness = 1
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+    }
+
+    def Xform "box" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        rel material:binding = </World/materials/white>
+
+        def Mesh "floor"
+        {
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(552.8, 0, 0), (0, 0, 0), (0, 0, 559.2), (549.6, 0, 559.2)]
+        }
+        def Mesh "ceiling"
+        {
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(556, 548.8, 0), (556, 548.8, 559.2), (0, 548.8, 559.2), (0, 548.8, 0)]
+        }
+        def Mesh "back_wall"
+        {
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(549.6, 0, 559.2), (0, 0, 559.2), (0, 548.8, 559.2), (556, 548.8, 559.2)]
+        }
+        def Mesh "red_wall" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/materials/red>
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(552.8, 0, 0), (549.6, 0, 559.2), (556, 548.8, 559.2), (556, 548.8, 0)]
+        }
+        def Mesh "green_wall" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/materials/green>
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(0, 0, 559.2), (0, 0, 0), (0, 548.8, 0), (0, 548.8, 559.2)]
+        }
+        def Mesh "short_block"
+        {
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 1, 2, 3, 4, 0, 3, 7, 7, 3, 2, 6, 6, 2, 1, 5, 5, 1, 0, 4]
+            point3f[] points = [
+                (130, 165, 65), (82, 165, 225), (240, 165, 272), (290, 165, 114),
+                (130, 0, 65), (82, 0, 225), (240, 0, 272), (290, 0, 114)]
+        }
+        def Mesh "tall_block"
+        {
+            uniform bool doubleSided = 1
+            int[] faceVertexCounts = [4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 1, 2, 3, 4, 0, 3, 7, 7, 3, 2, 6, 6, 2, 1, 5, 5, 1, 0, 4]
+            point3f[] points = [
+                (423, 330, 247), (265, 330, 296), (314, 330, 456), (472, 330, 406),
+                (423, 0, 247), (265, 0, 296), (314, 0, 456), (472, 0, 406)]
+        }
+    }
+}
+
+def Scope "Render"
+{
+    def RenderSettings "settings"
+    {
+        rel camera = </World/camera>
+        int2 resolution = (512, 512)
+        int umbra:samplesPerPixel = 256
+        rel products = </Render/beauty>
+    }
+
+    def RenderProduct "beauty"
+    {
+        token productName = "cornell_box.exr"
+        rel orderedVars = [</Render/vars/color>, </Render/vars/albedo>, </Render/vars/normal>, </Render/vars/depth>, </Render/vars/denoised>]
+    }
+
+    def Scope "vars"
+    {
+        def RenderVar "color"
+        {
+            uniform string sourceName = "color"
+        }
+        def RenderVar "albedo"
+        {
+            uniform string sourceName = "albedo"
+        }
+        def RenderVar "normal"
+        {
+            uniform string sourceName = "normal"
+        }
+        def RenderVar "depth"
+        {
+            uniform string sourceName = "depth"
+        }
+        def RenderVar "denoised"
+        {
+            uniform string sourceName = "denoisedColor"
+        }
+    }
+}
