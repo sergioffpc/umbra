@@ -906,6 +906,15 @@ Checked CheckLight(const Light& light, const Table<TextureRecord>& textures) {
       !checked.has_value()) {
     return checked;
   }
+  if (light.tilt_factors.size() != light.instances.size()) {
+    return Inconsistent(std::format("{}: {} tilt factors for {} instances",
+                                    owner, light.tilt_factors.size(),
+                                    light.instances.size()));
+  }
+  if (auto aligned = CheckAligned(light.tilt_factors, owner, "tilt factors");
+      !aligned.has_value()) {
+    return aligned;
+  }
   return CheckInstances(light.instances, owner);
 }
 
@@ -1165,6 +1174,11 @@ LightRecord RecordOf(const Light& light) {
   hasher.Value(light.color_temperature.value_or(0.0F));
   hasher.Value(light.cone_angle);
   HashIesProfile(light.ies_profile, hasher);
+  // Factors of 1 leave the emission as it is: only others are hashed.
+  if (std::ranges::any_of(light.tilt_factors,
+                          [](float factor) { return factor != 1.0F; })) {
+    hasher.Span(light.tilt_factors);
+  }
   record.digest = PlacementDigest(light.instances) ^ hasher.digest();
   return record;
 }

@@ -56,6 +56,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ies_tilt.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
@@ -787,9 +788,10 @@ void UnsupportedPrim::_InitRepr(const pxr::TfToken& /*repr*/,
 }
 
 RenderDelegate::RenderDelegate(SyncCounter& counter, double meters_per_unit,
-                               Committer committer)
+                               UpAxis up_axis, Committer committer)
     : counter_(&counter),
       meters_per_unit_(meters_per_unit),
+      up_axis_(up_axis),
       committer_(std::move(committer)),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {
   MapEmissionToDirtyBit();
@@ -979,7 +981,7 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
     const pxr::TfToken& type_id, const pxr::SdfPath& prim_id) {
   if (IsLightPrimType(type_id)) {
     auto light = std::make_unique<LightPrim>(type_id, prim_id, counter_,
-                                             meters_per_unit_);
+                                             meters_per_unit_, up_axis_);
     prims_.lights[prim_id] = light.get();
     return Release<pxr::HdSprim>(std::move(light));
   }
@@ -1006,8 +1008,9 @@ pxr::HdSprim* UMBRA_NULLABLE RenderDelegate::CreateSprim(
 pxr::HdSprim* UMBRA_NULLABLE
 RenderDelegate::CreateFallbackSprim(const pxr::TfToken& type_id) {
   if (IsLightPrimType(type_id)) {
-    return Release<pxr::HdSprim>(std::make_unique<LightPrim>(
-        type_id, pxr::SdfPath::EmptyPath(), nullptr, meters_per_unit_));
+    return Release<pxr::HdSprim>(
+        std::make_unique<LightPrim>(type_id, pxr::SdfPath::EmptyPath(), nullptr,
+                                    meters_per_unit_, up_axis_));
   }
   if (type_id == pxr::HdPrimTypeTokens->material) {
     return Release<pxr::HdSprim>(

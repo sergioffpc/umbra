@@ -106,7 +106,9 @@ class Session {
   // colors converted into ACEScg, their color temperatures kept as such, and
   // their textures resolved as the materials' are, those with no color space
   // sRGB when the file is and scene-linear otherwise, and their IES profiles
-  // read into candela tables; a DomeLight_1's orientation follows its
+  // read into candela tables, with their TILT data, included or in the file
+  // their TILT line names, which gives each instance a tilt factor at its
+  // inclination at the frame; a DomeLight_1's orientation follows its
   // poleAxis, the stage's upAxis for "scene". A mesh light's mesh is
   // committed with its emission, read as a light's. Lights and mesh lights
   // are physical: their diffuse and specular multipliers, focus, cone
@@ -119,7 +121,8 @@ class Session {
   // (every light lights everything), the geometry and plugin lights, left
   // out, the PortalLights no rendered dome light targets, left out, the dome
   // lights that target a prim that is not a PortalLight, the lights' filters,
-  // ignored, their IES profiles not read, rendered without them, their color
+  // ignored, their IES profiles not read, rendered without them, the TILT
+  // data of their IES profiles not read, rendered without it, their color
   // temperatures not above 0 K, their colors that do not convert, rendered
   // white, their textures not read, each artistic control the lights and the
   // mesh lights author, the prims whose topology changes within the shutter,

@@ -5,8 +5,9 @@
 // shapes in meters, their colors in ACEScg
 // (docs/adr/0007-spectral-rendering-from-acescg.md), their textures resolved
 // to absolute files with their color spaces, their IES profiles read into
-// candela tables, and their transforms sampled
-// over the shutter. The controls without a physical counterpart are not
+// candela tables, their transforms sampled over the shutter, and each
+// instance's tilt factor, from its profile's TILT data at its inclination
+// at the frame. The controls without a physical counterpart are not
 // taken, only noted (docs/adr/0010-lights-are-physical.md).
 
 #ifndef UMBRA_EXT_USD_LIGHT_H_
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "host_copy.h"
+#include "ies_tilt.h"
 #include "motion_samples.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
@@ -65,6 +67,10 @@ enum class LightIssue : std::uint8_t {
   // Its IES profile is not read: the file does not resolve, cannot be
   // opened, or is not a valid profile.
   kIesProfileNotRead,
+  // The TILT data of its IES profile is not read: its TILT file does not
+  // resolve, cannot be opened, or its data is not valid. The profile is
+  // read without it.
+  kIesTiltNotRead,
   // It rescales the angles of its IES profile (shaping:ies:angleScale).
   kIesAngleScale,
   // It enables a color temperature that is not above 0 K: its color is used
@@ -107,9 +113,11 @@ struct LightNote {
 class LightPrim final : public pxr::HdLight {
  public:
   // Counts its sync into `counter`, unless it is a fallback prim; its lengths
-  // are scaled by `meters_per_unit`.
+  // are scaled by `meters_per_unit`, and its instances inclined from the
+  // down direction of a stage whose up axis is `up_axis`.
   LightPrim(pxr::TfToken type_id, const pxr::SdfPath& prim_id,
-            SyncCounter* UMBRA_NULLABLE counter, double meters_per_unit);
+            SyncCounter* UMBRA_NULLABLE counter, double meters_per_unit,
+            UpAxis up_axis);
 
   [[nodiscard]] pxr::HdDirtyBits GetInitialDirtyBitsMask() const override;
   void Sync(pxr::HdSceneDelegate* scene_delegate,
@@ -117,7 +125,9 @@ class LightPrim final : public pxr::HdLight {
             pxr::HdDirtyBits* dirty_bits) override;
 
   // Places it over `shutter`, once synced: hidden when its purpose's render
-  // tag is not in `render_tags`.
+  // tag is not in `render_tags`. Each instance gets the tilt factor of its
+  // inclination at the frame, or at the end of the shutter nearest to the
+  // frame when the shutter does not span it.
   void Place(const host::Shutter& shutter,
              const pxr::TfTokenVector& render_tags);
 
@@ -183,6 +193,7 @@ class LightPrim final : public pxr::HdLight {
   pxr::TfToken type_;
   SyncCounter* UMBRA_NULLABLE counter_;
   double meters_per_unit_;
+  UpAxis up_axis_;
   // The scene delegate it synced with, which Place reads: Hydra's, which
   // lives as long as the render index.
   pxr::HdSceneDelegate* UMBRA_NULLABLE delegate_ = nullptr;

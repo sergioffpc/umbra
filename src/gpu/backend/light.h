@@ -51,14 +51,18 @@ struct LightRecord {
   std::array<float, 12> orientation{};
 };
 
-// A light in a GPU's memory: its parameters, its placements and, for a
-// light with a shape, its GAS and the records of its instances in the IAS.
+// A light in a GPU's memory: its parameters, its placements, the tilt
+// factor of each, and, for a light with a shape, its GAS and the records of
+// its instances in the IAS.
 struct GpuLight {
   device::LightId id{};
   // For the messages.
   std::string path;
   DeviceBuffer record;
   HeldPlacements placements;
+  // A float per instance, in the order of its placements, which scales its
+  // emission.
+  DeviceBuffer tilt_factors;
   AccelStructure gas;
   InstanceRecords instances;
 };

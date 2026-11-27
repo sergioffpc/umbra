@@ -37,6 +37,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/timeCode.h>
 #include <pxr/usd/usdGeom/metrics.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdRender/tokens.h>
 #include <pxr/usdImaging/usdImaging/sceneIndices.h>
 #include <pxr/usdImaging/usdImaging/stageSceneIndex.h>
@@ -59,6 +60,7 @@
 
 #include "commit.h"
 #include "hydra.h"
+#include "ies_tilt.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -353,6 +355,9 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
   ChainSceneIndices(state, time);
   state.delegate = std::make_unique<internal::RenderDelegate>(
       state.counter, pxr::UsdGeomGetStageMetersPerUnit(state.stage),
+      pxr::UsdGeomGetStageUpAxis(state.stage) == pxr::UsdGeomTokens->z
+          ? internal::UpAxis::kZ
+          : internal::UpAxis::kY,
       [&state](internal::SyncedPrims& prims) {
         return internal::Commit(
             state.inputs, {.stage = &*state.stage, .scene_index = state.chain},

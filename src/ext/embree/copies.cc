@@ -226,6 +226,7 @@ device::Light CopyOf(const device::Light& light, Storage& storage) {
   device::Light copy = light;
   copy.path = storage.Keep(light.path);
   copy.instances = CopyInstances(light.instances, storage);
+  copy.tilt_factors = storage.Keep(light.tilt_factors);
   if (auto* dome = std::get_if<device::Light::Dome>(&copy.shape)) {
     dome->portals = storage.Keep(dome->portals);
   }
