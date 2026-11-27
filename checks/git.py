@@ -7,7 +7,8 @@ worktree checks that worktree, even when ``core.hooksPath`` names the hooks
 of another checkout.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+import os
 import pathlib
 import subprocess
 
@@ -93,6 +94,7 @@ def call(
     stdin: str | None = None,
     capture: bool = False,
     quiet: bool = False,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Runs a command from the repository root; a failure does not raise.
 
@@ -103,6 +105,7 @@ def call(
             passing them through.
         quiet: Whether to discard the standard output (ignored when
             capturing).
+        env: Variables added to the environment of the command, if any.
 
     Returns:
         The finished process; its ``returncode`` is the exit status.
@@ -112,5 +115,11 @@ def call(
     else:
         output = {"stdout": subprocess.DEVNULL if quiet else None}
     return subprocess.run(
-        args, cwd=REPO_ROOT, input=stdin, text=True, check=False, **output
+        args,
+        cwd=REPO_ROOT,
+        input=stdin,
+        text=True,
+        check=False,
+        env={**os.environ, **env} if env else None,
+        **output,
     )
