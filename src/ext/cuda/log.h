@@ -6,19 +6,15 @@
 #ifndef UMBRA_EXT_CUDA_LOG_H_
 #define UMBRA_EXT_CUDA_LOG_H_
 
-#include <source_location>
-#include <string_view>
-
-#include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::ext::cuda {
 
-// Logs `message`, from the source line `location` names.
-void Log(core::LogLevel level, std::string_view message,
-         std::source_location location = std::source_location::current());
+// The bridge's one log hook, which SetLog sets.
+[[nodiscard]] core::LogHook& Logging();
 
 }  // namespace umbra::ext::cuda
 

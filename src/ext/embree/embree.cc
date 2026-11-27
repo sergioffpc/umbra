@@ -4,14 +4,13 @@
 #include "umbra/ext/embree/embree.h"
 
 #include <embree4/rtcore_device.h>
-#include <embree4/rtcore_geometry.h>
-#include <embree4/rtcore_scene.h>
 
 #include <expected>
 #include <format>
 #include <string_view>
 
 #include "umbra/core/error.h"
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/embree/errors.h"
@@ -26,28 +25,8 @@ using ::umbra::core::LogComponent;
 using ::umbra::core::LogLevel;
 
 // The process's Embree device, released at exit.
-class UMBRA_OWNER Device {
- public:
-  Device() = default;
-  Device(const Device&) = delete;
-  Device& operator=(const Device&) = delete;
-  Device(Device&&) = delete;
-  Device& operator=(Device&&) = delete;
-  ~Device() {
-    if (device_ != nullptr) {
-      rtcReleaseDevice(device_);
-    }
-  }
-
-  [[nodiscard]] RTCDevice get() const { return device_; }
-  void reset(RTCDevice device) { device_ = device; }
-
- private:
-  RTCDevice device_ = nullptr;
-};
-
-Device& OwnedDevice() {
-  static Device device;
+core::HandleOwner<RTCDevice, rtcReleaseDevice>& OwnedDevice() {
+  static core::HandleOwner<RTCDevice, rtcReleaseDevice> device;
   return device;
 }
 
@@ -65,7 +44,7 @@ void LogError(void* /*user*/, RTCError code, const char* message) {
 }  // namespace
 
 std::expected<void, Error> Initialize() {
-  Device& device = OwnedDevice();
+  auto& device = OwnedDevice();
   if (device.get() != nullptr) {
     return {};
   }
@@ -86,18 +65,6 @@ std::expected<void, Error> Initialize() {
 }
 
 RTCDevice UMBRA_NULLABLE ProcessDevice() { return OwnedDevice().get(); }
-
-Scene::~Scene() {
-  if (scene_ != nullptr) {
-    rtcReleaseScene(scene_);
-  }
-}
-
-Geometry::~Geometry() {
-  if (geometry_ != nullptr) {
-    rtcReleaseGeometry(geometry_);
-  }
-}
 
 Error BuildError(RTCError code, std::string_view what) {
   return {ErrorCode::kUnavailable, std::format("Embree cannot build {}: {}",

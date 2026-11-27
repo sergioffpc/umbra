@@ -22,6 +22,7 @@
 
 #include "log.h"
 #include "umbra/core/log.h"
+#include "umbra/core/log_hook.h"
 #include "umbra/ext/optix/errors.h"
 #include "umbra/ext/optix/owners.h"
 
@@ -41,7 +42,8 @@ std::string MessageOf(const MessageBuffer& buffer, std::size_t size) {
 void LogMessage(std::string_view what, const MessageBuffer& buffer,
                 std::size_t size) {
   if (std::string message = MessageOf(buffer, size); !message.empty()) {
-    Log(core::LogLevel::kDebug, std::format("OptiX: {}: {}", what, message));
+    Logging().Log(core::LogLevel::kDebug,
+                  std::format("OptiX: {}: {}", what, message));
   }
 }
 

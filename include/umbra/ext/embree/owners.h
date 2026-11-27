@@ -11,8 +11,7 @@
 #include <embree4/rtcore_geometry.h>
 #include <embree4/rtcore_scene.h>
 
-#include <utility>
-
+#include "umbra/core/handle_owner.h"
 #include "umbra/core/safety.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -23,43 +22,11 @@ namespace umbra::ext::embree {
 [[nodiscard]] RTCDevice UMBRA_NULLABLE ProcessDevice();
 
 // An Embree scene, released when it is destroyed.
-class UMBRA_OWNER Scene {
- public:
-  Scene() = default;
-  explicit Scene(RTCScene UMBRA_NULLABLE scene) : scene_(scene) {}
-  Scene(const Scene&) = delete;
-  Scene& operator=(const Scene&) = delete;
-  Scene(Scene&& other) noexcept
-      : scene_(std::exchange(other.scene_, nullptr)) {}
-  Scene& operator=(Scene&& other) noexcept {
-    std::swap(scene_, other.scene_);
-    return *this;
-  }
-  ~Scene();
-
-  [[nodiscard]] RTCScene UMBRA_NULLABLE get() const { return scene_; }
-
- private:
-  RTCScene UMBRA_NULLABLE scene_ = nullptr;
-};
+using Scene = core::HandleOwner<RTCScene, rtcReleaseScene>;
 
 // An Embree geometry, released when it is destroyed. A scene it is attached
 // to holds a reference of its own.
-class UMBRA_OWNER Geometry {
- public:
-  explicit Geometry(RTCGeometry UMBRA_NULLABLE geometry)
-      : geometry_(geometry) {}
-  Geometry(const Geometry&) = delete;
-  Geometry& operator=(const Geometry&) = delete;
-  Geometry(Geometry&&) = delete;
-  Geometry& operator=(Geometry&&) = delete;
-  ~Geometry();
-
-  [[nodiscard]] RTCGeometry UMBRA_NULLABLE get() const { return geometry_; }
-
- private:
-  RTCGeometry UMBRA_NULLABLE geometry_;
-};
+using Geometry = core::HandleOwner<RTCGeometry, rtcReleaseGeometry>;
 
 }  // namespace umbra::ext::embree
 

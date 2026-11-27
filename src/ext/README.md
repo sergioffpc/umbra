@@ -9,6 +9,14 @@ The OpenUSD bridge, `umbra::ext::usd`, initializes OpenUSD and its plugins,
 routes Tf's diagnostics into the log, and opens stages for the render
 delegate, `umbra::delegate` (`src/delegate/`).
 
+A bridge owns each of its dependency's handles with core's `HandleOwner`
+(`umbra/core/handle_owner.h`), which releases it with the dependency's
+function; an owner whose release can fail, such as a CUDA stream or an
+OptiX context, also has a `Destroy` that returns the failure. The bridges
+linked into the GPU module log through core's `LogHook`
+(`umbra/core/log_hook.h`). Both are header-only, so that those bridges need
+not link core.
+
 The Embree bridge, `umbra::ext::embree`, creates the process's Embree
 device and routes its errors into the log (`embree.h`), owns its scenes and
 geometries (`owners.h`), turns a failed build into a `core::Error`
@@ -22,11 +30,11 @@ linked only into the GPU module (`src/device/gpu/backend/`), which links no
 umbra module: they are built position-independent with
 `umbra_add_ext_module(... LOADABLE ...)`, see core's headers without
 linking it, return their errors as messages, as the module does, and log
-what they cannot return through the function the module hands them
-(`SetLog`). The CUDA bridge owns GPU memory and streams (`owners.h`),
-translates the runtime's errors (`errors.h`), wraps the runtime calls the
-module makes (`runtime.h`) and converts a driver's device pointer into the
-runtime's (`conversions.h`). The OptiX bridge loads the driver's OptiX
+what they cannot return through the function and threshold the module
+hands them (`SetLog`). The CUDA bridge owns GPU memory and streams
+(`owners.h`), translates the runtime's errors (`errors.h`), wraps the
+runtime calls the module makes (`runtime.h`) and converts a driver's device
+pointer into the runtime's (`conversions.h`). The OptiX bridge loads the driver's OptiX
 runtime and defines its function table (`optix.h`), translates its errors
 (`errors.h`), owns its context, modules, program groups and pipelines
 (`owners.h`), routes the context's messages and those of its compiles into
