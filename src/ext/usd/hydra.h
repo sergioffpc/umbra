@@ -203,11 +203,13 @@ inline constexpr pxr::HdDirtyBits kDirtyEmission =
 // A Mesh prim, synced into its host copy when it is visible and valid,
 // with its instances: those its instancer places, flattened, or one of its
 // own when it has no instancer. Implicit surfaces reach it as meshes. Its
-// points and its transform are sampled over the shutter, and its
-// displayColor converted into ACEScg. Its material is the one bound to it,
-// and its GeomSubsets bound to one keep theirs, each triangle given the
-// index of its material: 0 for its own, i + 1 for that of its i-th subset.
-// A mesh light's emission is read as a light's, and every instance emits it.
+// points are the output of its ext computation primvar `points` when it has
+// one, as a skinned mesh does. Its points and its transform are sampled over
+// the shutter, and its displayColor converted into ACEScg. Its material is
+// the one bound to it, and its GeomSubsets bound to one keep theirs, each
+// triangle given the index of its material: 0 for its own, i + 1 for that of
+// its i-th subset. A mesh light's emission is read as a light's, and every
+// instance emits it.
 //
 // A sync that finds it placed, visible with an instance or more, converts
 // only what Hydra marked dirty, as change flags: its transform or its
@@ -418,10 +420,11 @@ using Committer =
 // meshes and their instancers, and lights, with their lengths scaled by
 // `meters_per_unit` and the meshes bound to their materials for the full
 // purpose, and counts the rprims and lights of the types umbra does not
-// take; its prims count their syncs into the counter. Hydra creates and
-// destroys its prims on one thread. The prims live for the whole render:
-// each HdEngine::Execute syncs those that changed since the last, and
-// commits them.
+// take; its prims count their syncs into the counter. Its ext computations,
+// which the meshes run for their points, are Hydra's own, neither counted
+// nor committed. Hydra creates and destroys its prims on one thread. The
+// prims live for the whole render: each HdEngine::Execute syncs those that
+// changed since the last, and commits them.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(SyncCounter& counter UMBRA_LIFETIMEBOUND,
