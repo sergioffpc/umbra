@@ -26,7 +26,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "bvh.h"
@@ -341,45 +340,12 @@ Status CommitPrototypes(State& state, const device::PrototypeChanges& changes,
   return FirstError(added).and_then([&] { return FirstError(updated); });
 }
 
-// The shape of a light that rays meet, or none for a distant or a dome
-// light.
-std::optional<device::LightShape> ShapeOf(const device::Light::Shape& shape) {
-  using device::LightShapeKind;
-  if (const auto* sphere = std::get_if<device::Light::Sphere>(&shape)) {
-    return device::LightShape{
-        .kind = LightShapeKind::kSphere,
-        .radius = static_cast<float>(sphere->radius),
-    };
-  }
-  if (const auto* rect = std::get_if<device::Light::Rect>(&shape)) {
-    return device::LightShape{
-        .kind = LightShapeKind::kRect,
-        .width = static_cast<float>(rect->width),
-        .height = static_cast<float>(rect->height),
-    };
-  }
-  if (const auto* disk = std::get_if<device::Light::Disk>(&shape)) {
-    return device::LightShape{
-        .kind = LightShapeKind::kDisk,
-        .radius = static_cast<float>(disk->radius),
-    };
-  }
-  if (const auto* cylinder = std::get_if<device::Light::Cylinder>(&shape)) {
-    return device::LightShape{
-        .kind = LightShapeKind::kCylinder,
-        .radius = static_cast<float>(cylinder->radius),
-        .length = static_cast<float>(cylinder->length),
-    };
-  }
-  return std::nullopt;
-}
-
 // Copies `light`, whole, and builds the BVH of its shape, if it has one.
 Status CommitLight(std::unique_ptr<LightRecord>& slot,
                    const device::Light& light, RTCDevice device) {
   auto record = std::make_unique<LightRecord>();
   record->copy.view = internal::CopyOf(light, record->copy.storage);
-  record->shape = ShapeOf(light.shape);
+  record->shape = device::ShapeOf(light.shape);
   if (record->shape.has_value()) {
     auto bvh = internal::BuildLight(device, *record->shape);
     if (!bvh.has_value()) {

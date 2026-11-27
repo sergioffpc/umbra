@@ -20,14 +20,17 @@
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
+#include "umbra/device/image.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
 
 namespace umbra::gpu {
 
 // The version of ModuleApi. Bump it whenever ModuleApi or ModuleStatus
-// changes, or a type of the change set (umbra/device/change_set.h) does.
-inline constexpr std::uint32_t kModuleAbiVersion = 4;
+// changes, or a type of the change set (umbra/device/change_set.h) or of the
+// frame parameters (umbra/device/device.h) does.
+inline constexpr std::uint32_t kModuleAbiVersion = 5;
 
 // The name of the exported entry point, of type ModuleEntryPoint.
 inline constexpr const char* kModuleEntryPoint = "umbra_gpu_module";
@@ -114,6 +117,11 @@ inline std::span<const GpuDescription> DescribedGpus(
                       kMaxGpus));
 }
 
+// The most tiles a GPU renders in one launch, which it takes from the
+// product's counter as one batch: about one million pixels, enough to fill
+// it (docs/adr/0014-frames-render-in-tiles-from-one-counter.md).
+inline constexpr std::uint64_t kTilesPerLaunch = 256;
+
 // A device the module created on a GPU, which only the module reads.
 class ModuleDevice;
 
@@ -151,6 +159,23 @@ struct ModuleApi {
   // both, so that the change set is read only during the call. Fails with
   // the cause when it cannot; the device must then not render.
   ModuleStatus (*commit)(ModuleDevice* gpu, const device::ChangeSet* changes);
+
+  // Prepares `gpu` to render the render product `frame` describes, from
+  // what it committed: its camera model, and a film in its memory for the
+  // product's vars, which it keeps across products while it is large
+  // enough. Uploads its sampler's cache at its first render. It reads
+  // `frame` only during the call. Fails with the cause when it cannot.
+  ModuleStatus (*prepare_render)(ModuleDevice* gpu,
+                                 const device::FrameParameters* frame);
+
+  // Renders the tiles of `tiles`, at most kTilesPerLaunch of them, in one
+  // launch into the film of the product `frame` describes, the product
+  // prepared, then copies them from the film into the render buffers of
+  // `frame`'s vars, and waits for the copies. It reads `frame` and `tiles`
+  // only during the call.
+  ModuleStatus (*render_tiles)(ModuleDevice* gpu,
+                               const device::FrameParameters* frame,
+                               std::span<const device::PixelWindow> tiles);
 };
 
 // The type of the module's entry point.

@@ -27,6 +27,8 @@
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
+#include "umbra/device/device.h"
+#include "umbra/device/image.h"
 #include "umbra/gpu/module_abi.h"
 
 namespace umbra::gpu::backend {
@@ -186,6 +188,22 @@ ModuleStatus Commit(ModuleDevice* gpu, const device::ChangeSet* changes) {
   return {};
 }
 
+// A module status of `result`.
+ModuleStatus StatusOf(const Result<void>& result) {
+  return result.has_value() ? ModuleStatus() : FailedStatus(result.error());
+}
+
+ModuleStatus PrepareRender(ModuleDevice* gpu,
+                           const device::FrameParameters* frame) {
+  return StatusOf(gpu->PrepareRender(*frame));
+}
+
+ModuleStatus RenderTiles(ModuleDevice* gpu,
+                         const device::FrameParameters* frame,
+                         std::span<const device::PixelWindow> tiles) {
+  return StatusOf(gpu->RenderTiles(*frame, tiles));
+}
+
 constexpr ModuleApi kApi{
     .abi_version = kModuleAbiVersion,
     .set_log = SetLog,
@@ -193,6 +211,8 @@ constexpr ModuleApi kApi{
     .create_device = CreateDevice,
     .destroy_device = DestroyDevice,
     .commit = Commit,
+    .prepare_render = PrepareRender,
+    .render_tiles = RenderTiles,
 };
 
 }  // namespace

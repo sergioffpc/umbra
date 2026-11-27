@@ -13,9 +13,12 @@
 
 #include <cmath>
 #include <cstdint>
+#include <optional>
+#include <variant>
 
 #include "umbra/core/safety.h"
 #include "umbra/device/geometry.h"
+#include "umbra/device/render_data.h"
 #include "umbra/device/single_source.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -44,6 +47,40 @@ struct LightShape {
   float height = 0.0F;
   float length = 0.0F;
 };
+
+// The shape of a light with `shape` that rays meet, or none for a distant
+// light, a dome or a portal. Host code: a device converts its lights'
+// shapes as it commits them.
+[[nodiscard]] inline std::optional<LightShape> ShapeOf(
+    const Light::Shape& shape) {
+  if (const auto* sphere = std::get_if<Light::Sphere>(&shape)) {
+    return LightShape{
+        .kind = LightShapeKind::kSphere,
+        .radius = static_cast<float>(sphere->radius),
+    };
+  }
+  if (const auto* rect = std::get_if<Light::Rect>(&shape)) {
+    return LightShape{
+        .kind = LightShapeKind::kRect,
+        .width = static_cast<float>(rect->width),
+        .height = static_cast<float>(rect->height),
+    };
+  }
+  if (const auto* disk = std::get_if<Light::Disk>(&shape)) {
+    return LightShape{
+        .kind = LightShapeKind::kDisk,
+        .radius = static_cast<float>(disk->radius),
+    };
+  }
+  if (const auto* cylinder = std::get_if<Light::Cylinder>(&shape)) {
+    return LightShape{
+        .kind = LightShapeKind::kCylinder,
+        .radius = static_cast<float>(cylinder->radius),
+        .length = static_cast<float>(cylinder->length),
+    };
+  }
+  return std::nullopt;
+}
 
 // The box that bounds a shape.
 struct ShapeBounds {

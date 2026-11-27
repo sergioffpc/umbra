@@ -108,8 +108,8 @@ GPU (RTX 5070 Ti class, `sm_120`, or newer), the devcontainer sees it once
 the host is set up:
 
 1. Install the NVIDIA driver, R590 or newer; OptiX 9.1 needs it. (An R580
-   driver loads CUDA but not OptiX 9.1; whether R590 reads the OptiX-IR of
-   nvcc 13.5 or R620 is needed is still to be confirmed.)
+   driver loads CUDA but not OptiX 9.1.) The driver's OptiX compiles the
+   module's programs from the PTX of nvcc 13.5, which R615 reads.
 2. Install the NVIDIA Container Toolkit, 1.18 or newer. Its
    `nvidia-cdi-refresh` service writes the CDI specification of your GPUs to
    `/var/run/cdi/nvidia.yaml` and rewrites it after every driver update. Do
