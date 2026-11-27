@@ -80,8 +80,10 @@ class Session {
   // their camera and their products, whose files are checked writable,
   // their missing directories created. Settings without products
   // write <scene-stem>.<frame>.exr, in the current directory, with the color.
-  // Render vars umbra does not render are left out, with one warning. The
-  // cameras committed are those the settings and their products see through.
+  // The lpe and primvar render vars are read with their expression or
+  // primvar's name, unchecked; the intrinsic ones and the raw ones umbra
+  // does not know are left out, with one warning. The cameras committed are
+  // those the settings and their products see through.
   // The visible meshes, implicit surfaces among them, become prototypes, held
   // once, with their instances: one for a mesh not instanced, and one for
   // each instance of native instancing and PointInstancers, nested
