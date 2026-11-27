@@ -26,6 +26,9 @@ namespace umbra::ext::usd {
 enum class RenderVarSource : std::uint8_t {
   // The radiance, RGBA.
   kColor,
+  // The radiance denoised through Open Image Denoise from the color, the
+  // albedo and the normal, RGBA, with the color's alpha.
+  kDenoisedColor,
   // The distance from the camera to the first hit, in meters.
   kDepth,
   // The world-space shading normal of the first hit.
@@ -54,9 +57,9 @@ struct RenderVar {
   // none; empty for the others.
   std::string source_name;
   ChannelType type = ChannelType::kHalf;
-  // The channels of its layer: 4 for color (RGBA), 1 for depth, 3 for
-  // normal, albedo and lpe vars, and as many as its dataType has components
-  // for a primvar var.
+  // The channels of its layer: 4 for color and denoisedColor (RGBA), 1 for
+  // depth, 3 for normal, albedo and lpe vars, and as many as its dataType
+  // has components for a primvar var.
   std::uint32_t channels = 1;
 };
 

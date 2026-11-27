@@ -5,10 +5,11 @@
 # tree a release ships (docs/adr/0005-releases-are-a-chiseled-image.md):
 #
 #   bin/umbra
-#   lib/                  the GPU module, and the libraries that umbra and
-#                         the libraries it loads need and that the system
-#                         does not provide: those of the dependency prefix
-#                         and of the toolchain
+#   lib/                  the GPU module, Open Image Denoise's devices, and
+#                         the libraries that umbra and the libraries it
+#                         loads need and that the system does not provide:
+#                         those of the dependency prefix and of the
+#                         toolchain
 #   lib/usd/              the resources of OpenUSD's libraries, through
 #                         which it loads them as plugins
 #   plugin/usd/           OpenUSD's other plugins
@@ -61,6 +62,7 @@ install(CODE "
   set(EXECUTABLE \"$<TARGET_FILE:umbra>\")
   set(GPU_MODULE \"${umbra_gpu_module}\")
   set(USD_LIB_DIR \"${pxr_DIR}/lib\")
+  set(OIDN_LIB_DIR \"${OpenImageDenoise_DIR}/../..\")
   set(LICENSE_DIRS \"${umbra_license_dirs}\")
   set(SOURCE_DIR \"${PROJECT_SOURCE_DIR}\")
   include(\"${UMBRA_INSTALL_RUNTIME_SCRIPT}\")

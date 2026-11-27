@@ -1176,10 +1176,11 @@ void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index,
 // The quantity of a raw var named `name`, or none when umbra has no such
 // var.
 std::optional<RenderVarSource> RawSource(std::string_view name) {
-  static constexpr std::array<std::pair<std::string_view, RenderVarSource>, 4>
+  static constexpr std::array<std::pair<std::string_view, RenderVarSource>, 5>
       kSources = {
           {
               {"color", RenderVarSource::kColor},
+              {"denoisedColor", RenderVarSource::kDenoisedColor},
               {"depth", RenderVarSource::kDepth},
               {"normal", RenderVarSource::kNormal},
               {"albedo", RenderVarSource::kAlbedo},
@@ -1249,6 +1250,7 @@ std::uint32_t ComponentsOf(std::string_view data_type) {
 std::uint32_t VarChannels(RenderVarSource source, std::string_view data_type) {
   switch (source) {
     case RenderVarSource::kColor:
+    case RenderVarSource::kDenoisedColor:
       return 4;
     case RenderVarSource::kDepth:
       return 1;

@@ -120,6 +120,12 @@ One quantity per pixel a render product holds, such as the color (`color`)
 (docs/adr/0012-umbra-is-a-hydra-renderer.md).
 _Avoid:_ AOV
 
+**Denoised color**:
+The render var `denoisedColor`: a render product's color, denoised through
+Open Image Denoise from its color, albedo and normal, on the whole image
+once the devices have rendered it, with the color's alpha
+(docs/adr/0012-umbra-is-a-hydra-renderer.md).
+
 **Shutter**:
 The interval of time a frame integrates, from the camera's `shutter:open` to
 its `shutter:close`, relative to the frame; none when the render settings

@@ -10,8 +10,10 @@
 // [--frames=<start>..<end>] [--step=<step>] <scene>` chooses among them,
 // shows them on stderr, and renders each frame of the scene through Hydra:
 // it commits what changed since the last to the devices, which build their
-// acceleration structures from it, has them render each render product, and
-// writes the products as OpenEXR files. `umbra version
+// acceleration structures from it, has them render each render product,
+// denoises the color of the products that ask for it through Open Image
+// Denoise, on the chosen GPU of the lowest CUDA ordinal or else on the CPU,
+// and writes the products as OpenEXR files. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -57,6 +59,7 @@
 #include "umbra/device/render_data.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/ocio/ocio.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/oiio/oiio.h"
 #include "umbra/ext/opensubdiv/opensubdiv.h"
 #include "umbra/ext/openvdb/openvdb.h"
@@ -240,6 +243,7 @@ void PrintVersion(const ParsedCommand& version) {
 std::expected<void, Error> InitializeLibraries() {
   return umbra::ext::ocio::Initialize()
       .and_then(umbra::ext::oiio::Initialize)
+      .and_then(umbra::ext::oidn::Initialize)
       .and_then(umbra::ext::openvdb::Initialize)
       .and_then(umbra::ext::opensubdiv::Initialize)
       .and_then(umbra::ext::embree::Initialize)
@@ -559,17 +563,33 @@ std::expected<void, Error> RenderAndWrite(umbra::ext::usd::Session& session,
   return {};
 }
 
-// Renders each frame `request` renders of its scene on `devices`, and
-// writes its products.
+// Where the products' color is denoised among `chosen`: on the GPU of the
+// lowest CUDA ordinal, else on the CPU.
+umbra::ext::oidn::DenoiseDevice DenoiseDeviceOf(
+    std::span<const umbra::devices::Device> chosen) {
+  umbra::ext::oidn::DenoiseDevice denoise_device;
+  for (const umbra::devices::Device& device : chosen) {
+    if (device.kind == umbra::devices::DeviceKind::kGpu &&
+        (!denoise_device.cuda_ordinal.has_value() ||
+         device.index < *denoise_device.cuda_ordinal)) {
+      denoise_device = {.cuda_ordinal = device.index, .name = device.name};
+    }
+  }
+  return denoise_device;
+}
+
+// Renders each frame `request` renders of its scene on `devices`, denoising
+// on `denoise_device`, and writes its products.
 int RenderFrames(const RenderRequest& request,
-                 std::span<umbra::device::Device* const> devices) {
+                 std::span<umbra::device::Device* const> devices,
+                 const umbra::ext::oidn::DenoiseDevice& denoise_device) {
   std::optional<umbra::TevDisplay> display;
   if (request.display.has_value()) {
     display.emplace(*request.display);
   }
-  const auto session =
-      umbra::ext::usd::OpenSession(request.scene, request.options, devices,
-                                   display.has_value() ? &*display : nullptr);
+  const auto session = umbra::ext::usd::OpenSession(
+      request.scene, request.options, devices, denoise_device,
+      display.has_value() ? &*display : nullptr);
   if (!session.has_value()) {
     return Failure(session.error());
   }
@@ -614,7 +634,7 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
        created->devices) {
     committed_to.push_back(device.get());
   }
-  return RenderFrames(request, committed_to);
+  return RenderFrames(request, committed_to, DenoiseDeviceOf(*chosen));
 }
 
 // `umbra help [<command>]`: the help of umbra, or of a command.

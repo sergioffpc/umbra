@@ -71,6 +71,7 @@
 #include "umbra/core/progress.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 
 namespace umbra::ext::usd {
@@ -86,6 +87,7 @@ struct Session::State {
   pxr::HdsiSceneGlobalsSceneIndexRefPtr globals;
   internal::CommitInputs inputs;
   std::span<device::Device* const> devices;
+  oidn::DenoiseDevice denoise_device;
   // What shows the products while they render, if anything.
   Display* UMBRA_NULLABLE display = nullptr;
   // What the prims count their syncs into: the phase of the frame syncing.
@@ -382,7 +384,8 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
                                 /*needsPrefixing=*/false);
   phase.SetTotal(state.delegate->PrimCount());
   state.task = std::make_shared<internal::RenderTask>(
-      *state.delegate, state.inputs.settings, state.display);
+      *state.delegate, state.inputs.settings, state.denoise_device,
+      state.display);
   state.tasks = {state.task};
   return {};
 }
@@ -568,7 +571,9 @@ std::expected<void, Error> Session::RenderFrame(std::optional<double> frame) {
 
 std::expected<std::unique_ptr<Session>, Error> OpenSession(
     std::string_view path, const LoadOptions& options,
-    std::span<device::Device* const> devices, Display* UMBRA_NULLABLE display) {
+    std::span<device::Device* const> devices,
+    const oidn::DenoiseDevice& denoise_device,
+    Display* UMBRA_NULLABLE display) {
   auto stage = LoadStage(path);
   if (!stage.has_value()) {
     return std::unexpected(stage.error());
@@ -580,6 +585,7 @@ std::expected<std::unique_ptr<Session>, Error> OpenSession(
   auto state = std::make_unique<Session::State>();
   state->stage = std::move(*stage);
   state->devices = devices;
+  state->denoise_device = denoise_device;
   state->display = display;
   state->inputs = {
       .settings = *settings,

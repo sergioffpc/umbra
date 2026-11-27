@@ -22,6 +22,7 @@
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/device.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 
 UMBRA_ASSUME_NONNULL_BEGIN
@@ -64,9 +65,11 @@ struct RenderedProduct {
 };
 
 // What shows the products while they render, tile by tile. The render
-// calls it from a host thread of its own, one call at a time: Begin as a
-// product starts, Update for each region of its data window whose pixels are
-// final, as its tiles finish, and End once it has rendered, failed or not.
+// calls it one call at a time, from a host thread of its own while the
+// devices render: Begin as a product starts, Update for each region of its
+// data window whose pixels are final, as its tiles finish, Update for the
+// whole window once a denoise has filled its denoisedColor vars, and End
+// once it has rendered, failed or not.
 // It never fails a render: a display that cannot show stops on its own.
 class Display {
  public:
@@ -184,7 +187,15 @@ class Session {
   // renders on a host thread of its own, into render buffers of float32,
   // one per var, those of the lpe and primvar vars left at 0. Its samples
   // per pixel are umbra:samplesPerPixel, an int from the product, else from
-  // the settings, else 64.
+  // the settings, else 64. A product with a denoisedColor var, a raw var
+  // whose sourceName is "denoisedColor", renders its color, albedo and
+  // normal, into render buffers of their own for those it has no var of,
+  // which no file holds; once rendered, its color is denoised from them
+  // through Open Image Denoise, on the whole image, into the denoisedColor
+  // var, RGBA with the color's alpha, as a phase of its own,
+  // "Denoising <file>", which counts its pixels. The denoiser is created
+  // once, for the first product that has such a var, and serves every
+  // later product and frame.
   //
   // Fails with kNotFound when no RenderSettings prim is at the settings'
   // path; kInvalidArgument when the settings or a product have no camera or
@@ -192,8 +203,10 @@ class Session {
   // not .exr, its dataWindowNDC holds no pixel or umbra:samplesPerPixel is
   // not an int above 0, or a material reads a texture or shader, or a light
   // a texture, inside a package (.usdz); kUnavailable when a product's file
-  // cannot be written, or no device takes the tiles of a product; and with a
-  // device's error, naming the device, when its commit or its render fails.
+  // cannot be written, or no device takes the tiles of a product; with a
+  // device's error, naming the device, when its commit or its render fails;
+  // and with Open Image Denoise's error, naming the product's file, when a
+  // denoise fails.
   // The session renders no further frame then.
   [[nodiscard]] std::expected<void, core::Error> RenderFrame(
       std::optional<double> frame);
@@ -211,7 +224,8 @@ class Session {
 // "Loading stage": opens its stage, with every payload loaded and no
 // session layer; warnings while composing (a missing sublayer) go to the
 // log. Its frames are committed to `devices`, which must outlive the
-// session, and its products shown on `display`, if any, which must too.
+// session, its products' denoisedColor vars denoised on `denoise_device`,
+// and its products shown on `display`, if any, which must outlive it too.
 //
 // Fails with kNotFound when the file does not exist, and kInvalidArgument
 // when the file cannot be read or its stage does not open or compose, there
@@ -219,6 +233,7 @@ class Session {
 [[nodiscard]] std::expected<std::unique_ptr<Session>, core::Error> OpenSession(
     std::string_view path, const LoadOptions& options,
     std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND,
+    const oidn::DenoiseDevice& denoise_device,
     Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND = nullptr);
 
 }  // namespace umbra::ext::usd

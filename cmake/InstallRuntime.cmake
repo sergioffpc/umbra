@@ -8,18 +8,20 @@
 #   GPU_MODULE    the GPU module in the build tree, or empty
 #   USD_LIB_DIR   OpenUSD's lib/, which holds usd/, and whose ../plugin/usd/
 #                 holds its other plugins
+#   OIDN_LIB_DIR  Open Image Denoise's lib/, which holds its devices (its
+#                 lib/cmake/<package>/../..)
 #   LICENSE_DIRS  directories with a <component>/ of license texts each,
 #                 searched in order
 #   SOURCE_DIR    umbra's sources, for its own license
 #
-# It installs OpenUSD's plugins, the libraries that umbra, the GPU module and
-# the plugins need and the system does not provide, and the license texts of
-# umbra and of every component installed. A library that the table of
-# components below does not cover, or a component without license texts,
-# stops the install.
+# It installs OpenUSD's plugins, Open Image Denoise's devices, the libraries
+# that umbra, the GPU module, the plugins and the devices need and the system
+# does not provide, and the license texts of umbra and of every component
+# installed. A library that the table of components below does not cover, or
+# a component without license texts, stops the install.
 
-foreach(variable IN ITEMS EXECUTABLE GPU_MODULE USD_LIB_DIR LICENSE_DIRS
-                          SOURCE_DIR)
+foreach(variable IN ITEMS EXECUTABLE GPU_MODULE USD_LIB_DIR OIDN_LIB_DIR
+                          LICENSE_DIRS SOURCE_DIR)
   if(NOT DEFINED ${variable})
     message(FATAL_ERROR "InstallRuntime.cmake needs ${variable}")
   endif()
@@ -67,17 +69,28 @@ foreach(plug_info IN LISTS plug_infos)
 endforeach()
 list(REMOVE_DUPLICATES plugins)
 
-# The libraries of umbra, of the GPU module and of the plugins, except those
-# of the system, which the image takes from the distribution.
+# Open Image Denoise's devices, which its core loads with dlopen from its own
+# directory. Its CUDA device needs the CUDA driver, which the host provides.
+cmake_path(NORMAL_PATH OIDN_LIB_DIR)
+file(GLOB oidn_devices "${OIDN_LIB_DIR}/libOpenImageDenoise_device_*.so*")
+if(NOT oidn_devices)
+  message(FATAL_ERROR "Open Image Denoise has no device in ${OIDN_LIB_DIR}")
+endif()
+
+# The libraries of umbra, of the GPU module, of the plugins and of OIDN's
+# devices, except those of the system, which the image takes from the
+# distribution, and the CUDA driver.
 file(GET_RUNTIME_DEPENDENCIES
      EXECUTABLES "${EXECUTABLE}"
-     MODULES ${GPU_MODULE} ${plugins}
+     MODULES ${GPU_MODULE} ${plugins} ${oidn_devices}
      RESOLVED_DEPENDENCIES_VAR libraries
      UNRESOLVED_DEPENDENCIES_VAR unresolved
+     PRE_EXCLUDE_REGEXES "^libcuda\\.so"
      POST_EXCLUDE_REGEXES "^/lib/" "^/lib64/" "^/usr/lib/")
 if(unresolved)
   message(FATAL_ERROR "cannot find these libraries of umbra: ${unresolved}")
 endif()
+list(APPEND libraries ${oidn_devices})
 # OpenUSD's own libraries are plugins too, loaded only with dlopen; the
 # plugins in plugin/usd/ came with their directory.
 foreach(plugin IN LISTS plugins)
@@ -108,6 +121,7 @@ component("^libImath" Imath)
 component("^lib(Iex|IlmThread|OpenEXR)" openexr)
 component("^libMaterialX" MaterialX)
 component("^libOpenColorIO" OpenColorIO)
+component("^libOpenImageDenoise" oidn)
 component("^libOpenImageIO" OpenImageIO robin-map)
 component("^libosl" OpenShadingLanguage robin-map)
 component("^libosd" OpenSubdiv)

@@ -57,6 +57,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/ext/oidn/oidn.h"
 #include "umbra/ext/usd/render_settings.h"
 #include "umbra/ext/usd/usd.h"
 
@@ -540,23 +541,28 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
   std::optional<std::expected<Committed, core::Error>> committed_;
 };
 
-// The render buffers of a rendered product, one per var, in its order.
+// The render buffers of a rendered product: one per var, in its order, then
+// one per input of its denoise (color, albedo, normal) it has no var of,
+// which no file holds.
 using ProductBuffers = std::vector<std::unique_ptr<RenderBuffer>>;
 
 // The task of umbra's that runs in HdEngine::Execute. It syncs the rprims of
 // the purposes the settings include, over the shutter it chooses. Once the
 // delegate has committed, it calls the callback it is given, then renders
 // each product of the settings committed through a render pass of its own,
-// into render buffers it creates, one per var, sized to the product's data
-// window: a var's AOV is AovName of its source. The buffers live until the
-// next Execute.
+// into render buffers it creates, sized to the product's data window: one
+// per var, whose AOV is AovName of its source, and, for a product with a
+// denoisedColor var, one per input of the denoise it has no var of. The
+// buffers live until the next Execute. The denoiser of the denoisedColor
+// vars is created for the first product that has one, and serves every
+// later product and frame.
 class RenderTask final : public pxr::HdTask {
  public:
   // Syncs the prims of the render index whose render delegate is
-  // `delegate`.
-  // Shows the products on `display`, if any, which outlives it.
+  // `delegate`, denoises on `denoise_device`, and shows the products on
+  // `display`, if any, which outlives it.
   RenderTask(RenderDelegate& delegate UMBRA_LIFETIMEBOUND,
-             pxr::SdfPath settings,
+             pxr::SdfPath settings, oidn::DenoiseDevice denoise_device,
              Display* UMBRA_NULLABLE display UMBRA_LIFETIMEBOUND);
 
   // What Execute calls once the delegate has committed, before it renders.
@@ -584,9 +590,19 @@ class RenderTask final : public pxr::HdTask {
   // Renders each product of `committed`.
   [[nodiscard]] std::expected<void, core::Error> Render(
       const Committed& committed);
+  // Renders the `index`th product of `committed`, once the passes are
+  // created.
+  [[nodiscard]] std::expected<void, core::Error> RenderOne(
+      const Committed& committed, std::size_t index);
+  // The denoiser of `product`, created if it is not yet: null when it has
+  // no denoisedColor var.
+  [[nodiscard]] std::expected<oidn::Denoiser * UMBRA_NULLABLE, core::Error>
+  DenoiserOf(const RenderProduct& product);
 
   RenderDelegate* delegate_;
   pxr::SdfPath settings_;
+  oidn::DenoiseDevice denoise_device_;
+  std::unique_ptr<oidn::Denoiser> denoiser_;
   pxr::TfTokenVector render_tags_;
   pxr::HdRenderIndex* UMBRA_NULLABLE index_ = nullptr;
   std::function<void()> on_committed_;
