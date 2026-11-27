@@ -9,8 +9,8 @@
 // (see devices.h); `umbra render [--devices=cpu0,gpu0] [--settings=<prim>]
 // [--frames=<start>..<end>] [--step=<step>] <scene>` chooses among them,
 // shows them on stderr, and syncs each frame of the scene through Hydra,
-// committing what changed since the last to the GPUs chosen and to the
-// diagnostic device, which checks it; it renders nothing yet. `umbra version
+// committing what changed since the last to the devices, which build their
+// acceleration structures from it; it renders nothing yet. `umbra version
 // [--build-options]` (or `umbra --version`) shows the version, and
 // `umbra help [<command>]` (or -h, before or after a command) the help.
 // Without a command, umbra shows its help and fails; -q silences it.
@@ -51,7 +51,6 @@
 #include "umbra/core/safety.h"
 #include "umbra/core/version.h"
 #include "umbra/device/device.h"
-#include "umbra/device/diagnostic_device.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/ocio/ocio.h"
 #include "umbra/ext/oiio/oiio.h"
@@ -494,8 +493,7 @@ int SyncFrames(const RenderRequest& request,
 }
 
 // `umbra render`: resolves the devices, shows them, and syncs each frame of
-// the scene and commits what changed to the GPUs chosen and to the
-// diagnostic device. It renders nothing yet.
+// the scene and commits what changed to them. It renders nothing yet.
 int Render(const ParsedCommand& global, const ParsedCommand& render,
            const RenderRequest& request) {
   const auto hardware = umbra::devices::ReadHardware();
@@ -512,17 +510,16 @@ int Render(const ParsedCommand& global, const ParsedCommand& render,
   if (global.Count("quiet") == 0) {
     PrintRenderBlock(*hardware, *chosen);
   }
-  auto gpus = umbra::devices::CreateGpuDevices(*chosen);
-  if (!gpus.has_value()) {
-    return Failure(gpus.error());
+  auto created = umbra::devices::CreateDevices(*chosen);
+  if (!created.has_value()) {
+    return Failure(created.error());
   }
-  // The diagnostic device checks what every device receives.
-  umbra::device::DiagnosticDevice diagnostic;
   std::vector<umbra::device::Device*> committed_to;
-  for (const auto& gpu : gpus->devices) {
-    committed_to.push_back(gpu.get());
+  committed_to.reserve(created->devices.size());
+  for (const std::unique_ptr<umbra::device::Device>& device :
+       created->devices) {
+    committed_to.push_back(device.get());
   }
-  committed_to.push_back(&diagnostic);
   return SyncFrames(request, committed_to);
 }
 

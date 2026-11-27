@@ -9,6 +9,7 @@
 #include <format>
 #include <string_view>
 
+#include "process_device.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
@@ -80,6 +81,12 @@ std::expected<void, Error> Initialize() {
                   version / 100 % 100, version % 100);
   return {};
 }
+
+namespace internal {
+
+RTCDevice UMBRA_NULLABLE ProcessRtcDevice() { return ProcessDevice().get(); }
+
+}  // namespace internal
 
 std::string_view NativeIsa() {
   RTCDevice device = ProcessDevice().get();

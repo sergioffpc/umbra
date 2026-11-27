@@ -10,6 +10,7 @@
 #include <expected>
 #include <format>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -19,7 +20,11 @@
 
 #include "umbra/core/cpu_topology.h"
 #include "umbra/core/error.h"
+#include "umbra/core/log.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/device.h"
+#include "umbra/device/diagnostic_device.h"
+#include "umbra/ext/embree/cpu_device.h"
 #include "umbra/ext/embree/embree.h"
 #include "umbra/ext/osl/osl.h"
 #include "umbra/gpu/module.h"
@@ -283,6 +288,26 @@ std::expected<gpu::Module*, Error> LoadOnce(
       });
 }
 
+// The device `device` names: a CPU device on its node, or a GPU device
+// made through the GPU module, which `module` holds once loaded. Fails with
+// the cause, naming the device, when the module cannot be loaded or the GPU
+// cannot be used.
+std::expected<std::unique_ptr<device::Device>, Error> Create(
+    const Device& device,
+    std::optional<gpu::Module>& module UMBRA_LIFETIMEBOUND) {
+  if (device.kind == DeviceKind::kCpu) {
+    return std::make_unique<ext::embree::CpuDevice>(device.index);
+  }
+  return LoadOnce(module)
+      .and_then([&](gpu::Module* loaded) {
+        return loaded->CreateDevice(device.index);
+      })
+      .transform_error([&](const Error& error) {
+        return Error(error.code(), std::format("device {}: {}", device.name,
+                                               error.message()));
+      });
+}
+
 }  // namespace
 
 std::expected<Hardware, Error> ReadHardware() {
@@ -372,26 +397,20 @@ std::expected<std::vector<Device>, Error> ResolveDevices(
   return chosen;
 }
 
-std::expected<GpuRenderDevices, Error> CreateGpuDevices(
+std::expected<CreatedDevices, Error> CreateDevices(
     std::span<const Device> chosen) {
-  GpuRenderDevices gpus;
+  CreatedDevices created;
   for (const Device& device : chosen) {
-    if (device.kind != DeviceKind::kGpu) {
-      continue;
+    auto made = Create(device, created.module);
+    if (!made.has_value()) {
+      return std::unexpected(made.error());
     }
-    const auto loaded = LoadOnce(gpus.module);
-    if (!loaded.has_value()) {
-      return std::unexpected(loaded.error());
-    }
-    auto created = (*loaded)->CreateDevice(device.index);
-    if (!created.has_value()) {
-      return std::unexpected(Error(created.error().code(),
-                                   std::format("device {}: {}", device.name,
-                                               created.error().message())));
-    }
-    gpus.devices.push_back(std::move(*created));
+    created.devices.push_back(*std::move(made));
   }
-  return gpus;
+  if (core::IsLogEnabled(core::LogComponent::kDevice, core::LogLevel::kDebug)) {
+    created.devices.push_back(std::make_unique<device::DiagnosticDevice>());
+  }
+  return created;
 }
 
 }  // namespace umbra::devices
