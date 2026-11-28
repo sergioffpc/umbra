@@ -16,6 +16,7 @@ are written in English.
 - [Daily commands](#daily-commands)
 - [Writing code](#writing-code)
   - [Safety rules](#safety-rules)
+  - [Math](#math)
   - [Testing policy](#testing-policy)
 - [Third-party dependencies](#third-party-dependencies)
 - [Proposing changes](#proposing-changes)
@@ -113,6 +114,9 @@ the render products. The rest of the repository:
   [0015](docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md)).
 - `ext/` is a thin layer over each dependency
   ([0017](docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md)).
+- Imath is the math framework, from the render delegate down to the
+  kernels; Gf stays at the Hydra boundary
+  ([0019](docs/adr/0019-imath-is-the-math-framework.md)).
 - C++ gets as many Rust-like guarantees as it allows, from an LLVM-only
   toolchain: see [Safety rules](#safety-rules) and
   [Environment](#environment).
@@ -335,7 +339,9 @@ clang-query, the hooks and CI.
   (`src/device/cpu/`), which calls Embree's API with the bridge's owners and
   errors, and the GPU device's programs, which call OptiX's device
   intrinsics. Review checks this rule; no tool does
-  (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md).
+  (docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md). Imath is
+  not a bridged dependency: every module calls it directly
+  (see [Math](#math)).
 
 #### Memory and ownership
 
@@ -485,6 +491,29 @@ clang-tidy families and the function limits below), this document wins.
   copyleft license, is listed under **Prebuilt tools** in the versions
   manifest, and never enters a release image
   (docs/adr/0018-prebuilt-tools-of-the-deps-image.md).
+
+### Math
+
+Review checks these rules; no tool does.
+
+- Imath is the math framework. Vectors, points, colors, matrices,
+  quaternions, boxes and intervals are Imath's types (`V3f`, `M44d`,
+  `Color3f`, `Box3d`, ...), from the render delegate down to the devices'
+  single-source code, whose kernels compile Imath's `IMATH_HOSTDEVICE`
+  functions for the CPU and CUDA.
+- Never write a math function or type that Imath already has: dot and
+  cross products, normalization, `Imath::lerp`, `Imath::clamp`, transforms
+  of points and vectors, inverses, bounds. A helper Imath lacks is built on
+  Imath's types.
+- OpenUSD's Gf types stay at the Hydra boundary: the render delegate
+  converts them to Imath where it reads them from Hydra, and computes only
+  with Imath past that read.
+- Imath's throwing parts are not used: `Frustum` and the `exc`/`singExc`
+  variants of the matrix functions. umbra checks degenerate input itself and
+  returns `std::expected`.
+- Where a device fixes a layout (Embree's, OptiX's), umbra's type keeps it
+  around Imath's type, or converts at that crossing
+  (docs/adr/0019-imath-is-the-math-framework.md).
 
 ### Testing policy
 

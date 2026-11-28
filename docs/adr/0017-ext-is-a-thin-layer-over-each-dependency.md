@@ -37,7 +37,8 @@ uses the bridge.
 ## Who calls what
 
 Code outside `ext/` calls the bridges, never a dependency's own API. Three
-exceptions are declared:
+exceptions are declared here, and Imath, umbra's math framework, is called
+directly by every module (`0019-imath-is-the-math-framework.md`):
 
 - **The render delegate may include Hydra's headers.** It derives from
   Hydra's base classes (`HdRenderDelegate`, its prims, `HdRenderPass`,
