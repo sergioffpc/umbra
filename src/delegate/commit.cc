@@ -41,11 +41,9 @@ using ::umbra::core::ErrorCode;
 class FrameCommit {
  public:
   FrameCommit(const CommitInputs& inputs UMBRA_LIFETIMEBOUND,
-              const CommitScene& scene UMBRA_LIFETIMEBOUND,
               const SyncedPrims& prims UMBRA_LIFETIMEBOUND,
               Ledger& ledger UMBRA_LIFETIMEBOUND)
       : inputs_(&inputs),
-        scene_(&scene),
         prims_(&prims),
         ledger_(&ledger),
         warnings_(ledger.warnings),
@@ -86,7 +84,6 @@ class FrameCommit {
   void TallyInstancers();
 
   const CommitInputs* inputs_;
-  const CommitScene* scene_;
   const SyncedPrims* prims_;
   Ledger* ledger_;
   Warnings warnings_;
@@ -125,7 +122,7 @@ std::expected<Committed, Error> FrameCommit::CommitSettings(
   if (!camera.has_value()) {
     return std::unexpected(camera.error());
   }
-  ProductConverter converter(*inputs_, *scene_->stage, cameras_);
+  ProductConverter converter(*inputs_, cameras_);
   auto products = converter.Products(settings, *camera);
   converter.Report(warnings_);
   if (!products.has_value()) {
@@ -185,7 +182,7 @@ std::expected<void, Error> FrameCommit::CommitContent() {
       fatal.has_value()) {
     return std::unexpected(std::move(*fatal));
   }
-  ReportLightLinking(scene_->scene_index, *prims_, warnings_);
+  ReportLightLinking(*prims_, warnings_);
   return {};
 }
 
@@ -202,15 +199,15 @@ std::string FrameCommit::DescribeCommit(
 }  // namespace
 
 std::expected<Committed, Error> Commit(
-    const CommitInputs& inputs, const CommitScene& scene, SyncedPrims& prims,
-    Ledger& ledger, std::span<device::Device* const> devices) {
+    const CommitInputs& inputs, SyncedPrims& prims, Ledger& ledger,
+    std::span<device::Device* const> devices) {
   const auto found = prims.settings.find(inputs.settings);
   if (found == prims.settings.end()) {
     return std::unexpected(
         Error(ErrorCode::kNotFound, std::format("no RenderSettings prim at {}",
                                                 inputs.settings.GetString())));
   }
-  FrameCommit commit(inputs, scene, prims, ledger);
+  FrameCommit commit(inputs, prims, ledger);
   auto committed = commit.CommitSettings(*found->second);
   if (!committed.has_value()) {
     return committed;

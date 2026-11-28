@@ -23,6 +23,7 @@
 #include <pxr/imaging/hd/sprim.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/stage.h>
 
 #include <cstddef>
 #include <expected>
@@ -88,20 +89,30 @@ struct Committed {
 using Committer =
     std::function<std::expected<Committed, core::Error>(SyncedPrims& prims)>;
 
+// The conventions of the stage the delegate syncs: the length of its unit, in
+// meters, and its up axis.
+struct StageConventions {
+  double meters_per_unit = 1.0;
+  UpAxis up_axis = UpAxis::kY;
+};
+
 // umbra's render delegate, which renders on `devices`. It syncs cameras, render
 // settings, materials, meshes and their instancers, and lights, with their
-// lengths scaled by `meters_per_unit`, the lights inclined from the down
-// direction of a stage whose up axis is `up_axis`, and the meshes bound to
-// their materials for the full purpose, and counts the rprims and lights of the
-// types umbra does not take; its prims count their syncs into the counter. Its
-// ext computations, which the meshes run for their points, are Hydra's own,
-// neither counted nor committed. Hydra creates and destroys its prims on one
+// lengths scaled by the stage's `conventions`, the lights inclined from the
+// down direction of its up axis, and the meshes bound to their materials for
+// the full purpose, and counts the rprims and lights of the types umbra does
+// not take; its prims count their syncs into the counter. The render settings
+// read from `stage`, the stage Hydra syncs, only which render vars author
+// their dataType, which Hydra does not tell. Its ext computations, which the
+// meshes run for their points, are Hydra's own, neither counted nor
+// committed. Hydra creates and destroys its prims on one
 // thread. The prims live for the whole render: each HdEngine::Execute syncs
 // those that changed since the last, and commits them.
 class RenderDelegate final : public pxr::HdRenderDelegate {
  public:
   RenderDelegate(SyncCounter& counter UMBRA_LIFETIMEBOUND,
-                 double meters_per_unit, UpAxis up_axis, Committer committer,
+                 const pxr::UsdStage& stage UMBRA_LIFETIMEBOUND,
+                 StageConventions conventions, Committer committer,
                  std::span<device::Device* const> devices UMBRA_LIFETIMEBOUND);
   RenderDelegate(const RenderDelegate&) = delete;
   RenderDelegate& operator=(const RenderDelegate&) = delete;
@@ -199,6 +210,7 @@ class RenderDelegate final : public pxr::HdRenderDelegate {
                       const pxr::TfTokenVector& render_tags);
 
   SyncCounter* counter_;
+  const pxr::UsdStage* stage_;
   double meters_per_unit_;
   UpAxis up_axis_;
   Committer committer_;

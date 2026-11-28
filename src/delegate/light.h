@@ -91,6 +91,14 @@ enum class LightIssue : std::uint8_t {
   kTextureNotRead,
 };
 
+// Whether a light links geometry: whether hdsi gave its lightLink or its
+// shadowLink a category, as it does to any collection but the default one of
+// every prim (docs/adr/0009-lights-light-everything.md).
+enum class LightLinking : std::uint8_t {
+  kNone,
+  kLinked,
+};
+
 // One issue of a light, with what the warning says of it.
 struct LightNote {
   LightIssue issue = LightIssue::kFilters;
@@ -142,6 +150,8 @@ class LightPrim final : public pxr::HdLight {
       UMBRA_LIFETIMEBOUND {
     return notes_;
   }
+  // Whether it links geometry, once synced.
+  [[nodiscard]] LightLinking linking() const { return linking_; }
   // The error that stops the render: a texture inside a package.
   [[nodiscard]] const std::optional<core::Error>& fatal() const
       UMBRA_LIFETIMEBOUND {
@@ -201,6 +211,7 @@ class LightPrim final : public pxr::HdLight {
   pxr::TfToken render_tag_;
   std::string unsupported_type_;
   std::vector<LightNote> notes_;
+  LightLinking linking_ = LightLinking::kNone;
   std::optional<core::Error> fatal_;
   MotionOutcome motion_outcome_ = MotionOutcome::kSampled;
   std::size_t instance_count_ = 0;

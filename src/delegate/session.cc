@@ -232,14 +232,17 @@ std::expected<void, Error> BuildRenderIndex(Session::State& state,
                                             core::ProgressPhase& phase) {
   ChainSceneIndices(state, time);
   state.delegate = std::make_unique<internal::RenderDelegate>(
-      state.counter, pxr::UsdGeomGetStageMetersPerUnit(state.stage),
-      pxr::UsdGeomGetStageUpAxis(state.stage) == pxr::UsdGeomTokens->z
-          ? internal::UpAxis::kZ
-          : internal::UpAxis::kY,
+      state.counter, *state.stage,
+      internal::StageConventions{
+          .meters_per_unit = pxr::UsdGeomGetStageMetersPerUnit(state.stage),
+          .up_axis =
+              pxr::UsdGeomGetStageUpAxis(state.stage) == pxr::UsdGeomTokens->z
+                  ? internal::UpAxis::kZ
+                  : internal::UpAxis::kY,
+      },
       [&state](internal::SyncedPrims& prims) {
-        return internal::Commit(
-            state.inputs, {.stage = &*state.stage, .scene_index = state.chain},
-            prims, state.ledger, state.devices);
+        return internal::Commit(state.inputs, prims, state.ledger,
+                                state.devices);
       },
       state.devices);
   state.index.reset(pxr::HdRenderIndex::New(state.delegate.get(), {}));

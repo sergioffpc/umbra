@@ -19,6 +19,7 @@
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hdsi/renderSettingsFilteringSceneIndex.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/stage.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -35,7 +36,6 @@
 #include "camera_prim.h"
 #include "dicing.h"
 #include "host_copy.h"
-#include "ies_tilt.h"
 #include "instancer.h"
 #include "light.h"
 #include "material.h"
@@ -113,12 +113,14 @@ bool IsLightPrimType(const pxr::TfToken& type) {
 
 }  // namespace
 
-RenderDelegate::RenderDelegate(SyncCounter& counter, double meters_per_unit,
-                               UpAxis up_axis, Committer committer,
+RenderDelegate::RenderDelegate(SyncCounter& counter, const pxr::UsdStage& stage,
+                               StageConventions conventions,
+                               Committer committer,
                                std::span<device::Device* const> devices)
     : counter_(&counter),
-      meters_per_unit_(meters_per_unit),
-      up_axis_(up_axis),
+      stage_(&stage),
+      meters_per_unit_(conventions.meters_per_unit),
+      up_axis_(conventions.up_axis),
       committer_(std::move(committer)),
       devices_(devices),
       registry_(std::make_shared<pxr::HdResourceRegistry>()) {
@@ -412,9 +414,10 @@ pxr::HdBprim* UMBRA_NULLABLE RenderDelegate::CreateBprim(
   if (prim_id ==
       pxr::HdsiRenderSettingsFilteringSceneIndex::GetFallbackPrimPath()) {
     return Release<pxr::HdBprim>(
-        std::make_unique<RenderSettingsPrim>(prim_id, nullptr));
+        std::make_unique<RenderSettingsPrim>(prim_id, nullptr, nullptr));
   }
-  auto settings = std::make_unique<RenderSettingsPrim>(prim_id, counter_);
+  auto settings =
+      std::make_unique<RenderSettingsPrim>(prim_id, counter_, stage_);
   prims_.settings[prim_id] = settings.get();
   return Release<pxr::HdBprim>(std::move(settings));
 }
@@ -424,8 +427,8 @@ RenderDelegate::CreateFallbackBprim(const pxr::TfToken& type_id) {
   if (type_id != pxr::HdPrimTypeTokens->renderSettings) {
     return nullptr;
   }
-  return Release<pxr::HdBprim>(
-      std::make_unique<RenderSettingsPrim>(pxr::SdfPath::EmptyPath(), nullptr));
+  return Release<pxr::HdBprim>(std::make_unique<RenderSettingsPrim>(
+      pxr::SdfPath::EmptyPath(), nullptr, nullptr));
 }
 
 void RenderDelegate::DestroyBprim(pxr::HdBprim* bprim) {
