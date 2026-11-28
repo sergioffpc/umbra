@@ -30,10 +30,10 @@
 #include <utility>
 #include <vector>
 
+#include "buffer_layout.h"
 #include "denoiser.h"
 #include "hydra.h"
 #include "render_pass.h"
-#include "render_vars.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
@@ -54,21 +54,6 @@ bool HasVar(const RenderProduct& product, RenderVarSource source) {
   return std::ranges::contains(product.vars, source, &RenderVar::source);
 }
 
-// The inputs of the denoise of `product` that it has no var of: none when it
-// has no denoisedColor var.
-std::vector<RenderVarSource> InternalInputs(const RenderProduct& product) {
-  std::vector<RenderVarSource> inputs;
-  if (!HasVar(product, RenderVarSource::kDenoisedColor)) {
-    return inputs;
-  }
-  for (const RenderVarTraits& var : kRenderVars) {
-    if (var.denoise == DenoiseRole::kInput && !HasVar(product, var.source)) {
-      inputs.push_back(var.source);
-    }
-  }
-  return inputs;
-}
-
 // A render buffer of `product`, the `index`th, the `slot`th of its buffers,
 // with `channels` channels over its data window, set to 0, for `what`.
 std::expected<std::unique_ptr<RenderBuffer>, core::Error> CreateBuffer(
@@ -87,26 +72,20 @@ std::expected<std::unique_ptr<RenderBuffer>, core::Error> CreateBuffer(
   return buffer;
 }
 
-// The render buffers of `product`, the `index`th, sized to its data window
-// and set to 0: those of its vars, then those of the inputs of its denoise
-// it has no var of, with the channels of their sources.
+// The render buffers of `product`, the `index`th, those of `layout`, its
+// layout, set to 0: those of its vars, named after them, then those of the
+// inputs of its denoise it has no var of, named after their AOVs.
 std::expected<ProductBuffers, core::Error> CreateBuffers(
-    const RenderProduct& product, std::size_t index) {
-  const std::vector<RenderVarSource> internal = InternalInputs(product);
+    const RenderProduct& product, const BufferLayout& layout,
+    std::size_t index) {
   ProductBuffers buffers;
-  buffers.reserve(product.vars.size() + internal.size());
-  for (const RenderVar& var : product.vars) {
-    auto buffer =
-        CreateBuffer(product, index, buffers.size(), var.channels, var.name);
-    if (!buffer.has_value()) {
-      return std::unexpected(std::move(buffer.error()));
-    }
-    buffers.push_back(*std::move(buffer));
-  }
-  for (const RenderVarSource source : internal) {
-    auto buffer =
-        CreateBuffer(product, index, buffers.size(),
-                     RenderVarOf(source).channels, AovName(source).GetString());
+  buffers.reserve(layout.slots.size());
+  for (const BufferSlot& slot : layout.slots) {
+    const std::size_t position = buffers.size();
+    auto buffer = CreateBuffer(product, index, position, slot.channels,
+                               position < product.vars.size()
+                                   ? product.vars.at(position).name
+                                   : AovName(slot.source).GetString());
     if (!buffer.has_value()) {
       return std::unexpected(std::move(buffer.error()));
     }
@@ -115,29 +94,17 @@ std::expected<ProductBuffers, core::Error> CreateBuffers(
   return buffers;
 }
 
-// The AOV binding of `buffer` as the AOV of `source`.
-pxr::HdRenderPassAovBinding BindingOf(RenderVarSource source,
-                                      RenderBuffer& buffer) {
-  pxr::HdRenderPassAovBinding binding;
-  binding.aovName = AovName(source);
-  binding.renderBuffer = &buffer;
-  binding.renderBufferId = buffer.GetId();
-  return binding;
-}
-
-// The AOV bindings of `buffers`, those CreateBuffers gives `product`, by the
+// The AOV bindings of `buffers`, those CreateBuffers gives `layout`, by the
 // names AovName gives their sources.
-pxr::HdRenderPassAovBindingVector BindingsOf(const RenderProduct& product,
+pxr::HdRenderPassAovBindingVector BindingsOf(const BufferLayout& layout,
                                              const ProductBuffers& buffers) {
   pxr::HdRenderPassAovBindingVector bindings;
   bindings.reserve(buffers.size());
-  for (const auto& [var, buffer] : std::views::zip(product.vars, buffers)) {
-    bindings.push_back(BindingOf(var.source, *buffer));
-  }
-  for (const auto& [source, buffer] :
-       std::views::zip(InternalInputs(product),
-                       buffers | std::views::drop(product.vars.size()))) {
-    bindings.push_back(BindingOf(source, *buffer));
+  for (const auto& [slot, buffer] : std::views::zip(layout.slots, buffers)) {
+    pxr::HdRenderPassAovBinding& binding = bindings.emplace_back();
+    binding.aovName = AovName(slot.source);
+    binding.renderBuffer = buffer.get();
+    binding.renderBufferId = buffer->GetId();
   }
   return bindings;
 }
@@ -219,6 +186,8 @@ std::expected<void, core::Error> RenderTask::Render(
   pxr::HdRenderIndex& render_index = *index_;
   const std::vector<RenderProduct>& products = committed.settings.products;
   buffers_.resize(products.size());
+  layouts_.resize(products.size());
+  states_.resize(products.size());
   while (passes_.size() < products.size()) {
     passes_.push_back(
         std::static_pointer_cast<RenderPass>(delegate_->CreateRenderPass(
@@ -234,23 +203,37 @@ std::expected<void, core::Error> RenderTask::Render(
   return {};
 }
 
+std::expected<void, core::Error> RenderTask::Bind(const RenderProduct& product,
+                                                  std::size_t index) {
+  BufferLayout layout = LayoutOf(product);
+  std::shared_ptr<pxr::HdRenderPassState>& state = states_.at(index);
+  if (state != nullptr && layout == layouts_.at(index)) {
+    return {};
+  }
+  auto buffers = CreateBuffers(product, layout, index);
+  if (!buffers.has_value()) {
+    return std::unexpected(std::move(buffers.error()));
+  }
+  buffers_.at(index) = *std::move(buffers);
+  layouts_.at(index) = std::move(layout);
+  state = std::make_shared<pxr::HdRenderPassState>();
+  state->SetAovBindings(BindingsOf(layouts_.at(index), buffers_.at(index)));
+  return {};
+}
+
 std::expected<void, core::Error> RenderTask::RenderOne(
     const Committed& committed, std::size_t index) {
   const RenderProduct& product = committed.settings.products.at(index);
-  auto buffers = CreateBuffers(product, index);
-  if (!buffers.has_value()) {
-    return std::unexpected(std::move(buffers.error()));
+  if (auto bound = Bind(product, index); !bound.has_value()) {
+    return bound;
   }
   const auto denoiser = DenoiserOf(product);
   if (!denoiser.has_value()) {
     return std::unexpected(denoiser.error());
   }
-  buffers_.at(index) = *std::move(buffers);
-  const auto state = std::make_shared<pxr::HdRenderPassState>();
-  state->SetAovBindings(BindingsOf(product, buffers_.at(index)));
   RenderPass& pass = *passes_.at(index);
   pass.SetProduct(product, committed.frame, *denoiser, display_);
-  pass.Execute(state, render_tags_);
+  pass.Execute(states_.at(index), render_tags_);
   return pass.TakeResult();
 }
 

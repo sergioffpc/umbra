@@ -9,6 +9,7 @@
 
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/renderIndex.h>
+#include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/task.h>
 #include <pxr/imaging/hd/types.h>
@@ -23,6 +24,7 @@
 #include <span>
 #include <vector>
 
+#include "buffer_layout.h"
 #include "denoiser.h"
 #include "hydra.h"
 #include "render_pass.h"
@@ -48,8 +50,11 @@ using ProductBuffers = std::vector<std::unique_ptr<RenderBuffer>>;
 // each product of the settings committed through a render pass of its own,
 // into render buffers it creates, sized to the product's data window: one
 // per var, whose AOV is AovName of its source, and, for a product with a
-// denoisedColor var, one per input of the denoise it has no var of. The
-// buffers live until the next Execute. The denoiser of the denoisedColor
+// denoisedColor var, one per input of the denoise it has no var of. A
+// product's buffers, and the render pass state that binds them, are kept
+// across frames while its buffer layout (LayoutOf) does not change, holding
+// the last frame's pixels until the devices render over them; they are
+// created again, set to 0, when it does. The denoiser of the denoisedColor
 // vars is created for the first product that has one, and serves every
 // later product and frame.
 class RenderTask final : public pxr::HdTask {
@@ -86,6 +91,10 @@ class RenderTask final : public pxr::HdTask {
   // Renders each product of `committed`.
   [[nodiscard]] std::expected<void, core::Error> Render(
       const Committed& committed);
+  // Binds the render buffers of `product`, the `index`th, to its render pass
+  // state: those it has, while their layout fits it, or new ones.
+  [[nodiscard]] std::expected<void, core::Error> Bind(
+      const RenderProduct& product, std::size_t index);
   // Renders the `index`th product of `committed`, once the passes are
   // created.
   [[nodiscard]] std::expected<void, core::Error> RenderOne(
@@ -105,6 +114,10 @@ class RenderTask final : public pxr::HdTask {
   Display* UMBRA_NULLABLE display_;
   std::vector<std::shared_ptr<RenderPass>> passes_;
   std::vector<ProductBuffers> buffers_;
+  // The layout of each product's buffers, and the render pass state that
+  // binds them, null until they are created.
+  std::vector<BufferLayout> layouts_;
+  std::vector<std::shared_ptr<pxr::HdRenderPassState>> states_;
   std::optional<std::expected<void, core::Error>> result_;
 };
 

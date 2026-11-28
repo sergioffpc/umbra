@@ -29,7 +29,10 @@ Sources (`src/delegate/`):
   shutter and the dicing view, places the lights, and commits.
 - `render_task.h`: the task that runs in HdEngine::Execute: it syncs, then
   renders each product through its render pass, into the render buffers
-  it creates.
+  it creates, which it keeps across frames while their layout does not
+  change.
+- `buffer_layout.h`: the layout of a product's render buffers, by which the
+  render task keeps them.
 - `render_settings_prim.h`, `camera_prim.h`, `mesh_prim.h`,
   `unsupported_prim.h`: the RenderSettings, Camera and Mesh prims, and the
   rprims of the types umbra does not take, which are only counted.

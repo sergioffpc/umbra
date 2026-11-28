@@ -26,6 +26,7 @@ umbra_add_module(
   delegate
   EXCEPTIONS
   SOURCES
+  buffer_layout.cc
   camera_prim.cc
   commit.cc
   commit_cameras.cc
