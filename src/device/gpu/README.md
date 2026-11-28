@@ -41,7 +41,8 @@ The programs call OptiX's device intrinsics directly
 (`docs/adr/0017-ext-is-a-thin-layer-over-each-dependency.md`).
 
 Each device the module creates has its own stream and OptiX context, and
-holds in the GPU's memory, by id, what the commits gave it: the arrays of
+holds in the GPU's memory, by id, in the id tables of
+`umbra/device/id_table.h`, what the commits gave it: the arrays of
 each prototype (points as `float3` at a 16-byte stride, one array per motion
 key), the parameters and placements of each light and camera, and the
 acceleration structures built from them:

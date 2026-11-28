@@ -23,6 +23,7 @@
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/device/gpu/module_abi.h"
+#include "umbra/device/id_table.h"
 #include "umbra/device/image.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/cuda/owners.h"
@@ -75,7 +76,7 @@ class ModuleDevice {
   [[nodiscard]] backend::Gpu gpu() const UMBRA_LIFETIMEBOUND;
 
   [[nodiscard]] backend::Result<void> ApplyPrototypes(
-      const device::PrototypeChanges& changes);
+      const device::PrototypeChanges& changes, std::uint32_t count);
   [[nodiscard]] backend::Result<void> BuildIas();
   [[nodiscard]] backend::Result<void> UploadLightShapes(std::uint32_t lights);
   [[nodiscard]] backend::Result<void> MakeCurrent() const;
@@ -84,10 +85,9 @@ class ModuleDevice {
   std::string name_;
   ext::cuda::Stream stream_;
   ext::optix::DeviceContext context_;
-  backend::IdTable<backend::GpuPrototype, device::PrototypeId> prototypes_{
-      "prototype"};
-  backend::IdTable<backend::GpuLight, device::LightId> lights_{"light"};
-  backend::IdTable<backend::GpuCamera, device::CameraId> cameras_{"camera"};
+  device::IdTable<backend::GpuPrototype, device::PrototypeId> prototypes_;
+  device::IdTable<backend::GpuLight, device::LightId> lights_;
+  device::IdTable<backend::GpuCamera, device::CameraId> cameras_;
   backend::AccelStructure ias_;
   // The shape of each light, by light id: zeros for a light without one.
   ext::cuda::DeviceBuffer light_shapes_;

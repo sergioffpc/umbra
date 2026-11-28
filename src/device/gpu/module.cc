@@ -118,7 +118,9 @@ class ModuleBackedDevice final : public device::Device {
  public:
   ModuleBackedDevice(const ModuleApi& api UMBRA_LIFETIMEBOUND,
                      ModuleDevice& held, int ordinal)
-      : api_(&api), held_(&held), name_(std::format("gpu{}", ordinal)) {}
+      : api_(&api),
+        held_(&held),
+        name_(device::DeviceName(device::DeviceKind::kGpu, ordinal)) {}
   ModuleBackedDevice(const ModuleBackedDevice&) = delete;
   ModuleBackedDevice& operator=(const ModuleBackedDevice&) = delete;
   ModuleBackedDevice(ModuleBackedDevice&&) = delete;
@@ -141,25 +143,33 @@ class ModuleBackedDevice final : public device::Device {
         !prepared.has_value()) {
       return prepared;
     }
-    for (device::TileQueue::Batch batch = tiles.Take(kTilesPerLaunch);
-         !batch.IsEmpty(); batch = tiles.Take(kTilesPerLaunch)) {
-      const auto count = static_cast<std::size_t>(batch.end - batch.first);
-      for (std::size_t index = 0; index < count; ++index) {
-        batch_.at(index) = tiles.TileWindow(batch.first + index);
-      }
-      if (auto rendered = ResultOf(api_->render_tiles(
-              held_, &frame, std::span(batch_).first(count)));
-          !rendered.has_value()) {
-        return rendered;
-      }
-      for (std::uint64_t tile = batch.first; tile < batch.end; ++tile) {
-        tiles.Finish(tile);
-      }
+    return tiles.ForEachBatch(kTilesPerLaunch,
+                              [&](const device::TileQueue::Batch& batch) {
+                                return RenderBatch(frame, tiles, batch);
+                              });
+  }
+
+ private:
+  // Renders `batch` of `tiles` in one launch, copies it into the render
+  // buffers and finishes its tiles.
+  [[nodiscard]] std::expected<void, Error> RenderBatch(
+      const device::FrameParameters& frame, device::TileQueue& tiles,
+      const device::TileQueue::Batch& batch) {
+    const auto count = static_cast<std::size_t>(batch.end - batch.first);
+    for (std::size_t index = 0; index < count; ++index) {
+      batch_.at(index) = tiles.TileWindow(batch.first + index);
+    }
+    if (auto rendered = ResultOf(
+            api_->render_tiles(held_, &frame, std::span(batch_).first(count)));
+        !rendered.has_value()) {
+      return rendered;
+    }
+    for (std::uint64_t tile = batch.first; tile < batch.end; ++tile) {
+      tiles.Finish(tile);
     }
     return {};
   }
 
- private:
   const ModuleApi* api_;
   ModuleDevice* held_;
   std::string name_;
@@ -271,9 +281,10 @@ std::expected<std::unique_ptr<device::Device>, Error> Module::CreateDevice(
     return std::unexpected(created.error());
   }
   if (held == nullptr) {
-    return std::unexpected(
-        Error(ErrorCode::kUnavailable,
-              std::format("gpu{}: the module created no device", ordinal)));
+    return std::unexpected(Error(
+        ErrorCode::kUnavailable,
+        std::format("{}: the module created no device",
+                    device::DeviceName(device::DeviceKind::kGpu, ordinal))));
   }
   return std::make_unique<ModuleBackedDevice>(*api_, *held, ordinal);
 }

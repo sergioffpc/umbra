@@ -11,7 +11,9 @@
 #include <expected>
 #include <format>
 #include <memory>
+#include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -25,6 +27,7 @@
 #include "umbra/device/camera_rays.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/id_table.h"
 #include "umbra/device/image.h"
 #include "umbra/device/light_shapes.h"
 #include "umbra/device/render_data.h"
@@ -73,24 +76,21 @@ Result<void> UploadInto(T& held, const View& view, const Upload& upload) {
       [&](T uploaded) { held = std::move(uploaded); });
 }
 
-// Applies the removals, updates and additions of `changes` to `table`:
-// `upload` uploads a light or a camera, which is updated whole.
+// Applies the removals, updates and additions of `changes` to `table`, of
+// `count` ids of the prims `kind`: `upload` uploads a light or a camera,
+// which is added and updated whole.
 template <typename T, typename View, typename Id, typename Upload>
 Result<void> ApplyWhole(const device::Changes<View, Id>& changes,
-                        backend::IdTable<T, Id>& table, const Upload& upload) {
-  const auto update = [&](const View& updated) {
-    return table.Held(updated.id).and_then([&](T* held) {
-      return UploadInto(*held, updated, upload);
+                        std::uint32_t count, device::IdTable<T, Id>& table,
+                        std::string_view kind, const Upload& upload) {
+  const auto upload_into = [&](const View& view) {
+    return backend::HeldIn(table, view.id, kind).and_then([&](T* held) {
+      return UploadInto(*held, view, upload);
     });
   };
-  const auto add = [&](const View& added) {
-    return upload(added).and_then(
-        [&](T uploaded) { return table.Add(added.id, std::move(uploaded)); });
-  };
-  return ApplyEach(changes.removed,
-                   [&](Id removed) { return table.Remove(removed); })
-      .and_then([&] { return ApplyEach(changes.updated, update); })
-      .and_then([&] { return ApplyEach(changes.added, add); });
+  return backend::ApplyIds(changes, count, table, kind)
+      .and_then([&] { return ApplyEach(changes.updated, upload_into); })
+      .and_then([&] { return ApplyEach(changes.added, upload_into); });
 }
 
 // What the IAS holds: the records of the prototypes' instances, then those
@@ -108,15 +108,20 @@ OptixAccelBuildOptions StaticBuild() {
                                OPTIX_BUILD_OPERATION_BUILD, 1);
 }
 
-using Lights = backend::IdTable<backend::GpuLight, device::LightId>;
-using Prototypes = backend::IdTable<backend::GpuPrototype, device::PrototypeId>;
+using Lights = device::IdTable<backend::GpuLight, device::LightId>;
+using Prototypes = device::IdTable<backend::GpuPrototype, device::PrototypeId>;
+
+// The names of the prims of each table in messages.
+constexpr std::string_view kPrototype = "prototype";
+constexpr std::string_view kLight = "light";
+constexpr std::string_view kCamera = "camera";
 
 // The records the prims of `table` add to the IAS, and how many of them
 // move.
 template <typename Table>
 std::pair<std::uint32_t, std::uint32_t> CountRecords(const Table& table) {
   std::pair<std::uint32_t, std::uint32_t> counts;
-  table.ForEach([&](const auto& held) {
+  table.ForEach([&](auto /*id*/, const auto& held) {
     const std::uint32_t records = backend::InstanceCount(held);
     counts.first += records;
     counts.second += records == 0 ? 0 : held.instances.moving_count;
@@ -143,7 +148,7 @@ Result<std::uint32_t> CopyEachRecords(const Table& table, DeviceBuffer& input,
                                       std::uint32_t first,
                                       cudaStream_t stream) {
   Result<void> copied;
-  table.ForEach([&](const auto& held) {
+  table.ForEach([&](auto /*id*/, const auto& held) {
     copied = copied.and_then(
         [&] { return backend::CopyInstances(held, input, first, stream); });
     first += backend::InstanceCount(held);
@@ -194,7 +199,7 @@ Result<std::unique_ptr<ModuleDevice>> ModuleDevice::Create(int ordinal) {
 ModuleDevice::ModuleDevice(int ordinal, ext::cuda::Stream stream,
                            ext::optix::DeviceContext context)
     : ordinal_(ordinal),
-      name_(std::format("gpu{}", ordinal)),
+      name_(device::DeviceName(device::DeviceKind::kGpu, ordinal)),
       stream_(std::move(stream)),
       context_(std::move(context)) {
   Log(core::LogLevel::kDebug, "{}: created, with its stream and context",
@@ -237,20 +242,21 @@ Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
   if (auto current = MakeCurrent(); !current.has_value()) {
     return current;
   }
-  prototypes_.Reserve(changes.ids.prototypes);
-  lights_.Reserve(changes.ids.lights);
-  cameras_.Reserve(changes.ids.cameras);
   const auto upload_light = [&](const device::Light& light) {
     return backend::UploadLight(light, gpu());
   };
   const auto upload_camera = [&](const device::Camera& camera) {
     return backend::UploadCamera(camera, stream_.get());
   };
-  return ApplyPrototypes(changes.prototypes)
-      .and_then(
-          [&] { return ApplyWhole(changes.lights, lights_, upload_light); })
-      .and_then(
-          [&] { return ApplyWhole(changes.cameras, cameras_, upload_camera); })
+  return ApplyPrototypes(changes.prototypes, changes.ids.prototypes)
+      .and_then([&] {
+        return ApplyWhole(changes.lights, changes.ids.lights, lights_, kLight,
+                          upload_light);
+      })
+      .and_then([&] {
+        return ApplyWhole(changes.cameras, changes.ids.cameras, cameras_,
+                          kCamera, upload_camera);
+      })
       .and_then([&] { return BuildIas(); })
       .and_then([&] { return UploadLightShapes(changes.ids.lights); })
       .and_then([&] {
@@ -260,8 +266,8 @@ Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
 
 Result<void> ModuleDevice::UploadLightShapes(std::uint32_t lights) {
   std::vector<device::LightShape> shapes(lights);
-  lights_.ForEach([&](const backend::GpuLight& held) {
-    const auto light = std::to_underlying(held.id);
+  lights_.ForEach([&](device::LightId key, const backend::GpuLight& held) {
+    const auto light = std::to_underlying(key);
     if (held.shape.has_value() && light < shapes.size()) {
       shapes.at(light) = *held.shape;
     }
@@ -276,16 +282,21 @@ Result<void> ModuleDevice::UploadLightShapes(std::uint32_t lights) {
 }
 
 Result<void> ModuleDevice::PrepareRender(const device::FrameParameters& frame) {
-  return MakeCurrent()
-      .and_then([&] { return cameras_.Held(frame.camera); })
-      .and_then([&](const backend::GpuCamera* camera) {
-        const backend::Scene scene{
-            .camera = device::MakeCameraModel(backend::ViewOf(*camera), frame),
-            .top = ias_.handle,
-            .light_shapes = light_shapes_.address(),
-        };
-        return renderer_.Prepare(frame, scene, context_.get(), stream_.get());
-      });
+  return MakeCurrent().and_then([&] -> Result<void> {
+    const std::optional<device::CameraModel> camera = device::FrameCameraModel(
+        cameras_, frame,
+        [](const backend::GpuCamera& held) { return backend::ViewOf(held); });
+    if (!camera.has_value()) {
+      return std::unexpected(std::format("{} {} is not held", kCamera,
+                                         std::to_underlying(frame.camera)));
+    }
+    const backend::Scene scene{
+        .camera = *camera,
+        .top = ias_.handle,
+        .light_shapes = light_shapes_.address(),
+    };
+    return renderer_.Prepare(frame, scene, context_.get(), stream_.get());
+  });
 }
 
 Result<void> ModuleDevice::RenderTiles(
@@ -298,23 +309,23 @@ Result<void> ModuleDevice::RenderTiles(
 }
 
 Result<void> ModuleDevice::ApplyPrototypes(
-    const device::PrototypeChanges& changes) {
+    const device::PrototypeChanges& changes, std::uint32_t count) {
   const auto update = [&](const device::UpdatedPrototype& updated) {
-    return prototypes_.Held(updated.prototype.id)
+    return backend::HeldIn(prototypes_, updated.prototype.id, kPrototype)
         .and_then([&](backend::GpuPrototype* held) {
           return backend::UpdatePrototype(updated, *held, gpu());
         });
   };
+  const auto upload = [&](const device::Prototype& added) {
+    return backend::AddPrototype(added, gpu());
+  };
   const auto add = [&](const device::Prototype& added) {
-    return backend::AddPrototype(added, gpu())
-        .and_then([&](backend::GpuPrototype held) {
-          return prototypes_.Add(added.id, std::move(held));
+    return backend::HeldIn(prototypes_, added.id, kPrototype)
+        .and_then([&](backend::GpuPrototype* held) {
+          return UploadInto(*held, added, upload);
         });
   };
-  return ApplyEach(changes.removed,
-                   [&](device::PrototypeId removed) {
-                     return prototypes_.Remove(removed);
-                   })
+  return backend::ApplyIds(changes, count, prototypes_, kPrototype)
       .and_then([&] { return ApplyEach(changes.updated, update); })
       .and_then([&] { return ApplyEach(changes.added, add); });
 }

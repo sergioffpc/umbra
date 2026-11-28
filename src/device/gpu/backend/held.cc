@@ -8,18 +8,48 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "support.h"
+#include "umbra/device/id_table.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/cuda/owners.h"
 
 namespace umbra::device::gpu::backend {
 
 using ext::cuda::Replace;
+
+namespace {
+
+// Why an id does not apply, after its kind and its id.
+std::string_view ReasonOf(device::IdFault fault) {
+  switch (fault) {
+    case device::IdFault::kOutOfRange:
+      return "is out of range";
+    case device::IdFault::kRemovedNotHeld:
+      return "is removed, and not held";
+    case device::IdFault::kUpdatedNotHeld:
+      return "is updated, and not held";
+    case device::IdFault::kUpdatedTwice:
+      return "is updated twice";
+    case device::IdFault::kAddedHeld:
+      return "is already held";
+    case device::IdFault::kHeldOutOfRange:
+      return "is held, and out of range";
+  }
+  return "does not apply";
+}
+
+}  // namespace
+
+std::string MessageOf(const device::IdError& error, std::string_view kind) {
+  return std::format("{} {} {}", kind, error.id, ReasonOf(error.fault));
+}
 
 Result<HeldPrimvar> UploadPrimvar(const device::Primvar& primvar,
                                   cudaStream_t stream) {
