@@ -9,12 +9,8 @@
 
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/pxr.h>
-#include <pxr/usd/sdf/path.h>
-#include <pxr/usd/usd/stage.h>
 
-#include <cstdint>
 #include <expected>
-#include <optional>
 #include <vector>
 
 #include "commit.h"
@@ -35,20 +31,19 @@ namespace umbra::delegate::internal {
 class ProductConverter {
  public:
   ProductConverter(const CommitInputs& inputs UMBRA_LIFETIMEBOUND,
-                   const pxr::UsdStage& stage UMBRA_LIFETIMEBOUND,
                    Cameras& cameras UMBRA_LIFETIMEBOUND)
-      : inputs_(&inputs), stage_(&stage), cameras_(&cameras) {}
+      : inputs_(&inputs), cameras_(&cameras) {}
 
   // The products of `settings`, or their implicit one, of one color var,
   // seen through `camera`, the settings' camera: each with its file
-  // prepared, its framing, its vars, read from the stage, its samples per
-  // pixel, and its camera's transforms at the frame, its camera given an id
-  // by the cameras. The vars umbra does not render are left out, and the lpe
-  // and primvar vars rendered as 0. Fails with kInvalidArgument when a
-  // product has no orderedVars, no camera or one that is not a Camera, no
-  // var umbra renders, a data window that holds no pixel, a file that is not
-  // .exr, or an umbra:samplesPerPixel, its own or the settings', that is not
-  // an int above 0; kUnavailable when a file cannot be written.
+  // prepared, its framing, its vars and its samples per pixel, as the
+  // settings read them, and its camera's transforms at the frame, its camera
+  // given an id by the cameras. The vars umbra does not render are left out,
+  // and the lpe and primvar vars rendered as 0. Fails with kInvalidArgument
+  // when a product has no orderedVars, no camera or one that is not a Camera,
+  // no var umbra renders, a data window that holds no pixel, a file that is
+  // not .exr, or an umbra:samplesPerPixel, its own or the settings', that is
+  // not an int above 0; kUnavailable when a file cannot be written.
   [[nodiscard]] std::expected<std::vector<RenderProduct>, core::Error> Products(
       const RenderSettingsPrim& settings, device::CameraId camera);
 
@@ -57,20 +52,17 @@ class ProductConverter {
   void Report(Warnings& warnings) const;
 
  private:
-  // The product `product` converts into.
+  // The product `product` converts into, with what the settings read of it,
+  // `attributes`, and their own samples per pixel, `settings_samples`.
   [[nodiscard]] std::expected<RenderProduct, core::Error> Convert(
-      const pxr::HdRenderSettings::RenderProduct& product);
-  // The product of settings without products: one color var.
+      const pxr::HdRenderSettings::RenderProduct& product,
+      const ProductAttributes& attributes,
+      const AuthoredSamples& settings_samples);
+  // The product of `settings` without products: one color var.
   [[nodiscard]] std::expected<RenderProduct, core::Error> Implicit(
-      device::CameraId camera, const pxr::SdfPath& camera_path,
-      const SettingsBase& base);
-  // umbra:samplesPerPixel, from the product at `product`, if any, then from
-  // the settings, else its default.
-  [[nodiscard]] std::expected<std::uint32_t, core::Error> SamplesPerPixel(
-      std::optional<pxr::SdfPath> product) const;
+      const RenderSettingsPrim& settings, device::CameraId camera);
 
   const CommitInputs* inputs_;
-  const pxr::UsdStage* stage_;
   Cameras* cameras_;
   // The vars left out, and those rendered as 0.
   Tally unsupported_;

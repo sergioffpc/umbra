@@ -12,13 +12,20 @@
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/types.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdRender/tokens.h>
+#include <pxr/usd/usdRender/var.h>
+#include <pxr/usdImaging/usdImaging/usdRenderProductSchema.h>
 #include <pxr/usdImaging/usdImaging/usdRenderSettingsSchema.h>
 
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -73,14 +80,29 @@ const pxr::TfToken& DicingRateName() {
   return kName;
 }
 
+// The name of the samples per pixel on a RenderSettings or RenderProduct
+// prim.
+const pxr::TfToken& SamplesPerPixelName() {
+  static const pxr::TfToken kName("umbra:samplesPerPixel");
+  return kName;
+}
+
+// The namespaced setting `name` of `settings`, a prim's namespacedSettings
+// in the terminal scene index, or none.
+pxr::HdSampledDataSourceHandle Namespaced(
+    const pxr::HdContainerDataSourceHandle& settings,
+    const pxr::TfToken& name) {
+  return pxr::HdSampledDataSource::Cast(
+      settings != nullptr ? settings->Get(name) : nullptr);
+}
+
 // umbra:dicingRate, from the prim's UsdRender data source in the terminal
 // scene index.
 DicingRate ReadDicingRate(const pxr::HdContainerDataSourceHandle& prim) {
-  const pxr::HdContainerDataSourceHandle settings =
-      pxr::UsdImagingUsdRenderSettingsSchema::GetFromParent(prim)
-          .GetNamespacedSettings();
-  const auto source = pxr::HdSampledDataSource::Cast(
-      settings != nullptr ? settings->Get(DicingRateName()) : nullptr);
+  const auto source =
+      Namespaced(pxr::UsdImagingUsdRenderSettingsSchema::GetFromParent(prim)
+                     .GetNamespacedSettings(),
+                 DicingRateName());
   if (source == nullptr) {
     return {};
   }
@@ -119,6 +141,65 @@ device::Image BaseImage(const SettingsBase& base) {
   };
 }
 
+// umbra:samplesPerPixel, from `settings`, a prim's namespacedSettings in the
+// terminal scene index, at the frame.
+AuthoredSamples ReadSamplesPerPixel(
+    const pxr::HdContainerDataSourceHandle& settings) {
+  const auto source = Namespaced(settings, SamplesPerPixelName());
+  if (source == nullptr) {
+    return {};
+  }
+  const pxr::VtValue value = source->GetValue(0.0F);
+  if (value.IsEmpty()) {
+    return {};
+  }
+  if (!value.IsHolding<int>() || value.UncheckedGet<int>() <= 0) {
+    return {.samples = std::nullopt, .validity = SamplesValidity::kInvalid};
+  }
+  return {
+      .samples = static_cast<std::uint32_t>(value.UncheckedGet<int>()),
+      .validity = SamplesValidity::kValid,
+  };
+}
+
+// Whether `data_type` has half components: half, half3, color3h, ...
+bool IsHalfType(std::string_view data_type) {
+  return data_type.starts_with("half") || data_type.ends_with('h');
+}
+
+// The channel type of `var`: see ProductAttributes::var_types. Whether its
+// prim authors its dataType is read from `stage`, as Hydra does not tell.
+ChannelType ChannelTypeOf(
+    const pxr::HdRenderSettings::RenderProduct::RenderVar& var,
+    const pxr::UsdStage* UMBRA_NULLABLE stage) {
+  const bool authored =
+      stage != nullptr && pxr::UsdRenderVar(stage->GetPrimAtPath(var.varPath))
+                              .GetDataTypeAttr()
+                              .HasAuthoredValue();
+  return authored && !IsHalfType(var.dataType.GetString()) ? ChannelType::kFloat
+                                                           : ChannelType::kHalf;
+}
+
+// What the settings read of `product`, whose prim in the terminal scene
+// index, `prim`, authors its samples per pixel.
+ProductAttributes ReadProductAttributes(
+    const pxr::HdRenderSettings::RenderProduct& product,
+    const pxr::HdContainerDataSourceHandle& prim,
+    const pxr::UsdStage* UMBRA_NULLABLE stage) {
+  ProductAttributes attributes{
+      .samples_per_pixel = ReadSamplesPerPixel(
+          pxr::UsdImagingUsdRenderProductSchema::GetFromParent(prim)
+              .GetNamespacedSettings()),
+      .var_types = {},
+  };
+  attributes.var_types.reserve(product.renderVars.size());
+  for (const pxr::HdRenderSettings::RenderProduct::RenderVar& var :
+       product.renderVars) {
+    attributes.var_types.push_back(ChannelTypeOf(var, stage));
+  }
+  return attributes;
+}
+
 }  // namespace
 
 AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token) {
@@ -151,9 +232,10 @@ SettingsBase ProductBase(const pxr::HdRenderSettings::RenderProduct& product) {
   };
 }
 
-RenderSettingsPrim::RenderSettingsPrim(const pxr::SdfPath& prim_id,
-                                       SyncCounter* UMBRA_NULLABLE counter)
-    : pxr::HdRenderSettings(prim_id), counter_(counter) {}
+RenderSettingsPrim::RenderSettingsPrim(
+    const pxr::SdfPath& prim_id, SyncCounter* UMBRA_NULLABLE counter,
+    const pxr::UsdStage* UMBRA_NULLABLE stage)
+    : pxr::HdRenderSettings(prim_id), counter_(counter), stage_(stage) {}
 
 void RenderSettingsPrim::_Sync(
     pxr::HdSceneDelegate* scene_delegate,
@@ -163,6 +245,16 @@ void RenderSettingsPrim::_Sync(
       PrimDataSource(*scene_delegate, GetId());
   base_ = ReadSettingsBase(prim);
   dicing_rate_ = ReadDicingRate(prim);
+  samples_per_pixel_ = ReadSamplesPerPixel(
+      pxr::UsdImagingUsdRenderSettingsSchema::GetFromParent(prim)
+          .GetNamespacedSettings());
+  product_attributes_.clear();
+  product_attributes_.reserve(GetRenderProducts().size());
+  for (const pxr::HdRenderSettings::RenderProduct& product :
+       GetRenderProducts()) {
+    product_attributes_.push_back(ReadProductAttributes(
+        product, PrimDataSource(*scene_delegate, product.productPath), stage_));
+  }
   CountSync(counter_, GetId());
 }
 

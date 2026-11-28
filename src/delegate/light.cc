@@ -53,6 +53,25 @@ namespace {
 
 using ::umbra::core::Error;
 
+// Whether the light `prim` links geometry: see LightLinking.
+LightLinking LinkingOf(const pxr::HdContainerDataSourceHandle& prim) {
+  const pxr::HdContainerDataSourceHandle light =
+      pxr::HdLightSchema::GetFromParent(prim).GetContainer();
+  if (light == nullptr) {
+    return LightLinking::kNone;
+  }
+  const std::array<pxr::TfToken, 2> links = {
+      pxr::HdTokens->lightLink,
+      pxr::HdTokens->shadowLink,
+  };
+  const bool linked = std::ranges::any_of(links, [&](const pxr::TfToken& link) {
+    const auto category =
+        pxr::HdTypedSampledDataSource<pxr::TfToken>::Cast(light->Get(link));
+    return category != nullptr && !category->GetTypedValue(0.0F).IsEmpty();
+  });
+  return linked ? LightLinking::kLinked : LightLinking::kNone;
+}
+
 // The node of the light's material network: UsdLux's shader, whose
 // parameters carry the color spaces of the light's inputs.
 pxr::HdMaterialNodeSchema LightNode(
@@ -506,10 +525,13 @@ void LightPrim::Read(pxr::HdSceneDelegate& delegate) {
   fatal_.reset();
   portals_.clear();
   light_ = {};
-  role_ = type_ == pxr::HdPrimTypeTokens->light &&
-                  ShaderId(PrimDataSource(delegate, GetId())) == kPortalLight
-              ? Role::kPortal
-              : Role::kEmitter;
+  const pxr::HdContainerDataSourceHandle prim =
+      PrimDataSource(delegate, GetId());
+  linking_ = LinkingOf(prim);
+  role_ =
+      type_ == pxr::HdPrimTypeTokens->light && ShaderId(prim) == kPortalLight
+          ? Role::kPortal
+          : Role::kEmitter;
   render_tag_ = delegate.GetRenderTag(GetId());
   if (delegate.GetVisible(GetId())) {
     Convert(delegate);

@@ -7,12 +7,7 @@
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/usd/sdf/path.h>
-#include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/timeCode.h>
 #include <pxr/usd/usdRender/tokens.h>
-#include <pxr/usd/usdRender/var.h>
 
 #include <array>
 #include <cctype>
@@ -21,6 +16,7 @@
 #include <expected>
 #include <format>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,7 +44,6 @@ namespace {
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
 using Product = pxr::HdRenderSettings::RenderProduct;
-using Var = Product::RenderVar;
 
 // The quantity of a raw var named `name`, or none when umbra has no such
 // var.
@@ -79,21 +74,6 @@ std::optional<RenderVarSource> SourceOf(const pxr::TfToken& source_type,
   return std::nullopt;
 }
 
-// Whether `data_type` has half components: half, half3, color3h, ...
-bool IsHalfType(std::string_view data_type) {
-  return data_type.starts_with("half") || data_type.ends_with('h');
-}
-
-// The channel type of a var: half, unless its prim authors a dataType of
-// more precision (float3, color3f, double), which gets float. The schema's
-// fallback, color3f, is not authored: it gives half.
-ChannelType ChannelTypeOf(const Var& var, const pxr::UsdStage& stage) {
-  const pxr::UsdRenderVar prim(stage.GetPrimAtPath(var.varPath));
-  const bool authored = prim.GetDataTypeAttr().HasAuthoredValue();
-  return authored && !IsHalfType(var.dataType.GetString()) ? ChannelType::kFloat
-                                                           : ChannelType::kHalf;
-}
-
 // The components of a value of `data_type`: its trailing count (color3f,
 // float2, texCoord2h), or 1 for a scalar (float, half, int).
 std::uint32_t ComponentsOf(std::string_view data_type) {
@@ -119,14 +99,15 @@ std::uint32_t VarChannels(RenderVarSource source, std::string_view data_type) {
   return channels != 0 ? channels : ComponentsOf(data_type);
 }
 
-// The vars of `product` umbra renders, the others added to `unsupported`;
-// the lpe and primvar vars, which every device leaves at 0, also to `zero`:
-// each counted by its product, with its source's name.
+// The vars of `product` umbra renders, with the channel types the settings
+// read of them, `types`, the others added to `unsupported`; the lpe and
+// primvar vars, which every device leaves at 0, also to `zero`: each counted
+// by its product, with its source's name.
 std::vector<RenderVar> ProductVars(const Product& product,
-                                   const pxr::UsdStage& stage,
+                                   const std::vector<ChannelType>& types,
                                    Tally& unsupported, Tally& zero) {
   std::vector<RenderVar> vars;
-  for (const Var& var : product.renderVars) {
+  for (const auto& [var, type] : std::views::zip(product.renderVars, types)) {
     // A var without a sourceName is the quantity it is named after.
     const std::string name = var.varPath.GetName();
     const std::string source_name =
@@ -144,7 +125,7 @@ std::vector<RenderVar> ProductVars(const Product& product,
         .name = name,
         .source = *source,
         .source_name = named ? source_name : std::string(),
-        .type = ChannelTypeOf(var, stage),
+        .type = type,
         .channels = VarChannels(*source, var.dataType.GetString()),
     });
   }
@@ -191,26 +172,36 @@ RenderProduct Framed(std::string file, device::CameraId camera,
   };
 }
 
-// The value of umbra:samplesPerPixel on the prim at `path`, at `time`: none
-// when it authors none. Fails with kInvalidArgument when it is not an int
-// above 0.
-std::expected<std::optional<std::uint32_t>, Error> AuthoredSamplesPerPixel(
-    const pxr::UsdStage& stage, const pxr::SdfPath& path,
-    pxr::UsdTimeCode time) {
-  static const pxr::TfToken kName("umbra:samplesPerPixel");
-  const pxr::UsdAttribute attribute =
-      stage.GetPrimAtPath(path).GetAttribute(kName);
-  if (!attribute || !attribute.HasAuthoredValue()) {
-    return std::nullopt;
-  }
-  int value = 0;
-  if (!attribute.Get(&value, time) || value <= 0) {
+// The samples per pixel `authored` on the prim at `path`: none when it
+// authors none. Fails with kInvalidArgument when it is not an int above 0.
+std::expected<std::optional<std::uint32_t>, Error> Authored(
+    const AuthoredSamples& authored, const pxr::SdfPath& path) {
+  if (authored.validity == SamplesValidity::kInvalid) {
     return std::unexpected(
         Error(ErrorCode::kInvalidArgument,
               std::format("{}: umbra:samplesPerPixel must be an int above 0",
                           path.GetString())));
   }
-  return static_cast<std::uint32_t>(value);
+  return authored.samples;
+}
+
+// umbra:samplesPerPixel: that `product` authors, on the product at
+// `product_path`, else that `settings` author, on the settings at
+// `settings_path`, else its default.
+std::expected<std::uint32_t, Error> SamplesPerPixel(
+    const AuthoredSamples& product, const pxr::SdfPath& product_path,
+    const AuthoredSamples& settings, const pxr::SdfPath& settings_path) {
+  const auto from_product = Authored(product, product_path);
+  if (!from_product.has_value()) {
+    return std::unexpected(from_product.error());
+  }
+  if (from_product->has_value()) {
+    return **from_product;
+  }
+  return Authored(settings, settings_path)
+      .transform([](std::optional<std::uint32_t> value) {
+        return value.value_or(kDefaultSamplesPerPixel);
+      });
 }
 
 // Gives `product` the pixels of its data window, its file's pixel aspect
@@ -257,29 +248,9 @@ void ProductConverter::Report(Warnings& warnings) const {
              "umbra renders only color, depth, normal and albedo", warnings);
 }
 
-std::expected<std::uint32_t, Error> ProductConverter::SamplesPerPixel(
-    std::optional<pxr::SdfPath> product) const {
-  const pxr::UsdTimeCode time = inputs_->frame.has_value()
-                                    ? pxr::UsdTimeCode(*inputs_->frame)
-                                    : pxr::UsdTimeCode::Default();
-  const auto from_product =
-      product.has_value()
-          ? AuthoredSamplesPerPixel(*stage_, *product, time)
-          : std::expected<std::optional<std::uint32_t>, Error>();
-  if (!from_product.has_value()) {
-    return std::unexpected(from_product.error());
-  }
-  if (from_product->has_value()) {
-    return **from_product;
-  }
-  return AuthoredSamplesPerPixel(*stage_, inputs_->settings, time)
-      .transform([](std::optional<std::uint32_t> value) {
-        return value.value_or(kDefaultSamplesPerPixel);
-      });
-}
-
 std::expected<RenderProduct, Error> ProductConverter::Convert(
-    const Product& product) {
+    const Product& product, const ProductAttributes& attributes,
+    const AuthoredSamples& settings_samples) {
   const std::string owner =
       std::format("render product {}", product.productPath.GetString());
   if (product.renderVars.empty()) {
@@ -296,13 +267,16 @@ std::expected<RenderProduct, Error> ProductConverter::Convert(
   }
   RenderProduct converted =
       Framed(std::move(file), *camera, ProductBase(product));
-  converted.vars = ProductVars(product, *stage_, unsupported_, zero_);
+  converted.vars =
+      ProductVars(product, attributes.var_types, unsupported_, zero_);
   if (converted.vars.empty()) {
     return std::unexpected(
         Error(ErrorCode::kInvalidArgument,
               std::format("{} has no var umbra renders", owner)));
   }
-  auto samples = SamplesPerPixel(product.productPath);
+  auto samples =
+      SamplesPerPixel(attributes.samples_per_pixel, product.productPath,
+                      settings_samples, inputs_->settings);
   if (!samples.has_value()) {
     return std::unexpected(samples.error());
   }
@@ -315,13 +289,12 @@ std::expected<RenderProduct, Error> ProductConverter::Convert(
 }
 
 std::expected<RenderProduct, Error> ProductConverter::Implicit(
-    device::CameraId camera, const pxr::SdfPath& camera_path,
-    const SettingsBase& base) {
+    const RenderSettingsPrim& settings, device::CameraId camera) {
   std::string file = ImplicitProductFile(inputs_->scene_path, inputs_->frame);
   if (auto prepared = PrepareOutput(file); !prepared.has_value()) {
     return std::unexpected(prepared.error());
   }
-  RenderProduct product = Framed(std::move(file), camera, base);
+  RenderProduct product = Framed(std::move(file), camera, settings.base());
   product.vars.push_back({
       .name = "color",
       .source = RenderVarSource::kColor,
@@ -329,13 +302,14 @@ std::expected<RenderProduct, Error> ProductConverter::Implicit(
       .type = ChannelType::kHalf,
       .channels = RenderVarOf(RenderVarSource::kColor).channels,
   });
-  auto samples = SamplesPerPixel(std::nullopt);
+  auto samples = SamplesPerPixel(
+      {}, pxr::SdfPath(), settings.samples_per_pixel(), inputs_->settings);
   if (!samples.has_value()) {
     return std::unexpected(samples.error());
   }
   product.samples_per_pixel = *samples;
   if (auto framed = Frame(
-          product, cameras_->Prim(camera_path),
+          product, cameras_->Prim(settings.CameraPath()),
           std::format("render settings {}", inputs_->settings.GetString()));
       !framed.has_value()) {
     return std::unexpected(framed.error());
@@ -347,15 +321,16 @@ std::expected<std::vector<RenderProduct>, Error> ProductConverter::Products(
     const RenderSettingsPrim& settings, device::CameraId camera) {
   std::vector<RenderProduct> products;
   if (settings.GetRenderProducts().empty()) {
-    auto implicit = Implicit(camera, settings.CameraPath(), settings.base());
+    auto implicit = Implicit(settings, camera);
     if (!implicit.has_value()) {
       return std::unexpected(implicit.error());
     }
     products.push_back(std::move(*implicit));
     return products;
   }
-  for (const Product& product : settings.GetRenderProducts()) {
-    auto converted = Convert(product);
+  for (const auto& [product, attributes] : std::views::zip(
+           settings.GetRenderProducts(), settings.product_attributes())) {
+    auto converted = Convert(product, attributes, settings.samples_per_pixel());
     if (!converted.has_value()) {
       return std::unexpected(converted.error());
     }

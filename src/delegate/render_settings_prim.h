@@ -2,8 +2,9 @@
 // Copyright The Umbra Authors
 //
 // A RenderSettings prim, as Hydra gives it, synced: the attributes its
-// products inherit, as UsdRender resolves them, its dicing rate, and the
-// images of the products that see through its camera.
+// products inherit, as UsdRender resolves them, its dicing rate, the samples
+// per pixel it and its products author, the channel type of each of their
+// vars, and the images of the products that see through its camera.
 
 #ifndef UMBRA_DELEGATE_RENDER_SETTINGS_PRIM_H_
 #define UMBRA_DELEGATE_RENDER_SETTINGS_PRIM_H_
@@ -15,9 +16,11 @@
 #include <pxr/imaging/hd/types.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/stage.h>
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,19 +65,59 @@ struct DicingRate {
   std::string invalid;
 };
 
+// Whether the samples per pixel a prim authors are valid: kInvalid when
+// authored, but not an int above 0.
+enum class SamplesValidity : std::uint8_t {
+  kValid,
+  kInvalid,
+};
+
+// The samples per pixel, umbra:samplesPerPixel, as a RenderSettings or
+// RenderProduct prim authors it.
+struct AuthoredSamples {
+  // None when it is not authored, or invalid.
+  std::optional<std::uint32_t> samples;
+  SamplesValidity validity = SamplesValidity::kValid;
+};
+
+// What a RenderSettings prim reads of one of its products besides Hydra's
+// flattened product.
+struct ProductAttributes {
+  AuthoredSamples samples_per_pixel;
+  // The channel type of each of its vars, in order: half, unless the var's
+  // prim authors a dataType of more precision (float3, color3f, double),
+  // which gets float. The schema's fallback, color3f, is not authored: it
+  // gives half.
+  std::vector<ChannelType> var_types;
+};
+
 // A RenderSettings prim, synced: Hydra's flattened products, the attributes
-// they inherit, and the dicing rate.
+// they inherit, the dicing rate, and what it and its products author of
+// umbra's.
 class RenderSettingsPrim final : public pxr::HdRenderSettings {
  public:
-  // Counts its sync into `counter`, unless it is a fallback prim.
+  // Counts its sync into `counter`, unless it is a fallback prim. `stage`,
+  // the stage Hydra syncs, tells which render vars author their dataType,
+  // which Hydra does not: with none, every var is half.
   RenderSettingsPrim(const pxr::SdfPath& prim_id,
-                     SyncCounter* UMBRA_NULLABLE counter);
+                     SyncCounter* UMBRA_NULLABLE counter,
+                     const pxr::UsdStage* UMBRA_NULLABLE stage);
 
   [[nodiscard]] const SettingsBase& base() const UMBRA_LIFETIMEBOUND {
     return base_;
   }
   [[nodiscard]] const DicingRate& dicing_rate() const UMBRA_LIFETIMEBOUND {
     return dicing_rate_;
+  }
+  [[nodiscard]] const AuthoredSamples& samples_per_pixel() const
+      UMBRA_LIFETIMEBOUND {
+    return samples_per_pixel_;
+  }
+  // What it read of each of its products, those of GetRenderProducts(), in
+  // order.
+  [[nodiscard]] const std::vector<ProductAttributes>& product_attributes() const
+      UMBRA_LIFETIMEBOUND {
+    return product_attributes_;
   }
   // The camera it names, an empty path for none.
   [[nodiscard]] pxr::SdfPath CameraPath() const;
@@ -89,8 +132,11 @@ class RenderSettingsPrim final : public pxr::HdRenderSettings {
 
  private:
   SyncCounter* UMBRA_NULLABLE counter_;
+  const pxr::UsdStage* UMBRA_NULLABLE stage_;
   SettingsBase base_;
   DicingRate dicing_rate_;
+  AuthoredSamples samples_per_pixel_;
+  std::vector<ProductAttributes> product_attributes_;
 };
 
 // The images of the products of `settings` that see through its camera,

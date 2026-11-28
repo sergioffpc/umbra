@@ -3,15 +3,8 @@
 
 #include "commit_lights.h"
 
-#include <pxr/base/tf/token.h>
-#include <pxr/imaging/hd/dataSource.h>
-#include <pxr/imaging/hd/lightSchema.h>
-#include <pxr/imaging/hd/sceneIndex.h>
-#include <pxr/imaging/hd/tokens.h>
 #include <pxr/usd/sdf/path.h>
 
-#include <algorithm>
-#include <array>
 #include <format>
 #include <optional>
 #include <utility>
@@ -41,26 +34,6 @@ std::vector<host::Texture> TexturesOf(const host::Light& light) {
     return {};
   }
   return {std::move(*texture)};
-}
-
-// Whether the light `prim` links geometry: whether hdsi gave its lightLink
-// or its shadowLink a category, as it does to any collection but the
-// default one of every prim.
-bool IsLinked(const pxr::HdSceneIndexPrim& prim) {
-  const pxr::HdContainerDataSourceHandle light =
-      pxr::HdLightSchema::GetFromParent(prim.dataSource).GetContainer();
-  if (light == nullptr) {
-    return false;
-  }
-  const std::array<pxr::TfToken, 2> links = {
-      pxr::HdTokens->lightLink,
-      pxr::HdTokens->shadowLink,
-  };
-  return std::ranges::any_of(links, [&](const pxr::TfToken& link) {
-    const auto category =
-        pxr::HdTypedSampledDataSource<pxr::TfToken>::Cast(light->Get(link));
-    return category != nullptr && !category->GetTypedValue(0.0F).IsEmpty();
-  });
 }
 
 }  // namespace
@@ -175,11 +148,10 @@ void Lights::Report(Warnings& warnings) const {
   }
 }
 
-void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index,
-                        const SyncedPrims& prims, Warnings& warnings) {
+void ReportLightLinking(const SyncedPrims& prims, Warnings& warnings) {
   Tally linked;
   for (const auto& [path, light] : prims.lights) {
-    if (light->IsChanged() && IsLinked(scene_index->GetPrim(path))) {
+    if (light->IsChanged() && light->linking() == LightLinking::kLinked) {
       linked.Add(path);
     }
   }

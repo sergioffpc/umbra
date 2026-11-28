@@ -7,7 +7,6 @@
 #ifndef UMBRA_DELEGATE_COMMIT_LIGHTS_H_
 #define UMBRA_DELEGATE_COMMIT_LIGHTS_H_
 
-#include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
 
@@ -96,9 +95,8 @@ class Lights {
 // "warning: usd: 3 lights link geometry, which umbra does not: every light
 // lights everything (first /World/rim)"
 // (docs/adr/0009-lights-light-everything.md): of the lights that synced
-// since the last commit, as `scene_index` gives them.
-void ReportLightLinking(const pxr::HdSceneIndexBaseRefPtr& scene_index,
-                        const SyncedPrims& prims, Warnings& warnings);
+// since the last commit.
+void ReportLightLinking(const SyncedPrims& prims, Warnings& warnings);
 
 }  // namespace umbra::delegate::internal
 

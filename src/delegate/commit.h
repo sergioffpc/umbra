@@ -10,10 +10,8 @@
 #ifndef UMBRA_DELEGATE_COMMIT_H_
 #define UMBRA_DELEGATE_COMMIT_H_
 
-#include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
-#include <pxr/usd/usd/stage.h>
 
 #include <expected>
 #include <optional>
@@ -40,22 +38,14 @@ struct CommitInputs {
   std::optional<double> frame;
 };
 
-// The scene a commit reads besides its prims: the stage, which tells which
-// render vars author their dataType, and the terminal scene index, which
-// tells which lights link geometry.
-struct CommitScene {
-  const pxr::UsdStage* stage;
-  pxr::HdSceneIndexBaseRefPtr scene_index;
-};
-
 // Commits to `devices` what changed in the synced prims since the commit
-// `ledger` records, and records this one, reading `scene`. Fails with kNotFound
-// when no RenderSettings prim is at the settings' path, and kInvalidArgument
-// when the settings author an invalid umbra:dicingRate, when the settings or a
-// product have no camera or one that is not a Camera, a product has no
-// orderedVars or none umbra renders, or a product's file is not .exr;
-// kUnavailable when a file cannot be written. Unsupported render vars are left
-// out, with one warning.
+// `ledger` records, and records this one, reading only the prims' host
+// copies. Fails with kNotFound when no RenderSettings prim is at the
+// settings' path, and kInvalidArgument when the settings author an invalid
+// umbra:dicingRate, when the settings or a product have no camera or one that
+// is not a Camera, a product has no orderedVars or none umbra renders, or a
+// product's file is not .exr; kUnavailable when a file cannot be written.
+// Unsupported render vars are left out, with one warning.
 //
 // The cameras committed are those the settings and their products see
 // through: added when they first do, updated when they synced or the
@@ -90,8 +80,8 @@ struct CommitScene {
 // parallel, each on a host thread of its own; the first, in order, that
 // fails stops the commit, with its error, naming it.
 [[nodiscard]] std::expected<Committed, core::Error> Commit(
-    const CommitInputs& inputs, const CommitScene& scene, SyncedPrims& prims,
-    Ledger& ledger, std::span<device::Device* const> devices);
+    const CommitInputs& inputs, SyncedPrims& prims, Ledger& ledger,
+    std::span<device::Device* const> devices);
 
 }  // namespace umbra::delegate::internal
 
