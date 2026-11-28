@@ -27,9 +27,7 @@
 #include <pxr/imaging/hd/primvarSchema.h>
 #include <pxr/imaging/hd/primvarsSchema.h>
 #include <pxr/imaging/hd/renderDelegate.h>
-#include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
-#include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/types.h>
 #include <pxr/imaging/hio/image.h>
@@ -57,7 +55,9 @@
 #include <variant>
 #include <vector>
 
+#include "gf.h"
 #include "host_copy.h"
+#include "scene_index.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
@@ -119,53 +119,15 @@ bool IsColorType(const pxr::TfToken& type_name) {
          pxr::SdfValueRoleNames->Color;
 }
 
-// The components of a Gf vector, as floats, read from its named fields.
-template <std::size_t N, typename Vector>
-  requires(Vector::dimension == N)
-std::array<float, N> Floats(const Vector& vector) {
-  if constexpr (N == 2) {
-    return {static_cast<float>(vector.x), static_cast<float>(vector.y)};
-  } else if constexpr (N == 3) {
-    return {
-        static_cast<float>(vector.x),
-        static_cast<float>(vector.y),
-        static_cast<float>(vector.z),
-    };
-  } else {
-    return {
-        static_cast<float>(vector.x),
-        static_cast<float>(vector.y),
-        static_cast<float>(vector.z),
-        static_cast<float>(vector.w),
-    };
-  }
-}
-
-// The components of a square Gf matrix, as floats, row-major.
-template <std::size_t N, typename Matrix>
-  requires(Matrix::numRows * Matrix::numColumns == N)
-std::array<float, N> Floats(const Matrix& matrix) {
-  constexpr std::size_t kRows = Matrix::numRows;
-  std::array<float, N> floats{};
-  for (std::size_t row = 0; row < kRows; ++row) {
-    const std::array<float, kRows> values =
-        Floats<kRows>(matrix.GetRow(static_cast<int>(row)));
-    for (std::size_t column = 0; column < kRows; ++column) {
-      floats.at((row * kRows) + column) = values.at(column);
-    }
-  }
-  return floats;
-}
-
 // The value of `value`, a Gf vector or matrix of N components of either
 // `Single` or `Double` precision, as floats; none for another type.
 template <std::size_t N, typename Single, typename Double>
 std::optional<host::ParameterValue> GfValue(const pxr::VtValue& value) {
   if (value.IsHolding<Single>()) {
-    return Floats<N>(value.UncheckedGet<Single>());
+    return Components<float, N>(value.UncheckedGet<Single>());
   }
   if (value.IsHolding<Double>()) {
-    return Floats<N>(value.UncheckedGet<Double>());
+    return Components<float, N>(value.UncheckedGet<Double>());
   }
   return std::nullopt;
 }
@@ -292,7 +254,7 @@ std::optional<ColorNumbers> ColorComponents(const pxr::VtValue& value) {
         .shape = ColorShape::kArray,
     };
     for (const pxr::GfVec3f& color : value.UncheckedGet<pxr::VtVec3fArray>()) {
-      const std::array<float, 3> triple = Floats<3>(color);
+      const std::array<float, 3> triple = Components<float, 3>(color);
       numbers.rgb.insert(numbers.rgb.end(), triple.begin(), triple.end());
     }
     return numbers;
@@ -320,9 +282,7 @@ host::ParameterValue ColorValue(ColorNumbers numbers) {
 // kDefaultColorSpace when empty.
 std::expected<std::optional<host::ParameterValue>, std::string> ConvertedColor(
     ColorNumbers color, const pxr::TfToken& color_space) {
-  if (auto converted = ext::ocio::ConvertToAcescg(
-          color_space.IsEmpty() ? kDefaultColorSpace : color_space.GetString(),
-          color.rgb);
+  if (auto converted = ConvertColorToAcescg(color_space, color.rgb);
       !converted.has_value()) {
     return std::unexpected(std::string(converted.error().message()));
   }
@@ -341,6 +301,12 @@ std::optional<std::string> FirstFile(const std::string& file) {
     return std::nullopt;
   }
   return tiles.front().first;
+}
+
+// The node type info key of the .oso shader of an OSL node.
+const pxr::TfToken& OslSourceAsset() {
+  static const pxr::TfToken kName("OSL:sourceAsset");
+  return kName;
 }
 
 // Translates the nodes of one network, gathering the textures that do not
@@ -566,8 +532,7 @@ std::expected<void, std::string> Translator::AssignShader(
     node.shader = std::move(*nodedef);
     return {};
   }
-  static const pxr::TfToken kOslSourceAsset("OSL:sourceAsset");
-  if (!network_->GetNodeTypeInfoValue(name, kOslSourceAsset).IsEmpty()) {
+  if (!network_->GetNodeTypeInfoValue(name, OslSourceAsset()).IsEmpty()) {
     return AssignOslShader(name, node);
   }
   return std::unexpected(
@@ -581,9 +546,8 @@ std::expected<void, std::string> Translator::AssignShader(
 
 std::expected<void, std::string> Translator::AssignOslShader(
     const pxr::TfToken& name, host::MaterialNode& node) {
-  static const pxr::TfToken kOslSourceAsset("OSL:sourceAsset");
   const pxr::VtValue asset =
-      network_->GetNodeTypeInfoValue(name, kOslSourceAsset);
+      network_->GetNodeTypeInfoValue(name, OslSourceAsset());
   if (!asset.IsHolding<pxr::SdfAssetPath>()) {
     return std::unexpected(std::format("{}: OSL:sourceAsset is not an asset",
                                        NodePath(name).GetString()));
@@ -722,10 +686,8 @@ void MaterialPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
   if (counter_ == nullptr) {
     return;
   }
-  const pxr::HdSceneIndexBaseRefPtr terminal =
-      scene_delegate->GetRenderIndex().GetTerminalSceneIndex();
   const pxr::HdContainerDataSourceHandle prim =
-      terminal != nullptr ? terminal->GetPrim(GetId()).dataSource : nullptr;
+      PrimDataSource(*scene_delegate, GetId());
   const pxr::HdMaterialNetworkSchema schema =
       pxr::HdMaterialSchema::GetFromParent(prim).GetMaterialNetwork(
           MaterialRenderContexts());
@@ -856,6 +818,13 @@ std::expected<std::string, std::string> TextureColorSpace(
       [](const Error& error) { return std::string(error.message()); });
 }
 
+std::expected<void, Error> ConvertColorToAcescg(const pxr::TfToken& color_space,
+                                                std::span<float> rgb) {
+  return ext::ocio::ConvertToAcescg(
+      color_space.IsEmpty() ? kDefaultColorSpace : color_space.GetString(),
+      rgb);
+}
+
 void ConvertDisplayColor(pxr::HdSceneDelegate& delegate,
                          const pxr::SdfPath& prim_id,
                          std::vector<host::Primvar>& primvars) {
@@ -868,19 +837,14 @@ void ConvertDisplayColor(pxr::HdSceneDelegate& delegate,
     return;
   }
   static const pxr::TfToken kName{std::string(kDisplayColor)};
-  const pxr::HdSceneIndexBaseRefPtr terminal =
-      delegate.GetRenderIndex().GetTerminalSceneIndex();
   const pxr::HdTokenDataSourceHandle authored =
-      terminal == nullptr ? nullptr
-                          : pxr::HdPrimvarsSchema::GetFromParent(
-                                terminal->GetPrim(prim_id).dataSource)
-                                .GetPrimvar(kName)
-                                .GetColorSpace();
+      pxr::HdPrimvarsSchema::GetFromParent(PrimDataSource(delegate, prim_id))
+          .GetPrimvar(kName)
+          .GetColorSpace();
   const pxr::TfToken color_space =
       authored != nullptr ? authored->GetTypedValue(0.0F) : pxr::TfToken();
-  auto converted = ext::ocio::ConvertToAcescg(
-      color_space.IsEmpty() ? kDefaultColorSpace : color_space.GetString(),
-      std::get<std::vector<float>>(display->values));
+  auto converted = ConvertColorToAcescg(
+      color_space, std::get<std::vector<float>>(display->values));
   if (!converted.has_value()) {
     UMBRA_LOG_WARNING(kUsd, "{}: displayColor dropped: {}", prim_id.GetString(),
                       converted.error().message());

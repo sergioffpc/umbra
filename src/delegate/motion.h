@@ -15,9 +15,11 @@
 #include <pxr/base/vt/types.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/imaging/hd/timeSampleArray.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/path.h>
 
+#include <ranges>
 #include <vector>
 
 #include "host_copy.h"
@@ -58,11 +60,28 @@ using TransformMotion = std::vector<pxr::GfMatrix4d>;
 [[nodiscard]] TransformMotion ComposeMotion(const TransformMotion& inner,
                                             const TransformMotion& outer);
 
+// The samples of a Hydra time sample array.
+template <typename T>
+TimedSamples<T> FromArray(
+    const pxr::HdTimeSampleArray<T, kMaxMotionSamples>& sampled) {
+  TimedSamples<T> samples;
+  samples.times.reserve(sampled.count);
+  samples.values.reserve(sampled.count);
+  for (const auto& [time, value] :
+       std::views::zip(sampled.times, sampled.values) |
+           std::views::take(sampled.count)) {
+    samples.times.push_back(time);
+    samples.values.push_back(value);
+  }
+  return samples;
+}
+
 // The samples Hydra gives of the transform of the prim at `prim_id` over
-// `shutter`, which spans an interval; none when it has no transform.
+// `shutter`: `frame`, its transform at the frame, alone at time 0 when the
+// shutter spans no interval or Hydra gives none.
 [[nodiscard]] TimedSamples<pxr::GfMatrix4d> SampleTransform(
     pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
-    const host::Shutter& shutter);
+    const pxr::GfMatrix4d& frame, const host::Shutter& shutter);
 
 // The samples Hydra gives of the primvar `name` of the prim at `prim_id` over
 // `shutter`, which spans an interval; none when it has no such primvar.
@@ -89,6 +108,13 @@ struct SampledTransform {
 [[nodiscard]] SampledTransform SampleTransformMotion(
     pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
     const host::Shutter& shutter);
+
+// The transform whose motion samples, equally spaced over `shutter`, are
+// `motion`, at the frame: blended between the samples that bracket it, the
+// one at the end of the shutter nearest to the frame when the shutter does
+// not span it; the identity when there is none.
+[[nodiscard]] pxr::GfMatrix4d TransformAtFrame(const TransformMotion& motion,
+                                               const host::Shutter& shutter);
 
 }  // namespace umbra::delegate::internal
 

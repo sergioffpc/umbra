@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "host_copy.h"
@@ -113,6 +114,15 @@ struct Placement {
                                        const pxr::SdfPath& prim_id,
                                        const pxr::SdfPath& instancer_id,
                                        const host::Shutter& shutter);
+
+// Whether the host copies of instances keep their primvars.
+enum class KeepPrimvars : std::uint8_t { kNo, kYes };
+
+// `instances` as host copies hold them: their transforms in meters, scaled
+// by `meters_per_unit`, and their primvars when `primvars` is kYes.
+[[nodiscard]] std::vector<host::Instance> HostInstances(
+    std::span<const FlatInstance> instances, double meters_per_unit,
+    KeepPrimvars primvars);
 
 }  // namespace umbra::delegate::internal
 

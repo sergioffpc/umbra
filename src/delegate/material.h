@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,6 +40,12 @@ namespace pxr = PXR_NS;
 
 // The color space of a USD color that authors none: scene-linear Rec.709.
 inline constexpr std::string_view kDefaultColorSpace = "lin_rec709_scene";
+
+// Converts `rgb`, RGB triples one after another, in place into ACEScg from
+// the color space `color_space`, kDefaultColorSpace when empty. Fails as
+// ext::ocio::ConvertToAcescg does.
+[[nodiscard]] std::expected<void, core::Error> ConvertColorToAcescg(
+    const pxr::TfToken& color_space, std::span<float> rgb);
 
 // The primvar a prim's display color is.
 inline constexpr std::string_view kDisplayColor = "displayColor";

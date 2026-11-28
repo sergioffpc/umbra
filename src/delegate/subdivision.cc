@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -34,6 +33,7 @@
 
 #include "dicing.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/geometry.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::delegate::internal::subdivision {
@@ -54,7 +54,7 @@ template <typename T>
 const T& ElementOf(std::span<const T> values, std::size_t index) {
   return values.subspan(index, 1).front();
 }
-using Vector = std::array<float, 3>;
+using device::Vector3;
 // A value of a primvar: at most 16 numbers, those of a 4x4 matrix.
 using Value = std::array<float, 16>;
 
@@ -236,25 +236,6 @@ std::expected<std::unique_ptr<far::TopologyRefiner>, std::string> CreateRefiner(
   return refiner;
 }
 
-Vector Cross(const Vector& lhs, const Vector& rhs) {
-  const auto [lhs_x, lhs_y, lhs_z] = lhs;
-  const auto [rhs_x, rhs_y, rhs_z] = rhs;
-  return {
-      (lhs_y * rhs_z) - (lhs_z * rhs_y),
-      (lhs_z * rhs_x) - (lhs_x * rhs_z),
-      (lhs_x * rhs_y) - (lhs_y * rhs_x),
-  };
-}
-
-// `vector` scaled to unit length; zero when it has none.
-Vector Normalized(const Vector& vector) {
-  const auto [vec_x, vec_y, vec_z] = vector;
-  const float length =
-      std::sqrt((vec_x * vec_x) + (vec_y * vec_y) + (vec_z * vec_z));
-  const float inverse = length > 0.0F ? 1.0F / length : 0.0F;
-  return {vec_x * inverse, vec_y * inverse, vec_z * inverse};
-}
-
 // Appends the first `components` numbers of `value` to `out`.
 void Append(const Value& value, std::uint32_t components,
             std::vector<float>& out) {
@@ -284,13 +265,14 @@ class Stencil {
 
   [[nodiscard]] device::Float3 Position(
       std::span<const device::Float3> points) const {
-    const Vector sum = Weigh(position_, points);
-    return {.x = sum.at(0), .y = sum.at(1), .z = sum.at(2), .padding = 0.0F};
+    const Vector3 sum = Weigh(position_, points);
+    return {.x = sum.x, .y = sum.y, .z = sum.z, .padding = 0.0F};
   }
 
   // The unit normal, from the derivatives over `points`.
-  [[nodiscard]] Vector Normal(std::span<const device::Float3> points) const {
-    return Normalized(Cross(Weigh(du_, points), Weigh(dv_, points)));
+  [[nodiscard]] Vector3 Normal(std::span<const device::Float3> points) const {
+    return device::Normalize(
+        device::Cross(Weigh(du_, points), Weigh(dv_, points)));
   }
 
   // The weighted sum of `values`, `components` numbers per control point:
@@ -311,16 +293,16 @@ class Stencil {
 
  private:
   // The weighted sum of the control points of `points`.
-  [[nodiscard]] Vector Weigh(const std::vector<float>& weights,
-                             std::span<const device::Float3> points) const {
-    Vector sum{};
+  [[nodiscard]] Vector3 Weigh(const std::vector<float>& weights,
+                              std::span<const device::Float3> points) const {
+    Vector3 sum;
     for (std::size_t control = 0; control < controls_.size(); ++control) {
       const float weight = weights.at(control);
       const device::Float3& point =
           ElementOf(points, static_cast<std::size_t>(controls_.at(control)));
-      sum.at(0) += weight * point.x;
-      sum.at(1) += weight * point.y;
-      sum.at(2) += weight * point.z;
+      sum.x += weight * point.x;
+      sum.y += weight * point.y;
+      sum.z += weight * point.z;
     }
     return sum;
   }
@@ -638,8 +620,8 @@ void Refiner::EvaluatePoint(std::uint32_t point, const Uv& parameter) {
 }
 
 void Refiner::EvaluateCorner(const Uv& parameter) {
-  const Vector normal = surfaces_.vertex_stencil.Normal(surface_->cage.points);
-  out_.normals.insert(out_.normals.end(), normal.begin(), normal.end());
+  const Vector3 normal = surfaces_.vertex_stencil.Normal(surface_->cage.points);
+  out_.normals.insert(out_.normals.end(), {normal.x, normal.y, normal.z});
   for (std::size_t channel = 0; channel < surfaces_.face_varying.size();
        ++channel) {
     const FaceVaryingValues& values =

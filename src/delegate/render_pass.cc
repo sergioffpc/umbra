@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "denoiser.h"
+#include "device_threads.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/progress.h"
@@ -89,33 +90,6 @@ device::FrameParameters FrameOf(const RenderProduct& product,
       .samples_per_pixel = product.samples_per_pixel,
       .vars = vars,
   };
-}
-
-// Renders `frame` on every device of `devices`, each on a host thread of its
-// own, from `tiles`: the first error, in their order, naming its device.
-std::expected<void, Error> RenderOnEach(
-    std::span<device::Device* const> devices,
-    const device::FrameParameters& frame, device::TileQueue& tiles) {
-  std::vector<std::expected<void, Error>> results(devices.size());
-  {
-    const auto render = [&frame, &tiles](device::Device* device,
-                                         std::expected<void, Error>& result) {
-      result = device->Render(frame, tiles);
-    };
-    std::vector<std::jthread> threads;
-    threads.reserve(devices.size());
-    for (const auto& [device, result] : std::views::zip(devices, results)) {
-      threads.emplace_back(render, device, std::ref(result));
-    }
-  }
-  for (const auto& [device, result] : std::views::zip(devices, results)) {
-    if (!result.has_value()) {
-      return std::unexpected(Error(result.error().code(),
-                                   std::format("device {}: {}", device->name(),
-                                               result.error().message())));
-    }
-  }
-  return {};
 }
 
 // How often a display looks for the tiles finished since it last looked.
@@ -367,7 +341,10 @@ std::expected<void, Error> RenderPass::Render(
     feed.emplace(Feed, std::ref(*display_), std::cref(product), shown,
                  std::cref(tiles));
   }
-  auto rendered = RenderOnEach(devices_, frame, tiles);
+  auto rendered =
+      OnEachDevice(devices_, [&frame, &tiles](device::Device& device) {
+        return device.Render(frame, tiles);
+      });
   feed.reset();
   if (!rendered.has_value()) {
     return rendered;

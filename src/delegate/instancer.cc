@@ -34,6 +34,7 @@
 #include <variant>
 #include <vector>
 
+#include "gf.h"
 #include "host_copy.h"
 #include "material.h"
 #include "mesh.h"
@@ -245,21 +246,19 @@ bool IsPlacement(const pxr::TfToken& name) {
 // displayColor in ACEScg; the others are dropped with a debug message.
 std::vector<host::Primvar> InstancePrimvars(pxr::HdSceneDelegate& delegate,
                                             const pxr::SdfPath& prim_id) {
+  static constexpr std::array kInterpolations = {
+      pxr::HdInterpolationInstance,
+  };
   std::vector<host::Primvar> primvars;
-  for (const pxr::HdPrimvarDescriptor& descriptor :
-       delegate.GetPrimvarDescriptors(prim_id, pxr::HdInterpolationInstance)) {
-    if (IsPlacement(descriptor.name)) {
+  for (const SourcePrimvar& source : ReadPrimvars(
+           delegate, prim_id, kInterpolations, PrimvarIndices::kFlattened)) {
+    if (IsPlacement(source.name)) {
       continue;
     }
-    const pxr::VtValue value = delegate.Get(prim_id, descriptor.name);
-    auto primvar = ConstantPrimvar(descriptor.name.GetString(), value);
-    if (!primvar.has_value()) {
-      UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of type {} not supported; dropped",
-                      prim_id.GetString(), descriptor.name.GetString(),
-                      value.GetTypeName());
-      continue;
+    if (auto primvar = ConstantPrimvar(source, prim_id.GetString());
+        primvar.has_value()) {
+      primvars.push_back(std::move(*primvar));
     }
-    primvars.push_back(std::move(*primvar));
   }
   ConvertDisplayColor(delegate, prim_id, primvars);
   return primvars;
@@ -359,10 +358,8 @@ void InstancerPrim::SampleMotion(pxr::HdSceneDelegate& delegate) {
     parts = SampleParts(delegate, GetId(), shutter);
   }
   const pxr::GfMatrix4d frame = delegate.GetInstancerTransform(GetId());
-  TimedSamples<pxr::GfMatrix4d> transform{.times = {0.0F}, .values = {frame}};
-  if (IsMotionBlurred(shutter)) {
-    transform = SampleTransform(delegate, GetId(), shutter);
-  }
+  const TimedSamples<pxr::GfMatrix4d> transform =
+      SampleTransform(delegate, GetId(), frame, shutter);
   MotionSampleCount count = CountMotionSamples(transform.times, shutter);
   for (const auto& part : parts) {
     count = Merge(count, CountMotionSamples(part.times, shutter));
@@ -442,6 +439,23 @@ std::vector<FlatInstance> InstancerPrim::Instances(
     instances = Flatten(instances, outer);
   }
   return instances;
+}
+
+std::vector<host::Instance> HostInstances(
+    std::span<const FlatInstance> instances, double meters_per_unit,
+    KeepPrimvars primvars) {
+  std::vector<host::Instance> converted;
+  converted.reserve(instances.size());
+  for (const FlatInstance& instance : instances) {
+    converted.push_back({
+        .object_to_world =
+            TransformsInMeters(instance.transforms, meters_per_unit),
+        .primvars = primvars == KeepPrimvars::kYes
+                        ? instance.primvars
+                        : std::vector<host::Primvar>(),
+    });
+  }
+  return converted;
 }
 
 Placement PlaceInstances(pxr::HdSceneDelegate& delegate,

@@ -255,8 +255,8 @@ std::span<const std::span<const device::Float3>> ChangeSetBuilder::PointsOf(
 device::Prototype ChangeSetBuilder::PrototypeOf(
     device::PrototypeId prim_id, const host::Mesh& mesh,
     std::span<const host::Instance> instances, device::ChangeFlags changes) {
-  using device::ChangeFlags;
   using device::HasAny;
+  const host::MeshMemberFlags& members = host::kMeshMembers;
   device::Prototype prototype{
       .id = prim_id,
       .path = mesh.path,
@@ -269,26 +269,26 @@ device::Prototype ChangeSetBuilder::PrototypeOf(
       .sidedness = device::Sidedness::kSingleSided,
       .materials = {},
       .triangle_materials = {},
-      .instances = HasAny(changes, ChangeFlags::kPlacement)
+      .instances = HasAny(changes, members.instances)
                        ? InstancesOf(instances)
                        : std::span<const device::Instance>(),
-      .emission = HasAny(changes, ChangeFlags::kEmission) ? mesh.emission
-                                                          : std::nullopt,
+      .emission =
+          HasAny(changes, members.emission) ? mesh.emission : std::nullopt,
   };
-  if (HasAny(changes, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
+  if (HasAny(changes, members.points)) {
     prototype.points = PointsOf(mesh.points);
   }
-  if (HasAny(changes, ChangeFlags::kTopology)) {
+  if (HasAny(changes, members.topology)) {
     prototype.triangles = mesh.triangles;
     prototype.source_faces = mesh.source_faces;
     prototype.face_vertex_counts = mesh.face_vertex_counts;
     prototype.sidedness = mesh.sidedness;
   }
-  if (HasAny(changes, ChangeFlags::kPrimvars)) {
+  if (HasAny(changes, members.primvars)) {
     prototype.normals = PrimvarOf(mesh.normals);
     prototype.primvars = PrimvarsOf(mesh.primvars);
   }
-  if (HasAny(changes, ChangeFlags::kMaterials)) {
+  if (HasAny(changes, members.materials)) {
     prototype.materials = mesh.materials;
     prototype.triangle_materials = mesh.triangle_materials;
   }
@@ -353,11 +353,8 @@ void ChangeSetBuilder::RemoveLight(device::LightId prim_id) {
 void ChangeSetBuilder::AddPrototype(device::PrototypeId prim_id,
                                     const host::Mesh& mesh,
                                     std::span<const host::Instance> instances) {
-  added_prototypes_.push_back(PrototypeOf(
-      prim_id, mesh, instances,
-      device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
-          device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
-          device::ChangeFlags::kEmission));
+  added_prototypes_.push_back(
+      PrototypeOf(prim_id, mesh, instances, host::kWholeMesh));
 }
 
 void ChangeSetBuilder::UpdatePrototype(

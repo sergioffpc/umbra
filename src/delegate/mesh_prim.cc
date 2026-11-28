@@ -18,7 +18,6 @@
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
-#include <pxr/imaging/hd/timeSampleArray.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/types.h>
 #include <pxr/usd/sdf/path.h>
@@ -70,34 +69,12 @@ void EmissionLocatorsOf(pxr::HdDirtyBits bits,
   }
 }
 
-// The primvars of the prim at `prim_id`, with their indices when indexed.
-std::vector<SourcePrimvar> ReadPrimvars(pxr::HdSceneDelegate& delegate,
-                                        const pxr::SdfPath& prim_id) {
-  static constexpr std::array kInterpolations = {
-      pxr::HdInterpolationConstant,    pxr::HdInterpolationUniform,
-      pxr::HdInterpolationVarying,     pxr::HdInterpolationVertex,
-      pxr::HdInterpolationFaceVarying,
-  };
-  std::vector<SourcePrimvar> primvars;
-  for (const pxr::HdInterpolation interpolation : kInterpolations) {
-    for (const pxr::HdPrimvarDescriptor& descriptor :
-         delegate.GetPrimvarDescriptors(prim_id, interpolation)) {
-      SourcePrimvar primvar{
-          .name = descriptor.name,
-          .interpolation = interpolation,
-          .value = {},
-          .indices = {},
-          .element_size = descriptor.elementSize,
-      };
-      primvar.value = descriptor.indexed
-                          ? delegate.GetIndexedPrimvar(prim_id, descriptor.name,
-                                                       &primvar.indices)
-                          : delegate.Get(prim_id, descriptor.name);
-      primvars.push_back(std::move(primvar));
-    }
-  }
-  return primvars;
-}
+// The interpolations of the primvars a mesh takes.
+constexpr std::array kMeshInterpolations = {
+    pxr::HdInterpolationConstant,    pxr::HdInterpolationUniform,
+    pxr::HdInterpolationVarying,     pxr::HdInterpolationVertex,
+    pxr::HdInterpolationFaceVarying,
+};
 
 // The ext computation primvar that gives the points of the mesh at
 // `prim_id`, as usdSkelImaging gives those of a skinned mesh: none when its
@@ -147,18 +124,7 @@ TimedSamples<pxr::VtValue> SampleComputedPoints(
   if (found == values.end()) {
     return {};
   }
-  const pxr::HdTimeSampleArray<pxr::VtValue, kMaxMotionSamples>& sampled =
-      found->second;
-  TimedSamples<pxr::VtValue> samples;
-  samples.times.reserve(sampled.count);
-  samples.values.reserve(sampled.count);
-  for (const auto& [time, value] :
-       std::views::zip(sampled.times, sampled.values) |
-           std::views::take(sampled.count)) {
-    samples.times.push_back(time);
-    samples.values.push_back(value);
-  }
-  return samples;
+  return FromArray(found->second);
 }
 
 // The motion samples of the points of the mesh at `prim_id`, whose points at
@@ -259,7 +225,7 @@ void MeshPrim::Sync(pxr::HdSceneDelegate* delegate,
 }
 
 void MeshPrim::LogSync() const {
-  if (state_ != MeshState::kConverted || changes_ != kWholeMesh) {
+  if (state_ != MeshState::kConverted || changes_ != host::kWholeMesh) {
     UMBRA_LOG_TRACE(kUsd, "synced {}", GetId().GetString());
     return;
   }
@@ -289,7 +255,7 @@ void MeshPrim::Convert(pxr::HdSceneDelegate& delegate) {
   if (subdivision_scheme_.empty()) {
     Place(delegate);
   }
-  changes_ = kWholeMesh;
+  changes_ = host::kWholeMesh;
 }
 
 namespace {
@@ -444,7 +410,8 @@ SourceMesh MeshPrim::ReadSource(pxr::HdSceneDelegate& delegate) {
       .subdiv_tags = GetSubdivTags(&delegate),
       .points = PointsAtFrame(delegate, GetId(), computed),
       .point_motion = {},
-      .primvars = ReadPrimvars(delegate, GetId()),
+      .primvars = ReadPrimvars(delegate, GetId(), kMeshInterpolations,
+                               PrimvarIndices::kKept),
       .sidedness = IsDoubleSided(&delegate) ? host::Sidedness::kDoubleSided
                                             : host::Sidedness::kSingleSided,
   };
@@ -552,18 +519,11 @@ void MeshPrim::Place(pxr::HdSceneDelegate& delegate) {
   const host::Shutter shutter =
       points_outcome_ == MotionOutcome::kTopologyChanges ? host::Shutter{}
                                                          : *shutter_;
-  Placement placement =
+  const Placement placement =
       PlaceInstances(delegate, GetId(), GetInstancerId(), shutter);
   placement_outcome_ = placement.outcome;
-  instances_.clear();
-  instances_.reserve(placement.instances.size());
-  for (FlatInstance& placed : placement.instances) {
-    instances_.push_back({
-        .object_to_world =
-            TransformsInMeters(placed.transforms, meters_per_unit_),
-        .primvars = std::move(placed.primvars),
-    });
-  }
+  instances_ =
+      HostInstances(placement.instances, meters_per_unit_, KeepPrimvars::kYes);
   instance_count_ = instances_.size();
 }
 
@@ -573,27 +533,27 @@ void MeshPrim::ReadEmission(pxr::HdSceneDelegate& delegate) {
 }
 
 void MeshPrim::KeepChanged() {
-  using device::ChangeFlags;
   using device::HasAny;
-  if (!HasAny(changes_, ChangeFlags::kPoints | ChangeFlags::kTopology)) {
+  const host::MeshMemberFlags& members = host::kMeshMembers;
+  if (!HasAny(changes_, members.points)) {
     mesh_.points = {};
   }
-  if (!HasAny(changes_, ChangeFlags::kTopology)) {
+  if (!HasAny(changes_, members.topology)) {
     mesh_.triangles = {};
     mesh_.source_faces = {};
     mesh_.face_vertex_counts = {};
   }
-  if (!HasAny(changes_, ChangeFlags::kPrimvars)) {
+  if (!HasAny(changes_, members.primvars)) {
     mesh_.normals = {};
     mesh_.primvars = {};
   }
-  if (!HasAny(changes_, ChangeFlags::kMaterials)) {
+  if (!HasAny(changes_, members.materials)) {
     mesh_.triangle_materials = {};
   }
-  if (!HasAny(changes_, ChangeFlags::kPlacement)) {
+  if (!HasAny(changes_, members.instances)) {
     instances_ = {};
   }
-  if (!HasAny(changes_, ChangeFlags::kEmission)) {
+  if (!HasAny(changes_, members.emission)) {
     mesh_.emission.reset();
   }
 }
