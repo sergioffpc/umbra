@@ -31,7 +31,11 @@ umbra module: they are built position-independent with
 `umbra_add_ext_module(... LOADABLE ...)`, see core's headers without
 linking it, return their errors as messages, as the module does, and log
 what they cannot return through the function and threshold the module
-hands them (`SetLog`). The CUDA bridge owns GPU memory and streams
+hands them (`SetLog`). Each of their calls takes the message of its error
+as a format string and its arguments, core's `LazyFormat`
+(`umbra/core/lazy_format.h`), and formats it only when it fails, so that a
+call on the render's hot path allocates nothing when it succeeds. The CUDA
+bridge owns GPU memory and streams
 (`owners.h`), translates the runtime's errors (`errors.h`), wraps the
 runtime calls the module makes (`runtime.h`) and converts a driver's device
 pointer into the runtime's (`conversions.h`). The OptiX bridge loads the driver's OptiX

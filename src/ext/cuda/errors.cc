@@ -8,20 +8,20 @@
 
 #include <expected>
 #include <format>
-#include <string_view>
 
 #include "log.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
 namespace umbra::ext::cuda {
 
-Result<void> Check(cudaError_t error, std::string_view what) {
+Result<void> Check(cudaError_t error, const core::LazyFormat& what) {
   if (error == cudaSuccess) {
     return {};
   }
-  return std::unexpected(std::format("CUDA: {}: {} ({})", what,
+  return std::unexpected(std::format("CUDA: {}: {} ({})", what.Format(),
                                      cudaGetErrorString(error),
                                      cudaGetErrorName(error)));
 }

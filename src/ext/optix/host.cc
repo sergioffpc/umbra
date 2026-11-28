@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "log.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/ext/optix/errors.h"
@@ -53,7 +54,7 @@ Result<Module> CreateModule(OptixDeviceContext context,
                             const OptixModuleCompileOptions& options,
                             const OptixPipelineCompileOptions& pipeline,
                             std::span<const char> input,
-                            std::string_view what) {
+                            const core::LazyFormat& what) {
   MessageBuffer message{};
   std::size_t size = message.size();
   OptixModule module = nullptr;
@@ -69,7 +70,7 @@ Result<void> CreateProgramGroups(
     OptixDeviceContext context,
     std::span<const OptixProgramGroupDesc> descriptions,
     const OptixProgramGroupOptions& options, std::span<ProgramGroup> groups,
-    std::string_view what) {
+    const core::LazyFormat& what) {
   std::vector<OptixProgramGroup> created(descriptions.size(), nullptr);
   MessageBuffer message{};
   std::size_t size = message.size();
@@ -89,7 +90,7 @@ Result<Pipeline> CreatePipeline(OptixDeviceContext context,
                                 const OptixPipelineCompileOptions& options,
                                 const OptixPipelineLinkOptions& link,
                                 std::span<const OptixProgramGroup> groups,
-                                std::string_view what) {
+                                const core::LazyFormat& what) {
   MessageBuffer message{};
   std::size_t size = message.size();
   OptixPipeline pipeline = nullptr;
@@ -104,7 +105,7 @@ Result<Pipeline> CreatePipeline(OptixDeviceContext context,
 }
 
 Result<void> SetStackSizes(OptixPipeline pipeline, const CallDepths& depths,
-                           std::string_view what) {
+                           const core::LazyFormat& what) {
   return Check(
       optixPipelineSetStackSizeFromCallDepths(
           pipeline, depths.trace, depths.continuation_callable,
@@ -114,17 +115,18 @@ Result<void> SetStackSizes(OptixPipeline pipeline, const CallDepths& depths,
 }
 
 Result<void> PackHeader(OptixProgramGroup group, std::span<char> header,
-                        std::string_view what) {
+                        const core::LazyFormat& what) {
   if (header.size() < OPTIX_SBT_RECORD_HEADER_SIZE) {
-    return std::unexpected(
-        std::format("OptiX: {}: a header of {} bytes is smaller than {}", what,
-                    header.size(), OPTIX_SBT_RECORD_HEADER_SIZE));
+    return std::unexpected(std::format(
+        "OptiX: {}: a header of {} bytes is smaller than {}", what.Format(),
+        header.size(), OPTIX_SBT_RECORD_HEADER_SIZE));
   }
   return Check(optixSbtRecordPackHeader(group, header.data()), what);
 }
 
 Result<void> Launch(OptixPipeline pipeline, CUstream stream,
-                    const LaunchRequest& request, std::string_view what) {
+                    const LaunchRequest& request,
+                    const core::LazyFormat& what) {
   return Check(
       optixLaunch(pipeline, stream, request.params.address, request.params.size,
                   &request.sbt, request.size.width, request.size.height,
@@ -134,7 +136,7 @@ Result<void> Launch(OptixPipeline pipeline, CUstream stream,
 
 Result<OptixAccelBufferSizes> AccelMemoryUsage(
     OptixDeviceContext context, const OptixAccelBuildOptions& options,
-    std::span<const OptixBuildInput> inputs, std::string_view what) {
+    std::span<const OptixBuildInput> inputs, const core::LazyFormat& what) {
   OptixAccelBufferSizes sizes{};
   return Check(optixAccelComputeMemoryUsage(
                    context, &options, inputs.data(),
@@ -146,7 +148,7 @@ Result<OptixAccelBufferSizes> AccelMemoryUsage(
 Result<OptixTraversableHandle> AccelBuild(OptixDeviceContext context,
                                           CUstream stream,
                                           const AccelBuildRequest& request,
-                                          std::string_view what) {
+                                          const core::LazyFormat& what) {
   OptixTraversableHandle handle = 0;
   return Check(optixAccelBuild(context, stream, &request.options,
                                request.inputs.data(),
@@ -161,7 +163,7 @@ Result<OptixTraversableHandle> AccelBuild(OptixDeviceContext context,
 Result<OptixTraversableHandle> TraversableHandle(OptixDeviceContext context,
                                                  CUdeviceptr pointer,
                                                  OptixTraversableType type,
-                                                 std::string_view what) {
+                                                 const core::LazyFormat& what) {
   OptixTraversableHandle handle = 0;
   return Check(optixConvertPointerToTraversableHandle(context, pointer, type,
                                                       &handle),

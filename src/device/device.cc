@@ -43,7 +43,8 @@ std::uint64_t TileQueue::taken() const {
   return std::min(next_.load(std::memory_order_relaxed), count_);
 }
 
-PixelWindow TileQueue::TileWindow(std::uint64_t tile) const {
+PixelWindow TileQueue::TileWindow(std::uint64_t tile) const
+    [[clang::nonblocking]] {
   const auto column = static_cast<std::int32_t>(tile % columns_);
   const auto row = static_cast<std::int32_t>(tile / columns_);
   const std::int32_t x_min = window_.x_min + (column * kTileSize);

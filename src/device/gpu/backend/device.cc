@@ -44,7 +44,7 @@ using ext::cuda::DeviceBuffer;
 // Fails when the GPU of CUDA ordinal `ordinal` is older than sm_120.
 Result<void> CheckArchitecture(int ordinal) {
   const auto major = ext::cuda::ComputeCapabilityMajor(
-      ordinal, std::format("cannot describe device {}", ordinal));
+      ordinal, "cannot describe device {}", ordinal);
   if (!major.has_value()) {
     return std::unexpected(major.error());
   }
@@ -174,8 +174,7 @@ Result<std::unique_ptr<ModuleDevice>> ModuleDevice::Create(int ordinal) {
                         .and_then([&] { return CheckArchitecture(ordinal); })
                         .and_then([&] {
                           return ext::cuda::SetDevice(
-                              ordinal,
-                              std::format("cannot use device {}", ordinal));
+                              ordinal, "cannot use device {}", ordinal);
                         });
       !usable.has_value()) {
     return std::unexpected(usable.error());
@@ -231,8 +230,7 @@ backend::Gpu ModuleDevice::gpu() const {
 }
 
 Result<void> ModuleDevice::MakeCurrent() const {
-  return ext::cuda::SetDevice(ordinal_,
-                              std::format("cannot use device {}", ordinal_));
+  return ext::cuda::SetDevice(ordinal_, "cannot use device {}", ordinal_);
 }
 
 Result<void> ModuleDevice::Commit(const device::ChangeSet& changes) {
