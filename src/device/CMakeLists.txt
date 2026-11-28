@@ -6,6 +6,7 @@ find_package(OpenQMC CONFIG REQUIRED)
 umbra_add_module(
   device
   SOURCES
+  accel_update.cc
   camera_rays.cc
   device.cc
   diagnostic_device.cc

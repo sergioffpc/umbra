@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Umbra Authors
 
-umbra_add_test(umbra_device_tests SOURCES camera_rays_test.cc film_test.cc image_test.cc light_shapes_test.cc pixel_filter_test.cc DEPENDS device)
+umbra_add_test(umbra_device_tests SOURCES accel_update_test.cc camera_rays_test.cc film_test.cc image_test.cc light_shapes_test.cc pixel_filter_test.cc DEPENDS device)
 
 if(UMBRA_GPU_ENABLED)
   add_subdirectory(gpu)

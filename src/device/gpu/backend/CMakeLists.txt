@@ -13,8 +13,10 @@ find_package(OpenQMC CONFIG REQUIRED)
 umbra_add_loadable_module(umbra_device_gpu_backend
   SOURCES module.cc accel.cc device.cc held.cc instances.cc light.cc
           pipeline.cc prototype.cc render.cc support.cc
-          # The camera model, which the host makes for each render product, and
-          # the film's layout, which it plans for it.
+          # The decision to refit or rebuild a prototype's GAS, the camera
+          # model, which the host makes for each render product, and the
+          # film's layout, which it plans for it.
+          "${PROJECT_SOURCE_DIR}/src/device/accel_update.cc"
           "${PROJECT_SOURCE_DIR}/src/device/camera_rays.cc"
           "${PROJECT_SOURCE_DIR}/src/device/film.cc"
           "${PROJECT_SOURCE_DIR}/src/device/image.cc"

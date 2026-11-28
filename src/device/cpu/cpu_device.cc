@@ -35,6 +35,7 @@
 #include "umbra/core/memory_policy.h"
 #include "umbra/core/number_format.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/accel_update.h"
 #include "umbra/device/camera_rays.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
@@ -52,8 +53,6 @@ namespace {
 
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
-using ::umbra::device::ChangeFlags;
-using ::umbra::device::HasAny;
 using ::umbra::device::cpu::internal::BvhKind;
 using ::umbra::device::cpu::internal::Placement;
 using ::umbra::device::cpu::internal::Status;
@@ -74,24 +73,15 @@ const T& ElementAt(std::span<const T> values, std::size_t index) {
   return values.subspan(index, 1).front();
 }
 
-// What a commit did to a prototype's BVH.
-enum class BvhEvent : std::uint8_t {
-  kKept,
-  kBuilt,
-  kRebuiltTopology,
-  kRebuiltToRefit,
-  kRebuiltSamples,
-  kRebuiltAfterRefits,
-  kRefitted,
-};
-
 struct PrototypeRecord {
   internal::PrototypeCopy copy;
   Scene bvh;
   BvhKind kind = BvhKind::kStatic;
   // The refits in a row since it was built.
   int refits = 0;
-  BvhEvent event = BvhEvent::kKept;
+  // What the last commit did to its BVH: none when it built it, as it
+  // added the prototype.
+  std::optional<device::AccelUpdate> event;
 };
 
 struct LightRecord {
@@ -236,8 +226,10 @@ void DropRemoved(State& state, const device::ChangeSet& changes) {
   Drop(state.textures, changes.textures.removed);
 }
 
-// Builds `record`'s BVH anew, as `event` says why.
-Status Rebuild(PrototypeRecord& record, RTCDevice device, BvhEvent event) {
+// Builds `record`'s BVH anew, as `event` says why: none when it builds it
+// for the first time.
+Status Rebuild(PrototypeRecord& record, RTCDevice device,
+               std::optional<device::AccelUpdate> event) {
   auto bvh = internal::BuildPrototype(device, record.copy.view, record.kind);
   if (!bvh.has_value()) {
     return std::unexpected(std::move(bvh.error()));
@@ -252,53 +244,42 @@ Status AddPrototype(std::unique_ptr<PrototypeRecord>& slot,
                     const device::Prototype& prototype, RTCDevice device) {
   auto record = std::make_unique<PrototypeRecord>();
   internal::CopyPrototype(prototype, record->copy);
-  Status built = Rebuild(*record, device, BvhEvent::kBuilt);
+  Status built = Rebuild(*record, device, std::nullopt);
   slot = std::move(record);
   return built;
 }
 
-// What an update with `changes` does to `record`'s BVH, whose points had
-// `samples` motion samples before it.
-BvhEvent Plan(const PrototypeRecord& record, ChangeFlags changes,
-              std::size_t samples) {
-  if (HasAny(changes, ChangeFlags::kTopology)) {
-    return BvhEvent::kRebuiltTopology;
-  }
-  if (!HasAny(changes, ChangeFlags::kPoints)) {
-    return BvhEvent::kKept;
-  }
-  if (record.kind == BvhKind::kStatic) {
-    return BvhEvent::kRebuiltToRefit;
-  }
-  if (record.copy.view.points.size() != samples) {
-    return BvhEvent::kRebuiltSamples;
-  }
-  if (record.refits >= device::kMaxRefits) {
-    return BvhEvent::kRebuiltAfterRefits;
-  }
-  return BvhEvent::kRefitted;
+// `record`'s BVH, as it was built or last refitted, before an update.
+device::HeldAccel HeldOf(const PrototypeRecord& record) {
+  return {
+      .kind = record.kind == BvhKind::kRefittable
+                  ? device::AccelKind::kRefittable
+                  : device::AccelKind::kStatic,
+      .points = device::AccelPointsOf(record.copy.view),
+      .refits = record.refits,
+  };
 }
 
 Status ApplyUpdate(PrototypeRecord& record,
                    const device::UpdatedPrototype& updated, RTCDevice device) {
-  const std::size_t samples = record.copy.view.points.size();
+  const device::HeldAccel held = HeldOf(record);
   internal::UpdatePrototype(updated, record.copy);
-  const BvhEvent event = Plan(record, updated.changes, samples);
+  const device::AccelUpdate event = device::PlanAccelUpdate(
+      held, updated.changes, device::AccelPointsOf(record.copy.view));
   switch (event) {
-    case BvhEvent::kKept:
+    case device::AccelUpdate::kKeep:
       record.event = event;
       return {};
-    case BvhEvent::kRefitted:
+    case device::AccelUpdate::kRefit:
       ++record.refits;
       record.event = event;
       return internal::RefitPrototype(device, record.bvh, record.copy.view);
-    case BvhEvent::kRebuiltToRefit:
+    case device::AccelUpdate::kRebuildToRefit:
       record.kind = BvhKind::kRefittable;
       return Rebuild(record, device, event);
-    case BvhEvent::kBuilt:
-    case BvhEvent::kRebuiltTopology:
-    case BvhEvent::kRebuiltSamples:
-    case BvhEvent::kRebuiltAfterRefits:
+    case device::AccelUpdate::kRebuildTopology:
+    case device::AccelUpdate::kRebuildPoints:
+    case device::AccelUpdate::kRebuildAfterRefits:
       break;
   }
   return Rebuild(record, device, event);
@@ -421,20 +402,21 @@ Status RebuildTopLevel(State& state, RTCDevice device) {
 
 // "built", "refitted, 3 of 8".
 std::string DescribeEvent(const PrototypeRecord& record) {
-  switch (record.event) {
-    case BvhEvent::kKept:
+  if (!record.event.has_value()) {
+    return "built";
+  }
+  switch (*record.event) {
+    case device::AccelUpdate::kKeep:
       return "kept";
-    case BvhEvent::kBuilt:
-      return "built";
-    case BvhEvent::kRebuiltTopology:
+    case device::AccelUpdate::kRebuildTopology:
       return "rebuilt, its topology changed";
-    case BvhEvent::kRebuiltToRefit:
+    case device::AccelUpdate::kRebuildToRefit:
       return "rebuilt to be refitted, its points changed";
-    case BvhEvent::kRebuiltSamples:
-      return "rebuilt, its motion samples changed";
-    case BvhEvent::kRebuiltAfterRefits:
+    case device::AccelUpdate::kRebuildPoints:
+      return "rebuilt, its motion samples or points changed";
+    case device::AccelUpdate::kRebuildAfterRefits:
       return std::format("rebuilt after {} refits", device::kMaxRefits);
-    case BvhEvent::kRefitted:
+    case device::AccelUpdate::kRefit:
       return std::format("refitted, {} of {}", record.refits,
                          device::kMaxRefits);
   }

@@ -48,11 +48,13 @@ acceleration structures built from them:
 
 - one GAS per prototype, with one motion key per motion sample when it
   deforms within the shutter. `kTopology` rebuilds it; `kPoints` refits it,
-  and rebuilds it after `kMaxRefits` refits in a row. It is built with
-  `OPTIX_BUILD_FLAG_ALLOW_UPDATE` only once its points have changed, so that
-  static geometry never pays for it;
+  and rebuilds it when its number of motion keys or of points changes and
+  after `kMaxRefits` refits in a row, as `PlanAccelUpdate` decides. It is
+  built with `OPTIX_BUILD_FLAG_ALLOW_UPDATE` only once its points have
+  changed, so that static geometry never pays for it;
 - one GAS per light with a shape (sphere, rect, disk, cylinder): a single
-  custom primitive that bounds the shape in the light's own space, built
+  custom primitive that bounds the shape in the light's own space, as
+  `BoundsOf` of `umbra/device/light_shapes.h` gives it to every device, built
   whenever the light is committed;
 - one IAS, rebuilt at every commit, with a record per instance of each
   prototype and of each light with a shape, which points to its GAS: an

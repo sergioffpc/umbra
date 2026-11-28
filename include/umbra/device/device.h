@@ -151,11 +151,6 @@ class TileQueue {
   std::vector<std::atomic<std::uint8_t>> finished_;
 };
 
-// The refits in a row after which a device rebuilds, instead of refitting
-// again, the acceleration structure of a prototype whose points change:
-// every refit loosens its bounds.
-inline constexpr int kMaxRefits = 8;
-
 // A device: what a render runs on, which renders from its own memory only.
 class Device {
  public:
