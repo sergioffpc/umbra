@@ -75,7 +75,8 @@ struct SyncedPrims {
 
 // What a commit gives the host: the render settings, the parameters of the
 // frame, and a description of what it committed, for the debug line that
-// counts the prims.
+// counts the prims, built only when the debug log is on, and empty
+// otherwise.
 struct Committed {
   RenderSettings settings;
   device::FrameParameters frame;

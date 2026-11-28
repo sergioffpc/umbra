@@ -23,6 +23,7 @@
 #include "hydra.h"
 #include "ledger.h"
 #include "umbra/core/error.h"
+#include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/device/change_set.h"
@@ -218,8 +219,11 @@ std::expected<Committed, Error> Commit(
     return std::unexpected(std::move(content.error()));
   }
   const device::ChangeSet change_set = commit.Build();
-  committed->description =
-      commit.DescribeCommit(committed->settings, change_set);
+  // Only the debug log gives the description, which walks every prim added.
+  if (core::IsLogEnabled(core::LogComponent::kUsd, core::LogLevel::kDebug)) {
+    committed->description =
+        commit.DescribeCommit(committed->settings, change_set);
+  }
   const auto commit_on_device = [&change_set](device::Device& device) {
     return device.Commit(change_set);
   };
