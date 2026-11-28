@@ -3,6 +3,7 @@
 
 #include "render_settings_prim.h"
 
+#include <pxr/base/gf/range2f.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/dataSource.h>
@@ -14,6 +15,7 @@
 #include <pxr/usd/usdRender/tokens.h>
 #include <pxr/usdImaging/usdImaging/usdRenderSettingsSchema.h>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -98,6 +100,25 @@ DicingRate ReadDicingRate(const pxr::HdContainerDataSourceHandle& prim) {
   return {.pixels = pixels, .invalid = {}};
 }
 
+// A data window as xmin, ymin, xmax, ymax.
+std::array<float, 4> DataWindow(const pxr::GfRange2f& window) {
+  const std::array<float, 2> min = Components<float, 2>(window.GetMin());
+  const std::array<float, 2> max = Components<float, 2>(window.GetMax());
+  return {min.at(0), min.at(1), max.at(0), max.at(1)};
+}
+
+// The image of a product of the framing `base`, before its data window is
+// resolved into pixels.
+device::Image BaseImage(const SettingsBase& base) {
+  return {
+      .resolution = base.resolution,
+      .window = {},
+      .pixel_aspect_ratio = base.pixel_aspect_ratio,
+      .aspect_ratio_conform_policy =
+          ConformPolicy(base.aspect_ratio_conform_policy),
+  };
+}
+
 }  // namespace
 
 AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token) {
@@ -115,6 +136,19 @@ AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token) {
     return kAdjustPixelAspectRatio;
   }
   return kExpandAperture;
+}
+
+SettingsBase ProductBase(const pxr::HdRenderSettings::RenderProduct& product) {
+  return {
+      .resolution = Components<std::int32_t, 2>(product.resolution),
+      .pixel_aspect_ratio = product.pixelAspectRatio,
+      .aspect_ratio_conform_policy = product.aspectRatioConformPolicy,
+      .data_window_ndc = DataWindow(product.dataWindowNDC),
+      .motion_blur = product.disableMotionBlur ? MotionBlur::kDisabled
+                                               : MotionBlur::kEnabled,
+      .depth_of_field = product.disableDepthOfField ? DepthOfField::kDisabled
+                                                    : DepthOfField::kEnabled,
+  };
 }
 
 RenderSettingsPrim::RenderSettingsPrim(const pxr::SdfPath& prim_id,
@@ -143,24 +177,11 @@ std::vector<device::Image> ImagesOf(const RenderSettingsPrim& settings) {
   for (const pxr::HdRenderSettings::RenderProduct& product :
        settings.GetRenderProducts()) {
     if (product.cameraPath == settings.CameraPath()) {
-      images.push_back({
-          .resolution = Components<std::int32_t, 2>(product.resolution),
-          .window = {},
-          .pixel_aspect_ratio = product.pixelAspectRatio,
-          .aspect_ratio_conform_policy =
-              ConformPolicy(product.aspectRatioConformPolicy),
-      });
+      images.push_back(BaseImage(ProductBase(product)));
     }
   }
   if (images.empty()) {
-    const SettingsBase& base = settings.base();
-    images.push_back({
-        .resolution = base.resolution,
-        .window = {},
-        .pixel_aspect_ratio = base.pixel_aspect_ratio,
-        .aspect_ratio_conform_policy =
-            ConformPolicy(base.aspect_ratio_conform_policy),
-    });
+    images.push_back(BaseImage(settings.base()));
   }
   return images;
 }

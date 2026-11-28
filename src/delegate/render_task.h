@@ -38,7 +38,7 @@ namespace umbra::delegate::internal {
 namespace pxr = PXR_NS;
 
 // The render buffers of a rendered product: one per var, in its order, then
-// one per input of its denoise (color, albedo, normal) it has no var of,
+// one per input of its denoise (color, normal, albedo) it has no var of,
 // which no file holds.
 using ProductBuffers = std::vector<std::unique_ptr<RenderBuffer>>;
 

@@ -48,6 +48,10 @@ struct SettingsBase {
 // unknown one.
 [[nodiscard]] AspectRatioConformPolicy ConformPolicy(const pxr::TfToken& token);
 
+// The framing of a flattened product, which inherits the settings'.
+[[nodiscard]] SettingsBase ProductBase(
+    const pxr::HdRenderSettings::RenderProduct& product);
+
 // The dicing rate of subdivision surfaces, umbra:dicingRate, as a
 // RenderSettings prim authors it.
 struct DicingRate {

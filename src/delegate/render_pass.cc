@@ -15,7 +15,6 @@
 #include <pxr/usd/sdf/path.h>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -35,6 +34,7 @@
 
 #include "denoiser.h"
 #include "device_threads.h"
+#include "render_vars.h"
 #include "umbra/core/error.h"
 #include "umbra/core/floating_point.h"
 #include "umbra/core/progress.h"
@@ -52,18 +52,9 @@ using ::umbra::core::ErrorCode;
 
 // The source a device renders for the AOV `name`, if any.
 std::optional<device::VarSource> SourceOf(const pxr::TfToken& name) {
-  static const std::array<std::pair<pxr::TfToken, device::VarSource>, 4>
-      kSources = {
-          {
-              {AovName(RenderVarSource::kColor), device::VarSource::kColor},
-              {AovName(RenderVarSource::kDepth), device::VarSource::kDepth},
-              {AovName(RenderVarSource::kNormal), device::VarSource::kNormal},
-              {AovName(RenderVarSource::kAlbedo), device::VarSource::kAlbedo},
-          },
-  };
-  for (const auto& [aov, source] : kSources) {
-    if (aov == name) {
-      return source;
+  for (const RenderVarTraits& var : kRenderVars) {
+    if (AovName(var.source) == name) {
+      return var.rendered;
     }
   }
   return std::nullopt;
@@ -77,14 +68,7 @@ device::FrameParameters FrameOf(const RenderProduct& product,
   return {
       .shutter = frame.shutter,
       .camera = product.camera,
-      .image =
-          {
-              .resolution = product.resolution,
-              .window = product.window,
-              .pixel_aspect_ratio = product.pixel_aspect_ratio,
-              .aspect_ratio_conform_policy =
-                  product.aspect_ratio_conform_policy,
-          },
+      .image = ImageOf(product),
       .motion_blur = product.motion_blur,
       .depth_of_field = product.depth_of_field,
       .samples_per_pixel = product.samples_per_pixel,
@@ -271,12 +255,14 @@ pxr::HdFormat FloatFormat(std::uint32_t channels) {
 }
 
 pxr::TfToken AovName(RenderVarSource source) {
-  static const std::array<pxr::TfToken, 7> kNames = {
-      pxr::TfToken("color"),   pxr::TfToken("denoisedColor"),
-      pxr::TfToken("depth"),   pxr::TfToken("normal"),
-      pxr::TfToken("albedo"),  pxr::TfToken("lpe"),
-      pxr::TfToken("primvar"),
-  };
+  static const std::vector<pxr::TfToken> kNames = [] {
+    std::vector<pxr::TfToken> names;
+    names.reserve(kRenderVars.size());
+    for (const RenderVarTraits& var : kRenderVars) {
+      names.emplace_back(std::string(var.name));
+    }
+    return names;
+  }();
   return kNames.at(static_cast<std::size_t>(source));
 }
 
