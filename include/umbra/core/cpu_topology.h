@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -76,6 +77,12 @@ struct CpuNode {
 // The widest vector ISA the running CPU supports: "AVX-512", "AVX2", "AVX"
 // or "SSE".
 [[nodiscard]] std::string_view CpuVectorIsa();
+
+// The NUMA node a device's sysfs numa_node file names, from its text: a
+// non-negative decimal, optionally followed by a newline. Nothing for a
+// device attached to no node, which the kernel writes as -1, and for text
+// that is not such a number (empty, negative, or past int's range).
+[[nodiscard]] std::optional<int> ParseNumaNode(std::string_view text);
 
 }  // namespace umbra::core
 
