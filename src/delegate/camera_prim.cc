@@ -13,12 +13,10 @@
 
 #include <array>
 #include <span>
-#include <utility>
 
+#include "gf.h"
 #include "host_copy.h"
-#include "mesh.h"
 #include "motion.h"
-#include "motion_samples.h"
 #include "sync_counter.h"
 #include "umbra/core/safety.h"
 
@@ -39,14 +37,10 @@ void CameraPrim::Sync(pxr::HdSceneDelegate* scene_delegate,
       .open = GetShutterOpen(),
       .close = GetShutterClose(),
   };
-  transform_samples_ = {.times = {0.0F}, .values = {GetTransform()}};
-  if (IsMotionBlurred(shutter) && !GetId().IsEmpty()) {
-    TimedSamples<pxr::GfMatrix4d> samples =
-        SampleTransform(*scene_delegate, GetId(), shutter);
-    if (!samples.values.empty()) {
-      transform_samples_ = std::move(samples);
-    }
-  }
+  // A fallback camera, which has no path, has no samples to give.
+  transform_samples_ =
+      SampleTransform(*scene_delegate, GetId(), GetTransform(),
+                      GetId().IsEmpty() ? host::Shutter{} : shutter);
   changed_ = Changed::kYes;
   CountSync(counter_, GetId());
 }

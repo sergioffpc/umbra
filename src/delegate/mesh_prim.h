@@ -64,13 +64,6 @@ enum class DisplayColor : std::uint8_t {
   kPresent,
 };
 
-// The change flags of a mesh converted whole: every member of its host copy
-// is given.
-inline constexpr device::ChangeFlags kWholeMesh =
-    device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
-    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
-    device::ChangeFlags::kEmission;
-
 // The dirty bit of a mesh whose MeshLightAPI changed, which Hydra has none
 // of: the delegate maps a change of a mesh's light data source to it.
 inline constexpr pxr::HdDirtyBits kDirtyEmission =
@@ -145,9 +138,9 @@ class MeshPrim final : public pxr::HdMesh {
   }
   // Whether it has a displayColor, once converted.
   [[nodiscard]] DisplayColor display_color() const { return display_color_; }
-  // What its host copy holds since it was last committed: kWholeMesh when a
-  // sync converted all of it, the members of its updates otherwise, and
-  // kNone when it did not sync since.
+  // What its host copy holds since it was last committed: host::kWholeMesh
+  // when a sync converted all of it, the members of its updates otherwise,
+  // and kNone when it did not sync since.
   [[nodiscard]] device::ChangeFlags changes() const { return changes_; }
   // Its mesh, once converted: the host copy, whose materials the commit
   // gives.

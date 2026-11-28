@@ -17,7 +17,6 @@
 #include <pxr/usd/sdf/path.h>
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -32,27 +31,6 @@ UMBRA_ASSUME_NONNULL_BEGIN
 namespace umbra::delegate::internal {
 
 namespace pxr = PXR_NS;
-
-// The components of a Gf vector of 2 or 4 (GfVec2i, GfVec4d, ...), as T,
-// read from its named fields.
-template <typename T, std::size_t N, typename Vector>
-std::array<T, N> Components(const Vector& vector) {
-  static_assert(Vector::dimension == N);
-  if constexpr (N == 2) {
-    return {
-        static_cast<T>(vector.x),
-        static_cast<T>(vector.y),
-    };
-  } else {
-    static_assert(N == 4);
-    return {
-        static_cast<T>(vector.x),
-        static_cast<T>(vector.y),
-        static_cast<T>(vector.z),
-        static_cast<T>(vector.w),
-    };
-  }
-}
 
 // The attributes of a RenderSettings prim that its products inherit, as
 // UsdRender resolves them (with the schema's fallbacks): the implicit

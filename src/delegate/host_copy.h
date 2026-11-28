@@ -21,6 +21,7 @@
 
 #include "ies_tilt.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
 #include "umbra/device/render_data.h"
 
@@ -160,6 +161,33 @@ struct Mesh {
   // ACEScg; none for a mesh that is not a mesh light.
   std::optional<Emission> emission;
 };
+
+// The change flags of a mesh's host copy given whole: every member of it,
+// and its instances.
+inline constexpr device::ChangeFlags kWholeMesh =
+    device::ChangeFlags::kPlacement | device::ChangeFlags::kTopology |
+    device::ChangeFlags::kPrimvars | device::ChangeFlags::kMaterials |
+    device::ChangeFlags::kEmission;
+
+// The change flags that name each group of members of a mesh's host copy
+// and of its instances, as device::UpdatedPrototype lists them: a change
+// gives a group when it has any of the group's flags.
+struct MeshMemberFlags {
+  // Its points.
+  device::ChangeFlags points =
+      device::ChangeFlags::kPoints | device::ChangeFlags::kTopology;
+  // Its triangles, source faces, face-vertex counts and sidedness.
+  device::ChangeFlags topology = device::ChangeFlags::kTopology;
+  // Its normals and its other primvars.
+  device::ChangeFlags primvars = device::ChangeFlags::kPrimvars;
+  // Its materials and the material of each triangle.
+  device::ChangeFlags materials = device::ChangeFlags::kMaterials;
+  // Its instances.
+  device::ChangeFlags instances = device::ChangeFlags::kPlacement;
+  // Its emission.
+  device::ChangeFlags emission = device::ChangeFlags::kEmission;
+};
+inline constexpr MeshMemberFlags kMeshMembers{};
 
 // An IES profile, in type C photometry, its angles in radians.
 struct IesProfile {

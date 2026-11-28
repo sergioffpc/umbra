@@ -24,13 +24,14 @@
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/pxOsd/subdivTags.h>
 #include <pxr/imaging/pxOsd/tokens.h>
+#include <pxr/usd/sdf/path.h>
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -47,16 +48,17 @@
 #include <vector>
 
 #include "dicing.h"
+#include "gf.h"
 #include "host_copy.h"
 #include "subdivision.h"
 #include "umbra/core/log.h"
+#include "umbra/device/geometry.h"
 
 namespace umbra::delegate::internal {
 namespace {
 
 using host::HostBuffer;
 using host::Numbers;
-using Point = std::array<float, 3>;
 
 // The numbers of a primvar's value, `components` per element.
 struct Values {
@@ -102,23 +104,12 @@ using NumbersOf =
 // Appends the components of `element` to `out`.
 template <typename T>
 void Append(const T& element, NumbersOf<T>& out) {
-  if constexpr (pxr::GfIsGfVec<T>::value) {
-    Append(element.x, out);
-    Append(element.y, out);
-    if constexpr (T::dimension > 2) {
-      Append(element.z, out);
-    }
-    if constexpr (T::dimension > 3) {
-      Append(element.w, out);
-    }
-  } else if constexpr (std::is_same_v<T, pxr::GfMatrix4d>) {
-    for (int row = 0; row < 4; ++row) {
-      Append(element.GetRow(row), out);
-    }
-  } else if constexpr (std::is_same_v<T, int>) {
-    out.push_back(element);
+  using Number = NumbersOf<T>::value_type;
+  if constexpr (ComponentsOf<T>() > 1) {
+    const auto components = Components<Number, ComponentsOf<T>()>(element);
+    out.insert(out.end(), components.begin(), components.end());
   } else {
-    out.push_back(static_cast<float>(element));
+    out.push_back(static_cast<Number>(element));
   }
 }
 
@@ -239,15 +230,26 @@ std::expected<HostBuffer<std::uint32_t>, std::string> CheckedCounts(
   return checked;
 }
 
+// The faces of a mesh of `face_count` faces that are holes: those of
+// `holes` in range.
+std::vector<std::uint32_t> HolesOf(const pxr::VtIntArray& holes,
+                                   std::size_t face_count) {
+  std::vector<std::uint32_t> faces;
+  for (const int hole : holes) {
+    if (std::cmp_greater_equal(hole, 0) && std::cmp_less(hole, face_count)) {
+      faces.push_back(static_cast<std::uint32_t>(hole));
+    }
+  }
+  return faces;
+}
+
 // Whether each face is a hole: 1 for a hole, 0 otherwise. Hole indices
 // out of range name no face.
 std::vector<std::uint8_t> HoleMarks(const pxr::VtIntArray& holes,
                                     std::size_t face_count) {
   std::vector<std::uint8_t> marks(face_count, 0);
-  for (const int hole : holes) {
-    if (std::cmp_greater_equal(hole, 0) && std::cmp_less(hole, face_count)) {
-      marks.at(static_cast<std::size_t>(hole)) = 1;
-    }
+  for (const std::uint32_t hole : HolesOf(holes, face_count)) {
+    marks.at(hole) = 1;
   }
   return marks;
 }
@@ -383,38 +385,72 @@ std::expected<Values, std::string> Elements(Values values,
   return values;
 }
 
+// The value of each face-vertex of a face-varying primvar of `values`:
+// its indices, checked, or each face-vertex its own.
+std::expected<std::vector<std::uint32_t>, std::string> FaceVertexValues(
+    const Values& values, const SourcePrimvar& source,
+    std::size_t face_vertices) {
+  const std::size_t given =
+      source.indices.empty() ? values.count : source.indices.size();
+  if (given != face_vertices) {
+    return std::unexpected(WrongCount(source, given, face_vertices));
+  }
+  if (!source.indices.empty()) {
+    return CheckedIndices(source.indices, values.count,
+                          std::format("primvar {}", source.name.GetString()));
+  }
+  std::vector<std::uint32_t> indices(face_vertices);
+  std::ranges::iota(indices, 0U);
+  return indices;
+}
+
 // The index of the value of each triangle corner of a face-varying primvar.
 std::expected<HostBuffer<std::uint32_t>, std::string> CornerIndices(
     const Values& values, const SourcePrimvar& source,
     const Triangulation& shape) {
-  const std::string what = std::format("primvar {}", source.name.GetString());
-  const std::size_t needed = shape.face_vertices;
-  const std::size_t given =
-      source.indices.empty() ? values.count : source.indices.size();
-  if (given != needed) {
-    return std::unexpected(WrongCount(source, given, needed));
-  }
-  std::vector<std::uint32_t> face_vertex_values;
-  if (!source.indices.empty()) {
-    auto checked = CheckedIndices(source.indices, values.count, what);
-    if (!checked.has_value()) {
-      return std::unexpected(checked.error());
-    }
-    face_vertex_values = std::move(*checked);
+  const auto face_vertex_values =
+      FaceVertexValues(values, source, shape.face_vertices);
+  if (!face_vertex_values.has_value()) {
+    return std::unexpected(face_vertex_values.error());
   }
   HostBuffer<std::uint32_t> indices;
   indices.reserve(shape.corners.size());
   for (const std::uint32_t corner : shape.corners) {
-    indices.push_back(
-        face_vertex_values.empty() ? corner : face_vertex_values.at(corner));
+    indices.push_back(face_vertex_values->at(corner));
   }
   return indices;
 }
 
-// A primvar at the rates devices take; none for one it drops.
-std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvar(
-    const SourcePrimvar& source, const Triangulation& shape,
-    std::string_view path) {
+// "{path}: primvar {name} of type {type} not supported; dropped", logged
+// for `source`, a primvar of the prim at `path` that umbra does not take.
+void LogDropped(const SourcePrimvar& source, std::string_view path) {
+  UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of type {} not supported; dropped",
+                  path, source.name.GetString(), source.value.GetTypeName());
+}
+
+// The values of `source`, a primvar of the prim at `path`; none, with a
+// debug message, when they are not numeric.
+std::optional<Values> NumericValuesOf(const SourcePrimvar& source,
+                                      std::string_view path) {
+  std::optional<Values> values = NumericValues(source.value);
+  if (!values.has_value()) {
+    LogDropped(source, path);
+  }
+  return values;
+}
+
+// A primvar of a mesh, classified: its rate and its values.
+struct Classified {
+  host::PrimvarRate rate = host::PrimvarRate::kConstant;
+  Values values;
+};
+
+// The rate and the values of `source`, a primvar of the mesh at `path`;
+// none, with a debug message, for one a mesh does not take: of an element
+// size above 1, an interpolation it has no rate for, or values that are
+// not numeric.
+std::optional<Classified> Classify(const SourcePrimvar& source,
+                                   std::string_view path) {
   if (source.element_size > 1) {
     UMBRA_LOG_DEBUG(kUsd,
                     "{}: primvar {} of element size {} not supported; "
@@ -422,32 +458,47 @@ std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvar(
                     path, source.name.GetString(), source.element_size);
     return std::nullopt;
   }
-  const auto rate = RateOf(source.interpolation);
-  auto values = NumericValues(source.value);
-  if (!rate.has_value() || !values.has_value()) {
-    UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of type {} not supported; dropped",
-                    path, source.name.GetString(), source.value.GetTypeName());
+  const std::optional<host::PrimvarRate> rate = RateOf(source.interpolation);
+  if (!rate.has_value()) {
+    LogDropped(source, path);
     return std::nullopt;
   }
+  std::optional<Values> values = NumericValuesOf(source, path);
+  if (!values.has_value()) {
+    return std::nullopt;
+  }
+  return Classified{.rate = *rate, .values = std::move(*values)};
+}
+
+// A primvar at the rates devices take; none for one it drops.
+std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvar(
+    const SourcePrimvar& source, const Triangulation& shape,
+    std::string_view path) {
+  std::optional<Classified> classified = Classify(source, path);
+  if (!classified.has_value()) {
+    return std::nullopt;
+  }
+  const host::PrimvarRate rate = classified->rate;
+  Values& values = classified->values;
   host::Primvar primvar;
   primvar.name = source.name.GetString();
-  primvar.rate = *rate;
-  if (*rate == host::PrimvarRate::kPerCorner) {
-    auto indices = CornerIndices(*values, source, shape);
+  primvar.rate = rate;
+  if (rate == host::PrimvarRate::kPerCorner) {
+    auto indices = CornerIndices(values, source, shape);
     if (!indices.has_value()) {
       return std::unexpected(indices.error());
     }
     primvar.indices = std::move(*indices);
   } else {
     auto elements =
-        Elements(std::move(*values), source, *rate, Needed(*rate, shape));
+        Elements(std::move(values), source, rate, Needed(rate, shape));
     if (!elements.has_value()) {
       return std::unexpected(elements.error());
     }
     values = std::move(*elements);
   }
-  primvar.components = values->components;
-  primvar.values = std::move(values->numbers);
+  primvar.components = values.components;
+  primvar.values = std::move(values.numbers);
   return primvar;
 }
 
@@ -478,62 +529,41 @@ std::expected<HostBuffer<host::Float3>, std::string> PointsInMeters(
   return InMeters(value.UncheckedGet<pxr::VtVec3fArray>(), meters_per_unit);
 }
 
+// The motion samples of the points of a mesh, `motion`, each in meters.
+std::vector<HostBuffer<host::Float3>> MotionInMeters(
+    std::span<const pxr::VtVec3fArray> motion, double meters_per_unit) {
+  std::vector<HostBuffer<host::Float3>> samples;
+  samples.reserve(motion.size());
+  for (const pxr::VtVec3fArray& sample : motion) {
+    samples.push_back(InMeters(sample, meters_per_unit));
+  }
+  return samples;
+}
+
 // The point of `point`, without its padding.
-Point PointOf(const host::Float3& point) { return {point.x, point.y, point.z}; }
-
-Point Add(const Point& lhs, const Point& rhs) {
-  return {
-      std::get<0>(lhs) + std::get<0>(rhs),
-      std::get<1>(lhs) + std::get<1>(rhs),
-      std::get<2>(lhs) + std::get<2>(rhs),
-  };
-}
-
-Point Sub(const Point& lhs, const Point& rhs) {
-  return {
-      std::get<0>(lhs) - std::get<0>(rhs),
-      std::get<1>(lhs) - std::get<1>(rhs),
-      std::get<2>(lhs) - std::get<2>(rhs),
-  };
-}
-
-Point Cross(const Point& lhs, const Point& rhs) {
-  const auto [lhs_x, lhs_y, lhs_z] = lhs;
-  const auto [rhs_x, rhs_y, rhs_z] = rhs;
-  return {
-      (lhs_y * rhs_z) - (lhs_z * rhs_y),
-      (lhs_z * rhs_x) - (lhs_x * rhs_z),
-      (lhs_x * rhs_y) - (lhs_y * rhs_x),
-  };
-}
-
-// `vector` scaled to unit length; zero when it has none.
-Point Normalized(const Point& vector) {
-  const auto [vec_x, vec_y, vec_z] = vector;
-  const float length =
-      std::sqrt((vec_x * vec_x) + (vec_y * vec_y) + (vec_z * vec_z));
-  const float inverse = length > 0.0F ? 1.0F / length : 0.0F;
-  return {vec_x * inverse, vec_y * inverse, vec_z * inverse};
+device::Vector3 PointOf(const host::Float3& point) {
+  return {.x = point.x, .y = point.y, .z = point.z};
 }
 
 // Smooth per-vertex normals: the unit sum of the area-weighted normals of
 // the triangles around each point; zero for a point on none.
 host::Primvar SmoothNormals(const HostBuffer<host::Float3>& points,
                             const HostBuffer<host::Triangle>& triangles) {
-  std::vector<Point> sums(points.size(), Point{});
+  std::vector<device::Vector3> sums(points.size(), device::Vector3{});
   for (const auto& [first, second, third] : triangles) {
-    const Point origin = PointOf(points.at(first));
-    const Point normal = Cross(Sub(PointOf(points.at(second)), origin),
-                               Sub(PointOf(points.at(third)), origin));
+    const device::Vector3 origin = PointOf(points.at(first));
+    const device::Vector3 normal =
+        device::Cross(PointOf(points.at(second)) - origin,
+                      PointOf(points.at(third)) - origin);
     for (const std::uint32_t vertex : {first, second, third}) {
-      sums.at(vertex) = Add(sums.at(vertex), normal);
+      sums.at(vertex) = sums.at(vertex) + normal;
     }
   }
   HostBuffer<float> numbers;
   numbers.reserve(sums.size() * 3);
-  for (const Point& sum : sums) {
-    const Point normal = Normalized(sum);
-    numbers.insert(numbers.end(), normal.begin(), normal.end());
+  for (const device::Vector3& sum : sums) {
+    const device::Vector3 normal = device::Normalize(sum);
+    numbers.insert(numbers.end(), {normal.x, normal.y, normal.z});
   }
   return {
       .name = "normals",
@@ -605,18 +635,6 @@ std::expected<std::optional<host::Primvar>, std::string> ConvertPrimvars(
   return normals;
 }
 
-// A transform in scene units, in meters: row-major, for row vectors, its
-// translation (the last row) scaled by `meters_per_unit`.
-host::Matrix TransformInMeters(const pxr::GfMatrix4d& transform,
-                               double meters_per_unit) {
-  host::Matrix converted = RowMajor(transform);
-  // The translation, in the last row, is a length; the rest is not.
-  for (std::size_t column = 0; column < 3; ++column) {
-    converted.at(12 + column) *= meters_per_unit;
-  }
-  return converted;
-}
-
 // A primvar of a subdivided mesh that OpenSubdiv refines: per point, or
 // per face-vertex.
 struct RefinedPrimvar {
@@ -635,25 +653,6 @@ struct SubdividedPrimvars {
   std::vector<host::Primvar> kept;
   std::vector<RefinedPrimvar> refined;
 };
-
-// The value of each face-vertex of a face-varying primvar of `values`:
-// its indices, checked, or each face-vertex its own.
-std::expected<std::vector<std::uint32_t>, std::string> FaceVertexValues(
-    const Values& values, const SourcePrimvar& source,
-    std::size_t face_vertices) {
-  const std::size_t given =
-      source.indices.empty() ? values.count : source.indices.size();
-  if (given != face_vertices) {
-    return std::unexpected(WrongCount(source, given, face_vertices));
-  }
-  if (!source.indices.empty()) {
-    return CheckedIndices(source.indices, values.count,
-                          std::format("primvar {}", source.name.GetString()));
-  }
-  std::vector<std::uint32_t> indices(face_vertices);
-  std::ranges::iota(indices, 0U);
-  return indices;
-}
 
 // A primvar of a subdivided mesh that OpenSubdiv refines, from its values
 // at `rate`, kPerVertex or kPerCorner.
@@ -696,37 +695,36 @@ std::expected<void, std::string> SortPrimvar(const SourcePrimvar& source,
                                              std::size_t points,
                                              std::string_view path,
                                              SubdividedPrimvars& out) {
-  const auto rate = RateOf(source.interpolation);
-  auto values = NumericValues(source.value);
-  if (source.element_size > 1 || !rate.has_value() || !values.has_value()) {
-    UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of type {} not supported; dropped",
-                    path, source.name.GetString(), source.value.GetTypeName());
+  std::optional<Classified> classified = Classify(source, path);
+  if (!classified.has_value()) {
     return {};
   }
-  if (*rate == host::PrimvarRate::kConstant ||
-      *rate == host::PrimvarRate::kPerFace) {
-    const std::size_t needed = *rate == host::PrimvarRate::kConstant
+  const host::PrimvarRate rate = classified->rate;
+  Values& values = classified->values;
+  if (rate == host::PrimvarRate::kConstant ||
+      rate == host::PrimvarRate::kPerFace) {
+    const std::size_t needed = rate == host::PrimvarRate::kConstant
                                    ? 1
                                    : shape.face_vertex_counts.size();
-    auto elements = Elements(std::move(*values), source, *rate, needed);
+    auto elements = Elements(std::move(values), source, rate, needed);
     if (!elements.has_value()) {
       return std::unexpected(elements.error());
     }
     out.kept.push_back({
         .name = source.name.GetString(),
-        .rate = *rate,
+        .rate = rate,
         .components = elements->components,
         .values = std::move(elements->numbers),
         .indices = {},
     });
     return {};
   }
-  if (!std::holds_alternative<HostBuffer<float>>(values->numbers)) {
+  if (!std::holds_alternative<HostBuffer<float>>(values.numbers)) {
     UMBRA_LOG_DEBUG(kUsd, "{}: primvar {} of integers not refined; dropped",
                     path, source.name.GetString());
     return {};
   }
-  auto refined = Refined(std::move(*values), source, *rate, shape, points);
+  auto refined = Refined(std::move(values), source, rate, shape, points);
   if (!refined.has_value()) {
     return std::unexpected(refined.error());
   }
@@ -876,19 +874,6 @@ std::vector<subdivision::Corner> CornersOf(const pxr::PxOsdSubdivTags& tags,
   return corners;
 }
 
-// The faces of a mesh of `face_count` faces that are holes: those of
-// `holes` in range.
-std::vector<std::uint32_t> HolesOf(const pxr::VtIntArray& holes,
-                                   std::size_t face_count) {
-  std::vector<std::uint32_t> faces;
-  for (const int hole : holes) {
-    if (std::cmp_greater_equal(hole, 0) && std::cmp_less(hole, face_count)) {
-      faces.push_back(static_cast<std::uint32_t>(hole));
-    }
-  }
-  return faces;
-}
-
 // What a cage points into, besides the source mesh.
 struct CageArrays {
   Polygons shape;
@@ -947,9 +932,7 @@ std::expected<void, std::string> ReadCage(const SourceMesh& source,
   arrays.corners = CornersOf(source.subdiv_tags, frame->size());
   arrays.shape = std::move(*shape);
   arrays.frame = std::move(*frame);
-  for (const pxr::VtVec3fArray& sample : source.point_motion) {
-    arrays.motion.push_back(InMeters(sample, meters_per_unit));
-  }
+  arrays.motion = MotionInMeters(source.point_motion, meters_per_unit);
   for (const HostBuffer<host::Float3>& sample : arrays.motion) {
     arrays.motion_spans.emplace_back(sample);
   }
@@ -1056,11 +1039,8 @@ std::expected<ConvertedMesh, std::string> ConvertMesh(const SourceMesh& source,
   converted.normals = SetNormals(std::move(*normals), *points, mesh);
   if (source.point_motion.empty()) {
     mesh.points.push_back(std::move(*points));
-    return converted;
-  }
-  mesh.points.reserve(source.point_motion.size());
-  for (const pxr::VtVec3fArray& sample : source.point_motion) {
-    mesh.points.push_back(InMeters(sample, meters_per_unit));
+  } else {
+    mesh.points = MotionInMeters(source.point_motion, meters_per_unit);
   }
   return converted;
 }
@@ -1110,58 +1090,56 @@ std::expected<ConvertedMesh, std::string> RefineMesh(
 std::expected<std::vector<HostBuffer<host::Float3>>, std::string> ConvertPoints(
     const pxr::VtValue& points, std::span<const pxr::VtVec3fArray> motion,
     double meters_per_unit) {
+  if (!motion.empty()) {
+    return MotionInMeters(motion, meters_per_unit);
+  }
+  auto frame = PointsInMeters(points, meters_per_unit);
+  if (!frame.has_value()) {
+    return std::unexpected(frame.error());
+  }
   std::vector<HostBuffer<host::Float3>> samples;
-  if (motion.empty()) {
-    auto frame = PointsInMeters(points, meters_per_unit);
-    if (!frame.has_value()) {
-      return std::unexpected(frame.error());
-    }
-    samples.push_back(std::move(*frame));
-    return samples;
-  }
-  samples.reserve(motion.size());
-  for (const pxr::VtVec3fArray& sample : motion) {
-    samples.push_back(InMeters(sample, meters_per_unit));
-  }
+  samples.push_back(std::move(*frame));
   return samples;
 }
 
-std::optional<host::Primvar> ConstantPrimvar(std::string name,
-                                             const pxr::VtValue& value) {
-  auto values = NumericValues(value);
+std::vector<SourcePrimvar> ReadPrimvars(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    std::span<const pxr::HdInterpolation> interpolations,
+    PrimvarIndices indices) {
+  std::vector<SourcePrimvar> primvars;
+  for (const pxr::HdInterpolation interpolation : interpolations) {
+    for (const pxr::HdPrimvarDescriptor& descriptor :
+         delegate.GetPrimvarDescriptors(prim_id, interpolation)) {
+      SourcePrimvar primvar{
+          .name = descriptor.name,
+          .interpolation = interpolation,
+          .value = {},
+          .indices = {},
+          .element_size = descriptor.elementSize,
+      };
+      primvar.value = descriptor.indexed && indices == PrimvarIndices::kKept
+                          ? delegate.GetIndexedPrimvar(prim_id, descriptor.name,
+                                                       &primvar.indices)
+                          : delegate.Get(prim_id, descriptor.name);
+      primvars.push_back(std::move(primvar));
+    }
+  }
+  return primvars;
+}
+
+std::optional<host::Primvar> ConstantPrimvar(const SourcePrimvar& source,
+                                             std::string_view path) {
+  std::optional<Values> values = NumericValuesOf(source, path);
   if (!values.has_value()) {
     return std::nullopt;
   }
   return host::Primvar{
-      .name = std::move(name),
+      .name = source.name.GetString(),
       .rate = host::PrimvarRate::kConstant,
       .components = values->components,
       .values = std::move(values->numbers),
       .indices = {},
   };
-}
-
-std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform) {
-  std::array<double, 16> converted{};
-  for (int row = 0; row < 4; ++row) {
-    const pxr::GfVec4d values = transform.GetRow(row);
-    const auto first = static_cast<std::size_t>(row) * 4;
-    converted.at(first) = values.x;
-    converted.at(first + 1) = values.y;
-    converted.at(first + 2) = values.z;
-    converted.at(first + 3) = values.w;
-  }
-  return converted;
-}
-
-HostBuffer<host::Matrix> TransformsInMeters(
-    std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit) {
-  HostBuffer<host::Matrix> converted;
-  converted.reserve(transforms.size());
-  for (const pxr::GfMatrix4d& transform : transforms) {
-    converted.push_back(TransformInMeters(transform, meters_per_unit));
-  }
-  return converted;
 }
 
 }  // namespace umbra::delegate::internal

@@ -7,12 +7,9 @@
 
 #include <expected>
 #include <format>
-#include <ranges>
 #include <span>
 #include <string>
-#include <thread>
 #include <utility>
-#include <vector>
 
 #include "commit_cameras.h"
 #include "commit_description.h"
@@ -22,10 +19,10 @@
 #include "commit_products.h"
 #include "commit_textures.h"
 #include "commit_warnings.h"
+#include "device_threads.h"
 #include "hydra.h"
 #include "ledger.h"
 #include "umbra/core/error.h"
-#include "umbra/core/floating_point.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/device/change_set.h"
@@ -37,43 +34,6 @@ namespace {
 
 using ::umbra::core::Error;
 using ::umbra::core::ErrorCode;
-
-// Commits `changes` to every device of `devices` in parallel, each on a host
-// thread of its own, and gives each one's result, in order, once all are
-// done.
-std::vector<std::expected<void, Error>> CommitInParallel(
-    const device::ChangeSet& changes,
-    std::span<device::Device* const> devices) {
-  std::vector<std::expected<void, Error>> results(devices.size());
-  std::vector<std::jthread> threads;
-  threads.reserve(devices.size());
-  for (const auto& [device, result] : std::views::zip(devices, results)) {
-    threads.emplace_back([&changes, device, &result] {
-      core::ConfigureThreadFloatingPoint();
-      result = device->Commit(changes);
-    });
-  }
-  // Joins every thread.
-  threads.clear();
-  return results;
-}
-
-// Commits `changes` to every device of `devices` in parallel: fails with the
-// error of the first, in order, that fails, naming it.
-std::expected<void, Error> CommitToDevices(
-    const device::ChangeSet& changes,
-    std::span<device::Device* const> devices) {
-  const std::vector<std::expected<void, Error>> results =
-      CommitInParallel(changes, devices);
-  for (const auto& [device, committed] : std::views::zip(devices, results)) {
-    if (!committed.has_value()) {
-      return std::unexpected(Error(committed.error().code(),
-                                   std::format("device {}: {}", device->name(),
-                                               committed.error().message())));
-    }
-  }
-  return {};
-}
 
 // One commit: the change set it builds from the synced prims and the
 // ledger, and the warnings it reports.
@@ -260,7 +220,10 @@ std::expected<Committed, Error> Commit(
   const device::ChangeSet change_set = commit.Build();
   committed->description =
       commit.DescribeCommit(committed->settings, change_set);
-  if (auto done = CommitToDevices(change_set, devices); !done.has_value()) {
+  const auto commit_on_device = [&change_set](device::Device& device) {
+    return device.Commit(change_set);
+  };
+  if (auto done = OnEachDevice(devices, commit_on_device); !done.has_value()) {
     return std::unexpected(std::move(done.error()));
   }
   ledger.Recycle();

@@ -8,21 +8,22 @@
 #ifndef UMBRA_DELEGATE_MESH_H_
 #define UMBRA_DELEGATE_MESH_H_
 
-#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/pxOsd/subdivTags.h>
 #include <pxr/pxr.h>
+#include <pxr/usd/sdf/path.h>
 
-#include <array>
 #include <cstdint>
 #include <expected>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "dicing.h"
@@ -123,20 +124,27 @@ ConvertPoints(const pxr::VtValue& points,
               std::span<const pxr::VtVec3fArray> motion,
               double meters_per_unit);
 
-// The elements of `value`, a numeric value or array, as a constant primvar
-// named `name` holding them all, one after another; none for a value of
+// How ReadPrimvars gives an indexed primvar.
+enum class PrimvarIndices : std::uint8_t {
+  // Its values, and its indices.
+  kKept,
+  // Its values flattened through its indices, as Hydra's Get gives them.
+  kFlattened,
+};
+
+// The primvars of the prim at `prim_id` of each of `interpolations`, in
+// their order, indexed ones as `indices` says.
+[[nodiscard]] std::vector<SourcePrimvar> ReadPrimvars(
+    pxr::HdSceneDelegate& delegate, const pxr::SdfPath& prim_id,
+    std::span<const pxr::HdInterpolation> interpolations,
+    PrimvarIndices indices);
+
+// The elements of the value of `source`, a primvar of the prim at `path`
+// whose value is a numeric value or array, as a constant primvar holding
+// them all, one after another; none, with a debug message, for a value of
 // another type.
 [[nodiscard]] std::optional<host::Primvar> ConstantPrimvar(
-    std::string name, const pxr::VtValue& value);
-
-// A transform with no unit, row-major, for row vectors.
-[[nodiscard]] std::array<double, 16> RowMajor(const pxr::GfMatrix4d& transform);
-
-// The motion samples of a transform in scene units, each in meters:
-// row-major, for row vectors, its translation (the last row) scaled by
-// `meters_per_unit`.
-[[nodiscard]] host::HostBuffer<host::Matrix> TransformsInMeters(
-    std::span<const pxr::GfMatrix4d> transforms, double meters_per_unit);
+    const SourcePrimvar& source, std::string_view path);
 
 }  // namespace umbra::delegate::internal
 

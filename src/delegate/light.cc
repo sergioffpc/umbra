@@ -7,7 +7,6 @@
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/vt/value.h>
-#include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/dataSourceTypeDefs.h>
 #include <pxr/imaging/hd/light.h>
@@ -17,9 +16,7 @@
 #include <pxr/imaging/hd/materialNodeSchema.h>
 #include <pxr/imaging/hd/materialSchema.h>
 #include <pxr/imaging/hd/renderDelegate.h>
-#include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
-#include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/schemaTypeDefs.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/types.h>
@@ -28,7 +25,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
 #include <format>
 #include <optional>
 #include <span>
@@ -38,34 +34,24 @@
 #include <variant>
 #include <vector>
 
+#include "gf.h"
 #include "host_copy.h"
 #include "ies_profile.h"
 #include "ies_tilt.h"
 #include "instancer.h"
 #include "material.h"
-#include "mesh.h"
 #include "motion.h"
-#include "motion_samples.h"
+#include "scene_index.h"
 #include "sync_counter.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
 #include "umbra/device/render_data.h"
-#include "umbra/ext/ocio/ocio.h"
 
 namespace umbra::delegate::internal {
 namespace {
 
 using ::umbra::core::Error;
-
-// The data source of the prim at `prim_id` in the terminal scene index, or
-// none.
-pxr::HdContainerDataSourceHandle PrimDataSource(pxr::HdSceneDelegate& delegate,
-                                                const pxr::SdfPath& prim_id) {
-  const pxr::HdSceneIndexBaseRefPtr terminal =
-      delegate.GetRenderIndex().GetTerminalSceneIndex();
-  return terminal == nullptr ? nullptr : terminal->GetPrim(prim_id).dataSource;
-}
 
 // The node of the light's material network: UsdLux's shader, whose
 // parameters carry the color spaces of the light's inputs.
@@ -323,9 +309,8 @@ void Reader::ReadEmission(Emitter& emitter) {
   const pxr::GfVec3f color =
       params_->Get(tokens.color, pxr::GfVec3f(1.0F, 1.0F, 1.0F));
   std::array<float, 3> rgb = {color.x, color.y, color.z};
-  const pxr::TfToken space = params_->ColorSpace(tokens.color);
-  if (auto converted = ext::ocio::ConvertToAcescg(
-          space.IsEmpty() ? kDefaultColorSpace : space.GetString(), rgb);
+  if (auto converted =
+          ConvertColorToAcescg(params_->ColorSpace(tokens.color), rgb);
       converted.has_value()) {
     emitter.color.rgb = rgb;
   } else {
@@ -427,26 +412,6 @@ const pxr::TfTokenVector& LightPrimTypes() {
 
 namespace {
 
-// The transform whose motion samples, equally spaced over `shutter`, are
-// `motion`, at the frame: at the end of the shutter nearest to the frame
-// when the shutter does not span it.
-pxr::GfMatrix4d AtFrame(const TransformMotion& motion,
-                        const host::Shutter& shutter) {
-  if (motion.empty()) {
-    return pxr::GfMatrix4d(1.0);
-  }
-  if (motion.size() == 1 || !IsMotionBlurred(shutter)) {
-    return motion.front();
-  }
-  const double weight =
-      std::clamp(-shutter.open / (shutter.close - shutter.open), 0.0, 1.0);
-  const double position = weight * static_cast<double>(motion.size() - 1);
-  const std::size_t index =
-      std::min(static_cast<std::size_t>(position), motion.size() - 2);
-  return BlendTransforms(motion.at(index), motion.at(index + 1),
-                         position - static_cast<double>(index));
-}
-
 // The tilt factor of each of `instances`, sampled over `shutter`, of a
 // light whose IES profile is `profile`, on a stage whose up axis is
 // `up_axis`: 1 for each when the profile has no TILT data.
@@ -461,10 +426,10 @@ host::HostBuffer<float> TiltFactors(
   }
   factors.reserve(instances.size());
   for (const FlatInstance& instance : instances) {
+    const pxr::GfMatrix4d at_frame =
+        TransformAtFrame(instance.transforms, shutter);
     factors.push_back(IesTiltFactor(
-        *profile->tilt,
-        IesInclination(RowMajor(AtFrame(instance.transforms, shutter)),
-                       up_axis)));
+        *profile->tilt, IesInclination(RowMajor(at_frame), up_axis)));
   }
   return factors;
 }
@@ -608,15 +573,8 @@ void LightPrim::Place(const host::Shutter& shutter,
       PlaceInstances(*delegate_, GetId(), GetInstancerId(), shutter);
   motion_outcome_ = placement.outcome;
   instance_count_ = placement.instances.size();
-  light_.instances.clear();
-  light_.instances.reserve(placement.instances.size());
-  for (const FlatInstance& instance : placement.instances) {
-    light_.instances.push_back({
-        .object_to_world =
-            TransformsInMeters(instance.transforms, meters_per_unit_),
-        .primvars = {},
-    });
-  }
+  light_.instances =
+      HostInstances(placement.instances, meters_per_unit_, KeepPrimvars::kNo);
   light_.tilt_factors =
       TiltFactors(placement.instances, light_.ies_profile, shutter, up_axis_);
   if (light_.ies_profile.has_value() && light_.ies_profile->tilt.has_value()) {

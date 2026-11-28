@@ -35,8 +35,14 @@ Sources (`src/delegate/`):
   rprims of the types umbra does not take, which are only counted.
 - `mesh.h`, `instancer.h`, `light.h`, `material.h`: the prims' sync into
   their host copies (`host_copy.h`).
+- `gf.h`: Gf's vectors and matrices as the numbers the host copies hold:
+  their components, and transforms row-major, in meters.
+- `scene_index.h`: a prim's data source in the terminal scene index, for
+  what the scene delegate API does not give.
 - `commit.h`, `views.h`: the commit of the host copies to the devices, as
   the change set.
+- `device_threads.h`: one host thread per device, its floating point
+  configured, on which each device commits and renders.
 - `ledger.h`: what the devices hold after a commit, which the next one
   starts from: a held table per kind of prim, by key, with dense ids.
 - `commit_cameras.h`, `commit_textures.h`, `commit_materials.h`,

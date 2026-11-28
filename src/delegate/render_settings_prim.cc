@@ -7,10 +7,8 @@
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/dataSource.h>
 #include <pxr/imaging/hd/renderDelegate.h>
-#include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
-#include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/types.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usdRender/tokens.h>
@@ -22,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "gf.h"
+#include "scene_index.h"
 #include "sync_counter.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
@@ -125,14 +125,10 @@ void RenderSettingsPrim::_Sync(
     pxr::HdSceneDelegate* scene_delegate,
     pxr::HdRenderParam* UMBRA_NULLABLE /*render_param*/,
     const pxr::HdDirtyBits* /*dirty_bits*/) {
-  const pxr::HdSceneIndexBaseRefPtr terminal =
-      scene_delegate->GetRenderIndex().GetTerminalSceneIndex();
-  if (terminal != nullptr) {
-    const pxr::HdContainerDataSourceHandle prim =
-        terminal->GetPrim(GetId()).dataSource;
-    base_ = ReadSettingsBase(prim);
-    dicing_rate_ = ReadDicingRate(prim);
-  }
+  const pxr::HdContainerDataSourceHandle prim =
+      PrimDataSource(*scene_delegate, GetId());
+  base_ = ReadSettingsBase(prim);
+  dicing_rate_ = ReadDicingRate(prim);
   CountSync(counter_, GetId());
 }
 

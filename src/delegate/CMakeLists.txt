@@ -37,7 +37,9 @@ umbra_add_module(
   commit_textures.cc
   commit_warnings.cc
   denoiser.cc
+  device_threads.cc
   dicing.cc
+  gf.cc
   host_copy.cc
   hydra.cc
   ies_profile.cc
@@ -53,6 +55,7 @@ umbra_add_module(
   render_pass.cc
   render_settings_prim.cc
   render_task.cc
+  scene_index.cc
   session.cc
   subdivision.cc
   unsupported_prim.cc

@@ -30,9 +30,9 @@
 #include "commit.h"
 #include "commit_cameras.h"
 #include "commit_warnings.h"
+#include "gf.h"
 #include "host_copy.h"
 #include "hydra.h"
-#include "mesh.h"
 #include "outputs.h"
 #include "plural.h"
 #include "umbra/core/error.h"
@@ -255,16 +255,6 @@ std::expected<std::optional<std::uint32_t>, Error> AuthoredSamplesPerPixel(
                           path.GetString())));
   }
   return static_cast<std::uint32_t>(value);
-}
-
-// `matrix`, row-major, as Gf holds it.
-pxr::GfMatrix4d GfMatrixOf(const device::Matrix& matrix) {
-  pxr::GfMatrix4d converted;
-  converted.Set(matrix.at(0), matrix.at(1), matrix.at(2), matrix.at(3),
-                matrix.at(4), matrix.at(5), matrix.at(6), matrix.at(7),
-                matrix.at(8), matrix.at(9), matrix.at(10), matrix.at(11),
-                matrix.at(12), matrix.at(13), matrix.at(14), matrix.at(15));
-  return converted;
 }
 
 // Gives `product` the pixels of its data window, its file's pixel aspect
