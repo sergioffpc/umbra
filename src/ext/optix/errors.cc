@@ -9,20 +9,20 @@
 
 #include <expected>
 #include <format>
-#include <string_view>
 
 #include "log.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
 namespace umbra::ext::optix {
 
-Result<void> Check(OptixResult result, std::string_view what) {
+Result<void> Check(OptixResult result, const core::LazyFormat& what) {
   if (result == OPTIX_SUCCESS) {
     return {};
   }
-  return std::unexpected(std::format("OptiX: {}: {} ({})", what,
+  return std::unexpected(std::format("OptiX: {}: {} ({})", what.Format(),
                                      optixGetErrorString(result),
                                      optixGetErrorName(result)));
 }

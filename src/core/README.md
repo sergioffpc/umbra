@@ -19,6 +19,9 @@ Public headers (`include/umbra/core/`):
   it.
 - `handle_owner.h`: the owner of a library's handle, which releases it with
   the library's function, header-only for the same bridges.
+- `lazy_format.h`: a format string and its arguments, formatted only when
+  asked, header-only for the same bridges: they take the message of a
+  call's error this way, so that a call that succeeds formats nothing.
 - `progress.h`: the progress of each phase of umbra's work on stderr, in
   place on a terminal and at every 10% otherwise, counted from any thread
   without allocating or locking.

@@ -12,9 +12,10 @@
 #include <optix_types.h>
 
 #include <expected>
+#include <format>
 #include <string>
-#include <string_view>
 
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
@@ -27,8 +28,21 @@ template <typename T>
 using Result = std::expected<T, std::string>;
 
 // Fails with OptiX's message when `result` is not OPTIX_SUCCESS:
-// "OptiX: <what>: <message> (<name>)".
-[[nodiscard]] Result<void> Check(OptixResult result, std::string_view what);
+// "OptiX: <what>: <message> (<name>)". `what` is formatted only then.
+[[nodiscard]] Result<void> Check(OptixResult result,
+                                 const core::LazyFormat& what);
+
+// Fails as above, with `what` formatted with `args` only when `result` is
+// not OPTIX_SUCCESS. Every call of the bridge that takes `what` and its
+// `args` formats them only when it fails, so that a call that succeeds
+// allocates nothing.
+template <typename... Args>
+[[nodiscard]] Result<void> Check(OptixResult result,
+                                 std::format_string<Args...> what,
+                                 const Args&... args) {
+  return Check(result,
+               core::LazyFormat(what.get(), std::make_format_args(args...)));
+}
 
 // Where the bridge logs what it cannot return: the messages of a context
 // and of what it compiles. A function of the code it is linked into.

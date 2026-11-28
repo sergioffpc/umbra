@@ -13,10 +13,10 @@
 #include <expected>
 #include <format>
 #include <span>
-#include <string_view>
 
 #include "log.h"
 #include "umbra/core/handle_owner.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/ext/cuda/conversions.h"
@@ -55,8 +55,8 @@ Result<DeviceBuffer> DeviceBuffer::Allocate(std::size_t bytes) {
     return DeviceBuffer();
   }
   void* pointer = nullptr;
-  if (auto allocated = Check(cudaMalloc(&pointer, bytes),
-                             std::format("cannot allocate {} bytes", bytes));
+  if (auto allocated =
+          Check(cudaMalloc(&pointer, bytes), "cannot allocate {} bytes", bytes);
       !allocated.has_value()) {
     return std::unexpected(allocated.error());
   }
@@ -87,7 +87,7 @@ Result<void> DeviceBuffer::Write(std::span<const std::byte> bytes,
   }
   return Check(cudaMemcpyAsync(PointerOf(address() + offset), bytes.data(),
                                bytes.size(), cudaMemcpyHostToDevice, stream),
-               std::format("cannot upload {} bytes", bytes.size()));
+               "cannot upload {} bytes", bytes.size());
 }
 
 // NOLINTNEXTLINE(readability-make-member-function-const): writes its memory.
@@ -102,7 +102,7 @@ Result<void> DeviceBuffer::CopyFrom(const DeviceBuffer& source,
   return Check(cudaMemcpyAsync(PointerOf(address() + offset),
                                PointerOf(source.address()), source.size(),
                                cudaMemcpyDeviceToDevice, stream),
-               std::format("cannot copy {} bytes", source.size()));
+               "cannot copy {} bytes", source.size());
 }
 
 void Stream::DestroyLogged(cudaStream_t stream) {
@@ -117,13 +117,13 @@ void Stream::DestroyLogged(cudaStream_t stream) {
   }
 }
 
-Result<Stream> Stream::Create(std::string_view what) {
+Result<Stream> Stream::Create(const core::LazyFormat& what) {
   cudaStream_t stream = nullptr;
   return Check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), what)
       .transform([&] { return Stream(stream); });
 }
 
-Result<void> Stream::Destroy(std::string_view what) {
+Result<void> Stream::Destroy(const core::LazyFormat& what) {
   if (stream_.get() == nullptr) {
     return {};
   }

@@ -10,11 +10,12 @@
 #include <driver_types.h>
 
 #include <cstddef>
+#include <format>
 #include <span>
-#include <string_view>
 #include <utility>
 
 #include "umbra/core/handle_owner.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/cuda/errors.h"
 
@@ -90,12 +91,25 @@ class UMBRA_OWNER Stream {
  public:
   Stream() = default;
 
-  // A stream of the current GPU.
-  [[nodiscard]] static Result<Stream> Create(std::string_view what);
+  // A stream of the current GPU. `what` is formatted only when it fails.
+  [[nodiscard]] static Result<Stream> Create(const core::LazyFormat& what);
+
+  template <typename... Args>
+  [[nodiscard]] static Result<Stream> Create(std::format_string<Args...> what,
+                                             const Args&... args) {
+    return Create(core::LazyFormat(what.get(), std::make_format_args(args...)));
+  }
 
   // Destroys the stream now, if it holds one, and fails as the runtime
-  // does.
-  [[nodiscard]] Result<void> Destroy(std::string_view what);
+  // does. `what` is formatted only when it fails.
+  [[nodiscard]] Result<void> Destroy(const core::LazyFormat& what);
+
+  template <typename... Args>
+  [[nodiscard]] Result<void> Destroy(std::format_string<Args...> what,
+                                     const Args&... args) {
+    return Destroy(
+        core::LazyFormat(what.get(), std::make_format_args(args...)));
+  }
 
   // The stream, which it must hold.
   [[nodiscard]] cudaStream_t get() const { return stream_.get(); }

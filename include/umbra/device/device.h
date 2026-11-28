@@ -116,8 +116,10 @@ class TileQueue {
     };
   }
 
-  // The pixels of tile `tile`.
-  [[nodiscard]] PixelWindow TileWindow(std::uint64_t tile) const;
+  // The pixels of tile `tile`. Callable on the hot path: it neither
+  // allocates nor locks.
+  [[nodiscard]] PixelWindow TileWindow(std::uint64_t tile) const
+      [[clang::nonblocking]];
 
   // Marks tile `tile` finished, its pixels in the render buffers final, and
   // counts it into the progress. Callable from any thread, once per tile, on

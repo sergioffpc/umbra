@@ -9,9 +9,10 @@
 
 #include <optix_types.h>
 
-#include <string_view>
+#include <format>
 
 #include "umbra/core/handle_owner.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/safety.h"
 #include "umbra/ext/optix/errors.h"
 
@@ -27,11 +28,26 @@ class UMBRA_OWNER DeviceContext {
   DeviceContext() = default;
 
   // A context on the current CUDA context, which the CUDA runtime made for
-  // the current GPU.
-  [[nodiscard]] static Result<DeviceContext> Create(std::string_view what);
+  // the current GPU. `what` is formatted only when it fails.
+  [[nodiscard]] static Result<DeviceContext> Create(
+      const core::LazyFormat& what);
+
+  template <typename... Args>
+  [[nodiscard]] static Result<DeviceContext> Create(
+      std::format_string<Args...> what, const Args&... args) {
+    return Create(core::LazyFormat(what.get(), std::make_format_args(args...)));
+  }
 
   // Destroys the context now, if it holds one, and fails as OptiX does.
-  [[nodiscard]] Result<void> Destroy(std::string_view what);
+  // `what` is formatted only when it fails.
+  [[nodiscard]] Result<void> Destroy(const core::LazyFormat& what);
+
+  template <typename... Args>
+  [[nodiscard]] Result<void> Destroy(std::format_string<Args...> what,
+                                     const Args&... args) {
+    return Destroy(
+        core::LazyFormat(what.get(), std::make_format_args(args...)));
+  }
 
   // The context, which it must hold.
   [[nodiscard]] OptixDeviceContext get() const { return context_.get(); }

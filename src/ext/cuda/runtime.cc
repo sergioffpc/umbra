@@ -8,20 +8,21 @@
 
 #include <expected>
 #include <span>
-#include <string_view>
 
+#include "umbra/core/lazy_format.h"
 #include "umbra/ext/cuda/errors.h"
 
 namespace umbra::ext::cuda {
 
-Result<int> DeviceCount(std::string_view what) {
+Result<int> DeviceCount(const core::LazyFormat& what) {
   int count = 0;
   return Check(cudaGetDeviceCount(&count), what).transform([&] {
     return count;
   });
 }
 
-Result<cudaDeviceProp> DeviceProperties(int ordinal, std::string_view what) {
+Result<cudaDeviceProp> DeviceProperties(int ordinal,
+                                        const core::LazyFormat& what) {
   cudaDeviceProp properties{};
   if (auto read = Check(cudaGetDeviceProperties(&properties, ordinal), what);
       !read.has_value()) {
@@ -31,7 +32,7 @@ Result<cudaDeviceProp> DeviceProperties(int ordinal, std::string_view what) {
   return properties;
 }
 
-Result<int> ComputeCapabilityMajor(int ordinal, std::string_view what) {
+Result<int> ComputeCapabilityMajor(int ordinal, const core::LazyFormat& what) {
   int major = 0;
   return Check(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor,
                                       ordinal),
@@ -40,29 +41,29 @@ Result<int> ComputeCapabilityMajor(int ordinal, std::string_view what) {
 }
 
 Result<void> PciBusId(int ordinal, std::span<char> bus_id,
-                      std::string_view what) {
+                      const core::LazyFormat& what) {
   return Check(cudaDeviceGetPCIBusId(bus_id.data(),
                                      static_cast<int>(bus_id.size()), ordinal),
                what);
 }
 
-Result<int> DriverVersion(std::string_view what) {
+Result<int> DriverVersion(const core::LazyFormat& what) {
   int version = 0;
   return Check(cudaDriverGetVersion(&version), what).transform([&] {
     return version;
   });
 }
 
-Result<void> SetDevice(int ordinal, std::string_view what) {
+Result<void> SetDevice(int ordinal, const core::LazyFormat& what) {
   return Check(cudaSetDevice(ordinal), what);
 }
 
-Result<void> Synchronize(cudaStream_t stream, std::string_view what) {
+Result<void> Synchronize(cudaStream_t stream, const core::LazyFormat& what) {
   return Check(cudaStreamSynchronize(stream), what);
 }
 
 Result<void> Copy2DAsync(const Copy2D& copy, cudaStream_t stream,
-                         std::string_view what) {
+                         const core::LazyFormat& what) {
   return Check(
       cudaMemcpy2DAsync(copy.to, copy.to_pitch, copy.from, copy.from_pitch,
                         copy.row_bytes, copy.rows, copy.kind, stream),

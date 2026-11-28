@@ -9,10 +9,10 @@
 
 #include <exception>
 #include <format>
-#include <string_view>
 
 #include "log.h"
 #include "umbra/core/handle_owner.h"
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
@@ -55,7 +55,7 @@ void DeviceContext::DestroyLogged(OptixDeviceContext context) {
   }
 }
 
-Result<DeviceContext> DeviceContext::Create(std::string_view what) {
+Result<DeviceContext> DeviceContext::Create(const core::LazyFormat& what) {
   OptixDeviceContextOptions options{};
   options.logCallbackFunction = LogFromOptix;
   options.logCallbackLevel = kWarningLevel;
@@ -65,7 +65,7 @@ Result<DeviceContext> DeviceContext::Create(std::string_view what) {
       .transform([&] { return DeviceContext(context); });
 }
 
-Result<void> DeviceContext::Destroy(std::string_view what) {
+Result<void> DeviceContext::Destroy(const core::LazyFormat& what) {
   if (context_.get() == nullptr) {
     return {};
   }

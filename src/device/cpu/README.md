@@ -19,7 +19,8 @@ Public headers (`include/umbra/device/cpu/`):
 Sources (`src/device/cpu/`):
 
 - `cpu_device.cc`: the device: its oneTBB arena bound to the node, its
-  commit, and the render of its tiles.
+  commit, and the render of its tiles, `[[clang::nonblocking]]` from each
+  tile it takes to its copy into the render buffers.
 - `copies.h`: its own copies of the prims a change set gives, in the node's
   memory.
 - `bvh.h`: its BVHs: one per prototype, one per light with a shape, and the

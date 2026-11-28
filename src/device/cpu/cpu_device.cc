@@ -618,11 +618,21 @@ void RenderTile(const RenderInputs& inputs, const device::PixelWindow& window,
   }
 }
 
+// Copies `source` into `destination`, which is as long.
+void CopyFloats(std::span<const float> source, std::span<float> destination)
+    [[clang::nonblocking]] {
+  auto into = destination.begin();
+  for (const float value : source.first(destination.size())) {
+    *into = value;
+    ++into;
+  }
+}
+
 // Copies `tile`'s pixels from the film's planes into the render buffers of
 // `frame`'s vars.
 void CopyTile(const device::FrameParameters& frame,
               const device::PixelWindow& tile, const device::FilmLayout& layout,
-              std::span<const float> film) {
+              std::span<const float> film) [[clang::nonblocking]] {
   const auto tile_width = static_cast<std::size_t>(tile.width());
   for (const auto& [var, plane] :
        std::views::zip(frame.vars, layout.Planes())) {
@@ -630,8 +640,8 @@ void CopyTile(const device::FrameParameters& frame,
     for (std::int32_t row = tile.y_min; row < tile.y_end; ++row) {
       const std::size_t first =
           device::TileRowOffset(frame.image.window, tile, row, plane.channels);
-      std::ranges::copy(film.subspan(plane.offset + first, count),
-                        var.pixels.subspan(first, count).begin());
+      CopyFloats(film.subspan(plane.offset + first, count),
+                 var.pixels.subspan(first, count));
     }
   }
 }
@@ -663,7 +673,7 @@ void LogNode(std::string_view device, std::string_view what,
 void RenderBatches(const RenderInputs& inputs,
                    const device::FrameParameters& frame,
                    device::TileQueue& tiles, const FilmTarget& target) {
-  const auto render = [&](std::uint64_t tile) {
+  const auto render = [&](std::uint64_t tile) [[clang::nonblocking]] {
     const device::PixelWindow window = tiles.TileWindow(tile);
     RenderTile(inputs, frame.image.window, window, *target.layout, target.film);
     CopyTile(frame, window, *target.layout, target.film);

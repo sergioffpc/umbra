@@ -12,9 +12,10 @@
 #include <driver_types.h>
 
 #include <expected>
+#include <format>
 #include <string>
-#include <string_view>
 
+#include "umbra/core/lazy_format.h"
 #include "umbra/core/log_hook.h"
 #include "umbra/core/safety.h"
 
@@ -27,8 +28,21 @@ template <typename T>
 using Result = std::expected<T, std::string>;
 
 // Fails with the CUDA runtime's message when `error` is not cudaSuccess:
-// "CUDA: <what>: <message> (<name>)".
-[[nodiscard]] Result<void> Check(cudaError_t error, std::string_view what);
+// "CUDA: <what>: <message> (<name>)". `what` is formatted only then.
+[[nodiscard]] Result<void> Check(cudaError_t error,
+                                 const core::LazyFormat& what);
+
+// Fails as above, with `what` formatted with `args` only when `error` is not
+// cudaSuccess. Every call of the bridge that takes `what` and its `args`
+// formats them only when it fails, so that a call that succeeds allocates
+// nothing.
+template <typename... Args>
+[[nodiscard]] Result<void> Check(cudaError_t error,
+                                 std::format_string<Args...> what,
+                                 const Args&... args) {
+  return Check(error,
+               core::LazyFormat(what.get(), std::make_format_args(args...)));
+}
 
 // Where the bridge logs what it cannot return, such as a release that fails
 // in a destructor: a function of the code it is linked into. Logs
