@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Umbra Authors
 //
-// What a GPU holds of the prims committed to it, in tables indexed by id
+// What a GPU holds of the prims committed to it, in the tables by id of
+// umbra/device/id_table.h, whose statuses it turns into messages
 // (docs/adr/0013-devices-render-from-their-own-memory.md).
 
 #ifndef UMBRA_DEVICE_GPU_BACKEND_HELD_H_
@@ -13,14 +14,14 @@
 #include <cstdint>
 #include <expected>
 #include <format>
-#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "support.h"
 #include "umbra/core/safety.h"
+#include "umbra/device/id_table.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/cuda/owners.h"
 
@@ -65,81 +66,35 @@ struct KeyRange {
 [[nodiscard]] Result<HeldPlacements> UploadPlacements(
     std::span<const device::Instance> instances, cudaStream_t stream);
 
-// The prims of one kind a GPU holds, by id.
+// The message of `error`, an id of the prims `kind` ("prototype").
+[[nodiscard]] std::string MessageOf(const device::IdError& error,
+                                    std::string_view kind);
+
+// Applies the ids of `changes` to `table`, of `count` ids of the prims
+// `kind`, as device::ApplyIds does: fails with the message of the first id
+// that does not apply.
+template <typename Changes, typename T, typename Id>
+[[nodiscard]] Result<void> ApplyIds(const Changes& changes, std::uint32_t count,
+                                    device::IdTable<T, Id>& table,
+                                    std::string_view kind) {
+  return device::ApplyIds(changes, count, table)
+      .transform_error(
+          [&](const device::IdError& error) { return MessageOf(error, kind); });
+}
+
+// What `table`, of the prims `kind`, holds under `key`.
 template <typename T, typename Id>
-class IdTable {
- public:
-  // `kind` names the prims in messages ("prototype").
-  explicit IdTable(std::string_view kind) : kind_(kind) {}
-
-  // Makes room for every id below `count`.
-  void Reserve(std::uint32_t count) {
-    if (count > slots_.size()) {
-      slots_.resize(count);
-    }
+[[nodiscard]] Result<T*> HeldIn(device::IdTable<T, Id>& table
+                                    UMBRA_LIFETIMEBOUND,
+                                Id key, std::string_view kind) {
+  T* UMBRA_NULLABLE const held = table.Find(key);
+  if (held == nullptr) {
+    return std::unexpected(
+        std::format("{} {} is not held", kind, std::to_underlying(key)));
   }
-
-  // Holds `value` under `key`, which must be free.
-  [[nodiscard]] Result<void> Add(Id key, T value) {
-    auto slot = Slot(key);
-    if (!slot.has_value()) {
-      return std::unexpected(slot.error());
-    }
-    std::optional<T>& held = **slot;
-    if (held.has_value()) {
-      return std::unexpected(
-          std::format("{} {} is already held", kind_, std::to_underlying(key)));
-    }
-    held.emplace(std::move(value));
-    return {};
-  }
-
-  // What is held under `key`.
-  [[nodiscard]] Result<T*> Held(Id key) UMBRA_LIFETIMEBOUND {
-    auto slot = Slot(key);
-    if (!slot.has_value()) {
-      return std::unexpected(slot.error());
-    }
-    std::optional<T>& held = **slot;
-    if (!held.has_value()) {
-      return std::unexpected(
-          std::format("{} {} is not held", kind_, std::to_underlying(key)));
-    }
-    return &*held;
-  }
-
-  // Drops what is held under `key`.
-  [[nodiscard]] Result<void> Remove(Id key) {
-    return Held(key).transform(
-        [&](T* /*held*/) { slots_.at(std::to_underlying(key)).reset(); });
-  }
-
-  // Calls `visit` with each held value, by id.
-  template <typename Visit>
-  void ForEach(const Visit& visit) const {
-    for (const std::optional<T>& slot : slots_) {
-      if (slot.has_value()) {
-        visit(*slot);
-      }
-    }
-  }
-
-  // Drops everything.
-  void Clear() { slots_.clear(); }
-
- private:
-  Result<std::optional<T>*> Slot(Id key) UMBRA_LIFETIMEBOUND {
-    const auto index = std::to_underlying(key);
-    if (index >= slots_.size()) {
-      return std::unexpected(std::format("{} {} is out of range ({} ids)",
-                                         kind_, index, slots_.size()));
-    }
-    return &slots_.at(index);
-  }
-
-  std::string_view kind_;
-  std::vector<std::optional<T>> slots_;
-};
+  T& value = *held;
+  return &value;
+}
 
 }  // namespace umbra::device::gpu::backend
 

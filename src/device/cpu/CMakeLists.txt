@@ -4,9 +4,14 @@
 umbra_add_module(
   device/cpu
   SOURCES
+  arena.cc
   bvh.cc
+  commit.cc
+  commit_log.cc
   copies.cc
   cpu_device.cc
+  render.cc
+  trace.cc
   DEPENDS
   core
   device

@@ -105,7 +105,8 @@ class CpuDevice final : public device::Device {
   [[nodiscard]] std::string_view name() const override;
 
   // Fails with kUnavailable, with Embree's error, when Embree cannot build
-  // a BVH (memory runs out, say).
+  // a BVH (memory runs out, say), and with kInternal when an id of
+  // `changes` does not apply to what it holds (device::ApplyIds).
   [[nodiscard]] std::expected<void, core::Error> Commit(
       const device::ChangeSet& changes) override;
 

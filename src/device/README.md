@@ -30,6 +30,18 @@ Public headers (`include/umbra/device/`):
   counts it in the product's progress phase
   (docs/adr/0014-frames-render-in-tiles-from-one-counter.md,
   docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md).
+  `TileQueue::ForEachBatch` is the loop every device takes its batches
+  with, and `DeviceName` names every device, `cpu<node>` and
+  `gpu<ordinal>`.
+- `id_table.h`: header-only, for the GPU module too. `IdTable`, the prims
+  of one kind a device holds by id, each at an address that stays put
+  until its id is removed, and `ApplyIds`, how every device applies the
+  ids of a change set to it: it drops the ids removed, checks that it
+  holds each id updated, once, and holds each id added, which must be
+  free, with a value made anew for the device to fill, every id below
+  the count of its kind. It returns an `IdFault` with the id, of which
+  each device writes its own message. `FrameCameraModel` makes a render
+  product's camera model from the cameras a device holds.
 - `accel_update.h`: `PlanAccelUpdate`, how every device decides, at an
   update, to keep, refit or rebuild a prototype's acceleration structure,
   and why: it rebuilds it when the topology changes, when it was built for

@@ -14,9 +14,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <format>
 #include <new>
 #include <span>
+#include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "umbra/core/error.h"
@@ -139,6 +142,20 @@ class TileQueue {
                std::memory_order_acquire) != 0;
   }
 
+  // Takes batches of `size` tiles until none is left, and has `render`
+  // render each, a Batch, into a std::expected<void, E>: it stops at the
+  // first batch `render` fails to render, and returns its failure.
+  template <typename Render>
+  [[nodiscard]] std::invoke_result_t<const Render&, Batch> ForEachBatch(
+      std::uint64_t size, const Render& render) {
+    for (Batch batch = Take(size); !batch.IsEmpty(); batch = Take(size)) {
+      if (auto rendered = render(batch); !rendered.has_value()) {
+        return rendered;
+      }
+    }
+    return {};
+  }
+
  private:
   // The next tile to take, on a cache line of its own.
   alignas(std::hardware_destructive_interference_size)
@@ -150,6 +167,20 @@ class TileQueue {
   // Whether each tile is finished: 1 once it is.
   std::vector<std::atomic<std::uint8_t>> finished_;
 };
+
+// What a device runs on, which its name starts with.
+enum class DeviceKind : std::uint8_t {
+  // A NUMA node's cores.
+  kCpu,
+  // A GPU.
+  kGpu,
+};
+
+// The name of a device: "cpu<index>" for the CPU device of NUMA node
+// `index`, "gpu<index>" for the device of the GPU of CUDA ordinal `index`.
+[[nodiscard]] inline std::string DeviceName(DeviceKind kind, int index) {
+  return std::format("{}{}", kind == DeviceKind::kCpu ? "cpu" : "gpu", index);
+}
 
 // A device: what a render runs on, which renders from its own memory only.
 class Device {

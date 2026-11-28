@@ -18,10 +18,20 @@ Public headers (`include/umbra/device/cpu/`):
 
 Sources (`src/device/cpu/`):
 
-- `cpu_device.cc`: the device: its oneTBB arena bound to the node, its
-  commit, and the render of its tiles, `[[clang::nonblocking]]` from each
-  tile it takes to its copy into the render buffers.
+- `cpu_device.cc`: the device, which runs its commit and its renders on
+  its arena.
+- `arena.h`: its oneTBB arena, bound to the node, whose threads bind their
+  memory to the node.
+- `held.h`: what it holds of the commits, in the id tables of
+  `umbra/device/id_table.h`: its copies, its BVHs and its top level.
+- `commit.h`: its commit: the ids of the change set applied with
+  `ApplyIds`, the copies and the BVHs built, refitted or rebuilt, and the
+  top level rebuilt. `commit_log.h` logs what it built.
 - `copies.h`: its own copies of the prims a change set gives, in the node's
   memory.
 - `bvh.h`: its BVHs: one per prototype, one per light with a shape, and the
   top level that instances them.
+- `trace.h`: the intersection of a ray with its top level, on the hot path.
+- `render.h`: its film and sampler's cache, and the render of the tiles it
+  takes, a batch at a time, `[[clang::nonblocking]]` from each tile it
+  takes to its copy into the render buffers.

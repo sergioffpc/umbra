@@ -27,6 +27,7 @@
 #include "umbra/core/safety.h"
 #include "umbra/device/change_set.h"
 #include "umbra/device/device.h"
+#include "umbra/device/id_table.h"
 #include "umbra/device/render_data.h"
 
 namespace umbra::device {
@@ -124,10 +125,12 @@ struct TextureRecord {
   std::string color_space;
 };
 
-// The prims of one kind the device holds, by id: none for an id it does not
-// hold.
-template <typename Record>
-using Table = std::vector<std::optional<Record>>;
+// The prims of each kind the device holds, by id.
+using Prototypes = IdTable<PrototypeRecord, PrototypeId>;
+using Lights = IdTable<LightRecord, LightId>;
+using Materials = IdTable<MaterialRecord, MaterialId>;
+using Cameras = IdTable<CameraRecord, CameraId>;
+using Textures = IdTable<TextureRecord, TextureId>;
 
 // The error of an inconsistency of the change set.
 std::unexpected<Error> Inconsistent(std::string message) {
@@ -153,182 +156,45 @@ Checked CheckAligned(std::span<const T> numbers, std::string_view owner,
   return {};
 }
 
-// Whether `table` holds the id `index`.
-template <typename Record>
-bool IsHeld(const Table<Record>& table, std::uint32_t index) {
-  return index < table.size() && table.at(index).has_value();
-}
-
-// The record at `index` in `table`, or null when none is held there.
-template <typename Record>
-Record* UMBRA_NULLABLE Find(Table<Record>& table, std::uint32_t index) {
-  if (index >= table.size()) {
-    return nullptr;
-  }
-  std::optional<Record>& held = table.at(index);
-  return held.has_value() ? &*held : nullptr;
-}
-
-template <typename Record>
-const Record* UMBRA_NULLABLE Find(const Table<Record>& table,
-                                  std::uint32_t index) {
-  if (index >= table.size()) {
-    return nullptr;
-  }
-  const std::optional<Record>& held = table.at(index);
-  return held.has_value() ? &*held : nullptr;
-}
-
-// The ids a change set gives one kind.
-struct KindIds {
-  std::vector<std::uint32_t> added;
-  std::vector<std::uint32_t> updated;
-  std::vector<std::uint32_t> removed;
-};
-
-// The ids of `changes`.
-template <typename View, typename Id>
-KindIds IdsOf(const Changes<View, Id>& changes) {
-  KindIds ids;
-  for (const View& view : changes.added) {
-    ids.added.push_back(std::to_underlying(view.id));
-  }
-  for (const View& view : changes.updated) {
-    ids.updated.push_back(std::to_underlying(view.id));
-  }
-  for (const Id removed : changes.removed) {
-    ids.removed.push_back(std::to_underlying(removed));
-  }
-  return ids;
-}
-
-KindIds IdsOf(const PrototypeChanges& changes) {
-  KindIds ids;
-  for (const Prototype& prototype : changes.added) {
-    ids.added.push_back(std::to_underlying(prototype.id));
-  }
-  for (const UpdatedPrototype& updated : changes.updated) {
-    ids.updated.push_back(std::to_underlying(updated.prototype.id));
-  }
-  for (const PrototypeId removed : changes.removed) {
-    ids.removed.push_back(std::to_underlying(removed));
-  }
-  return ids;
-}
-
-// The error of the id `index` of `kind`, not below `count`.
-std::unexpected<Error> OutOfRange(std::string_view kind, std::uint32_t index,
-                                  std::uint32_t count) {
-  return Inconsistent(std::format("{} {}: its id is not below their count, {}",
-                                  kind, index, count));
-}
-
-// Drops the ids `removed` from `table`, which must hold them.
-template <typename Record>
-Checked Remove(std::string_view kind, std::uint32_t count,
-               std::span<const std::uint32_t> removed, Table<Record>& table) {
-  for (const std::uint32_t index : removed) {
-    if (index >= count) {
-      return OutOfRange(kind, index, count);
-    }
-    if (!IsHeld(table, index)) {
-      return Inconsistent(
-          std::format("{} {}: removed, and not held", kind, index));
-    }
-    table.at(index).reset();
-  }
-  return {};
-}
-
-// Checks that `table` holds the ids `updated`, once.
-template <typename Record>
-Checked CheckUpdated(std::string_view kind, std::uint32_t count,
-                     std::span<const std::uint32_t> updated,
-                     const Table<Record>& table) {
-  std::vector<std::uint8_t> seen(count, 0);
-  for (const std::uint32_t index : updated) {
-    if (index >= count) {
-      return OutOfRange(kind, index, count);
-    }
-    if (!IsHeld(table, index)) {
-      return Inconsistent(
-          std::format("{} {}: updated, and not held or removed", kind, index));
-    }
-    if (seen.at(index) != 0) {
-      return Inconsistent(std::format("{} {}: updated twice", kind, index));
-    }
-    seen.at(index) = 1;
-  }
-  return {};
-}
-
-// Holds the ids `added` in `table`, which must not hold them yet, with an
-// empty record each.
-template <typename Record>
-Checked Add(std::string_view kind, std::uint32_t count,
-            std::span<const std::uint32_t> added, Table<Record>& table) {
-  for (const std::uint32_t index : added) {
-    if (index >= count) {
-      return OutOfRange(kind, index, count);
-    }
-    if (IsHeld(table, index)) {
-      return Inconsistent(
-          std::format("{} {}: added, and already held", kind, index));
-    }
-    table.at(index).emplace();
-  }
-  return {};
-}
-
-// Checks that `table` holds no id not below `count`.
-template <typename Record>
-Checked CheckBelow(std::string_view kind, std::uint32_t count,
-                   const Table<Record>& table) {
-  for (std::size_t index = count; index < table.size(); ++index) {
-    if (table.at(index).has_value()) {
+// The error of `error`, an id of `kind`, whose ids are below `count`.
+std::unexpected<Error> Inconsistent(const IdError& error, std::string_view kind,
+                                    std::uint32_t count) {
+  switch (error.fault) {
+    case IdFault::kOutOfRange:
       return Inconsistent(std::format(
-          "{} {}: still held, and its id is not below their count, {}", kind,
-          index, count));
-    }
+          "{} {}: its id is not below their count, {}", kind, error.id, count));
+    case IdFault::kRemovedNotHeld:
+      return Inconsistent(
+          std::format("{} {}: removed, and not held", kind, error.id));
+    case IdFault::kUpdatedNotHeld:
+      return Inconsistent(std::format("{} {}: updated, and not held or removed",
+                                      kind, error.id));
+    case IdFault::kUpdatedTwice:
+      return Inconsistent(std::format("{} {}: updated twice", kind, error.id));
+    case IdFault::kAddedHeld:
+      return Inconsistent(
+          std::format("{} {}: added, and already held", kind, error.id));
+    case IdFault::kHeldOutOfRange:
+      break;
   }
-  return {};
+  return Inconsistent(
+      std::format("{} {}: still held, and its id is not below their count, {}",
+                  kind, error.id, count));
 }
 
-// Applies `ids` to `table`: its removals, then its additions. Fails when an
-// id is not below `count`, an id is removed or updated that `table` does not
-// hold, or added that it does, or an id not below `count` is still held once
-// they are applied.
-template <typename Record>
-std::expected<Table<Record>, Error> ApplyIds(std::string_view kind,
-                                             std::uint32_t count,
-                                             const KindIds& ids,
-                                             Table<Record> table) {
-  if (table.size() < count) {
-    table.resize(count);
-  }
-  if (auto applied =
-          Remove(kind, count, ids.removed, table)
-              .and_then(
-                  [&] { return CheckUpdated(kind, count, ids.updated, table); })
-              .and_then([&] { return Add(kind, count, ids.added, table); })
-              .and_then([&] { return CheckBelow(kind, count, table); });
+// Applies the ids of `changes` to `table`, then drops the room for the ids
+// not below `count`. Fails when an id is not below `count`, an id is
+// removed or updated that `table` does not hold, or added that it does, or
+// an id not below `count` is still held once they are applied.
+template <typename Changes, typename Record, typename Id>
+Checked Apply(std::string_view kind, std::uint32_t count,
+              const Changes& changes, IdTable<Record, Id>& table) {
+  if (auto applied = ApplyIds(changes, count, table).and_then([&] {
+        return table.Shrink(count);
+      });
       !applied.has_value()) {
-    return std::unexpected(std::move(applied.error()));
+    return Inconsistent(applied.error(), kind, count);
   }
-  table.resize(count);
-  return table;
-}
-
-// Applies `ids` to `table`, which keeps what it held when they do not
-// apply.
-template <typename Record>
-Checked Apply(std::string_view kind, std::uint32_t count, const KindIds& ids,
-              Table<Record>& table) {
-  auto applied = ApplyIds(kind, count, ids, table);
-  if (!applied.has_value()) {
-    return std::unexpected(std::move(applied.error()));
-  }
-  table = std::move(*applied);
   return {};
 }
 
@@ -536,13 +402,12 @@ Checked CheckTriangles(const Prototype& prototype, std::string_view owner) {
 // Checks the materials of a prototype of `triangles` triangles: one or
 // more, each held, and those of its triangles.
 Checked CheckMaterials(const Prototype& prototype, std::size_t triangles,
-                       const Table<MaterialRecord>& materials,
-                       std::string_view owner) {
+                       const Materials& materials, std::string_view owner) {
   if (prototype.materials.empty()) {
     return Inconsistent(std::format("{}: no material", owner));
   }
   for (const MaterialId material : prototype.materials) {
-    if (!IsHeld(materials, std::to_underlying(material))) {
+    if (!materials.Contains(material)) {
       return Inconsistent(std::format("{}: material {} is not held", owner,
                                       std::to_underlying(material)));
     }
@@ -594,8 +459,7 @@ MeshShape ShapeOf(const Prototype& prototype) {
 }
 
 // Checks a prototype added.
-Checked CheckPrototype(const Prototype& prototype,
-                       const Table<MaterialRecord>& materials) {
+Checked CheckPrototype(const Prototype& prototype, const Materials& materials) {
   const std::string owner = PrototypeName(prototype);
   if (auto points = CheckPoints(prototype, owner); !points.has_value()) {
     return points;
@@ -729,8 +593,7 @@ std::expected<MeshShape, Error> CheckShape(const UpdatedPrototype& updated,
 // `shape` once updated, against what the device holds of it.
 Checked CheckUpdatedValues(const UpdatedPrototype& updated,
                            const MeshShape& shape, const PrototypeRecord& held,
-                           const Table<MaterialRecord>& materials,
-                           std::string_view owner) {
+                           const Materials& materials, std::string_view owner) {
   const Prototype& prototype = updated.prototype;
   if (HasAny(updated.changes, ChangeFlags::kPrimvars)) {
     if (auto checked =
@@ -759,8 +622,7 @@ Checked CheckUpdatedValues(const UpdatedPrototype& updated,
 
 // Checks a prototype updated, against what the device holds of it.
 Checked CheckUpdate(const UpdatedPrototype& updated,
-                    const PrototypeRecord& held,
-                    const Table<MaterialRecord>& materials) {
+                    const PrototypeRecord& held, const Materials& materials) {
   const Prototype& prototype = updated.prototype;
   const std::string owner = PrototypeName(prototype);
   if (prototype.path != held.path) {
@@ -781,10 +643,9 @@ Checked CheckUpdate(const UpdatedPrototype& updated,
 }
 
 // Fails, naming `owner`, when `texture` is not held.
-Checked CheckTextureHeld(TextureId texture,
-                         const Table<TextureRecord>& textures,
+Checked CheckTextureHeld(TextureId texture, const Textures& textures,
                          std::string_view owner) {
-  if (!IsHeld(textures, std::to_underlying(texture))) {
+  if (!textures.Contains(texture)) {
     return Inconsistent(std::format("{}: texture {} is not held", owner,
                                     std::to_underlying(texture)));
   }
@@ -792,8 +653,7 @@ Checked CheckTextureHeld(TextureId texture,
 }
 
 // Checks a parameter of a node.
-Checked CheckParameter(const Parameter& parameter,
-                       const Table<TextureRecord>& textures,
+Checked CheckParameter(const Parameter& parameter, const Textures& textures,
                        std::string_view owner) {
   const std::string what = std::format("parameter {}", parameter.name);
   return std::visit(
@@ -813,7 +673,7 @@ Checked CheckParameter(const Parameter& parameter,
 // Checks a node, named `name`, of a material of `nodes` nodes: its inputs
 // come from nodes of the material, and its textures are held.
 Checked CheckNode(const MaterialNode& node, std::size_t nodes,
-                  const Table<TextureRecord>& textures, std::string_view name) {
+                  const Textures& textures, std::string_view name) {
   for (const Connection& connection : node.connections) {
     if (connection.node >= nodes) {
       return Inconsistent(std::format("{}: input {} comes from node {}, of {}",
@@ -832,7 +692,7 @@ Checked CheckNode(const MaterialNode& node, std::size_t nodes,
 
 // Checks a material added or updated.
 Checked CheckMaterial(const MaterialNetwork& material,
-                      const Table<TextureRecord>& textures) {
+                      const Textures& textures) {
   const std::string owner = std::format(
       "material {} ({})", std::to_underlying(material.id), material.path);
   const std::size_t nodes = material.nodes.size();
@@ -889,7 +749,7 @@ Checked CheckIesProfile(const std::optional<IesProfile>& profile,
 }
 
 // Checks a light added or updated.
-Checked CheckLight(const Light& light, const Table<TextureRecord>& textures) {
+Checked CheckLight(const Light& light, const Textures& textures) {
   const std::string owner =
       std::format("light {} ({})", std::to_underlying(light.id), light.path);
   if (const std::optional<TextureId> texture = TextureOf(light.shape)) {
@@ -1250,22 +1110,22 @@ std::string Counted(std::size_t count, std::string_view noun) {
 }
 
 // The number of prims `table` holds.
-template <typename Record>
-std::size_t CountHeld(const Table<Record>& table) {
-  return static_cast<std::size_t>(std::ranges::count_if(
-      table,
-      [](const std::optional<Record>& held) { return held.has_value(); }));
+template <typename Record, typename Id>
+std::size_t CountHeld(const IdTable<Record, Id>& table) {
+  std::size_t count = 0;
+  table.ForEach([&count](Id /*id*/, const Record& /*held*/) { ++count; });
+  return count;
 }
 
 }  // namespace
 
 // What the device holds of every kind.
 struct DiagnosticDevice::State {
-  Table<PrototypeRecord> prototypes;
-  Table<LightRecord> lights;
-  Table<MaterialRecord> materials;
-  Table<CameraRecord> cameras;
-  Table<TextureRecord> textures;
+  Prototypes prototypes;
+  Lights lights;
+  Materials materials;
+  Cameras cameras;
+  Textures textures;
 };
 
 namespace {
@@ -1274,35 +1134,40 @@ using State = DiagnosticDevice::State;
 
 // Applies the ids of `changes` to `state`.
 Checked ApplyAll(const ChangeSet& changes, State& state) {
-  return Apply("prototype", changes.ids.prototypes, IdsOf(changes.prototypes),
+  return Apply("prototype", changes.ids.prototypes, changes.prototypes,
                state.prototypes)
       .and_then([&] {
-        return Apply("light", changes.ids.lights, IdsOf(changes.lights),
-                     state.lights);
+        return Apply("light", changes.ids.lights, changes.lights, state.lights);
       })
       .and_then([&] {
-        return Apply("material", changes.ids.materials,
-                     IdsOf(changes.materials), state.materials);
+        return Apply("material", changes.ids.materials, changes.materials,
+                     state.materials);
       })
       .and_then([&] {
-        return Apply("camera", changes.ids.cameras, IdsOf(changes.cameras),
+        return Apply("camera", changes.ids.cameras, changes.cameras,
                      state.cameras);
       })
       .and_then([&] {
-        return Apply("texture", changes.ids.textures, IdsOf(changes.textures),
+        return Apply("texture", changes.ids.textures, changes.textures,
                      state.textures);
       });
 }
 
-// Checks each of `views` with `check`, then records it in `table`.
-template <typename View, typename Record, typename Check>
+// Checks each of `views` with `check`, then records it in `table`, which
+// holds its id.
+template <typename View, typename Record, typename Id, typename Check>
 Checked CheckAndRecord(std::span<const View> views, const Check& check,
-                       Table<Record>& table) {
+                       IdTable<Record, Id>& table) {
   for (const View& view : views) {
     if (auto checked = check(view); !checked.has_value()) {
       return checked;
     }
-    table.at(std::to_underlying(view.id)) = RecordOf(view);
+    Record* UMBRA_NULLABLE const held = table.Find(view.id);
+    if (held == nullptr) {
+      return Inconsistent(std::format("{}: not held once applied",
+                                      std::to_underlying(view.id)));
+    }
+    *held = RecordOf(view);
   }
   return {};
 }
@@ -1311,7 +1176,7 @@ Checked CheckAndRecord(std::span<const View> views, const Check& check,
 // records them in `table`. A texture is never updated.
 template <typename View, typename Id, typename Record, typename Check>
 Checked CheckKind(const Changes<View, Id>& changes, const Check& check,
-                  Table<Record>& table) {
+                  IdTable<Record, Id>& table) {
   if constexpr (std::is_same_v<View, Texture>) {
     if (!changes.updated.empty()) {
       return Inconsistent(
@@ -1328,8 +1193,7 @@ Checked CheckKind(const Changes<View, Id>& changes, const Check& check,
 // applied, hold.
 std::expected<PrototypeRecord*, Error> RecordFor(const Prototype& prototype,
                                                  State& state) {
-  PrototypeRecord* record =
-      Find(state.prototypes, std::to_underlying(prototype.id));
+  PrototypeRecord* record = state.prototypes.Find(prototype.id);
   if (record == nullptr) {
     return std::unexpected(Error(
         ErrorCode::kInternal,
@@ -1365,9 +1229,9 @@ Checked CheckPrototypes(const PrototypeChanges& changes, State& state) {
 
 // Checks that `prototype`, at `index`, reads only materials of `materials`.
 Checked CheckReadsHeld(const PrototypeRecord& prototype, std::size_t index,
-                       const Table<MaterialRecord>& materials) {
+                       const Materials& materials) {
   for (const MaterialId material : prototype.materials) {
-    if (!IsHeld(materials, std::to_underlying(material))) {
+    if (!materials.Contains(material)) {
       return Inconsistent(
           std::format("prototype {} ({}): reads material {}, "
                       "not held",
@@ -1379,9 +1243,9 @@ Checked CheckReadsHeld(const PrototypeRecord& prototype, std::size_t index,
 
 // Checks that `light`, at `index`, is guided only by portals of `lights`.
 Checked CheckPortalsHeld(const LightRecord& light, std::size_t index,
-                         const Table<LightRecord>& lights) {
+                         const Lights& lights) {
   for (const LightId portal : light.portals) {
-    const LightRecord* held = Find(lights, std::to_underlying(portal));
+    const LightRecord* held = lights.Find(portal);
     if (held == nullptr || held->shape != kPortalShape) {
       return Inconsistent(
           std::format("light {} ({}): its portal {} is not a portal held",
@@ -1394,34 +1258,25 @@ Checked CheckPortalsHeld(const LightRecord& light, std::size_t index,
 // Checks that the dome lights `state` holds are guided only by portals it
 // holds: a portal removed must not guide a dome kept.
 Checked CheckHeldPortals(const State& state) {
-  for (std::size_t index = 0; index < state.lights.size(); ++index) {
-    const std::optional<LightRecord>& light = state.lights.at(index);
-    if (!light.has_value()) {
-      continue;
-    }
-    if (auto checked = CheckPortalsHeld(*light, index, state.lights);
-        !checked.has_value()) {
-      return checked;
-    }
-  }
-  return {};
+  Checked checked;
+  state.lights.ForEach([&](LightId key, const LightRecord& light) {
+    checked = checked.and_then([&] {
+      return CheckPortalsHeld(light, std::to_underlying(key), state.lights);
+    });
+  });
+  return checked;
 }
 
 // Checks that the prototypes `state` holds read only materials it holds: a
 // material removed must not be read by one kept.
 Checked CheckHeldReferences(const State& state) {
-  for (std::size_t index = 0; index < state.prototypes.size(); ++index) {
-    const std::optional<PrototypeRecord>& prototype =
-        state.prototypes.at(index);
-    if (!prototype.has_value()) {
-      continue;
-    }
-    if (auto checked = CheckReadsHeld(*prototype, index, state.materials);
-        !checked.has_value()) {
-      return checked;
-    }
-  }
-  return {};
+  Checked checked;
+  state.prototypes.ForEach([&](PrototypeId key, const PrototypeRecord& held) {
+    checked = checked.and_then([&] {
+      return CheckReadsHeld(held, std::to_underlying(key), state.materials);
+    });
+  });
+  return checked;
 }
 
 // Checks the content of every view of `changes` against `state`, the ids
@@ -1454,30 +1309,26 @@ Checked CheckAll(const ChangeSet& changes, State& state) {
 
 // The key of a texture held, which names it whatever its id.
 std::string TextureKey(const State& state, TextureId texture) {
-  const TextureRecord* record =
-      Find(state.textures, std::to_underlying(texture));
+  const TextureRecord* record = state.textures.Find(texture);
   return record == nullptr ? std::string()
                            : record->file + '\n' + record->color_space;
 }
 
 // The path of the material `material` in `state`.
 std::string_view MaterialPath(const State& state, MaterialId material) {
-  const MaterialRecord* record =
-      Find(state.materials, std::to_underlying(material));
+  const MaterialRecord* record = state.materials.Find(material);
   return record == nullptr ? std::string_view() : record->path;
 }
 
 // Each prim of `table`, by `key`, with its digest, the references to
 // other prims resolved by `resolve`, sorted by key.
-template <typename Record, typename Resolve>
-std::vector<std::pair<std::string, Digest>> Entries(const Table<Record>& table,
-                                                    const Resolve& resolve) {
+template <typename Record, typename Id, typename Resolve>
+std::vector<std::pair<std::string, Digest>> Entries(
+    const IdTable<Record, Id>& table, const Resolve& resolve) {
   std::vector<std::pair<std::string, Digest>> entries;
-  for (const std::optional<Record>& record : table) {
-    if (record.has_value()) {
-      entries.push_back(resolve(*record));
-    }
-  }
+  table.ForEach([&](Id /*id*/, const Record& record) {
+    entries.push_back(resolve(record));
+  });
   std::ranges::sort(entries);
   return entries;
 }
@@ -1511,7 +1362,7 @@ std::pair<std::string, Digest> EntryOf(const LightRecord& record,
     resolved.Text(TextureKey(state, *record.texture));
   }
   for (const LightId portal : record.portals) {
-    const LightRecord* held = Find(state.lights, std::to_underlying(portal));
+    const LightRecord* held = state.lights.Find(portal);
     resolved.Text(held == nullptr ? std::string_view() : held->path);
   }
   return {record.path, resolved.digest()};
@@ -1639,11 +1490,11 @@ std::string_view NameOf(const Record& record) {
 // `held` has for it.
 template <typename Id, typename Record>
 void LogRemoved(std::string_view kind, std::span<const Id> removed,
-                const Table<Record>& held) {
+                const IdTable<Record, Id>& held) {
   for (const Id removed_id : removed) {
-    const std::uint32_t index = std::to_underlying(removed_id);
-    const Record* record = Find(held, index);
-    UMBRA_LOG_DEBUG(kDevice, "diagnostic: removed {} {} ({})", kind, index,
+    const Record* record = held.Find(removed_id);
+    UMBRA_LOG_DEBUG(kDevice, "diagnostic: removed {} {} ({})", kind,
+                    std::to_underlying(removed_id),
                     record == nullptr ? std::string_view() : NameOf(*record));
   }
 }
