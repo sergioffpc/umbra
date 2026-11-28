@@ -18,7 +18,6 @@
 #include <pxr/usd/sdf/path.h>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -34,6 +33,7 @@
 #include "denoiser.h"
 #include "hydra.h"
 #include "render_pass.h"
+#include "render_vars.h"
 #include "umbra/core/error.h"
 #include "umbra/core/safety.h"
 #include "umbra/delegate/render_settings.h"
@@ -61,14 +61,9 @@ std::vector<RenderVarSource> InternalInputs(const RenderProduct& product) {
   if (!HasVar(product, RenderVarSource::kDenoisedColor)) {
     return inputs;
   }
-  static constexpr std::array<RenderVarSource, 3> kInputs = {
-      RenderVarSource::kColor,
-      RenderVarSource::kAlbedo,
-      RenderVarSource::kNormal,
-  };
-  for (const RenderVarSource source : kInputs) {
-    if (!HasVar(product, source)) {
-      inputs.push_back(source);
+  for (const RenderVarTraits& var : kRenderVars) {
+    if (var.denoise == DenoiseRole::kInput && !HasVar(product, var.source)) {
+      inputs.push_back(var.source);
     }
   }
   return inputs;
@@ -94,8 +89,7 @@ std::expected<std::unique_ptr<RenderBuffer>, core::Error> CreateBuffer(
 
 // The render buffers of `product`, the `index`th, sized to its data window
 // and set to 0: those of its vars, then those of the inputs of its denoise
-// it has no var of, RGBA for the color and RGB for the albedo and the
-// normal.
+// it has no var of, with the channels of their sources.
 std::expected<ProductBuffers, core::Error> CreateBuffers(
     const RenderProduct& product, std::size_t index) {
   const std::vector<RenderVarSource> internal = InternalInputs(product);
@@ -110,9 +104,9 @@ std::expected<ProductBuffers, core::Error> CreateBuffers(
     buffers.push_back(*std::move(buffer));
   }
   for (const RenderVarSource source : internal) {
-    const std::uint32_t channels = source == RenderVarSource::kColor ? 4 : 3;
-    auto buffer = CreateBuffer(product, index, buffers.size(), channels,
-                               AovName(source).GetString());
+    auto buffer =
+        CreateBuffer(product, index, buffers.size(),
+                     RenderVarOf(source).channels, AovName(source).GetString());
     if (!buffer.has_value()) {
       return std::unexpected(std::move(buffer.error()));
     }

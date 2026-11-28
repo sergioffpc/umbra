@@ -4,7 +4,6 @@
 #include "commit_products.h"
 
 #include <pxr/base/gf/matrix4d.h>
-#include <pxr/base/gf/range2f.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/renderSettings.h>
 #include <pxr/usd/sdf/path.h>
@@ -35,6 +34,7 @@
 #include "hydra.h"
 #include "outputs.h"
 #include "plural.h"
+#include "render_vars.h"
 #include "umbra/core/error.h"
 #include "umbra/delegate/render_settings.h"
 #include "umbra/device/camera_rays.h"
@@ -53,19 +53,9 @@ using Var = Product::RenderVar;
 // The quantity of a raw var named `name`, or none when umbra has no such
 // var.
 std::optional<RenderVarSource> RawSource(std::string_view name) {
-  static constexpr std::array<std::pair<std::string_view, RenderVarSource>, 5>
-      kSources = {
-          {
-              {"color", RenderVarSource::kColor},
-              {"denoisedColor", RenderVarSource::kDenoisedColor},
-              {"depth", RenderVarSource::kDepth},
-              {"normal", RenderVarSource::kNormal},
-              {"albedo", RenderVarSource::kAlbedo},
-          },
-  };
-  for (const auto& [known, source] : kSources) {
-    if (known == name) {
-      return source;
+  for (const RenderVarTraits& var : kRenderVars) {
+    if (var.kind == RenderVarKind::kRaw && var.name == name) {
+      return var.source;
     }
   }
   return std::nullopt;
@@ -125,20 +115,8 @@ std::uint32_t ComponentsOf(std::string_view data_type) {
 
 // The channels of a var of `source` whose dataType is `data_type`.
 std::uint32_t VarChannels(RenderVarSource source, std::string_view data_type) {
-  switch (source) {
-    case RenderVarSource::kColor:
-    case RenderVarSource::kDenoisedColor:
-      return 4;
-    case RenderVarSource::kDepth:
-      return 1;
-    case RenderVarSource::kNormal:
-    case RenderVarSource::kAlbedo:
-    case RenderVarSource::kLpe:
-      return 3;
-    case RenderVarSource::kPrimvar:
-      break;
-  }
-  return ComponentsOf(data_type);
+  const std::uint32_t channels = RenderVarOf(source).channels;
+  return channels != 0 ? channels : ComponentsOf(data_type);
 }
 
 // The vars of `product` umbra renders, the others added to `unsupported`;
@@ -158,8 +136,7 @@ std::vector<RenderVar> ProductVars(const Product& product,
       unsupported.Add(product.productPath, source_name);
       continue;
     }
-    const bool named = *source == RenderVarSource::kLpe ||
-                       *source == RenderVarSource::kPrimvar;
+    const bool named = RenderVarOf(*source).kind == RenderVarKind::kNamed;
     if (named) {
       zero.Add(product.productPath, source_name);
     }
@@ -214,27 +191,6 @@ RenderProduct Framed(std::string file, device::CameraId camera,
   };
 }
 
-// A data window as xmin, ymin, xmax, ymax.
-std::array<float, 4> DataWindow(const pxr::GfRange2f& window) {
-  const std::array<float, 2> min = Components<float, 2>(window.GetMin());
-  const std::array<float, 2> max = Components<float, 2>(window.GetMax());
-  return {min.at(0), min.at(1), max.at(0), max.at(1)};
-}
-
-// The framing of a flattened product, which inherits the settings'.
-SettingsBase ProductBase(const Product& product) {
-  return {
-      .resolution = Components<std::int32_t, 2>(product.resolution),
-      .pixel_aspect_ratio = product.pixelAspectRatio,
-      .aspect_ratio_conform_policy = product.aspectRatioConformPolicy,
-      .data_window_ndc = DataWindow(product.dataWindowNDC),
-      .motion_blur = product.disableMotionBlur ? MotionBlur::kDisabled
-                                               : MotionBlur::kEnabled,
-      .depth_of_field = product.disableDepthOfField ? DepthOfField::kDisabled
-                                                    : DepthOfField::kEnabled,
-  };
-}
-
 // The value of umbra:samplesPerPixel on the prim at `path`, at `time`: none
 // when it authors none. Fails with kInvalidArgument when it is not an int
 // above 0.
@@ -278,12 +234,7 @@ std::expected<void, Error> Frame(RenderProduct& product,
   const host::Camera at_frame = camera.AtFrame();
   const device::Camera view =
       ChangeSetBuilder::CameraOf(device::CameraId{}, at_frame);
-  const device::Image image{
-      .resolution = product.resolution,
-      .window = product.window,
-      .pixel_aspect_ratio = product.pixel_aspect_ratio,
-      .aspect_ratio_conform_policy = product.aspect_ratio_conform_policy,
-  };
+  const device::Image image = ImageOf(product);
   const pxr::GfMatrix4d world_to_camera =
       GfMatrixOf(at_frame.camera_to_world.at(0)).GetInverse();
   const pxr::GfMatrix4d camera_to_ndc =
@@ -376,7 +327,7 @@ std::expected<RenderProduct, Error> ProductConverter::Implicit(
       .source = RenderVarSource::kColor,
       .source_name = {},
       .type = ChannelType::kHalf,
-      .channels = 4,
+      .channels = RenderVarOf(RenderVarSource::kColor).channels,
   });
   auto samples = SamplesPerPixel(std::nullopt);
   if (!samples.has_value()) {

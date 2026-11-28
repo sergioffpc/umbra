@@ -55,6 +55,9 @@ Sources (`src/delegate/`):
 - `plural.h`: the words of a count in the messages logged.
 - `render_pass.h`: the render pass and the render buffers; it runs the
   denoise of a product's color once the devices have rendered it.
+- `render_vars.h`: what a render var of each source is, in one table: the
+  name of its AOV, the source a device renders for it, its channels and
+  whether the denoise reads it; and the image a render product renders.
 - `denoiser.h`: the denoise through Open Image Denoise, through the OIDN
   bridge, `umbra::ext::oidn`: the device it runs on, its three filters,
   its buffers and its progress.
