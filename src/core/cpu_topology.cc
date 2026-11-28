@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -380,6 +381,28 @@ std::string_view CpuVectorIsa() {
     return "AVX";
   }
   return "SSE";
+}
+
+// Parsed unsigned: libc++ stores a negative int result through a conversion
+// that changes the sign, which the sanitizer builds abort on.
+std::optional<int> ParseNumaNode(std::string_view text) {
+  if (text.ends_with('\n')) {
+    text.remove_suffix(1);
+  }
+  if (text.starts_with('-')) {
+    return std::nullopt;
+  }
+  std::uint64_t value = 0;
+  const char* const begin = std::to_address(text.begin());
+  const char* const last = std::to_address(text.end());
+  const auto [end, error] = std::from_chars(begin, last, value);
+  constexpr auto kLargestNode =
+      static_cast<std::uint64_t>(std::numeric_limits<int>::max());
+  if (error != std::errc() || end == begin || end != last ||
+      value > kLargestNode) {
+    return std::nullopt;
+  }
+  return static_cast<int>(value);
 }
 
 }  // namespace umbra::core

@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -23,6 +22,7 @@
 #include <system_error>
 #include <utility>
 
+#include "umbra/core/cpu_topology.h"
 #include "umbra/core/error.h"
 #include "umbra/core/log.h"
 #include "umbra/core/safety.h"
@@ -96,12 +96,8 @@ std::optional<int> NumaNodeOf(std::string bus_id) {
   if (bus_id.size() > kSysfsLength) {
     bus_id.erase(0, bus_id.size() - kSysfsLength);
   }
-  const std::string node = FirstLine(
-      std::filesystem::path("/sys/bus/pci/devices") / bus_id / "numa_node");
-  int value = -1;
-  std::from_chars(std::to_address(node.begin()), std::to_address(node.end()),
-                  value);
-  return value < 0 ? std::nullopt : std::optional<int>(value);
+  return core::ParseNumaNode(FirstLine(
+      std::filesystem::path("/sys/bus/pci/devices") / bus_id / "numa_node"));
 }
 
 GpuDevice DeviceOf(const GpuDescription& gpu) {

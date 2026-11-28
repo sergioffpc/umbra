@@ -27,7 +27,8 @@ Public headers (`include/umbra/core/`):
 - `cpu_topology.h`: the CPUs of each NUMA node, read from sysfs (model,
   cores, threads, memory, caches with the cores grouped by cache sizes), and
   the CPU's widest vector ISA. A CPU render device is one NUMA node (see
-  `docs/adr/0004-render-devices.md`).
+  `docs/adr/0004-render-devices.md`). It also parses a device's sysfs
+  `numa_node` text, which the GPU loader reads for each GPU.
 - `memory_policy.h`: a thread's NUMA memory policy, bound to a node and put
   back, and the node a page lies on, through the kernel's system calls. A
   CPU device binds the threads of its arena to its node (see
