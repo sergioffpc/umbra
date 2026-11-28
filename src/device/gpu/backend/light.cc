@@ -32,12 +32,6 @@ using ext::cuda::Replace;
 
 namespace {
 
-// The bounds of a light's shape in the light's space.
-struct LocalBounds {
-  std::array<double, 3> low{};
-  std::array<double, 3> high{};
-};
-
 // The id of `texture`, or kNoTexture.
 std::uint32_t TextureOf(const std::optional<device::TextureId>& texture) {
   return texture.has_value() ? std::to_underlying(*texture) : kNoTexture;
@@ -51,60 +45,40 @@ std::array<float, 2> FloatsOf(const std::array<double, 2>& values) {
   };
 }
 
-// Fills the record of a light with what its shape gives, and tells the
-// bounds of the shape: none for a light without one.
+// Fills the record of a light with what its shape gives.
 class ShapeVisitor {
  public:
   explicit ShapeVisitor(LightRecord& record UMBRA_LIFETIMEBOUND)
       : record_(&record) {}
 
-  std::optional<LocalBounds> operator()(
-      const device::Light::Sphere& sphere) const {
+  void operator()(const device::Light::Sphere& sphere) const {
     Size(sphere.radius, 0.0);
-    return Box(sphere.radius, sphere.radius, sphere.radius);
   }
-  std::optional<LocalBounds> operator()(const device::Light::Rect& rect) const {
+  void operator()(const device::Light::Rect& rect) const {
     Size(rect.width, rect.height);
     record_->texture = TextureOf(rect.texture);
-    return Box(rect.width / 2.0, rect.height / 2.0, 0.0);
   }
-  std::optional<LocalBounds> operator()(const device::Light::Disk& disk) const {
+  void operator()(const device::Light::Disk& disk) const {
     Size(disk.radius, 0.0);
-    return Box(disk.radius, disk.radius, 0.0);
   }
-  std::optional<LocalBounds> operator()(
-      const device::Light::Cylinder& cylinder) const {
+  void operator()(const device::Light::Cylinder& cylinder) const {
     Size(cylinder.length, cylinder.radius);
-    return Box(cylinder.length / 2.0, cylinder.radius, cylinder.radius);
   }
-  std::optional<LocalBounds> operator()(
-      const device::Light::Distant& distant) const {
+  void operator()(const device::Light::Distant& distant) const {
     Size(distant.angle, 0.0);
-    return std::nullopt;
   }
-  std::optional<LocalBounds> operator()(const device::Light::Dome& dome) const {
+  void operator()(const device::Light::Dome& dome) const {
     record_->texture = TextureOf(dome.texture);
     record_->dome_format = dome.format;
     record_->orientation = RowsOf(dome.orientation);
-    return std::nullopt;
   }
-  // A portal emits nothing and only guides its domes' sampling: rays never
-  // hit it, so it has no GAS.
-  std::optional<LocalBounds> operator()(
-      const device::Light::Portal& portal) const {
+  void operator()(const device::Light::Portal& portal) const {
     Size(portal.width, portal.height);
-    return std::nullopt;
   }
 
  private:
   void Size(double first, double second) const {
     record_->size = FloatsOf(std::array{first, second});
-  }
-  static LocalBounds Box(double half_x, double half_y, double half_z) {
-    return {
-        .low = {-half_x, -half_y, -half_z},
-        .high = {half_x, half_y, half_z},
-    };
   }
 
   LightRecord* record_;
@@ -124,25 +98,25 @@ LightRecord RecordOf(const device::Light& light) {
   return record;
 }
 
-// The GAS of a light whose shape has `local` bounds: one custom primitive.
-Result<void> BuildLightGas(const LocalBounds& local, GpuLight& held,
+// The GAS of a light whose shape has `bounds`: one custom primitive.
+Result<void> BuildLightGas(const device::ShapeBounds& bounds, GpuLight& held,
                            const Gpu& gpu) {
   const std::array boxes = {
       OptixAabb{
-          .minX = static_cast<float>(local.low.at(0)),
-          .minY = static_cast<float>(local.low.at(1)),
-          .minZ = static_cast<float>(local.low.at(2)),
-          .maxX = static_cast<float>(local.high.at(0)),
-          .maxY = static_cast<float>(local.high.at(1)),
-          .maxZ = static_cast<float>(local.high.at(2)),
+          .minX = bounds.lower.x,
+          .minY = bounds.lower.y,
+          .minZ = bounds.lower.z,
+          .maxX = bounds.upper.x,
+          .maxY = bounds.upper.y,
+          .maxZ = bounds.upper.z,
       },
   };
-  auto bounds =
+  auto uploaded =
       DeviceBuffer::UploadOf(std::span<const OptixAabb>(boxes), gpu.stream);
-  if (!bounds.has_value()) {
-    return std::unexpected(bounds.error());
+  if (!uploaded.has_value()) {
+    return std::unexpected(uploaded.error());
   }
-  const CUdeviceptr address = bounds->address();
+  const CUdeviceptr address = uploaded->address();
   const unsigned flags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
   OptixBuildInputCustomPrimitiveArray custom{};
   custom.aabbBuffers = &address;
@@ -161,12 +135,13 @@ Result<void> BuildLightGas(const LocalBounds& local, GpuLight& held,
                     inputs, held.gas);
 }
 
-// Builds the GAS of a light whose shape has `local` bounds, if any, and the
-// records of its instances.
-Result<void> BuildShape(const std::optional<LocalBounds>& local,
-                        const device::Light& light, GpuLight& held,
+// Builds the GAS of `held`, a light with a shape that rays meet, if it has
+// one, from the shape's bounds, and the records of its instances. A distant
+// light, a dome and a portal have none: a portal emits nothing and only
+// guides its domes' sampling, so rays never hit it.
+Result<void> BuildShape(const device::Light& light, GpuLight& held,
                         const Gpu& gpu) {
-  if (!local.has_value()) {
+  if (!held.shape.has_value()) {
     return {};
   }
   const OrderedInstances ordered = Order(light.instances);
@@ -175,7 +150,7 @@ Result<void> BuildShape(const std::optional<LocalBounds>& local,
       .sbt_offset = kLightHitGroup,
       .mask = kLightMask,
   };
-  return BuildLightGas(*local, held, gpu)
+  return BuildLightGas(device::BoundsOf(*held.shape), held, gpu)
       .and_then([&] {
         return UploadRecords(ordered, kind, held.gas.handle, held.instances,
                              gpu);
@@ -193,8 +168,7 @@ Result<void> BuildShape(const std::optional<LocalBounds>& local,
 
 Result<GpuLight> UploadLight(const device::Light& light, const Gpu& gpu) {
   LightRecord record = RecordOf(light);
-  const std::optional<LocalBounds> local =
-      std::visit(ShapeVisitor(record), light.shape);
+  std::visit(ShapeVisitor(record), light.shape);
   const std::array records = {record};
   GpuLight held;
   held.id = light.id;
@@ -206,7 +180,7 @@ Result<GpuLight> UploadLight(const device::Light& light, const Gpu& gpu) {
         held.placements = std::move(placements);
         return Replace(held.tilt_factors, light.tilt_factors, gpu.stream);
       })
-      .and_then([&] { return BuildShape(local, light, held, gpu); })
+      .and_then([&] { return BuildShape(light, held, gpu); })
       .and_then([&] {
         return ext::cuda::Synchronize(gpu.stream, "cannot upload a light");
       })

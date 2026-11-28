@@ -29,9 +29,14 @@ Public headers (`include/umbra/device/`):
   into the render buffers, which marks its pixels final for a display and
   counts it in the product's progress phase
   (docs/adr/0014-frames-render-in-tiles-from-one-counter.md,
-  docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md). `kMaxRefits`, 8, is how many refits in a row
-  every device makes of a prototype's acceleration structure as its points
-  change, before it rebuilds it, since every refit loosens its bounds.
+  docs/adr/0015-tiles-reach-the-render-buffers-as-they-finish.md).
+- `accel_update.h`: `PlanAccelUpdate`, how every device decides, at an
+  update, to keep, refit or rebuild a prototype's acceleration structure,
+  and why: it rebuilds it when the topology changes, when it was built for
+  tracing alone, when the number of motion samples or of points changes,
+  and after `kMaxRefits`, 8, refits in a row, since every refit loosens its
+  bounds. Each device builds, refits and logs in its own way; the GPU
+  module builds `accel_update.cc` in.
 - `image.h`: the image of a render product: its resolution, its data
   window, the pixels whose centers lie in its dataWindowNDC, the quantity
   each of its render vars holds (color, depth, normal and albedo), and how a

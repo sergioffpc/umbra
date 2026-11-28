@@ -86,9 +86,10 @@ struct Hit {
 //
 // kTopology rebuilds a prototype's BVH. kPoints refits it, but rebuilds it
 // when it was not built to be refitted, as at the first change of its
-// points, when the number of motion samples changes, and after kMaxRefits
-// refits in a row. It logs, as the device component at debug level, what
-// each commit built, refitted and rebuilt.
+// points, when the number of motion samples or of points changes, and after
+// kMaxRefits refits in a row, as device::PlanAccelUpdate decides. It logs,
+// as the device component at debug level, what each commit built, refitted
+// and rebuilt.
 class CpuDevice final : public device::Device {
  public:
   // The device of NUMA node `node`. Its arena is bound to the node when

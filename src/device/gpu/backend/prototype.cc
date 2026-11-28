@@ -22,8 +22,8 @@
 #include "instances.h"
 #include "support.h"
 #include "umbra/core/log.h"
+#include "umbra/device/accel_update.h"
 #include "umbra/device/change_set.h"
-#include "umbra/device/device.h"
 #include "umbra/device/render_data.h"
 #include "umbra/ext/cuda/owners.h"
 #include "umbra/ext/cuda/runtime.h"
@@ -266,42 +266,37 @@ void LogGas(const GpuPrototype& held, std::string_view done,
       held.deformation == Deformation::kDeforms ? ", refittable" : "");
 }
 
-// The motion keys and points of a GAS, which a refit keeps.
-struct GasShape {
-  std::uint32_t motion_keys = 0;
-  std::uint32_t point_count = 0;
-};
-
-// Why the GAS of `held` must be rebuilt for new points, built from `old`;
-// empty when it refits.
-std::string_view RebuildReason(const GpuPrototype& held, GasShape old) {
-  if (held.deformation == Deformation::kRigid) {
-    return " (it deforms)";
-  }
-  if (old.motion_keys != held.motion_keys ||
-      old.point_count != held.point_count) {
-    return " (its motion keys or points changed)";
-  }
-  if (held.refits >= static_cast<std::uint32_t>(device::kMaxRefits)) {
-    return " (after its refits)";
+// Why `update` rebuilds the GAS of a prototype for new points, for the log.
+std::string_view RebuildReason(device::AccelUpdate update) {
+  switch (update) {
+    case device::AccelUpdate::kRebuildToRefit:
+      return " (it deforms)";
+    case device::AccelUpdate::kRebuildPoints:
+      return " (its motion keys or points changed)";
+    case device::AccelUpdate::kRebuildAfterRefits:
+      return " (after its refits)";
+    case device::AccelUpdate::kKeep:
+    case device::AccelUpdate::kRefit:
+    case device::AccelUpdate::kRebuildTopology:
+      break;
   }
   return {};
 }
 
-// Refits the GAS of `held` to its new points, or rebuilds it: the first
-// time its points change, so that it refits from then on, when their number
-// of motion keys or of points changed, and after kMaxRefits refits in a
-// row.
-Result<void> RefitOrRebuild(GpuPrototype& held, GasShape old, const Gpu& gpu) {
+// Refits the GAS of `held` to its new points, or rebuilds it, as `update`
+// says: the first time its points change, so that it refits from then on,
+// when their number of motion keys or of points changed, and after
+// kMaxRefits refits in a row.
+Result<void> RefitOrRebuild(GpuPrototype& held, device::AccelUpdate update,
+                            const Gpu& gpu) {
   if (held.gas.handle == 0) {
     return {};
   }
-  const std::string_view why = RebuildReason(held, old);
-  if (!why.empty()) {
+  if (update != device::AccelUpdate::kRefit) {
     held.deformation = Deformation::kDeforms;
     held.refits = 0;
     return BuildGas(held, GasBuild::kBuild, gpu).transform([&] {
-      LogGas(held, "rebuilt", why, gpu);
+      LogGas(held, "rebuilt", RebuildReason(update), gpu);
     });
   }
   ++held.refits;
@@ -311,30 +306,46 @@ Result<void> RefitOrRebuild(GpuPrototype& held, GasShape old, const Gpu& gpu) {
   });
 }
 
+// The GAS of `held`, as it was built or last refitted, before an update.
+device::HeldAccel HeldOf(const GpuPrototype& held) {
+  return {
+      .kind = held.deformation == Deformation::kDeforms
+                  ? device::AccelKind::kRefittable
+                  : device::AccelKind::kStatic,
+      .points = {.motion_samples = held.motion_keys, .count = held.point_count},
+      .refits = static_cast<int>(held.refits),
+  };
+}
+
 // Applies the geometry of `update` to `held`: rebuilds its GAS for new
 // triangles, refits it for new points.
 Result<void> UpdateGeometry(const device::UpdatedPrototype& update,
                             GpuPrototype& held, const Gpu& gpu) {
-  const GasShape old{
-      .motion_keys = held.motion_keys,
-      .point_count = held.point_count,
-  };
-  if (HasAny(update.changes, ChangeFlags::kTopology)) {
-    held.refits = 0;
-    return UploadPoints(update.prototype.points, held, gpu.stream)
-        .and_then(
-            [&] { return UploadTopology(update.prototype, held, gpu.stream); })
-        .and_then([&] { return BuildGasOrNone(held, gpu); })
-        .transform([&] {
-          LogGas(held, held.gas.handle == 0 ? "dropped" : "rebuilt",
-                 " (new topology)", gpu);
-        });
+  const device::AccelUpdate plan = device::PlanAccelUpdate(
+      HeldOf(held), update.changes, device::AccelPointsOf(update.prototype));
+  switch (plan) {
+    case device::AccelUpdate::kKeep:
+      return {};
+    case device::AccelUpdate::kRebuildTopology:
+      held.refits = 0;
+      return UploadPoints(update.prototype.points, held, gpu.stream)
+          .and_then([&] {
+            return UploadTopology(update.prototype, held, gpu.stream);
+          })
+          .and_then([&] { return BuildGasOrNone(held, gpu); })
+          .transform([&] {
+            LogGas(held, held.gas.handle == 0 ? "dropped" : "rebuilt",
+                   " (new topology)", gpu);
+          });
+    case device::AccelUpdate::kRefit:
+    case device::AccelUpdate::kRebuildToRefit:
+    case device::AccelUpdate::kRebuildPoints:
+    case device::AccelUpdate::kRebuildAfterRefits:
+      break;
   }
-  if (HasAny(update.changes, ChangeFlags::kPoints)) {
-    return UploadPoints(update.prototype.points, held, gpu.stream)
-        .and_then([&] { return RefitOrRebuild(held, old, gpu); });
-  }
-  return {};
+  return UploadPoints(update.prototype.points, held, gpu.stream).and_then([&] {
+    return RefitOrRebuild(held, plan, gpu);
+  });
 }
 
 // Applies what `update` gives besides geometry to `held`.
